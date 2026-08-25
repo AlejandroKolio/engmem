@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # The two actions in ci.yml are third-party code running with repository access.
+  # A tag can be moved under you; this is what keeps the pinned versions current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

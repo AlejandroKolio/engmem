@@ -1,0 +1,2310 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Анатомия engmem</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F6F8F9;
+  --raised: #FFFFFF;
+  --inset: #EDF1F3;
+  --ink: #16212B;
+  --soft: #5A6875;
+  --line: #DCE3E8;
+  --accent: #0F7A8A;
+  --accent-soft: #E2F1F4;
+  --amber: #A65A17;
+  --amber-soft: #FBEFE2;
+  --code-bg: #EDF1F3;
+  --shadow: 0 1px 2px rgba(16,33,43,.06), 0 4px 14px rgba(16,33,43,.05);
+  /* paper: the store-network figure draws documents as physical pages, so this
+     stays a warm, pale, near-constant tone in BOTH themes on purpose — a real
+     page still reads as pale paper under office light or in a dark room; it
+     does not invert with the rest of the UI. Intentionally absent from the
+     dark-theme blocks below so it keeps this value there too. */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1519; --raised: #151E24; --inset: #1B252C;
+    --ink: #E6ECF0; --soft: #90A0AC; --line: #26333C;
+    --accent: #45BACF; --accent-soft: #113038;
+    --amber: #DC9A4E; --amber-soft: #33240F;
+    --code-bg: #1B252C;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.22);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1519; --raised: #151E24; --inset: #1B252C;
+  --ink: #E6ECF0; --soft: #90A0AC; --line: #26333C;
+  --accent: #45BACF; --accent-soft: #113038;
+  --amber: #DC9A4E; --amber-soft: #33240F;
+  --code-bg: #1B252C;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.22);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 16.5px; line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 110px; }
+.prose { max-width: 690px; }
+.prose p, .prose li { max-width: 68ch; }
+
+/* ---------- language switching ---------- */
+.lang-en { display: none; }
+body[data-lang="en"] .lang-en { display: block; }
+body[data-lang="en"] .lang-ru { display: none; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+  padding: 12px 0 10px; background: var(--bg);
+  border-bottom: 1px solid transparent;
+}
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--raised); overflow: hidden; box-shadow: var(--shadow); }
+.seg button {
+  font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 600;
+  letter-spacing: .06em; padding: 7px 15px; border: 0; background: none;
+  color: var(--soft); cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ---------- masthead ---------- */
+header.masthead { padding: 46px 0 8px; }
+.kicker {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 500;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--accent);
+}
+h1 { font-size: clamp(32px, 5.6vw, 52px); font-weight: 700; line-height: 1.08;
+  margin: 12px 0 0; letter-spacing: -.02em; text-wrap: balance; }
+.standfirst {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: clamp(17px, 2.2vw, 20px); line-height: 1.55;
+  color: var(--soft); max-width: 40ch; margin: 18px 0 0;
+}
+
+/* ---------- section chrome ---------- */
+section { padding-top: 74px; }
+.part {
+  display: flex; align-items: baseline; gap: 12px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent);
+  margin: 0 0 14px;
+}
+.part::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+h2 { font-size: clamp(24px, 3.4vw, 31px); font-weight: 700; line-height: 1.22;
+  margin: 0 0 14px; letter-spacing: -.015em; text-wrap: balance; max-width: 22ch; }
+h3 { font-size: 18px; font-weight: 600; margin: 34px 0 10px; }
+h4 { font-size: 15.5px; font-weight: 600; margin: 22px 0 6px; }
+p { margin: 0 0 15px; }
+ul, ol { margin: 0 0 15px; padding-left: 21px; max-width: 66ch; }
+li { margin-bottom: 7px; }
+strong { font-weight: 600; }
+em { font-style: italic; }
+
+.serif { font-family: "IBM Plex Serif", Georgia, serif; font-size: 17.5px; line-height: 1.66; }
+
+code {
+  font-family: "IBM Plex Mono", monospace; font-size: .87em;
+  background: var(--code-bg); border-radius: 4px; padding: 1px 5px;
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 9px;
+  padding: 13px 16px; overflow-x: auto; font-size: 12.9px; line-height: 1.6;
+  margin: 12px 0 14px; font-family: "IBM Plex Mono", monospace;
+}
+pre code { background: none; padding: 0; font-size: 1em; }
+
+.lede {
+  border-left: 3px solid var(--accent); background: var(--accent-soft);
+  border-radius: 0 10px 10px 0; padding: 20px 26px; margin: 22px 0 0; max-width: 780px;
+}
+.lede p { margin: 0 0 11px; font-size: 17px; }
+.lede p:last-child { margin: 0; }
+
+.note {
+  border-left: 3px solid var(--amber); background: var(--amber-soft);
+  border-radius: 0 9px 9px 0; padding: 13px 18px; margin: 18px 0; font-size: 15px;
+  max-width: 720px;
+}
+.note p:last-child { margin: 0; }
+
+/* ---------- steps (interactive) ---------- */
+.steps-tools { display: flex; gap: 10px; align-items: center; margin: 0 0 16px; }
+.ghost-btn {
+  font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 500;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--raised); color: var(--soft); cursor: pointer;
+}
+.ghost-btn:hover { color: var(--ink); border-color: var(--accent); }
+.ghost-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.steps { display: flex; flex-direction: column; gap: 9px; margin: 0 0 8px; }
+
+.step { border: 1px solid var(--line); border-radius: 12px; background: var(--raised);
+  box-shadow: var(--shadow); overflow: hidden; }
+.step[data-open="true"] { border-color: var(--accent); }
+
+.step-head {
+  width: 100%; display: grid; grid-template-columns: 42px 1fr auto;
+  align-items: center; gap: 14px; text-align: left;
+  padding: 15px 18px; border: 0; background: none; cursor: pointer;
+  font-family: inherit; color: var(--ink); font-size: 16px;
+}
+.step-head:hover { background: var(--inset); }
+.step-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.step-num {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600;
+  color: var(--accent); background: var(--accent-soft);
+  border-radius: 7px; padding: 6px 0 7px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.step-num-n { display: block; line-height: 1; }
+/* accumulation meter: how much this step has added to the task's context
+   or to the store by the time it runs. Amber = still in-flight (context or
+   a draft, not yet committed); teal = committed to the store. Same 0-6
+   scale and the same color switch as the overview chart above the list,
+   so the two stay legible as one system whether or not a step is open. */
+.acc-track {
+  width: 26px; height: 3px; border-radius: 2px; overflow: hidden;
+  background: var(--line);
+}
+.acc-fill { display: block; height: 100%; background: var(--amber); border-radius: 2px; }
+.acc-fill.committed { background: var(--accent); }
+.step-titles { min-width: 0; }
+.step-t { font-weight: 600; display: block; }
+.step-s { color: var(--soft); font-size: 14.2px; display: block; margin-top: 1px; }
+.chev { color: var(--soft); font-family: "IBM Plex Mono", monospace; font-size: 17px;
+  transition: transform .18s ease; }
+.step[data-open="true"] .chev { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+
+.step-body { padding: 4px 18px 20px; border-top: 1px solid var(--line); }
+.step-body > :first-child { margin-top: 16px; }
+
+.io { display: grid; grid-template-columns: 132px 1fr; gap: 4px 16px; margin: 14px 0; }
+@media (max-width: 640px) { .io { grid-template-columns: 1fr; gap: 2px; } }
+.io-k {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.8px; font-weight: 600;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--soft);
+  padding-top: 4px;
+}
+.io-v { min-width: 0; }
+.io-v > :first-child { margin-top: 0; }
+.io-v > :last-child { margin-bottom: 0; }
+.io-v p { font-size: 15.2px; margin-bottom: 8px; max-width: 64ch; }
+.io-v pre { margin: 4px 0 8px; }
+.io-v ul { margin-bottom: 8px; font-size: 15.2px; }
+
+.tag {
+  display: inline-block; font-family: "IBM Plex Mono", monospace;
+  font-size: 11px; letter-spacing: .05em; padding: 2px 8px; border-radius: 5px;
+  background: var(--inset); color: var(--soft); border: 1px solid var(--line);
+  margin: 0 5px 5px 0;
+}
+.tag.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+/* ---------- pipeline strip ---------- */
+figure { margin: 24px 0; }
+figure svg { max-width: 100%; height: auto; display: block; }
+.scroll-x { overflow-x: auto; }
+/* .tablewrap had no rule at all, so the Part 5 install table set the page width and
+   the body scrolled sideways below ~500px. Scroll the table, not the page. */
+.tablewrap { overflow-x: auto; max-width: 100%; }
+/* Step titles list function names — `render_search_results, log_search` — which have no
+   break opportunity, so below ~340px they pushed the page wider than the viewport.
+   break-word only splits a token that cannot fit on a line of its own. */
+.step-t, .step-s { overflow-wrap: break-word; }
+figcaption { font-size: 13.2px; color: var(--soft); margin-top: 9px; max-width: 68ch; }
+
+/* ---------- accumulation overview chart (Part 3) ---------- */
+.acc-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 2px 0 0;
+  font-size: 12.6px; color: var(--soft);
+}
+.acc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.acc-legend i {
+  width: 10px; height: 10px; border-radius: 3px; background: var(--amber); flex: none;
+}
+.acc-legend .committed i { background: var(--accent); }
+
+/* ---------- store graph legend (Part 2 growth diagram) ---------- */
+
+/* ---------- tables ---------- */
+table { border-collapse: collapse; width: 100%; margin: 12px 0 18px; font-size: 14.4px; }
+th {
+  text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--soft);
+  border-bottom: 2px solid var(--line); padding: 8px 14px 8px 0; font-weight: 600;
+}
+td { border-bottom: 1px solid var(--line); padding: 9px 14px 9px 0; vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+</style>
+
+<!-- arrowhead definitions shared by every diagram in both languages: they must live
+     outside the .lang-* blocks, or the hidden language's display:none stops the
+     visible language's markers from resolving -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+    <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" style="fill: var(--accent)"/>
+    </marker>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+    <marker id="arF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" style="fill: var(--amber)"/>
+    </marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<div class="topbar">
+  <div class="seg" role="group" aria-label="Language / Язык">
+    <button type="button" id="btn-ru" aria-pressed="true">RU</button>
+    <button type="button" id="btn-en" aria-pressed="false">EN</button>
+  </div>
+</div>
+
+<!-- ============================ RU ============================ -->
+<div class="lang-ru" lang="ru">
+
+<header class="masthead">
+  <div class="kicker">engmem v0.1 · полный разбор</div>
+  <h1>Анатомия engmem</h1>
+  <p class="standfirst">Инструмент, который не даёт инженерным решениям теряться между задачами — и измеряет, изменило ли это хоть одно решение. Здесь — что он доказывает, как устроен и что происходит внутри на каждом шаге.</p>
+  <p class="standfirst" style="opacity:.7;font-size:.85em">Страница выведена из спецификации, а не наоборот: при расхождении права <code>ENGMEM-SPEC.md</code> и тесты.</p>
+</header>
+
+<!-- ===== ЧАСТЬ 1: ЧТО ИЗМЕРЯЕТСЯ ===== -->
+<section>
+  <p class="part">Часть 1 · Что измеряется</p>
+  <h2>Прибор, который меряет переиспользование</h2>
+
+  <div class="lede prose">
+    <p><strong>Engmem проверяет одно утверждение: поднятый из прошлого документ меняет решение в новой задаче.</strong> Ответ не должен поддаваться подгонке задним числом — поэтому измерение встроено в сам порядок работы, а не приделано к нему отчётом в конце.</p>
+    <p>Всё остальное на этой странице — хранилище, шаблоны записи, поиск, установщик — это обвязка, которая существует ради того, чтобы такой цикл можно было прогонять.</p>
+  </div>
+
+  <div class="prose">
+    <p>Продукт стоит на трёх опорах, и порядок здесь содержательный:</p>
+    <ol>
+      <li><strong>Единица памяти — инженерная история, и хранилище лежит вне всех репозиториев.</strong> Одна история тянется через несколько репозиториев и несколько сессий: решение принято в одном сервисе, грабли обнаружены в соседнем, договорённость — в третьем. Память, привязанная к репозиторию, режет такую историю по его границе; память, копящая отдельные факты, теряет обстоятельства, в которых факт был верен. Из этого следует всё остальное.</li>
+      <li><strong>Причинное измерение переиспользования — по документу, а не по ощущению.</strong> Намерение регистрируется <em>до</em> поиска; после работы каждый реально повлиявший документ получает строку журнала с дословной цитатой; строки проверяются механически и выносятся на разбор.</li>
+      <li><strong>Ограниченный канал выдачи, который можно записать.</strong> Поиск здесь — датчик прибора: детерминированный канал с фиксированным потолком, у которого каждый вызов оставляет строку в <code>telemetry.jsonl</code> с точной ценой в байтах. В этом его назначение, а не в полноте выдачи.</li>
+    </ol>
+
+    <h3>Цикл целиком: четыре такта</h3>
+    <p>Такты идут только в этом порядке — каждый следующий бессмыслен без предыдущего:</p>
+    <ol>
+      <li><strong>Пре-регистрация.</strong> Отдельный под-агент, которому дана только формулировка задачи, пишет наивный план до всякого поиска, и план уходит в черновик документа. Порядок здесь и есть измерение: план, написанный после чтения документов, свидетельством уже не будет.</li>
+      <li><strong>Работа.</strong> Поиск отдаёт адреса разделов, агент читает найденное, задача делается обычным образом. В середине engmem не участвует вовсе.</li>
+      <li><strong>Строка журнала с дословной цитатой.</strong> На каждый повлиявший документ — строка: что процитировано, что в итоге изменилось, какого рода влияние (<code>reuse</code>, <code>anti-reuse</code>, <code>harmful</code>). Строка без цитаты недействительна; если не пригодилось ничего — пишется ровно <code>Prior docs used: none.</code></li>
+      <li><strong>Разбор (Gate 1).</strong> Строки со всего хранилища сводятся в одну таблицу и читаются по правилу, записанному заранее.</li>
+    </ol>
+    <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на 4–5 межрепозиторных историй. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний автор, скорее всего, вспомнил бы и сам — кредит за него слою поиска не полагается.</p>
+    <p>Механическую половину проверки делают два скрипта, а не человек: <code>tools/verify_citations.py</code> подтверждает, что цитата дословно встречается в цитируемом документе, <code>tools/gate1_report.py</code> считает ближний/дальний и сводит строки в таблицу. Пустая колонка в ней — ровно та половина, которую машина решить не может:</p>
+<pre><code>| story | cited | quote | distance | changed a decision? |
+|---|---|---|---|---|
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | distant | |
+
+reuse rows: 1   distant: 1   documents reporting no reuse: 1
+The last column is yours. ENGMEM-SPEC.md §11 holds the endpoints.</code></pre>
+    <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1.</p>
+<pre><code>2000002-widget-cache.md → line 23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+verify_citations: 1 unverifiable citation(s)</code></pre>
+    <p>Толкование результата тоже зафиксировано до данных. Если основная точка не взята, а вторичные взяты, вывод звучит так: хранилище как сжатый контекст себя оправдало, измерительная надстройка — нет, и надстройку сворачивают. Промах — это результат, а не повод смягчить критерий и попробовать ещё раз.</p>
+  </div>
+
+  <div class="note prose">
+    <p><strong>Чем это не является.</strong> Не векторная база: ни эмбеддингов, ни индексов, ни ранжирования по смыслу. Не ещё один memory bank при репозитории: цикл «захватить — сжать — подставить» здесь общее место, а не продукт. Не поисковик, соревнующийся с <code>grep</code>: свободный grep агента по хранилищу нельзя ни ограничить по объёму, ни занести в телеметрию — измеримым канал делает именно это, а не качество выдачи.</p>
+  </div>
+</section>
+
+<!-- ===== ЧАСТЬ 2: ПРОБЛЕМА ===== -->
+<section>
+  <p class="part">Часть 2 · Проблема</p>
+  <h2>Агент не помнит вчерашний день</h2>
+  <div class="prose serif">
+    <p>Вы решаете задачу вместе с ИИ-агентом. Обсуждаете варианты, отбрасываете тупиковые, находите подводный камень, о который спотыкались бы ещё неделю. Задача закрыта, ветка влита.</p>
+    <p>Через два месяца вы возвращаетесь в ту же подсистему. Агент начинает с нуля. Он не знает, что вариант с отдельной таблицей вы уже рассматривали и отвергли — и предлагает его снова. Не знает, что повторный вызов внутри одного запроса удваивает задержку — и пишет код, который на это наступает. Не знает про договорённость с соседней командой, которой нет ни в одном тикете.</p>
+    <p>Знание было. Оно исчезло в трёх местах: в закрытом окне чата, в вашей голове (где стёрлось) и в комментариях к пул-реквесту, которые никто не перечитывает.</p>
+  </div>
+
+  <div class="note prose">
+    <p><strong>Важно, чего проблема не касается.</strong> Речь не про то, «как устроен код» — это видно из самого кода, и дублировать его в заметках вредно: копия устареет первой. Теряется другое: <em>отвергнутые варианты и причины отказа, грабли, бизнес-ограничения, устные договорённости</em>. Того, чего в коде нет и не будет.</p>
+  </div>
+
+  <div class="prose">
+    <h3>Почему обычные способы не срабатывают</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Способ</th><th>Почему не работает</th></tr></thead>
+      <tbody>
+        <tr><td>Писать в Confluence / Notion</td><td>Дорого писать, ещё дороже искать. Через месяц туда никто не заходит: страница не всплывает сама в момент, когда нужна.</td></tr>
+        <tr><td>Комментарии в коде и в PR</td><td>Отвечают «что делает эта строка», но не «почему мы отказались от другого решения». К моменту нужды PR давно закрыт.</td></tr>
+        <tr><td>ADR (записи об архитектурных решениях)</td><td>Работают, но пишутся вручную и только для крупных решений. Мелкие грабли — а именно они съедают часы — туда не попадают.</td></tr>
+        <tr><td>Память самого агента</td><td>Живёт в рамках одной сессии или одного продукта, не переносится между инструментами и не поддаётся проверке: нельзя открыть файл и прочитать, что там записано.</td></tr>
+      </tbody>
+    </table>
+    </div><p>Общий корень у всех четырёх — <strong>цена записи платится сейчас, а польза приходит потом и не гарантирована</strong>. Человек в этой сделке всегда проигрывает будущему себе.</p>
+  </div>
+</section>
+
+<!-- ===== ЧАСТЬ 3: РЕШЕНИЕ ===== -->
+<section>
+  <p class="part">Часть 3 · Решение</p>
+  <h2>Пишет агент, ищет машина, решает человек</h2>
+
+  <div class="lede prose">
+    <p><strong>Engmem превращает каждую закрытую задачу в один markdown-файл и автоматически поднимает нужные файлы в начале следующей.</strong></p>
+    <p>Сделка переворачивается: писать почти бесплатно, потому что документ составляет агент из диффа и переписки — от вас нужен один ответ «y». А польза приходит сама: агенту запрещено предлагать план, пока он не поискал в прошлом.</p>
+  </div>
+
+  <div class="prose">
+    <p>Три части, которые делают это возможным:</p>
+    <ul>
+      <li><strong>Хранилище</strong> — папка markdown-файлов под git. Никакой базы, сервера и облака. Файл можно открыть, прочитать, поправить руками, посмотреть историю через <code>git log</code>.</li>
+      <li><strong>Поиск</strong> — команда <code>engmem search</code>: датчик прибора, а не соперник <code>grep</code>. Детерминированный, без ML: одинаковый запрос всегда даёт одинаковый ответ, объём выдачи ограничен сверху, и каждый вызов оставляет строку телеметрии с точной ценой в байтах. Перечитывает шапки всех документов при каждом вызове.</li>
+      <li><strong>Три команды-шаблона</strong> для агента: <code>/engmem</code> в начале задачи, <code>/engmem.save</code> в конце, <code>/engmem.save.quick</code> — короткий документ без раунда проверки, когда нет сил её делать. Это markdown-инструкции, а не код — поэтому работают в любом агенте.</li>
+    </ul>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 900 200" role="img" aria-label="Маховик: команда /engmem поднимает прошлый контекст, вы работаете, /engmem.save добавляет документ в хранилище, отчего следующий поиск находит больше">
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="18" y="46" width="196" height="58" rx="9"/>
+        <rect x="272" y="46" width="150" height="58" rx="9"/>
+        <rect x="480" y="46" width="186" height="58" rx="9"/>
+        <rect x="724" y="46" width="158" height="58" rx="9" style="stroke: var(--accent)"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="13" fill="currentColor" text-anchor="middle">
+        <text x="116" y="72">/engmem</text>
+        <text x="347" y="79">работа</text>
+        <text x="573" y="72">/engmem.save</text>
+        <text x="803" y="79" style="fill: var(--accent)">store + 1</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity=".62" text-anchor="middle">
+        <text x="116" y="90">поднимает прошлое</text>
+        <text x="573" y="90">фиксирует новое</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="214" y1="75" x2="264" y2="75" marker-end="url(#ar)"/>
+        <line x1="422" y1="75" x2="472" y2="75" marker-end="url(#ar)"/>
+        <line x1="666" y1="75" x2="716" y2="75" marker-end="url(#ar)"/>
+      </g>
+      <path d="M 803 104 L 803 152 L 116 152 L 116 112" fill="none" stroke-width="1.4" style="stroke: var(--accent)" marker-end="url(#arA)"/>
+      <text x="459" y="145" font-family="IBM Plex Sans, sans-serif" font-size="12" text-anchor="middle" style="fill: var(--accent)">каждый документ делает следующий старт умнее</text>
+    </svg>
+    <figcaption>Метрика успеха проекта — повторно использованные знания, а не количество написанных документов.</figcaption>
+  </figure>
+
+  <div class="prose">
+    <p>Маховик выше — это цикл для одного документа. Если отступить на шаг, хранилище — не просто растущая куча, а граф, который становится всё связнее. В нём соседствуют два разных вида связей: те, что вписал автор, и те, что никто не писал, но канал выдачи всё равно проводит — по сущностям, совпавшим у двух документов, которые никто не связывал. Правило разбора считает такие пары <em>дальними</em>: ни общего репозитория, ни общего тега, ни ребра <code>related</code> — и только на них слой поиска вправе претендовать.</p>
+  </div>
+
+</section>
+
+<!-- ===== ЧАСТЬ 4: ПУТЬ ЗАДАЧИ ===== -->
+<section>
+  <p class="part">Часть 4 · Путь одной задачи</p>
+  <h2>Что происходит от постановки до сохранения</h2>
+  <div class="prose">
+    <p><em>Роль в цикле:</em> здесь документ попадает в хранилище — это то, как у прибора вообще появляется предмет измерения. Шаги 01 и 07 и есть измерительные такты (пре-регистрация и строка журнала с цитатой); всё между ними — обычная работа.</p>
+    <p><strong>От вас в этом ритуале требуется одно слово «y» — остальной путь, от наивного плана до сохранённого документа, проходит агент.</strong> Ниже — по шагам: что делает инструмент, <strong>что физически попадает в контекст модели</strong> и что остаётся после. Задача: «Добавить кеширование ответов для нового эндпоинта»; похожая работа велась три месяца назад, но вы этого уже не помните. Значения сняты с прогона на тестовом хранилище.</p>
+  </div>
+
+<figure>
+    <svg viewBox="0 0 900 210" role="img" aria-label="График накопления по десяти шагам: с нуля на шаге 00 до сохранённого документа на шаге 08. Подъёмы — на шагах 01 (написан наивный план), 02 (создан черновик — здесь хранилище и растёт, docs: 7 → 8), 03 (пришёл результат поиска), 04 (прочитаны разделы найденных документов), 07 (документ дописан и подтверждён) и 08 (черновик становится готовым документом, drafts: 1 → 0). Шаги 05, 06 и 09 — ровные участки: контекст не растёт.">
+      <line x1="50" y1="172" x2="822" y2="172" stroke="var(--line)" stroke-width="1"/>
+      <path d="M50,172 H132 V151 H214 V129 H296 V108 H378 V86 H460 H542 H624 V65 H706" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M706,65 V44 H788" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="788" y1="44" x2="818" y2="44" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="1 5" marker-end="url(#arA)"/>
+      <g stroke="var(--bg)" stroke-width="2">
+        <circle cx="50" cy="172" r="4.5" fill="var(--amber)"/>
+        <circle cx="132" cy="151" r="4.5" fill="var(--amber)"/>
+        <circle cx="214" cy="129" r="4.5" fill="var(--amber)"/>
+        <circle cx="296" cy="108" r="4.5" fill="var(--amber)"/>
+        <circle cx="378" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="460" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="542" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="624" cy="65" r="4.5" fill="var(--amber)"/>
+        <circle cx="706" cy="44" r="5.5" fill="var(--accent)"/>
+        <circle cx="788" cy="44" r="4.5" fill="var(--accent)"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity=".68" text-anchor="middle">
+        <text x="50" y="193">00</text>
+        <text x="132" y="193">01</text>
+        <text x="214" y="193">02</text>
+        <text x="296" y="193">03</text>
+        <text x="378" y="193">04</text>
+        <text x="460" y="193">05</text>
+        <text x="542" y="193">06</text>
+        <text x="624" y="193">07</text>
+        <text x="706" y="193">08</text>
+        <text x="788" y="193">09</text>
+      </g>
+      <text x="214" y="112" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12.5" font-weight="600" style="fill: var(--amber)">docs: 7 → 8</text>
+      <text x="378" y="20" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity=".62">самый большой шаг: в контекст входят разделы найденных документов</text>
+    </svg>
+    <figcaption>Что накопилось у задачи к каждому шагу — с нуля на 00 до сохранённого документа на 08. Ровные участки на 05–06 — шаги, где engmem не добавляет в контекст ничего нового; 09 держит новый уровень, но сам ничего не прибавляет.</figcaption>
+    <p class="acc-legend" aria-hidden="true"><span><i></i>в работе: контекст задачи или черновик</span><span class="committed"><i></i>зафиксировано в хранилище</span></p>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="journey-ru">Раскрыть все</button>
+  </div>
+
+  <div class="steps" id="journey-ru">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">00</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:0%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Точка отсчёта: агент знает только код</span><span class="step-s">Что есть и чего нет до вмешательства engmem</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Агент располагает только тем, что читается машинально, — а решающие факты машинально не читаются.</p></div>
+        <div class="io">
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>Что отдельную таблицу с метаданными свежести уже отвергли и что повторный вызов внутри одного запроса удваивает задержку, из кода не выводится: это осталось в закрытом чате.</p></div>
+          <div class="io-k">Чего это стоит</div>
+          <div class="io-v"><p>Агент предложит отвергнутый вариант — вы объясните заново или не заметите и наступите на грабли повторно.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">01</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:17%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Вы вызываете <code>/engmem</code> — и вас ни о чём не спрашивают</span><span class="step-s">Наивный план пишет отдельный агент, не вы</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Наивный план пишет отдельный под-агент до всякого поиска — иначе потом нельзя честно сказать, что в плане изменила память.</p></div>
+        <div class="io">
+          <div class="io-k">Команда</div>
+          <div class="io-v"><pre><code>/engmem добавить кеширование ответов для нового эндпоинта</code></pre></div>
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>Под-агент получает только формулировку задачи: ни хранилища, ни поиска, ни упоминания engmem. Если запустить его нечем, агент пишет эти 2–3 строки сам, но <strong>до</strong> первого поиска.</p></div>
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>Добавлю кеш перед новым эндпоинтом, заведу
+свою таблицу с метаданными свежести — так
+проще контролировать инвалидацию.
+
+pre-reg source: sub-agent
+baseline_tokens: 1840</code></pre>
+            <p>План уже предполагает таблицу, которую в прошлый раз отвергли.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><ul>
+            <li>Это <strong>pre-reg</strong>: план, записанный после чтения документов, свидетельством не будет — память переписывает себя под то, что знает.</li>
+            <li>Печатать его человеку не нужно: польза шага достаётся разбору через месяц, а такие шаги бросают первыми.</li>
+            <li><code>baseline_tokens</code> — единственная измеренная цена пути без памяти.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">02</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:33%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Создаётся черновик документа</span><span class="step-s">Файл появляется сразу — до работы, а не после</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Файл заводится до работы: время его создания — единственный якорь для <code>capture_minutes</code>, цены ритуала в минутах.</p></div>
+        <div class="io">
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>~/Developer/engmem/sessions/20260820-cache-new-endpoint.md</code></pre>
+            <pre><code>---
+id: 20260820-cache-new-endpoint
+title: Кеширование нового эндпоинта
+date: 2026-08-20
+task_date: 2026-08-20
+status: draft
+superseded_by:
+backfilled: false
+tags: []
+entities: []
+related: []
+covers_files: []
+verified_at_commit:
+capture_minutes:
+---
+
+## Pre-reg
+
+Добавлю кеш перед новым эндпоинтом, заведу
+свою таблицу с метаданными свежести — так
+проще контролировать инвалидацию.</code></pre></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><ul>
+            <li><code>status: draft</code> держит документ вне поиска: незаконченное не должно выдавать себя за знание.</li>
+            <li>Спайн пишется целиком не ради парсера (тот достроит недостающее сам, см. T2), а потому что это ровно те поля, по которым работает поиск.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">03</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:50%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Агент запускает поиск по хранилищу</span><span class="step-s">Реальная команда и реальный вывод — ровно то, что он увидит</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Один вызов возвращает не документы, а ранжированные адреса: куда смотреть и почему туда.</p></div>
+        <div class="io">
+          <div class="io-k">Команда</div>
+          <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
+            <p>Ключевые слова агент собирает сам — из формулировки задачи и имён классов рядом в коде.</p></div>
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 25.6)
+path: /Users/…/sessions/1000001-response-cache.md
+matched: entities=responsecachecontroller,response,cache,controller,rcc,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
+  §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
+  §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
+  §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
+ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
+
+### ttl-etag-revalidation-v2 (score: 16.5)
+path: /Users/…/sessions/ttl-etag-revalidation-v2.md
+matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
+  §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
+  §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
+  §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
+CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
+related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
+docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+            <ul>
+              <li>Разрыв 25.6 против 16.5 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: шестью словами, а не одним.</li>
+              <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт.</li>
+              <li>Футер — состояние памяти: 7 документов, 1 черновик из шага 02, последний написан 19 дней назад.</li>
+            </ul></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Вывод урезан до 4 КБ — это не удобство, а условие измерения: у канала фиксированный потолок, поэтому его цену можно занести в телеметрию и сравнить с базовым уровнем. Показаны всегда те же три документа, сколько бы ни подошло: тридцать подошедших дают те же три блока плюс одну строку «ещё N». А <code>(1 failed to load)</code> идёт в stdout, а не в stderr: агент читает только stdout, и семь документов вместо восьми выглядели бы для него полным ответом.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">04</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Найденное попадает в контекст модели</span><span class="step-s">Ключевой шаг: что физически подставляется в промпт</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Самый дорогой шаг пути: в промпт физически уезжает текст найденных документов.</p></div>
+        <div class="io">
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>До трёх путей из выдачи открываются <strong>по разделам</strong>, а не целиком, плюс их <code>related</code> на глубину ровно 1; дальше по цепочке агент не идёт.</p></div>
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><p>Минимум — праймер и журнал решений каждого документа; чаще всего дело решают эти три:</p>
+            <pre><code>## 8. Decision Log
+Переиспользовали заголовки ETAG и TTL, которые апстрим
+уже присылает, вместо отдельной таблицы метаданных кеша;
+отдельную таблицу отвергли, потому что ответ и так несёт
+данные о свежести, а лишний запрос добавил бы задержку
+без реальной пользы.
+
+## 11. Lessons Learned
+Обращения к ResponseCache нужно мемоизировать в рамках
+запроса — повторный вызов внутри одного запроса заново
+дёргает апстрим и удваивает задержку.
+
+## 13. Future LLM Context (cold-start primer)
+ResponseCacheController отдаёт закешированные ответы для
+read-эндпоинтов, используя ETAG и TTL…</code></pre></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Флаг <code>--role</code> отдаёт один раздел вместо документа (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; ролей ровно девятнадцать — по числу обязательных заголовков, а <code>engmem roles</code> печатает список и покрытие хранилища). Вместе с топ-3 и глубиной связей 1 это ограничители одного назначения: чтобы контекст заполнялся задачей, а не памятью.</p></div>
+          <div class="io-k">Чего это стоит</div>
+          <div class="io-v"><p>Содержимое ваших документов физически передаётся модели при каждом старте задачи: инструмент в сеть не ходит, но агент — ходит, и для рабочего окружения это вопрос согласования с безопасностью, а не решённый по построению.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">05</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Агент отчитывается — и только теперь предлагает план</span><span class="step-s">Здесь виден эффект: план изменился или нет</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Только теперь агент планирует — и расхождение двух планов становится видимым.</p></div>
+        <div class="io">
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>Подтянул из памяти:
+· 1000001-response-cache — отдельную таблицу метаданных
+  уже отвергали: ETAG и TTL приходят с ответом апстрима.
+· ttl-etag-revalidation-v2 — TTL нужно вычислять до ETAG,
+  иначе тег молча теряется.
+
+Твой план предполагал новую таблицу — предлагаю вместо
+неё использовать заголовки, которые уже приходят.</code></pre>
+            <p>Если ничего не нашлось — <code>prior context: none found</code> и работа дальше без выдумок.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Расхождение планов — <em>вторичный</em> сигнал: план вслепую расходится с итоговым по многим причинам, и чтение репозитория — одна из них. Главное свидетельство — цитаты журнала переиспользования на шаге 07.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">06</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Работа</span><span class="step-s">engmem не мешает и не участвует</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>engmem присутствует только на границах задачи — в середине его нет вовсе.</p></div>
+        <div class="io">
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>Код, тесты, обсуждение; инструмент не делает ничего, а черновик ждёт и остаётся скрытым от чужих поисков.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">07</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:83%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Вы вызываете <code>/engmem.save</code></span><span class="step-s">Агент пишет весь документ, вы отвечаете одно «y»</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Весь документ собирает агент — из <code>git diff</code> и переписки сессии; от вас нужно одно «y».</p></div>
+        <div class="io">
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>Вы не печатаете ни одного поля: подтверждаете шапку и отвечаете, отменяет ли эта работа решение какого-то прошлого документа. «Да» помечает тот документ устаревшим — память чистится сама.</p></div>
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>tags: [platform, caching]
+entities: [EndpointConfig, ResponseCacheController, ETAG]
+related: [1000001-response-cache, ttl-etag-revalidation-v2]
+covers_files: [EndpointConfig.java, ResponseCacheController.java]
+author: &lt;из git config user.name&gt;
+repos: [platform-core]
+branch: feat/response-cache
+pr:                        # PR ещё не открыт — поле остаётся пустым
+
+Подтвердить? (y / правки)</code></pre>
+            <p>Последние четыре поля доводят шапку с тринадцати до семнадцати — чистый провенанс: поиск их не читает, поэтому пустое <code>pr:</code> безвредно, а выдуманный номер — нет.</p>
+            <p>Журнал переиспользования — строка на каждый реально повлиявший документ; без прямой цитаты строка недействительна, а если ничего не пригодилось — пишется ровно <code>Prior docs used: none.</code></p>
+            <pre><code>| 1000001-response-cache
+| «отдельную таблицу отвергли, потому что ответ и так
+|  несёт данные о свежести»
+| отказался от своей таблицы, взял заголовки апстрима
+| reuse</code></pre></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><pre><code>## Pre-reg                     ← из черновика, дословно
+## 1. Executive Summary
+## 2. Business Context
+## 3. End-to-End Business Flow
+     … 4–15: требования, критерии, архитектура, код,
+       решения, прод, тесты, грабли, граф сущностей,
+       праймер, ключевые слова, шпаргалка
+## 16. Reuse Log
+## 17. Status at a Glance      ← дописан 17-м, а не вставлен
+## Search Trace                ← как искалось в этой сессии</code></pre>
+            <ul>
+              <li>Необязательных разделов нет: разделу, которому нечего сказать, положена честная строка «нечего».</li>
+              <li>Нумерация 1–16 унаследована от формата базы знаний, который автор вёл отдельно, — чтобы оба потока искались как один корпус.</li>
+              <li>Номер 17 дописан в конец, а не вставлен по смыслу: другие документы ссылаются на «раздел 13 — праймер».</li>
+            </ul></div>
+          <div class="io-k">Чего это стоит</div>
+          <div class="io-v"><p>Полный save требует сверить YAML, сверить цитаты и вспомнить хранилище ради вопроса про отмену; <code>/engmem.save.quick</code> снимает все три требования и оставляет одно <code>ok</code>.</p>
+            <p>Цена настоящая: документ выйдет короче — пять разделов без номеров, — праймер не пишется вовсе, поэтому превью в будущей выдаче не будет, а вопрос про отмену останется без ответа. Это аварийный режим.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">08</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Документ закрывается и входит в память</span><span class="step-s">draft → active, посчитана цена ритуала</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Черновик становится активным, и вместе с ним фиксируются числа, ради которых весь эксперимент затевался.</p></div>
+        <div class="io">
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><pre><code>status: draft  →  active
+capture_minutes:  →  9        (от создания черновика до сохранения)
+verified_at_commit: → 4f1c2a8   (HEAD на момент сохранения)
+entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
+            <pre><code>docs: 7 (1 failed to load) | drafts: 0 | last doc: 0d ago</code></pre>
+            <p><code>verified_at_commit</code> отвечает на будущий вопрос «на каком коде это было правдой», <code>capture_minutes</code> копит цену ритуала.</p></div>
+          <div class="io-k">Чего это стоит</div>
+          <div class="io-v"><p>Четыре необязательных поля отвечают, окупилась ли память по контексту:</p>
+            <pre><code>baseline_tokens: 1840   # расход под-агента на наивный план
+context_bytes:   3120   # сколько текста доков втянуто в контекст
+answer_steps:       2   # вызовов инструментов ПОСЛЕ поиска
+answer_tokens:   9600   # только если рантайм реально его сообщает</code></pre>
+            <p>Дёшево — пара килобайт поднято и почти нет обращений к коду; дорого — десятки килобайт втянуты, а вызовов столько же, сколько было бы без памяти. Поле опускается, если числа нет: выдуманная цифра портит единственный анализ, ради которого всё затевалось.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Стоимость той же задачи <em>без</em> памяти это не меряет: наивный план — план, а не выполнение, и настоящее сравнение даёт только двойной прогон одной задачи.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">09</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Следующая задача начинается умнее</span><span class="step-s">Круг замкнулся</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Круг замкнулся: документ находится по <code>entities</code> и меняет следующий старт.</p></div>
+        <div class="io">
+          <div class="io-k">Что происходит</div>
+          <div class="io-v"><p>Через месяц запрос <code>EndpointConfig ETAG</code> найдёт его по полю <code>entities</code>, и таблицу не предложат в третий раз.</p></div>
+          <div class="io-k">Что получается</div>
+          <div class="io-v"><p>В <code>telemetry.jsonl</code> копятся строки поисков, в документах — журналы переиспользования с цитатами; через 3–4 недели по ним проводится разбор.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ===== ЧАСТЬ 5: ТЕХНИЧЕСКИЙ ФЛОУ ===== -->
+<section>
+  <p class="part">Часть 5 · Техническая механика</p>
+  <h2>Три пути через код</h2>
+  <div class="prose">
+    <p><em>Роль в цикле:</em> это обвязка датчика — код, через который запрос превращается в ограниченную выдачу и в строку телеметрии, и код, которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
+    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для Claude Desktop. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
+  </div>
+
+  <h3>Путь 1 — <code>engmem search</code>: от команды до вывода</h3>
+  <div class="prose">
+    <p>Тот же поиск из шага 03, изнутри; значения сняты с прогона <code>ResponseCacheController ETAG revalidation</code> по хранилищу из 8 файлов. Развилок три, и ни одна не имеет права отменить уже готовый ответ.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 195" role="img" aria-label="engmem search: от разбора команды до строки в telemetry.jsonl, с тремя развилками — отсутствие хранилища, статус документа и не критичный сбой записи телеметрии">
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="30" width="120" height="54" rx="9"/>
+        <rect x="150" y="30" width="130" height="54" rx="9"/>
+        <rect x="300" y="30" width="120" height="54" rx="9"/>
+        <rect x="440" y="30" width="110" height="54" rx="9"/>
+        <rect x="570" y="30" width="170" height="54" rx="9"/>
+        <rect x="760" y="30" width="150" height="54" rx="9" style="stroke: var(--accent)"/>
+        <rect x="930" y="30" width="100" height="54" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.3" fill="currentColor" text-anchor="middle">
+        <text x="70" y="53">_cmd_search</text>
+        <text x="215" y="53">resolve_store</text>
+        <text x="360" y="53">load_store</text>
+        <text x="495" y="53">search</text>
+        <text x="655" y="53">render_*</text>
+        <text x="835" y="53" style="fill: var(--accent)">render_scoreboard</text>
+        <text x="980" y="53">log_search</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" opacity=".62" text-anchor="middle">
+        <text x="70" y="69">cli.py</text>
+        <text x="215" y="69">store не найдено?</text>
+        <text x="360" y="69">spine.py</text>
+        <text x="495" y="69">scoring.py</text>
+        <text x="655" y="69">output.py</text>
+        <text x="835" y="69" style="opacity:.85">всегда — hit или miss</text>
+        <text x="980" y="69">telemetry.py</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="130" y1="57" x2="146" y2="57" marker-end="url(#ar2)"/>
+        <line x1="280" y1="57" x2="296" y2="57" marker-end="url(#ar2)"/>
+        <line x1="420" y1="57" x2="436" y2="57" marker-end="url(#ar2)"/>
+        <line x1="550" y1="57" x2="566" y2="57" marker-end="url(#ar2)"/>
+        <line x1="740" y1="57" x2="756" y2="57" marker-end="url(#ar2)"/>
+        <line x1="910" y1="57" x2="926" y2="57" marker-end="url(#ar2)"/>
+      </g>
+      <g fill="none" stroke-width="1.3" stroke-dasharray="3 3">
+        <path d="M215,84 L215,110 L145,110 L145,140" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+        <path d="M495,84 L495,110 L470,110 L470,140" stroke="currentColor" marker-end="url(#ar)"/>
+        <path d="M980,84 L980,110 L905,110 L905,140" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      </g>
+      <g fill="none" stroke-width="1.3">
+        <rect x="45" y="140" width="200" height="42" rx="8" style="stroke: var(--amber)"/>
+        <rect x="330" y="140" width="280" height="42" rx="8" stroke="currentColor"/>
+        <rect x="805" y="140" width="200" height="42" rx="8" style="stroke: var(--amber)"/>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" text-anchor="middle">
+        <text x="145" y="157" style="fill: var(--amber)">sessions/ нет →</text>
+        <text x="145" y="171" style="fill: var(--amber)">fail, код выхода 2</text>
+        <text x="470" y="157">draft — скрыт из выдачи;</text>
+        <text x="470" y="171">superseded — редирект на преемника</text>
+        <text x="905" y="157" style="fill: var(--amber)">запись не удалась →</text>
+        <text x="905" y="171" style="fill: var(--amber)">заметка в stdout, не сбой</text>
+      </g>
+    </svg>
+    <figcaption><code>render_scoreboard</code> печатается после <code>render_*</code> на обеих ветках — hit или miss не влияет на то, покажется ли он. Обрыв записи телеметрии не отменяет уже напечатанный результат: <code>log_search</code> никогда не бросает исключение.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-search-ru">Раскрыть все</button>
+  </div>
+
+  <div class="steps" id="tech-search-ru">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T1</span>
+        <span class="step-titles"><span class="step-t"><code>main</code> → <code>_cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py · вход, путь к хранилищу, первая развилка</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>До первой развилки — только разбор аргументов и выбор хранилища: нет <code>sessions/</code>, и команда выходит с кодом 2, не прочитав ни одного файла.</p></div>
+        <div class="io">
+          <div class="io-k">Вход</div>
+          <div class="io-v"><pre><code>["search", "ResponseCacheController ETAG revalidation"]</code></pre></div>
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p><code>resolve_store()</code> берёт первый источник из трёх, в строгом порядке: <code>--store</code>, <code>ENGMEM_HOME</code>, <code>~/Developer/engmem</code>. Тильду разворачивает сам код (<code>Path.expanduser()</code>): в кавычках она попадает в <code>argv</code> буквально.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><p><code>sessions_dir.is_dir()</code> ложно — <code>fail(...)</code> и код 2, не доходя до <code>load_store</code>:</p>
+            <pre><code>error: store not found: /Users/…/sessions does not exist
+(run `engmem install` to create the store, or check --store/ENGMEM_HOME)</code></pre></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p><code>fail()</code> печатает эту строку в оба потока, потому что агент читает только <code>stdout</code>: сбой, видимый лишь в <code>stderr</code>, для него неотличим от пустого прогона, а раньше отсутствие хранилища молча значило «ничего не найдено».</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T2</span>
+        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>_parse_one</code> ×N</span><span class="step-s">spine.py · неполнота — не то же самое, что порча</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Неполнота и порча разведены намеренно: первую загрузчик достраивает, вторая исключает один файл — и только его.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Пустое поле из <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) выводится: <code>id</code> ← имя файла, <code>title</code> ← первый <code>&lt;h1&gt;</code>, <code>date</code> ← строка «<code>- Date: …</code>» в первых 40 строках тела или mtime, <code>status</code> ← <code>active</code>. Наружу не бросается ничего — каждый <code>_parse_one(path)</code> обёрнут в <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
+            <pre><code>LoadResult(docs=7, errors=1, warnings=1)
+errors[0]   = "broken.md: while parsing a flow sequence…"
+warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
+            <p>Следом <code>_cmd_search</code> зовёт <code>stray_documents(store)</code> и предупреждает в <code>stderr</code> про markdown вне <code>sessions/*.md</code>: вложенные папки и корень хранилища поиск не сканирует.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><p>Исключают файл из выдачи: сломанный YAML, шапка не-словарь, незакрытый <code>---</code>, неразбираемая дата, непрочитанный файл, поле не того типа (но не наоборот: одиночную строку <code>_coerce_list_field</code> разворачивает в список с предупреждением — опечатка, а не порча) и перевод строки внутри <code>id</code>, которым в заголовке результата можно подделать второй блок <code>### </code>.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Неполный документ ещё можно честно ранжировать, испорченный нельзя даже показать, не рискуя выдачей.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T3</span>
+        <span class="step-titles"><span class="step-t"><code>search()</code>: токены → очки → развилка по статусу</span><span class="step-s">scoring.py · ранжирование и фильтр, что вообще можно показать</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Очки — веса полей на долю совпавших токенов плюс BM25 лучшего раздела тела; статус решает, доедет ли документ до выдачи вообще.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p><code>_build_query_tokens()</code> режет запрос на осколки CamelCase и добавляет аббревиатуру из первых букв; короткие (≤3 символов) и числовые токены сравниваются только с неразбитыми токенами полей, иначе <code>ET</code> находило бы <code>ETAG</code>, а <code>482</code> — <code>1000001</code>. Дальше <code>_spine_score()</code> для каждого токена берёт поле с максимальным весом, где он совпал, а <code>_body_scores_from_entries()</code> добавляет BM25 лучшего совпавшего раздела:</p>
+            <pre><code>score = спайн + тело
+спайн = Σ max(вес поля, где совпал токен) × (совпало / всего)
+        веса: id 5 · entities 3 · title 2 · tags 1
+тело  = BM25 лучшего раздела (k1 1.2, b 0.6)
+
+спайн = (3+3+3+3+3+3) × 6/7 = 18 × 0.857 = 15.43
+тело  = 10.18                     →  score 25.6</code></pre>
+            <p>Множитель покрытия наказывает частичные совпадения — он и опускает спайн второго документа до 6.86: четыре токена из семи (итог 16.5 — остальное дало тело).</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><ul>
+            <li><code>draft</code> — отбрасывается молча на фильтрации, но продолжает считаться в скорборде.</li>
+            <li><code>superseded</code> — перенаправляется: активный документ, на который указывает <code>superseded_by</code>, попадает в <code>superseded_notes</code>, а не в <code>hits</code>.</li>
+            <li><code>active</code> — единственный статус, доходящий до <code>hits</code>.</li>
+            <li>Омоним (<code>MQ</code> как <code>MessageQueue</code> и как <code>MetricsQuery</code>) даёт по представителю каждого смысла с пометкой <code>ambiguous</code>, а не молчаливый выбор.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T4</span>
+        <span class="step-titles"><span class="step-t"><code>render_search_results</code>, <code>render_scoreboard</code>, <code>log_search</code></span><span class="step-s">output.py + telemetry.py · порядок сборки решает, что выживет</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Порядок сборки решает, что переживёт обрезку, — поэтому строка про недостающие документы получает байтовый бюджет до неё, а не после.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Для первых <code>TOP_N = 3</code> хитов собирается блок: заголовок, <code>path</code>, строка <code>matched</code>, до трёх адресов разделов, до двух строк праймера (обрезка по 240 символам), до трёх связей. Следом — редиректы <code>superseded</code>, но только те, чей счёт выше худшего из показанных трёх.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><pre><code>1. body = собранные блоки
+2. withheld_line = "(N more document(s) matched below the top 3 — …)"
+   — считается и резервирует свой байтовый бюджет ДО обрезки
+3. _trim_to_bytes(body, limit − бюджет withheld_line)
+   — режет body по границе строки, добавляет "[output trimmed to fit 4 KB]"
+4. итог = обрезанный body + withheld_line</code></pre>
+            <p><code>_trim_to_bytes()</code> режет с конца. Раньше строку про недостающие документы дописывали в общий список блоков: она шла последней и обрезалась первой — ровно в том случае, для которого существует.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><p>Ничего не подошло — <code>render_no_match()</code>, ровно одна строка <code>prior context: none found</code>. Скорборд печатается в обеих ветках, потому что состояние памяти — часть ответа, а не довесок к успеху:</p>
+            <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+            <p>Под него из бюджета заранее вычтены 128 байт: <code>render_search_results</code> урезан до <code>4096 − 128</code>. Потолок удвоили, когда в выдаче появились локаторы разделов.</p></div>
+          <div class="io-k">Чем это грозит</div>
+          <div class="io-v"><p>Ничем: <code>log_search()</code> ловит <code>OSError</code> сама и возвращает либо <code>None</code>, либо текст причины, а <code>note: telemetry not recorded (…)</code> печатается уже <em>после</em> результатов, которые не откатываются.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+  <h3>Путь 2 — <code>engmem install</code> / <code>uninstall</code>: четыре режима агента</h3>
+  <div class="prose">
+    <p>Единственный путь, который трогает файлы за пределами хранилища. Развилка одна на обе команды: <code>--agent</code> выбирает один из четырёх режимов, у каждого свой каталог и свой формат следа.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install и uninstall: страж репозитория, затем развилка на четыре режима агента, у каждого свой след на диске">
+      <g fill="none" stroke-width="1.4">
+        <rect x="390" y="15" width="260" height="50" rx="9" style="stroke: var(--accent)"/>
+      </g>
+      <text x="520" y="45" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">cmd_install / cmd_uninstall</text>
+
+      <path d="M650,40 L760,40" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="3 3" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      <rect x="760" y="17" width="270" height="46" rx="8" fill="none" stroke-width="1.3" style="stroke: var(--amber)"/>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">
+        <text x="895" y="34" style="fill: var(--amber)">--local / copilot-ide без .git →</text>
+        <text x="895" y="48" style="fill: var(--amber)">код 2, ничего не тронуто</text>
+      </g>
+
+      <g stroke="currentColor" stroke-width="1.3" fill="none">
+        <path d="M520,65 L520,90 L125,90 L125,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L385,90 L385,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L645,90 L645,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L905,90 L905,140" marker-end="url(#ar)"/>
+      </g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="140" width="230" height="46" rx="9"/>
+        <rect x="270" y="140" width="230" height="46" rx="9"/>
+        <rect x="530" y="140" width="230" height="46" rx="9"/>
+        <rect x="790" y="140" width="230" height="46" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle">
+        <text x="125" y="167">agent=claude</text>
+        <text x="385" y="167">agent=copilot-ide</text>
+        <text x="645" y="167">agent=copilot-cli</text>
+        <text x="905" y="167">agent=claude-desktop</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity=".65" text-anchor="middle">
+        <text x="125" y="205">~/.claude/commands +</text>
+        <text x="125" y="219">CLAUDE.md, сентинел-правило</text>
+        <text x="385" y="205">.github/prompts/*.prompt.md +</text>
+        <text x="385" y="219">copilot-instructions.md</text>
+        <text x="645" y="205">~/.copilot/skills/*/SKILL.md</text>
+        <text x="645" y="219">правило не пишется</text>
+        <text x="905" y="205">claude_desktop_config.json</text>
+        <text x="905" y="219">слияние mcpServers.engmem</text>
+      </g>
+    </svg>
+    <figcaption>Uninstall проходит той же развилкой и тем же стражем каталога, но снимает ровно то, что установил install — вплоть до узкого совпадения сентинела, а не широкого маркера, которым install решает, добавлять ли правило.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-install-ru">Раскрыть все</button>
+  </div>
+
+  <div class="steps" id="tech-install-ru">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T5</span>
+        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: страж, затем один из четырёх следов</span><span class="step-s">install.py · единственный путь, который пишет за пределы хранилища</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Команда, которая пишет за пределы хранилища, начинается не с записи, а со стража каталога.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Две проверки до всего остального: <code>--local</code> вместе с <code>claude-desktop</code> или <code>copilot-cli</code> — отказ (их файлы всегда под <code>$HOME</code>), режим, привязанный к каталогу, без <code>.git</code> в текущей папке — отказ с кодом 2. Затем <code>_ensure_store()</code> создаёт <code>sessions/</code> и вызывает <code>git init</code>, только если хранилище ещё не репозиторий.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><p>Каталоги — на схеме выше; здесь важны подводные камни каждого режима.</p>
+            <ul>
+            <li><strong>claude</strong> — <code>engmem.start.md</code> ставится под именем <code>engmem.md</code>, поэтому команда <code>/engmem</code>, а не <code>/engmem.start</code>; следом дописывается сентинел <code>&lt;!-- engmem-trigger-rule --&gt;</code> и строка правила под ним.</li>
+            <li><strong>copilot-ide</strong> — те же шаблоны, но с расширением <code>.prompt.md</code>: плагин Copilot игнорирует одинарное <code>.md</code>.</li>
+            <li><strong>copilot-cli</strong> — точки в именах навыков запрещены, поэтому <code>/engmem.save</code> переписывается в <code>/engmem-save</code> — с более длинного паттерна первым, иначе <code>/engmem.save.quick</code> распадётся на <code>/engmem-save.quick</code>.</li>
+            <li><strong>claude-desktop</strong> — конфиг не перезаписывается, если он не парсится или <code>mcpServers</code> не объект; добавляется один ключ, остальной файл остаётся как был.</li>
+          </ul></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Молчаливый no-op хуже отказа: команда, промахнувшаяся каталогом, замусорит чужой репозиторий незаметно. Повтор при этом безопасен — правило не дублируется, потому что проверка идёт по широкому маркеру <code>`engmem search</code>, годному <em>только</em> для решения «пропустить», никогда для «что удалить».</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T6</span>
+        <span class="step-titles"><span class="step-t"><code>cmd_uninstall</code>: узкое совпадение вместо широкого</span><span class="step-s">install.py · зеркало install, но не тем же инструментом сравнения</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Uninstall снимает ровно то, что написал install, но сравнивает узко — потому что широкое сравнение однажды снесло чужую строку.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Обе проверки T5 повторяются, цели считает <code>_agent_targets()</code>: файлы шаблонов плюс файл инструкций — или <code>None</code> для <code>copilot-cli</code> и <code>claude-desktop</code>, у которых общего файла с правилом нет.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><ul>
+            <li><strong>copilot-cli</strong> — папка навыка убирается только если после удаления <code>SKILL.md</code> она пуста.</li>
+            <li><strong>claude-desktop</strong> — удаляется ровно ключ <code>mcpServers.engmem</code>; остальные серверы нетронуты.</li>
+            <li><strong>claude / copilot-ide</strong> — неудаляемый файл попадает в отчёт, а не прерывает цикл.</li>
+          </ul></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p><code>_remove_trigger_rule()</code> ищет сентинел и строку правила сразу под ним, а не широкий маркер, которым install решал, пропускать ли запись: удаление по широкому маркеру однажды снесло чужую строку пользователя, которая просто упоминала <code>engmem search</code> в своём тексте.</p></div>
+          <div class="io-k">Чем это грозит</div>
+          <div class="io-v"><p>Ложным выводом «engmem никогда не ставился» — против него <code>_other_agents_with_files_present()</code> при нулевом счётчике проверяет три <em>других</em> режима и предлагает другой <code>--agent</code>. Хранилище не трогается никогда:</p>
+            <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
+store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+  <h3>Путь 3 — сессия MCP: <code>engmem mcp</code>, вход для Claude Desktop</h3>
+  <div class="prose">
+    <p>Тот же поиск, что в пути 1, но по протоколу, где <code>stdout</code> — не текст для человека, а кадры JSON-RPC.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 360" role="img" aria-label="engmem mcp: цикл serve, разбор JSON-RPC, развилка на шесть обработчиков и схождение tools/call с тем же ядром, что и engmem search">
+      <path d="M260,70 L260,58 L270,58 L270,44" fill="none" stroke-width="1.3" stroke-dasharray="3 3" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      <rect x="160" y="10" width="220" height="34" rx="8" fill="none" stroke-width="1.3" style="stroke: var(--amber)"/>
+      <text x="270" y="31" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle" style="fill: var(--amber)">невалидный JSON → PARSE_ERROR</text>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="70" width="150" height="50" rx="9"/>
+        <rect x="190" y="70" width="140" height="50" rx="9"/>
+        <rect x="360" y="70" width="150" height="50" rx="9"/>
+        <rect x="540" y="70" width="190" height="50" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" text-anchor="middle">
+        <text x="85" y="91">serve(): читает</text>
+        <text x="85" y="106">строку stdin</text>
+        <text x="260" y="99">json.loads(line)</text>
+        <text x="435" y="99">_dispatch(msg)</text>
+        <text x="635" y="91">_write(stdout),</text>
+        <text x="635" y="106">если есть ответ</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="160" y1="95" x2="186" y2="95" marker-end="url(#ar2)"/>
+        <line x1="330" y1="95" x2="356" y2="95" marker-end="url(#ar2)"/>
+        <line x1="510" y1="95" x2="536" y2="95" marker-end="url(#ar2)"/>
+      </g>
+
+      <g stroke="currentColor" stroke-width="1.3" fill="none">
+        <path d="M435,120 L435,145 L85,145 L85,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L255,145 L255,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L425,145 L425,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L595,145 L595,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L765,145 L765,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L935,145 L935,200" marker-end="url(#ar)"/>
+      </g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="200" width="150" height="50" rx="9"/>
+        <rect x="180" y="200" width="150" height="50" rx="9"/>
+        <rect x="350" y="200" width="150" height="50" rx="9"/>
+        <rect x="520" y="200" width="150" height="50" rx="9" style="stroke: var(--accent)"/>
+        <rect x="690" y="200" width="150" height="50" rx="9"/>
+        <rect x="860" y="200" width="150" height="50" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="9.6" fill="currentColor" text-anchor="middle">
+        <text x="85" y="228">initialize</text>
+        <text x="255" y="222">notifications/</text>
+        <text x="255" y="234">initialized</text>
+        <text x="425" y="228">tools/list</text>
+        <text x="595" y="228" style="fill: var(--accent)">tools/call</text>
+        <text x="765" y="228">prompts/list</text>
+        <text x="935" y="228">prompts/get</text>
+      </g>
+
+      <path d="M595,250 L595,262 L520,262 L520,275" fill="none" stroke-width="1.5" style="stroke: var(--accent)" marker-end="url(#arA)"/>
+      <rect x="280" y="275" width="480" height="50" rx="9" fill="none" stroke-width="1.4" style="stroke: var(--accent)"/>
+      <text x="520" y="297" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">_run_search_for_tool →</text>
+      <text x="520" y="313" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">load_store → search → render_* → render_scoreboard</text>
+
+      <text x="520" y="342" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" text-anchor="middle" style="fill: var(--amber)">на этом пути «fail()» под запретом — stdout несёт только протокол, ни одной лишней строки</text>
+    </svg>
+    <figcaption>Шесть обработчиков из семи расходятся из одной точки разбора — седьмой, <code>ping</code>, не нарисован; <code>tools/call</code> для <code>engmem_search</code> сходится назад — на то же ядро из трёх функций, которым пользуется <code>engmem search</code> на пути 1.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-mcp-ru">Раскрыть все</button>
+  </div>
+
+  <div class="steps" id="tech-mcp-ru">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T7</span>
+        <span class="step-titles"><span class="step-t"><code>serve()</code> → <code>_dispatch()</code>: цикл, которому нельзя падать</span><span class="step-s">mcp_server.py · stdout — только протокол, и это абсолютно</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>На этом пути <code>stdout</code> несёт только кадры — цикл обязан пережить любой обработчик и не напечатать ни одной лишней строки.</p></div>
+        <div class="io">
+          <div class="io-k">Вход</div>
+          <div class="io-v"><p><code>_cmd_mcp</code> резолвит хранилище тем же <code>resolve_store()</code>, что и путь 1, лениво импортирует <code>mcp_server</code> и передаёт управление <code>serve(store)</code>.</p></div>
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Читает <code>stdin</code> построчно: пустая строка — пропуск; при <code>JSONDecodeError</code> сразу пишется <code>_error_response(None, PARSE_ERROR, …)</code>, и цикл продолжается, не доходя до <code>_dispatch</code>.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><p><code>_dispatch()</code> отличает запрос от уведомления по наличию <code>id</code> (уведомление не получит ответа вовсе, даже при ошибке — требование JSON-RPC), ищет метод в таблице <code>_METHODS</code> — шесть обработчиков со схемы плюс <code>ping</code> — и ловит исключения на двух уровнях: <code>_ProtocolError</code> становится ответом с его кодом, голый <code>Exception</code> — <code>INTERNAL_ERROR</code> с диагностикой в <code>stderr</code>.</p></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p><code>_write()</code> — единственный писатель в <code>stdout</code>, и строка <code>error: …</code> посреди кадров порвала бы следующий и оборвала сессию клиента. Один и тот же приём правильный на пути 1 и катастрофический здесь — потому что у путей разные читатели <code>stdout</code>.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T8</span>
+        <span class="step-titles"><span class="step-t"><code>tools/call</code> → <code>_run_search_for_tool</code>: та же тройка функций</span><span class="step-s">mcp_server.py · два входа сходятся к одному ядру</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Ядро то же, что на пути 1, — расходится только оболочка вокруг него.</p></div>
+        <div class="io">
+          <div class="io-k">Что делает</div>
+          <div class="io-v"><p>Цепочка со схемы — это ровно T2–T4, те же функции дают побайтово тот же текст. Отличий два: ошибки и предупреждения <code>load_store</code> уходят в настоящий <code>stderr</code> процесса, не в текст ответа, а стрэй-файлы ищет та же самая <code>stray_documents()</code> — не копия, а один и тот же импорт из <code>spine.py</code>.</p></div>
+          <div class="io-k">Развилка</div>
+          <div class="io-v"><ul>
+            <li>Пустой <code>arguments.query</code> — это <code>_ProtocolError(INVALID_PARAMS)</code>, а не результат с <code>isError: true</code>: <code>inputSchema</code> объявляет <code>query</code> обязательным, значит вызов нарушает контракт, а не проваливается во время выполнения.</li>
+            <li>Отсутствие <code>sessions/</code> — наоборот, нормальный результат вызова, просто неудачный: <code>(текст ошибки, is_error=True)</code> внутри обычного содержимого ответа, потому что другого канала здесь нет.</li>
+          </ul></div>
+          <div class="io-k">Почему так</div>
+          <div class="io-v"><p>Обращение через MCP пишет ту же строку телеметрии, что и терминал, но с <code>channel="mcp"</code>. Без неё путь из Desktop был бы невидим при разборе эксперимента — а именно там сейчас идёт большая часть работы.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ===== ЧАСТЬ 6: УСТАНОВКА ===== -->
+<section>
+  <p class="part">Часть 6 · Установка и удаление</p>
+  <h2>Две команды поставить, одна убрать</h2>
+  <div class="prose">
+    <p><em>Роль в цикле:</em> установка — то, чем цикл переносится на новую машину. Она кладёт шаблоны, которые печатают пре-регистрацию и журнал переиспользования, и правило, обязывающее агента пройти измеряемый канал до того, как он предложит план.</p>
+    <p>Первая команда ставит сам пакет, вторая подключает его к вашему агенту:</p>
+<pre><code>uv tool install --editable .     # или: pipx install .
+engmem install --agent claude    # или copilot-ide / copilot-cli</code></pre>
+    <p><code>--editable</code> означает, что после <code>git pull</code> новый код подхватится сам, без переустановки — для инструмента, который сейчас активно правится, это важнее «красивой» установки.</p>
+    <p>Режим установки диктует агент-потребитель: у каждого свой каталог и свой формат файла.</p>
+  </div>
+  <div class="tablewrap"><table>
+  <thead><tr><th>Режим</th><th>Куда кладёт</th><th>Когда выбирать</th></tr></thead>
+  <tbody>
+  <tr><td><code>claude</code></td><td><code>~/.claude/commands/engmem.md</code></td><td>Claude Code. Имя файла становится именем команды — отсюда <code>/engmem</code>. С флагом <code>--local</code> — в текущий репозиторий (нужен уже существующий <code>.git</code> в этой папке, иначе выход с кодом 2).</td></tr>
+  <tr><td><code>copilot-ide</code></td><td><code>.github/prompts/engmem.prompt.md</code></td><td>Плагин Copilot в VS Code, Visual Studio, JetBrains. Он распознаёт только двойное расширение <code>.prompt.md</code>, обычный <code>.md</code> молча игнорирует. Тоже пишет в текущий репозиторий — нужен <code>.git</code> здесь, иначе выход с кодом 2.</td></tr>
+  <tr><td><code>copilot-cli</code></td><td><code>~/.copilot/skills/engmem/SKILL.md</code></td><td>Терминальный <code>copilot</code>. Он не читает <code>.github/prompts/</code> вообще, только навыки. Точки в именах запрещены, поэтому команды здесь <code>/engmem-save</code>, а не <code>/engmem.save</code>.</td></tr>
+  </tbody>
+  </table></div>
+  <div class="prose">
+    <h3>Что install создаёт на самом деле</h3>
+    <p>Четыре следа в трёх местах — знать их полезно, потому что именно они потом удаляются:</p>
+    <ul>
+      <li><strong>хранилище</strong> (<code>~/Developer/engmem</code> по умолчанию): папка <code>sessions/</code> и <code>git init</code>, если репозитория ещё нет. Существующее не трогается;</li>
+      <li><strong>три файла шаблонов</strong> в каталоге агента из таблицы выше;</li>
+      <li><strong>штамп версии</strong> первой строкой после YAML-шапки каждого шаблона — по нему видно, какая версия установлена;</li>
+      <li><strong>триггер-правило</strong> в <code>CLAUDE.md</code> или <code>.github/copilot-instructions.md</code> — на самом деле две строки: сентинел-комментарий <code>&lt;!-- engmem-trigger-rule --&gt;</code> и сама строка правила сразу под ним: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;"`</code>. Сентинел здесь не для красоты — именно по нему <code>uninstall</code> потом находит и убирает ровно эти две строки и ничего больше. Для <code>copilot-cli</code> этот шаг пропускается — глобального файла инструкций у него нет, навыки вызываются вручную.</li>
+    </ul>
+    <p>Повторный запуск — это upgrade: хранилище не пересоздаётся, шаблоны перезаписываются свежей версией, правило не дублируется (проверка идёт по маркеру <code>engmem search</code>, так что даже переформулированное вами правило распознаётся).</p>
+
+    <h3>Удаление</h3>
+    <p>Зеркальная команда с тем же <code>--agent</code>:</p>
+<pre><code>engmem uninstall --agent claude</code></pre>
+    <p>Она удаляет ровно те файлы, что ставила, и убирает ровно те строки триггер-правила, которые сама написала — сентинел-комментарий и строку правила сразу под ним (а для установок постарше, без сентинела, — саму строку правила, побайтово). Это узкое, точное совпадение, а не тот широкий маркер <code>`engmem search </code>, по которому <code>install</code> решает, добавлять правило или нет: удаление по такому широкому маркеру однажды снесло чужую, не связанную с engmem, строку пользователя. Реальный вывод:</p>
+<pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
+store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre>
+<p>Запускать повторно безопасно — второй раз вернёт нули.</p>
+    <p>Чего она принципиально <strong>не</strong> делает:</p>
+    <ul>
+      <li><strong>не трогает хранилище.</strong> Это ваши документы, а не файлы инструмента: они остаются читаемым markdown в git и без engmem. Команда лишь печатает путь, чтобы вы решили сами;</li>
+      <li><strong>не удаляет чужое.</strong> Каталог навыка Copilot сносится, только если после удаления <code>SKILL.md</code> он пуст; посторонние строки в <code>CLAUDE.md</code> сохраняются, сам файл не удаляется, даже если опустел;</li>
+      <li><strong>не удаляет сам пакет</strong> — команда <code>engmem</code> остаётся в PATH.</li>
+    </ul>
+    <p>Поэтому полное удаление — три шага, и только первый обязателен для того, чтобы агент перестал звать несуществующую команду:</p>
+<pre><code>engmem uninstall --agent claude   # шаблоны и триггер-правило
+uv tool uninstall engmem          # сам пакет и команда в PATH
+rm -rf ~/Developer/engmem         # ваши документы — только если точно не нужны</code></pre>
+  </div>
+</section>
+
+<!-- ===== ЧАСТЬ 7: ГРАНИЦЫ ===== -->
+<section>
+  <p class="part">Часть 7 · Границы</p>
+  <h2>Почему инструмент такой скупой</h2>
+  <div class="prose">
+    <p>Engmem v0.1 существует, чтобы проверить одну недоказанную гипотезу: <em>поднятые в новую задачу прошлые документы измеримо меняют её результат, и выгода превышает цену записи</em>. Ответ даёт разбор через 3–4 недели работы — по контрольным точкам, записанным до данных (<code>ENGMEM-SPEC.md</code> §11). Отсюда все ограничения — это не аскетизм, а условия чистоты опыта.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Ограничение</th><th>Что защищает</th></tr></thead>
+      <tbody>
+        <tr><td>Одна зависимость, стандартный CLI, никаких фич «на вырост»</td><td>Минимум вложений до вердикта: не подтвердится — выбросить дёшево.</td></tr>
+        <tr><td>Детерминированный поиск, эталонные тесты как истина</td><td>Воспроизводимость датчика: канал, дающий на один запрос разные ответы, нельзя ни сравнить с базовым уровнем, ни осмысленно записать. «Вчера находило, сегодня нет» невозможно по построению.</td></tr>
+        <tr><td>Инструмент не делает сетевых вызовов</td><td>Свойство самого инструмента, но не всей системы: содержимое документов уходит в модель на каждой задаче — это вопрос к согласованию, а не решённый.</td></tr>
+        <tr><td>Приборы измерения нельзя упрощать</td><td>Журнал переиспользования, pre-reg, телеметрия, скорборд. Выключить их — провести опыт без данных.</td></tr>
+      </tbody>
+    </table>
+    </div><p>До разбора заморожены: сложные формулы ранжирования, векторный и смысловой поиск, индексы любого вида, автоматическая пометка устаревшего, веб-интерфейс, командный режим.</p>
+    <p>Где смотреть код: пять модулей в <code>src/engmem/</code>, шаблоны в <code>src/engmem/templates/</code>, контракты поведения в <code>docs/design/contracts/</code>, эталонные тесты в <code>tests/test_scoring.py</code> и <code>tests/test_cli.py</code>.</p>
+  </div>
+</section>
+
+</div>
+
+<!-- ============================ EN ============================ -->
+<div class="lang-en" lang="en">
+
+<header class="masthead">
+  <div class="kicker">engmem v0.1 · full walkthrough</div>
+  <h1>The Anatomy of engmem</h1>
+  <p class="standfirst">A tool that keeps engineering decisions from getting lost between tasks — and measures whether that changed a single decision. Here's what it sets out to prove, how it's built, and what happens inside at every step.</p>
+  <p class="standfirst" style="opacity:.7;font-size:.85em">This page is derived from the specification, not the other way round: where they disagree, <code>ENGMEM-SPEC.md</code> and the tests are right.</p>
+</header>
+
+<!-- ===== PART 1: WHAT IS MEASURED ===== -->
+<section>
+  <p class="part">Part 1 · What is measured</p>
+  <h2>An instrument that measures reuse</h2>
+
+  <div class="lede prose">
+    <p><strong>Engmem tests one claim: a document pulled out of the past changes a decision in a new task.</strong> The answer must not be adjustable after the fact — so the measurement is built into the order of the work, not bolted on as a report at the end.</p>
+    <p>Everything else on this page — the store, the capture templates, the search, the installer — is the plumbing that exists so that loop can be run.</p>
+  </div>
+
+  <div class="prose">
+    <p>The product stands on three legs, and the order is the argument:</p>
+    <ol>
+      <li><strong>The unit of memory is an engineering story, and the store lives outside every repository.</strong> One story spans several repositories and several sessions: the decision is made in one service, the landmine is found in the next, the agreement is recorded in a third. Memory tied to a repository cuts such a story along the repository boundary; memory that hoards isolated facts loses the circumstances in which the fact was true. Everything else follows from this.</li>
+      <li><strong>Causal reuse measurement — per document, not per feeling.</strong> The intent is registered <em>before</em> the search; after the work, every document that actually influenced it gets a Reuse Log row with a verbatim quote; the rows are checked mechanically and carried to a review.</li>
+      <li><strong>A bounded retrieval channel that can be logged.</strong> Search here is the instrument's sensor: a deterministic channel with a fixed ceiling, where every call leaves a line in <code>telemetry.jsonl</code> carrying its exact cost in bytes. That is what it is for — not the completeness of its results.</li>
+    </ol>
+
+    <h3>The loop end to end: four beats</h3>
+    <p>The beats run in this order only — each is meaningless without the one before it:</p>
+    <ol>
+      <li><strong>Pre-registration.</strong> A separate sub-agent, given nothing but the task statement, writes the naive plan before any search runs, and the plan goes into the draft document. The order <em>is</em> the measurement: a plan written after the documents are read is no longer evidence.</li>
+      <li><strong>The work.</strong> Search hands back section addresses, the agent reads what it found, the task proceeds as it normally would. In the middle, engmem takes no part at all.</li>
+      <li><strong>A Reuse Log row with a verbatim quote.</strong> One row per influencing document: what was quoted, what changed as a result, and what kind of influence it was (<code>reuse</code>, <code>anti-reuse</code>, <code>harmful</code>). A row without a quote is invalid; if nothing was of use, the line written is exactly <code>Prior docs used: none.</code></li>
+      <li><strong>The review (Gate 1).</strong> Rows from the whole store are collected into one table and read against a rule written down in advance.</li>
+    </ol>
+    <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across 4–5 cross-repository stories. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one the author would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
+    <p>Two scripts, not a human, decide the mechanical half: <code>tools/verify_citations.py</code> confirms the quote really occurs verbatim in the document it cites, and <code>tools/gate1_report.py</code> computes adjacent/distant and gathers the rows into a table. Its empty column is precisely the half a machine cannot decide:</p>
+<pre><code>| story | cited | quote | distance | changed a decision? |
+|---|---|---|---|---|
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | distant | |
+
+reuse rows: 1   distant: 1   documents reporting no reuse: 1
+The last column is yours. ENGMEM-SPEC.md §11 holds the endpoints.</code></pre>
+    <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1.</p>
+<pre><code>2000002-widget-cache.md → line 23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+verify_citations: 1 unverifiable citation(s)</code></pre>
+    <p>The reading of the result is fixed in advance too. If the primary endpoint is missed while the secondaries hold, the verdict reads: the store as compressed context earned its keep, the measurement superstructure did not — and the superstructure gets wound down. A miss is a result, not grounds for softening the criterion and trying again.</p>
+  </div>
+
+  <div class="note prose">
+    <p><strong>What this is not.</strong> Not a vector database: no embeddings, no indexes, no ranking by meaning. Not another repository-side memory bank: the capture→compress→inject loop is common ground here, not the product. Not a search engine competing with <code>grep</code>: an agent's free-form grep over the store can neither be capped in volume nor written to telemetry — and that, rather than result quality, is what makes a channel measurable.</p>
+  </div>
+</section>
+
+<!-- ===== PART 2: PROBLEM ===== -->
+<section>
+  <p class="part">Part 2 · The problem</p>
+  <h2>Your agent doesn't remember yesterday</h2>
+  <div class="prose serif">
+    <p>You solve a task with an AI agent. You weigh options, discard the dead ends, uncover a pitfall that would have cost you another week. The task closes, the branch merges.</p>
+    <p>Two months later you're back in the same subsystem. The agent starts from zero. It doesn't know you already considered a separate table for cache metadata and rejected it — so it proposes exactly that again. It doesn't know a repeated lookup inside one request doubles the latency — so it writes code that walks straight into it. It doesn't know about the agreement with the neighbouring team that lives in no ticket at all.</p>
+    <p>The knowledge existed. It vanished in three places: a closed chat window, your own memory (where it faded), and pull-request comments nobody ever re-reads.</p>
+  </div>
+
+  <div class="note prose">
+    <p><strong>What the problem is not about.</strong> Not "how the code works" — that's visible in the code, and copying it into notes is actively harmful: the copy goes stale first. What gets lost is different: <em>rejected options and the reasons for rejecting them, pitfalls, business constraints, verbal agreements</em>. The things that aren't in the code and never will be.</p>
+  </div>
+
+  <div class="prose">
+    <h3>Why the usual answers fail</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Approach</th><th>Why it doesn't hold</th></tr></thead>
+      <tbody>
+        <tr><td>Write it in Confluence / Notion</td><td>Expensive to write, more expensive to find. A month on, nobody visits: the page never surfaces itself at the moment it's needed.</td></tr>
+        <tr><td>Comments in code and PRs</td><td>They answer "what does this line do", never "why did we reject the alternative". By the time you need it, the PR is long closed.</td></tr>
+        <tr><td>ADRs (architecture decision records)</td><td>They work, but they're written by hand and only for big decisions. The small traps — the ones that actually eat hours — never make it in.</td></tr>
+        <tr><td>The agent's own memory</td><td>Scoped to one session or one vendor, doesn't travel between tools, and can't be inspected: you can't open a file and read what it holds.</td></tr>
+      </tbody>
+    </table>
+    </div><p>All four share a root cause: <strong>the cost of writing is paid now, the benefit arrives later and isn't guaranteed</strong>. In that trade, the present self always beats the future one.</p>
+  </div>
+</section>
+
+<!-- ===== PART 3: SOLUTION ===== -->
+<section>
+  <p class="part">Part 3 · The solution</p>
+  <h2>The agent writes, the machine searches, the human decides</h2>
+
+  <div class="lede prose">
+    <p><strong>Engmem turns every closed task into one markdown file, and automatically surfaces the right files at the start of the next one.</strong></p>
+    <p>That inverts the trade: writing is nearly free, because the agent composes the document from the diff and the conversation — all you supply is a single "y". And the benefit arrives on its own: the agent is forbidden to propose a plan before it has searched the past.</p>
+  </div>
+
+  <div class="prose">
+    <p>Three parts make that possible:</p>
+    <ul>
+      <li><strong>The store</strong> — a folder of markdown files under git. No database, no server, no cloud. You can open a file, read it, fix it by hand, inspect its history with <code>git log</code>.</li>
+      <li><strong>The search</strong> — the <code>engmem search</code> command: the instrument's sensor, not a rival to <code>grep</code>. Deterministic, no ML: the same query always yields the same answer, the result has a fixed ceiling, and every call leaves a telemetry line carrying its exact cost in bytes. It re-reads every document's header on every call.</li>
+      <li><strong>Three template commands</strong> for the agent: <code>/engmem</code> at the start of a task, <code>/engmem.save</code> at the end, <code>/engmem.save.quick</code> for a short document with no review round, when there's no attention left for one. They're markdown instructions rather than code — which is why they work in any agent.</li>
+    </ul>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 900 200" role="img" aria-label="The flywheel: /engmem surfaces past context, you work, /engmem.save adds a document to the store, so the next search finds more">
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="18" y="46" width="196" height="58" rx="9"/>
+        <rect x="272" y="46" width="150" height="58" rx="9"/>
+        <rect x="480" y="46" width="186" height="58" rx="9"/>
+        <rect x="724" y="46" width="158" height="58" rx="9" style="stroke: var(--accent)"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="13" fill="currentColor" text-anchor="middle">
+        <text x="116" y="72">/engmem</text>
+        <text x="347" y="79">the work</text>
+        <text x="573" y="72">/engmem.save</text>
+        <text x="803" y="79" style="fill: var(--accent)">store + 1</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity=".62" text-anchor="middle">
+        <text x="116" y="90">surfaces the past</text>
+        <text x="573" y="90">captures the new</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="214" y1="75" x2="264" y2="75" marker-end="url(#ar)"/>
+        <line x1="422" y1="75" x2="472" y2="75" marker-end="url(#ar)"/>
+        <line x1="666" y1="75" x2="716" y2="75" marker-end="url(#ar)"/>
+      </g>
+      <path d="M 803 104 L 803 152 L 116 152 L 116 112" fill="none" stroke-width="1.4" style="stroke: var(--accent)" marker-end="url(#arA)"/>
+      <text x="459" y="145" font-family="IBM Plex Sans, sans-serif" font-size="12" text-anchor="middle" style="fill: var(--accent)">every document makes the next start smarter</text>
+    </svg>
+    <figcaption>The project's measure of success is knowledge actually reused — not the number of documents written.</figcaption>
+  </figure>
+
+  <div class="prose">
+    <p>The flywheel above traces the loop for one document. Zoom out, and the store itself isn't a pile that only gets bigger — it's a graph that keeps getting more connected. Two different kinds of edge sit side by side in it: the ones an author wrote, and the ones nobody wrote but the retrieval channel still carries, through entities two documents happen to share though nobody linked them. The review rule counts such a pair as <em>distant</em> — no shared repository, no shared tag, no <code>related</code> edge — and those are the only ones the retrieval layer may claim credit for.</p>
+  </div>
+
+</section>
+
+<!-- ===== PART 4: JOURNEY ===== -->
+<section>
+  <p class="part">Part 4 · One task, end to end</p>
+  <h2>From the ask to the saved document</h2>
+  <div class="prose">
+    <p><em>Its role in the loop:</em> this is how a document gets into the store — how the instrument acquires anything to measure at all. Steps 01 and 07 are the measuring beats themselves (pre-registration and the quoted Reuse Log row); everything between them is ordinary work.</p>
+    <p><strong>The ritual costs you one "y" — the agent walks the rest of the path, from the naive plan to the saved document.</strong> Below, step by step: what the tool does, <strong>what physically lands in the model's context</strong>, and what remains afterwards. The task: "Add response caching for a new endpoint"; similar work happened three months ago, but you no longer remember it. Every value was captured from a live run against a test store.</p>
+  </div>
+
+<figure>
+    <svg viewBox="0 0 900 210" role="img" aria-label="A ten-step accumulation chart: from nothing at step 00 to a saved document at step 08. It rises at step 01 (the naive plan is written), 02 (a draft is created — this is where the store grows, docs: 7 → 8), 03 (a search result comes back), 04 (sections of the found documents are read), 07 (the document is finished and confirmed), and 08 (the draft becomes a finished document, drafts: 1 → 0). Steps 05, 06 and 09 are flat — nothing new enters the context.">
+      <line x1="50" y1="172" x2="822" y2="172" stroke="var(--line)" stroke-width="1"/>
+      <path d="M50,172 H132 V151 H214 V129 H296 V108 H378 V86 H460 H542 H624 V65 H706" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M706,65 V44 H788" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="788" y1="44" x2="818" y2="44" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="1 5" marker-end="url(#arA)"/>
+      <g stroke="var(--bg)" stroke-width="2">
+        <circle cx="50" cy="172" r="4.5" fill="var(--amber)"/>
+        <circle cx="132" cy="151" r="4.5" fill="var(--amber)"/>
+        <circle cx="214" cy="129" r="4.5" fill="var(--amber)"/>
+        <circle cx="296" cy="108" r="4.5" fill="var(--amber)"/>
+        <circle cx="378" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="460" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="542" cy="86" r="4.5" fill="var(--amber)"/>
+        <circle cx="624" cy="65" r="4.5" fill="var(--amber)"/>
+        <circle cx="706" cy="44" r="5.5" fill="var(--accent)"/>
+        <circle cx="788" cy="44" r="4.5" fill="var(--accent)"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity=".68" text-anchor="middle">
+        <text x="50" y="193">00</text>
+        <text x="132" y="193">01</text>
+        <text x="214" y="193">02</text>
+        <text x="296" y="193">03</text>
+        <text x="378" y="193">04</text>
+        <text x="460" y="193">05</text>
+        <text x="542" y="193">06</text>
+        <text x="624" y="193">07</text>
+        <text x="706" y="193">08</text>
+        <text x="788" y="193">09</text>
+      </g>
+      <text x="214" y="112" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12.5" font-weight="600" style="fill: var(--amber)">docs: 7 → 8</text>
+      <text x="378" y="20" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" opacity=".62">the biggest single step: sections of the found documents enter the context</text>
+    </svg>
+    <figcaption>What the task has accumulated by each step — from nothing at 00 to a saved document at 08. The flat stretch at 05–06 marks steps where engmem adds nothing new to the context; 09 holds the new level but doesn't add to it either.</figcaption>
+    <p class="acc-legend" aria-hidden="true"><span><i></i>in flight: task context or a draft</span><span class="committed"><i></i>committed to the store</span></p>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="journey-en">Expand all</button>
+  </div>
+
+  <div class="steps" id="journey-en">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">00</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:0%"></span></span></span>
+        <span class="step-titles"><span class="step-t">Baseline: the agent knows only the code</span><span class="step-s">What exists and what's missing before engmem steps in</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The agent has only what a machine can read — and the decisive facts are not machine-readable.</p></div>
+        <div class="io">
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>That a separate freshness-metadata table was already rejected, and that a repeated lookup inside one request doubles latency, is not derivable from the code: it stayed in a chat that's closed.</p></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>The agent proposes the rejected option — you explain it again, or you don't notice and step on the same trap twice.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">01</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:17%"></span></span></span>
+        <span class="step-titles"><span class="step-t">You run <code>/engmem</code> — and are asked nothing</span><span class="step-s">A separate agent writes the naive plan, not you</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>A separate sub-agent writes the naive plan before any search runs — otherwise nobody can honestly say later what memory changed.</p></div>
+        <div class="io">
+          <div class="io-k">Command</div>
+          <div class="io-v"><pre><code>/engmem add response caching for a new endpoint</code></pre></div>
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>The sub-agent gets only the task description: no store, no search, no mention that engmem exists. If nothing can be spawned, the agent writes those 2–3 lines itself, but strictly <strong>before</strong> the first search.</p></div>
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>Add a cache in front of the new endpoint, with
+its own freshness-metadata table — easier to
+control invalidation that way.
+
+pre-reg source: sub-agent
+baseline_tokens: 1840</code></pre>
+            <p>The plan already assumes the table that was rejected last time.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><ul>
+            <li>This is <strong>pre-registration</strong>: a plan written after the documents are read is no longer evidence — memory rewrites itself to fit what it now knows.</li>
+            <li>The human never types it, because this step's payoff goes to a review a month later, and steps like that are the first ones abandoned.</li>
+            <li><code>baseline_tokens</code> is the one measured cost of the no-memory path.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">02</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:33%"></span></span></span>
+        <span class="step-titles"><span class="step-t">A draft document is created</span><span class="step-s">The file appears up front, not at the end</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The file is opened before the work: its creation time is the one anchor for <code>capture_minutes</code>, the ritual's price in minutes.</p></div>
+        <div class="io">
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>~/Developer/engmem/sessions/20260820-cache-new-endpoint.md</code></pre>
+            <pre><code>---
+id: 20260820-cache-new-endpoint
+title: Caching for a new endpoint
+date: 2026-08-20
+task_date: 2026-08-20
+status: draft
+superseded_by:
+backfilled: false
+tags: []
+entities: []
+related: []
+covers_files: []
+verified_at_commit:
+capture_minutes:
+---
+
+## Pre-reg
+
+Add a cache in front of the new endpoint, with
+its own freshness-metadata table — easier to
+control invalidation that way.</code></pre></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><ul>
+            <li><code>status: draft</code> keeps the document out of search: unfinished work must not pass itself off as knowledge.</li>
+            <li>The spine is written in full not for the parser (it derives what's missing on its own, see T2) but because these are exactly the fields search ranks on.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">03</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:50%"></span></span></span>
+        <span class="step-titles"><span class="step-t">The agent searches the store</span><span class="step-s">Real command, real output — exactly what it sees</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>One call returns ranked addresses rather than documents: where to look, and why there.</p></div>
+        <div class="io">
+          <div class="io-k">Command</div>
+          <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
+            <p>The agent assembles the keywords itself — from your phrasing and the class names it sees nearby in the code.</p></div>
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 25.6)
+path: /Users/…/sessions/1000001-response-cache.md
+matched: entities=responsecachecontroller,response,cache,controller,rcc,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
+  §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
+  §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
+  §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
+ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
+
+### ttl-etag-revalidation-v2 (score: 16.5)
+path: /Users/…/sessions/ttl-etag-revalidation-v2.md
+matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
+  §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
+  §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
+  §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
+CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
+related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
+docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+            <ul>
+              <li>The gap between 25.6 and 16.5 separates a direct hit from a tangential one, and <code>matched</code> shows by what: six words, not one.</li>
+              <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes.</li>
+              <li>The footer is the state of the memory: 7 documents, 1 draft from step 02, the newest written 19 days ago.</li>
+            </ul></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>The 4 KB cap is not a convenience but a condition of measurement: the channel's ceiling is fixed, so its cost can be written to telemetry and compared against a baseline. The same three documents are shown however many matched — thirty matches yield the same three blocks plus a single "N more" line. And <code>(1 failed to load)</code> goes to stdout rather than stderr: the agent reads only stdout, so seven documents instead of eight would look to it like a complete answer.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">04</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">What was found enters the model's context</span><span class="step-s">The pivotal step: what physically goes into the prompt</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The most expensive step on the path: the text of the found documents physically moves into the prompt.</p></div>
+        <div class="io">
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>Up to three paths from the results are opened <strong>section by section</strong>, not whole, plus their <code>related</code> at depth exactly 1; the agent never follows the chain further.</p></div>
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><p>At minimum the primer and the Decision Log of each document; these three usually settle the matter:</p>
+            <pre><code>## 8. Decision Log
+Reused the ETAG and TTL headers the upstream service already
+sends instead of adding a separate cache-metadata table;
+rejected the separate table because the response already
+carries the freshness data and an extra lookup would add
+latency for no real benefit.
+
+## 11. Lessons Learned
+ResponseCache lookups must be memoized per-request — a
+repeated call inside the same request re-runs the upstream
+fetch and doubles latency.
+
+## 13. Future LLM Context (cold-start primer)
+ResponseCacheController serves cached responses for read
+endpoints using the ETAG and TTL values…</code></pre></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>The <code>--role</code> flag returns one section instead of a document (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; there are exactly nineteen roles, as many as there are mandatory headings, and <code>engmem roles</code> prints the list and the store's coverage). Together with top 3 and link depth 1, these are limits with one purpose: so the context fills with the task rather than with memory.</p></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>Your documents' contents are physically transmitted to the model on every task start: the tool never touches the network, but the agent does, and for a work environment that's a security sign-off question, not something settled by construction.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">05</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">The agent reports — and only then plans</span><span class="step-s">Where the effect becomes visible: did the plan change?</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Only now does the agent plan — and the gap between the two plans becomes visible.</p></div>
+        <div class="io">
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>Pulled from memory:
+· 1000001-response-cache — a separate metadata table was
+  already rejected: ETAG and TTL arrive on the response.
+· ttl-etag-revalidation-v2 — TTL must resolve before ETAG,
+  or the tag is silently dropped.
+
+Your plan assumed a new table — I suggest using the headers
+that already arrive instead.</code></pre>
+            <p>If nothing was found: <code>prior context: none found</code>, and the work carries on without inventions.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>The diverging plans are a <em>secondary</em> signal: a plan written blind diverges from the final one for many reasons, and reading the repository itself is one of them. The primary evidence is the quoted rows of the Reuse Log at step 07.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">06</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:67%"></span></span></span>
+        <span class="step-titles"><span class="step-t">The work itself</span><span class="step-s">engmem neither helps nor interferes</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>engmem shows up only at the task's boundaries — in the middle it isn't there at all.</p></div>
+        <div class="io">
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>Code, tests, discussion; the tool does nothing, and the draft waits, staying hidden from other searches.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">07</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:83%"></span></span></span>
+        <span class="step-titles"><span class="step-t">You run <code>/engmem.save</code></span><span class="step-s">The agent writes the document; you answer one "y"</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The agent assembles the whole document from the <code>git diff</code> and the session's conversation; from you it needs one "y".</p></div>
+        <div class="io">
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>You type not one field: you confirm the header and answer whether this work overturns a decision in some prior document. A "yes" marks that document superseded — the memory prunes itself.</p></div>
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>tags: [platform, caching]
+entities: [EndpointConfig, ResponseCacheController, ETAG]
+related: [1000001-response-cache, ttl-etag-revalidation-v2]
+covers_files: [EndpointConfig.java, ResponseCacheController.java]
+author: &lt;from git config user.name&gt;
+repos: [platform-core]
+branch: feat/response-cache
+pr:                        # no PR opened yet — the field stays blank
+
+Confirm? (y / edits)</code></pre>
+            <p>Those last four take the header from thirteen fields to seventeen — pure provenance: search never reads them, so a blank <code>pr:</code> is harmless and an invented number is not.</p>
+            <p>The Reuse Log is one row per document that actually influenced the work; without a direct quote the row is invalid, and if nothing helped it writes exactly <code>Prior docs used: none.</code></p>
+            <pre><code>| 1000001-response-cache
+| "rejected the separate table because the response
+|  already carries the freshness data"
+| dropped my own table, reused the upstream headers
+| reuse</code></pre></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><pre><code>## Pre-reg                     ← carried over verbatim
+## 1. Executive Summary
+## 2. Business Context
+## 3. End-to-End Business Flow
+     … 4–15: requirements, criteria, architecture, code,
+       decisions, production, testing, lessons, entity
+       graph, primer, keywords, cheat sheet
+## 16. Reuse Log
+## 17. Status at a Glance      ← appended as 17, not inserted
+## Search Trace                ← how this session's retrieval went</code></pre>
+            <ul>
+              <li>No section is optional: one with nothing to report gets one honest line saying so.</li>
+              <li>The numbering 1–16 is inherited from a knowledge-base format the author kept separately — so both feed one searchable corpus.</li>
+              <li>Number 17 was appended rather than inserted where it belongs by meaning: other documents already cite "section 13 — the primer".</li>
+            </ul></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>A full save asks you to check the YAML, check the quotes, and recall the store for the overturn question; <code>/engmem.save.quick</code> removes all three demands and leaves a single <code>ok</code>.</p>
+            <p>The price is real: the document comes out shorter — five sections, none numbered — the primer is never written, so there will be no preview in future results, and the overturn question goes unanswered. That makes it the emergency path.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">08</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
+        <span class="step-titles"><span class="step-t">The document closes and joins the memory</span><span class="step-s">draft → active, and the ritual's cost is measured</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The draft becomes active, and with it the numbers the whole experiment exists to collect are fixed.</p></div>
+        <div class="io">
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><pre><code>status: draft  →  active
+capture_minutes:  →  9        (draft creation to save)
+verified_at_commit: → 4f1c2a8   (HEAD at save time)
+entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
+            <pre><code>docs: 7 (1 failed to load) | drafts: 0 | last doc: 0d ago</code></pre>
+            <p><code>verified_at_commit</code> answers the future question "which code was this true against"; <code>capture_minutes</code> accumulates the ritual's price.</p></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>Four optional fields answer whether memory paid for itself in context:</p>
+            <pre><code>baseline_tokens: 1840   # the sub-agent's spend on the naive plan
+context_bytes:   3120   # document text pulled into context
+answer_steps:       2   # tool calls AFTER the search
+answer_tokens:   9600   # only when the runtime really reports it</code></pre>
+            <p>Cheap is a couple of kilobytes recovered and almost no further trips to the code; expensive is tens of kilobytes pulled in and the same number of tool calls you'd have made anyway. A field is omitted when the number isn't there: a fabricated figure corrupts the one analysis this whole thing exists for.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>This does <em>not</em> measure the cost of the same task without memory: the naive plan is a plan, not an execution, and only running one task twice gives a real side-by-side number.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num"><span class="step-num-n">09</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
+        <span class="step-titles"><span class="step-t">The next task starts smarter</span><span class="step-s">The loop closes</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The loop closes: the document is findable through <code>entities</code>, and it changes the next start.</p></div>
+        <div class="io">
+          <div class="io-k">What happens</div>
+          <div class="io-v"><p>A month from now, the query <code>EndpointConfig ETAG</code> finds it through the <code>entities</code> field, and the table isn't proposed a third time.</p></div>
+          <div class="io-k">What comes back</div>
+          <div class="io-v"><p><code>telemetry.jsonl</code> accumulates search records and the documents accumulate quoted reuse logs; after 3–4 weeks those are reviewed.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ===== PART 5: TECHNICAL ===== -->
+<section>
+  <p class="part">Part 5 · The machinery</p>
+  <h2>Three paths through the code</h2>
+  <div class="prose">
+    <p><em>Its role in the loop:</em> this is the sensor's plumbing — the code that turns a query into a bounded result and a telemetry line, and the code that puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
+    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for Claude Desktop. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
+  </div>
+
+  <h3>Path 1 — <code>engmem search</code>: from the command to the output</h3>
+  <div class="prose">
+    <p>The same search from step 03, from the inside; the values come from running <code>ResponseCacheController ETAG revalidation</code> against a store of 8 files. There are three branch points, and none of them may discard an answer that's already built.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 195" role="img" aria-label="engmem search: from parsing the command to a line in telemetry.jsonl, with three branch points — a missing store, document status, and a non-fatal telemetry write failure">
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="30" width="120" height="54" rx="9"/>
+        <rect x="150" y="30" width="130" height="54" rx="9"/>
+        <rect x="300" y="30" width="120" height="54" rx="9"/>
+        <rect x="440" y="30" width="110" height="54" rx="9"/>
+        <rect x="570" y="30" width="170" height="54" rx="9"/>
+        <rect x="760" y="30" width="150" height="54" rx="9" style="stroke: var(--accent)"/>
+        <rect x="930" y="30" width="100" height="54" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.3" fill="currentColor" text-anchor="middle">
+        <text x="70" y="53">_cmd_search</text>
+        <text x="215" y="53">resolve_store</text>
+        <text x="360" y="53">load_store</text>
+        <text x="495" y="53">search</text>
+        <text x="655" y="53">render_*</text>
+        <text x="835" y="53" style="fill: var(--accent)">render_scoreboard</text>
+        <text x="980" y="53">log_search</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" opacity=".62" text-anchor="middle">
+        <text x="70" y="69">cli.py</text>
+        <text x="215" y="69">store missing?</text>
+        <text x="360" y="69">spine.py</text>
+        <text x="495" y="69">scoring.py</text>
+        <text x="655" y="69">output.py</text>
+        <text x="835" y="69" style="opacity:.85">always — hit or miss</text>
+        <text x="980" y="69">telemetry.py</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="130" y1="57" x2="146" y2="57" marker-end="url(#ar2)"/>
+        <line x1="280" y1="57" x2="296" y2="57" marker-end="url(#ar2)"/>
+        <line x1="420" y1="57" x2="436" y2="57" marker-end="url(#ar2)"/>
+        <line x1="550" y1="57" x2="566" y2="57" marker-end="url(#ar2)"/>
+        <line x1="740" y1="57" x2="756" y2="57" marker-end="url(#ar2)"/>
+        <line x1="910" y1="57" x2="926" y2="57" marker-end="url(#ar2)"/>
+      </g>
+      <g fill="none" stroke-width="1.3" stroke-dasharray="3 3">
+        <path d="M215,84 L215,110 L145,110 L145,140" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+        <path d="M495,84 L495,110 L470,110 L470,140" stroke="currentColor" marker-end="url(#ar)"/>
+        <path d="M980,84 L980,110 L905,110 L905,140" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      </g>
+      <g fill="none" stroke-width="1.3">
+        <rect x="45" y="140" width="200" height="42" rx="8" style="stroke: var(--amber)"/>
+        <rect x="330" y="140" width="280" height="42" rx="8" stroke="currentColor"/>
+        <rect x="805" y="140" width="200" height="42" rx="8" style="stroke: var(--amber)"/>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" text-anchor="middle">
+        <text x="145" y="157" style="fill: var(--amber)">sessions/ missing →</text>
+        <text x="145" y="171" style="fill: var(--amber)">fail, exit code 2</text>
+        <text x="470" y="157">draft — hidden from results;</text>
+        <text x="470" y="171">superseded — redirected to successor</text>
+        <text x="905" y="157" style="fill: var(--amber)">write fails →</text>
+        <text x="905" y="171" style="fill: var(--amber)">stdout note, not a crash</text>
+      </g>
+    </svg>
+    <figcaption><code>render_scoreboard</code> prints after <code>render_*</code> on both branches — a hit or a miss doesn't change whether it appears. A telemetry write failure never unprints the result already shown: <code>log_search</code> never raises.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-search-en">Expand all</button>
+  </div>
+
+  <div class="steps" id="tech-search-en">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T1</span>
+        <span class="step-titles"><span class="step-t"><code>main</code> → <code>_cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py · entry, the store path, the first branch</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Nothing but argument parsing and store selection happens before the first branch: with no <code>sessions/</code>, the command exits 2 without reading a single file.</p></div>
+        <div class="io">
+          <div class="io-k">Input</div>
+          <div class="io-v"><pre><code>["search", "ResponseCacheController ETAG revalidation"]</code></pre></div>
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p><code>resolve_store()</code> takes the first of three sources, in strict order: <code>--store</code>, <code>ENGMEM_HOME</code>, <code>~/Developer/engmem</code>. The tilde is expanded by the code itself (<code>Path.expanduser()</code>): quoted, it reaches <code>argv</code> literally.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><p><code>sessions_dir.is_dir()</code> false — <code>fail(...)</code> and exit 2, without ever reaching <code>load_store</code>:</p>
+            <pre><code>error: store not found: /Users/…/sessions does not exist
+(run `engmem install` to create the store, or check --store/ENGMEM_HOME)</code></pre></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p><code>fail()</code> prints that line to both streams because the agent reads only <code>stdout</code>: a failure visible on <code>stderr</code> alone is indistinguishable to it from a silent empty run, and a missing store used to mean "nothing found".</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T2</span>
+        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>_parse_one</code> ×N</span><span class="step-s">spine.py · incompleteness is not the same thing as corruption</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Incompleteness and corruption are deliberately kept apart: the loader derives the first, and the second excludes one file — only that one.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>An empty field from <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) is derived: <code>id</code> from the filename stem, <code>title</code> from the first <code>&lt;h1&gt;</code>, <code>date</code> from a "<code>- Date: …</code>" line in the first 40 lines of the body or the file's mtime, <code>status</code> from the <code>active</code> default. Nothing is raised outward — each <code>_parse_one(path)</code> is wrapped in <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
+            <pre><code>LoadResult(docs=7, errors=1, warnings=1)
+errors[0]   = "broken.md: while parsing a flow sequence…"
+warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
+            <p>Then <code>_cmd_search</code> calls <code>stray_documents(store)</code> and warns on <code>stderr</code> about markdown outside <code>sessions/*.md</code>: neither the store root nor subfolders are scanned.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><p>What excludes a file from the result set: broken YAML, a header that isn't a mapping, an unclosed <code>---</code>, a date that won't parse, a file that can't be read, a field of the wrong type (but not the reverse: <code>_coerce_list_field</code> unfolds a bare string into a one-element list with a warning — a slip, not corruption), and a newline inside <code>id</code>, which in a result header can forge a second <code>### </code> block.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>An incomplete document can still be ranked honestly; a corrupted one can't even be displayed without putting the output itself at risk.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T3</span>
+        <span class="step-titles"><span class="step-t"><code>search()</code>: tokens, scores, the status branch</span><span class="step-s">scoring.py · ranking, and the filter on what's even shown</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>A score is field weights against the share of tokens that matched, plus the BM25 of the best body section; status decides whether the document reaches the results at all.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p><code>_build_query_tokens()</code> splits the query into CamelCase fragments and adds an initials acronym; short tokens (≤3 characters) and numeric ones compare only against unsplit field tokens, or <code>ET</code> would find <code>ETAG</code> and <code>482</code> would find <code>1000001</code>. Then, for every token, <code>_spine_score()</code> picks the field with the highest weight where it matched, and <code>_body_scores_from_entries()</code> adds the BM25 of the best matching section:</p>
+            <pre><code>score = spine + body
+spine = Σ max(weight of the field where the token matched) × (matched / total)
+        weights: id 5 · entities 3 · title 2 · tags 1
+body  = BM25 of the best section (k1 1.2, b 0.6)
+
+spine = (3+3+3+3+3+3) × 6/7 = 18 × 0.857 = 15.43
+body  = 10.18                    →  score 25.6</code></pre>
+            <p>The coverage multiplier punishes partial hits — it's what drops the second document's spine to 6.86: four tokens out of seven (16.5 in total — the body supplied the rest).</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><ul>
+            <li><code>draft</code> — dropped silently during the filtering pass, though it still counts toward the scoreboard.</li>
+            <li><code>superseded</code> — redirected: the active document <code>superseded_by</code> points at lands in <code>superseded_notes</code>, not in <code>hits</code>.</li>
+            <li><code>active</code> — the only status that reaches <code>hits</code>.</li>
+            <li>A homonym (<code>MQ</code> as both <code>MessageQueue</code> and <code>MetricsQuery</code>) yields one representative per meaning, flagged <code>ambiguous</code>, rather than a silent pick.</li>
+          </ul></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T4</span>
+        <span class="step-titles"><span class="step-t"><code>render_search_results</code>, <code>render_scoreboard</code>, <code>log_search</code></span><span class="step-s">output.py + telemetry.py · assembly order decides what survives</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Assembly order decides what survives the trim — which is why the withheld-count line gets its byte budget before the trim, not after.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>For the first <code>TOP_N = 3</code> hits, a block is built: header, <code>path</code>, a <code>matched</code> line, up to three section addresses, up to two lines of the primer (capped at 240 characters), up to three links. Then the <code>superseded</code> redirects — but only those whose score beats the weakest of the shown three.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><pre><code>1. body = the assembled blocks
+2. withheld_line = "(N more document(s) matched below the top 3 — …)"
+   — computed and given its own byte budget BEFORE trimming
+3. _trim_to_bytes(body, limit − withheld_line's budget)
+   — cuts body on a line boundary, appends "[output trimmed to fit 4 KB]"
+4. result = trimmed body + withheld_line</code></pre>
+            <p><code>_trim_to_bytes()</code> cuts from the end. The withheld-count line used to be appended to the same list of blocks: appended last, it was cut first — in exactly the case it exists to cover.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><p>Nothing matched — <code>render_no_match()</code>, exactly one line: <code>prior context: none found</code>. The scoreboard prints on both branches, because the state of the memory is part of the answer, not a bonus tacked onto success:</p>
+            <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+            <p>128 bytes are subtracted from the budget up front for it: <code>render_search_results</code> is capped at <code>4096 − 128</code>. The cap was doubled when section locators joined the output.</p></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>Nothing: <code>log_search()</code> catches <code>OSError</code> itself and returns either <code>None</code> or a reason string, and <code>note: telemetry not recorded (…)</code> prints <em>after</em> the results, which are not rolled back.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+  <h3>Path 2 — <code>engmem install</code> / <code>uninstall</code>: four agent modes</h3>
+  <div class="prose">
+    <p>The only path that touches files outside the store. Both commands share one fork: <code>--agent</code> picks one of four modes, each with its own directory and its own trace shape.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install and uninstall: a repo-scope guard, then a fork into four agent modes, each leaving its own trace on disk">
+      <g fill="none" stroke-width="1.4">
+        <rect x="390" y="15" width="260" height="50" rx="9" style="stroke: var(--accent)"/>
+      </g>
+      <text x="520" y="45" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">cmd_install / cmd_uninstall</text>
+
+      <path d="M650,40 L760,40" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="3 3" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      <rect x="760" y="17" width="270" height="46" rx="8" fill="none" stroke-width="1.3" style="stroke: var(--amber)"/>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">
+        <text x="895" y="34" style="fill: var(--amber)">--local / copilot-ide, no .git →</text>
+        <text x="895" y="48" style="fill: var(--amber)">exit 2, nothing touched</text>
+      </g>
+
+      <g stroke="currentColor" stroke-width="1.3" fill="none">
+        <path d="M520,65 L520,90 L125,90 L125,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L385,90 L385,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L645,90 L645,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L905,90 L905,140" marker-end="url(#ar)"/>
+      </g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="140" width="230" height="46" rx="9"/>
+        <rect x="270" y="140" width="230" height="46" rx="9"/>
+        <rect x="530" y="140" width="230" height="46" rx="9"/>
+        <rect x="790" y="140" width="230" height="46" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle">
+        <text x="125" y="167">agent=claude</text>
+        <text x="385" y="167">agent=copilot-ide</text>
+        <text x="645" y="167">agent=copilot-cli</text>
+        <text x="905" y="167">agent=claude-desktop</text>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity=".65" text-anchor="middle">
+        <text x="125" y="205">~/.claude/commands +</text>
+        <text x="125" y="219">CLAUDE.md, sentinel rule</text>
+        <text x="385" y="205">.github/prompts/*.prompt.md +</text>
+        <text x="385" y="219">copilot-instructions.md</text>
+        <text x="645" y="205">~/.copilot/skills/*/SKILL.md</text>
+        <text x="645" y="219">no trigger rule written</text>
+        <text x="905" y="205">claude_desktop_config.json</text>
+        <text x="905" y="219">merges mcpServers.engmem</text>
+      </g>
+    </svg>
+    <figcaption>Uninstall walks the same fork and the same directory guard, but removes exactly what install wrote — down to the narrow sentinel match, not the broad marker install uses to decide whether to add the rule.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-install-en">Expand all</button>
+  </div>
+
+  <div class="steps" id="tech-install-en">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T5</span>
+        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: a guard, then one of four traces</span><span class="step-s">install.py · the only path that writes outside the store</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The one command that writes outside the store starts with a directory guard, not with a write.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>Two checks before anything else: <code>--local</code> together with <code>claude-desktop</code> or <code>copilot-cli</code> is rejected (their files always live under <code>$HOME</code>), and a directory-scoped mode with no <code>.git</code> in the current folder is rejected with exit 2. Then <code>_ensure_store()</code> creates <code>sessions/</code> and runs <code>git init</code>, but only if the store isn't already a repository.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><p>The directories are on the diagram above; what matters here is each mode's trap.</p>
+            <ul>
+            <li><strong>claude</strong> — <code>engmem.start.md</code> installs as <code>engmem.md</code>, so the command is <code>/engmem</code>, not <code>/engmem.start</code>; then the <code>&lt;!-- engmem-trigger-rule --&gt;</code> sentinel and the rule line below it are appended.</li>
+            <li><strong>copilot-ide</strong> — the same templates, but with a <code>.prompt.md</code> extension: the Copilot plugin ignores a plain <code>.md</code>.</li>
+            <li><strong>copilot-cli</strong> — dots are illegal in skill names, so <code>/engmem.save</code> is rewritten to <code>/engmem-save</code> — longer pattern first, or <code>/engmem.save.quick</code> would decay into <code>/engmem-save.quick</code>.</li>
+            <li><strong>claude-desktop</strong> — the config is not overwritten if it doesn't parse or if <code>mcpServers</code> isn't an object; one key is added and the rest of the file stays as it was.</li>
+          </ul></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>A silent no-op is worse than an error: a command that misses its directory litters someone else's repository unnoticed. A re-run is safe all the same — the rule isn't duplicated, because detection goes by the broad <code>`engmem search</code> marker, which is fit <em>only</em> for the "skip" decision, never for "what to delete".</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T6</span>
+        <span class="step-titles"><span class="step-t"><code>cmd_uninstall</code>: a narrow match instead of a broad one</span><span class="step-s">install.py · mirrors install, but not with the same comparison</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>Uninstall removes exactly what install wrote, but matches narrowly — because matching broadly once destroyed a line that wasn't engmem's.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>Both of T5's checks are repeated, and <code>_agent_targets()</code> computes the targets: template files plus an instructions file — or <code>None</code> for <code>copilot-cli</code> and <code>claude-desktop</code>, which have no shared file carrying the rule.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><ul>
+            <li><strong>copilot-cli</strong> — the skill folder is pruned only if it's empty after <code>SKILL.md</code> is deleted.</li>
+            <li><strong>claude-desktop</strong> — exactly the <code>mcpServers.engmem</code> key is removed; every other server is untouched.</li>
+            <li><strong>claude / copilot-ide</strong> — a file that can't be removed lands in the report rather than aborting the loop.</li>
+          </ul></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p><code>_remove_trigger_rule()</code> keys off the sentinel and the rule line right after it, not the broad marker install used to decide whether to skip writing: deleting on the broad marker once destroyed a user's own line that simply happened to mention <code>engmem search</code> in its text.</p></div>
+          <div class="io-k">What it costs</div>
+          <div class="io-v"><p>A false conclusion that engmem was never installed — against which <code>_other_agents_with_files_present()</code>, on a zero count, checks the three <em>other</em> modes and suggests a different <code>--agent</code>. The store is never touched:</p>
+            <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
+store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+
+  <h3>Path 3 — an MCP session: <code>engmem mcp</code>, the Claude Desktop entry point</h3>
+  <div class="prose">
+    <p>The same search as path 1, but over a protocol where <code>stdout</code> isn't text for a human — it's JSON-RPC frames.</p>
+  </div>
+
+<figure class="scroll-x">
+    <svg viewBox="0 0 1040 360" role="img" aria-label="engmem mcp: the serve loop, JSON-RPC parsing, a fork into six handlers, and tools/call converging back onto the same core engmem search uses">
+      <path d="M260,70 L260,58 L270,58 L270,44" fill="none" stroke-width="1.3" stroke-dasharray="3 3" style="stroke: var(--amber)" marker-end="url(#arF)"/>
+      <rect x="160" y="10" width="220" height="34" rx="8" fill="none" stroke-width="1.3" style="stroke: var(--amber)"/>
+      <text x="270" y="31" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle" style="fill: var(--amber)">invalid JSON → PARSE_ERROR</text>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="70" width="150" height="50" rx="9"/>
+        <rect x="190" y="70" width="140" height="50" rx="9"/>
+        <rect x="360" y="70" width="150" height="50" rx="9"/>
+        <rect x="540" y="70" width="190" height="50" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" text-anchor="middle">
+        <text x="85" y="91">serve(): reads a</text>
+        <text x="85" y="106">stdin line</text>
+        <text x="260" y="99">json.loads(line)</text>
+        <text x="435" y="99">_dispatch(msg)</text>
+        <text x="635" y="91">_write(stdout),</text>
+        <text x="635" y="106">if there's a reply</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.4" fill="none">
+        <line x1="160" y1="95" x2="186" y2="95" marker-end="url(#ar2)"/>
+        <line x1="330" y1="95" x2="356" y2="95" marker-end="url(#ar2)"/>
+        <line x1="510" y1="95" x2="536" y2="95" marker-end="url(#ar2)"/>
+      </g>
+
+      <g stroke="currentColor" stroke-width="1.3" fill="none">
+        <path d="M435,120 L435,145 L85,145 L85,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L255,145 L255,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L425,145 L425,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L595,145 L595,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L765,145 L765,200" marker-end="url(#ar)"/>
+        <path d="M435,120 L435,145 L935,145 L935,200" marker-end="url(#ar)"/>
+      </g>
+
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="10" y="200" width="150" height="50" rx="9"/>
+        <rect x="180" y="200" width="150" height="50" rx="9"/>
+        <rect x="350" y="200" width="150" height="50" rx="9"/>
+        <rect x="520" y="200" width="150" height="50" rx="9" style="stroke: var(--accent)"/>
+        <rect x="690" y="200" width="150" height="50" rx="9"/>
+        <rect x="860" y="200" width="150" height="50" rx="9"/>
+      </g>
+      <g font-family="IBM Plex Mono, monospace" font-size="9.6" fill="currentColor" text-anchor="middle">
+        <text x="85" y="228">initialize</text>
+        <text x="255" y="222">notifications/</text>
+        <text x="255" y="234">initialized</text>
+        <text x="425" y="228">tools/list</text>
+        <text x="595" y="228" style="fill: var(--accent)">tools/call</text>
+        <text x="765" y="228">prompts/list</text>
+        <text x="935" y="228">prompts/get</text>
+      </g>
+
+      <path d="M595,250 L595,262 L520,262 L520,275" fill="none" stroke-width="1.5" style="stroke: var(--accent)" marker-end="url(#arA)"/>
+      <rect x="280" y="275" width="480" height="50" rx="9" fill="none" stroke-width="1.4" style="stroke: var(--accent)"/>
+      <text x="520" y="297" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">_run_search_for_tool →</text>
+      <text x="520" y="313" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle" style="fill: var(--accent)">load_store → search → render_* → render_scoreboard</text>
+
+      <text x="520" y="342" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" text-anchor="middle" style="fill: var(--amber)">«fail()» is banned on this path — stdout carries protocol only, never one extra line</text>
+    </svg>
+    <figcaption>Six of the seven handlers fan out from one dispatch point — the seventh, <code>ping</code>, is not drawn; <code>tools/call</code> for <code>engmem_search</code> folds back onto the same three-function core that <code>engmem search</code> uses on path 1.</figcaption>
+  </figure>
+
+  <div class="steps-tools">
+    <button type="button" class="ghost-btn" data-toggle-all="tech-mcp-en">Expand all</button>
+  </div>
+
+  <div class="steps" id="tech-mcp-en">
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T7</span>
+        <span class="step-titles"><span class="step-t"><code>serve()</code> → <code>_dispatch()</code>: a loop that must not die</span><span class="step-s">mcp_server.py · stdout is protocol-only, and absolutely so</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>On this path <code>stdout</code> carries nothing but frames — so the loop must survive any handler and must not print one extra line.</p></div>
+        <div class="io">
+          <div class="io-k">Input</div>
+          <div class="io-v"><p><code>_cmd_mcp</code> resolves the store with the same <code>resolve_store()</code> path 1 uses, lazily imports <code>mcp_server</code>, and hands off to <code>serve(store)</code>.</p></div>
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>It reads <code>stdin</code> line by line: a blank line is skipped; on <code>JSONDecodeError</code> it writes <code>_error_response(None, PARSE_ERROR, …)</code> immediately and keeps reading, without ever reaching <code>_dispatch</code>.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><p><code>_dispatch()</code> tells a request from a notification by whether <code>id</code> is present (a notification gets no reply at all, even on failure — that's JSON-RPC itself), looks the method up in the <code>_METHODS</code> table — the six handlers on the diagram plus <code>ping</code> — and catches exceptions at two levels: <code>_ProtocolError</code> becomes a response carrying that error's code, a bare <code>Exception</code> becomes <code>INTERNAL_ERROR</code> with a diagnostic on <code>stderr</code>.</p></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p><code>_write()</code> is the only writer to <code>stdout</code>, and a line like <code>error: …</code> in the middle of a stream of frames would tear the next one and end the client's session. The same technique is correct on path 1 and catastrophic here — because the two paths have different readers of <code>stdout</code>.</p></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="step">
+      <button class="step-head" type="button" aria-expanded="false">
+        <span class="step-num">T8</span>
+        <span class="step-titles"><span class="step-t"><code>tools/call</code> → <code>_run_search_for_tool</code>: the same three functions</span><span class="step-s">mcp_server.py · two entry points converge on one core</span></span>
+        <span class="chev" aria-hidden="true">+</span>
+      </button>
+      <div class="step-body" hidden>
+        <div class="prose"><p>The core is the one path 1 uses — only the shell around it differs.</p></div>
+        <div class="io">
+          <div class="io-k">What runs</div>
+          <div class="io-v"><p>The chain on the diagram is exactly T2–T4, and the same functions produce byte-identical text. Two things differ: <code>load_store</code>'s errors and warnings go to the real process <code>stderr</code>, never into the response text, and strays are found by the very same <code>stray_documents()</code> — one function imported from <code>spine.py</code>, not a mirrored copy.</p></div>
+          <div class="io-k">The branch</div>
+          <div class="io-v"><ul>
+            <li>An empty <code>arguments.query</code> is a <code>_ProtocolError(INVALID_PARAMS)</code>, not a result with <code>isError: true</code>: <code>inputSchema</code> declares <code>query</code> required, so the call violates the contract instead of failing at runtime.</li>
+            <li>A missing <code>sessions/</code>, by contrast, is an ordinary — just unsuccessful — call result: <code>(error text, is_error=True)</code> inside the normal response content, because here there is no other channel.</li>
+          </ul></div>
+          <div class="io-k">Why so</div>
+          <div class="io-v"><p>A search over MCP writes the same telemetry line a terminal search does, tagged <code>channel="mcp"</code>. Without it the Desktop path would be invisible when the experiment is reviewed — and that is where most of the work now happens.</p></div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<!-- ===== PART 6: INSTALL ===== -->
+<section>
+  <p class="part">Part 6 · Install and removal</p>
+  <h2>Two commands to set up, one to undo</h2>
+  <div class="prose">
+    <p><em>Its role in the loop:</em> installation is how the loop travels to a new machine. It lays down the templates that print the pre-registration and the Reuse Log, and the rule that obliges the agent to go through the measured channel before it proposes a plan.</p>
+    <p>The first command installs the package itself; the second wires it into your agent:</p>
+<pre><code>uv tool install --editable .     # or: pipx install .
+engmem install --agent claude    # or copilot-ide / copilot-cli</code></pre>
+    <p><code>--editable</code> means a <code>git pull</code> picks up new code without reinstalling — for a tool under active repair that matters more than a tidy install.</p>
+    <p>The mode is dictated by the consuming agent: each has its own directory and its own file format.</p>
+  </div>
+  <div class="tablewrap"><table>
+  <thead><tr><th>Mode</th><th>Writes to</th><th>When to pick it</th></tr></thead>
+  <tbody>
+  <tr><td><code>claude</code></td><td><code>~/.claude/commands/engmem.md</code></td><td>Claude Code. The file name becomes the command name — hence <code>/engmem</code>. With <code>--local</code>, into the current repository instead (needs an existing <code>.git</code> there already, or it exits 2).</td></tr>
+  <tr><td><code>copilot-ide</code></td><td><code>.github/prompts/engmem.prompt.md</code></td><td>The Copilot plugin in VS Code, Visual Studio, JetBrains. It only recognizes the double extension <code>.prompt.md</code>; a plain <code>.md</code> is silently ignored. Also writes into the current repository — needs a <code>.git</code> here, or it exits 2.</td></tr>
+  <tr><td><code>copilot-cli</code></td><td><code>~/.copilot/skills/engmem/SKILL.md</code></td><td>The terminal <code>copilot</code>. It doesn't read <code>.github/prompts/</code> at all, only skills. Dots are illegal in skill names, so the commands there are <code>/engmem-save</code>, not <code>/engmem.save</code>.</td></tr>
+  </tbody>
+  </table></div>
+  <div class="prose">
+    <h3>What install actually creates</h3>
+    <p>Four traces across three places — worth knowing, because these are exactly what gets removed later:</p>
+    <ul>
+      <li><strong>the store</strong> (<code>~/Developer/engmem</code> by default): a <code>sessions/</code> folder and <code>git init</code> if it isn't a repository yet. An existing one is left alone;</li>
+      <li><strong>three template files</strong> in the agent directory from the table above;</li>
+      <li><strong>a version stamp</strong> on the first line after each template's YAML front matter — that's how you see which version is installed;</li>
+      <li><strong>the trigger rule</strong> in <code>CLAUDE.md</code> or <code>.github/copilot-instructions.md</code> — actually two lines: a <code>&lt;!-- engmem-trigger-rule --&gt;</code> sentinel comment, then the rule itself right below it: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;"`</code>. The sentinel is not decoration — it is exactly what <code>uninstall</code> later matches to remove precisely those two lines and nothing else. <code>copilot-cli</code> skips this step — it has no global instructions file, and skills are invoked by hand.</li>
+    </ul>
+    <p>A repeat run is an upgrade: the store isn't recreated, templates are overwritten with the fresh version, and the rule isn't duplicated (detection goes by the <code>engmem search</code> marker, so even a rule you reworded is recognized).</p>
+
+    <h3>Removal</h3>
+    <p>The mirror command, with the same <code>--agent</code>:</p>
+<pre><code>engmem uninstall --agent claude</code></pre>
+    <p>It deletes exactly the files it installed, and removes exactly the trigger-rule lines it wrote itself — the sentinel comment plus the rule line right after it (or, for older installs with no sentinel, the bare rule line, matched byte-for-byte). That is a narrow, exact match, not the broad <code>`engmem search </code> marker <code>install</code> uses to decide whether to add the rule at all: deleting on that broad marker once destroyed a user's own, unrelated line. The real output:</p>
+<pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
+store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre>
+<p>Safe to run twice — the second run reports zeros.</p>
+    <p>What it deliberately does <strong>not</strong> do:</p>
+    <ul>
+      <li><strong>never touches the store.</strong> Those are your documents, not the tool's files: they stay readable markdown under git without engmem. The command only prints the path, so the decision stays yours;</li>
+      <li><strong>never removes what isn't its own.</strong> A Copilot skill directory is pruned only if it's empty after its <code>SKILL.md</code> goes; unrelated lines in <code>CLAUDE.md</code> survive, and the file itself is never deleted even if it ends up empty;</li>
+      <li><strong>doesn't remove the package</strong> — the <code>engmem</code> command stays on your PATH.</li>
+    </ul>
+    <p>So a full removal is three steps, and only the first is required to stop agents calling a command that no longer exists:</p>
+<pre><code>engmem uninstall --agent claude   # templates and the trigger rule
+uv tool uninstall engmem          # the package and the PATH command
+rm -rf ~/Developer/engmem         # your documents — only if you're sure</code></pre>
+  </div>
+</section>
+
+<!-- ===== PART 7: LIMITS ===== -->
+<section>
+  <p class="part">Part 7 · Limits</p>
+  <h2>Why the tool is so frugal</h2>
+  <div class="prose">
+    <p>Engmem v0.1 exists to test one unproven hypothesis: <em>prior documents pulled into a new task measurably change its outcome, and the benefit exceeds the cost of writing them</em>. The answer comes from a review after 3–4 weeks of real work, against endpoints written down before the data (<code>ENGMEM-SPEC.md</code> §11). Hence every constraint — not asceticism, but the conditions for a clean experiment.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Constraint</th><th>What it protects</th></tr></thead>
+      <tbody>
+        <tr><td>One dependency, a standard-library CLI, no "just in case" features</td><td>Minimum investment before the verdict: if it doesn't hold up, throwing it away is cheap.</td></tr>
+        <tr><td>Deterministic search, golden tests as the source of truth</td><td>A reproducible sensor: a channel that answers one query differently on different days can neither be compared against a baseline nor meaningfully logged. "It found it yesterday, not today" is impossible by construction.</td></tr>
+        <tr><td>The tool makes no network calls</td><td>True of the tool, not of the system: document contents reach the model on every task — that's a sign-off question, not a settled one.</td></tr>
+        <tr><td>The measuring instruments may not be simplified</td><td>Reuse Log, pre-reg, telemetry, scoreboard. Switching them off means running the experiment with no data.</td></tr>
+      </tbody>
+    </table>
+    </div><p>Frozen until the review: elaborate ranking formulas, vector and semantic search, indexes of any kind, automatic staleness marking, a web interface, team mode.</p>
+    <p>Where to read the code: five modules in <code>src/engmem/</code>, templates in <code>src/engmem/templates/</code>, behaviour contracts in <code>docs/design/contracts/</code>, golden tests in <code>tests/test_scoring.py</code> and <code>tests/test_cli.py</code>.</p>
+  </div>
+</section>
+
+</div>
+</div>
+
+<script>
+(function () {
+  function setLang(lang) {
+    document.body.setAttribute('data-lang', lang);
+    document.documentElement.setAttribute('lang', lang);
+    document.getElementById('btn-ru').setAttribute('aria-pressed', String(lang === 'ru'));
+    document.getElementById('btn-en').setAttribute('aria-pressed', String(lang === 'en'));
+    try { localStorage.setItem('engmem-doc-lang', lang); } catch (e) {}
+  }
+  document.getElementById('btn-ru').addEventListener('click', function () { setLang('ru'); });
+  document.getElementById('btn-en').addEventListener('click', function () { setLang('en'); });
+  var saved = null;
+  try { saved = localStorage.getItem('engmem-doc-lang'); } catch (e) {}
+  setLang(saved === 'en' ? 'en' : 'ru');
+
+  function setStep(step, open) {
+    var head = step.querySelector('.step-head');
+    var body = step.querySelector('.step-body');
+    step.setAttribute('data-open', String(open));
+    head.setAttribute('aria-expanded', String(open));
+    if (open) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
+  }
+
+  var steps = document.querySelectorAll('.step');
+  Array.prototype.forEach.call(steps, function (step) {
+    var head = step.querySelector('.step-head');
+    head.addEventListener('click', function () {
+      setStep(step, step.getAttribute('data-open') !== 'true');
+    });
+  });
+
+  var togglers = document.querySelectorAll('[data-toggle-all]');
+  Array.prototype.forEach.call(togglers, function (btn) {
+    btn.addEventListener('click', function () {
+      var group = document.getElementById(btn.getAttribute('data-toggle-all'));
+      if (!group) { return; }
+      var groupSteps = group.querySelectorAll('.step');
+      var anyClosed = false;
+      Array.prototype.forEach.call(groupSteps, function (s) {
+        if (s.getAttribute('data-open') !== 'true') { anyClosed = true; }
+      });
+      Array.prototype.forEach.call(groupSteps, function (s) { setStep(s, anyClosed); });
+      var isRu = document.body.getAttribute('data-lang') !== 'en';
+      btn.textContent = anyClosed
+        ? (isRu ? 'Свернуть все' : 'Collapse all')
+        : (isRu ? 'Раскрыть все' : 'Expand all');
+    });
+  });
+})();
+</script>

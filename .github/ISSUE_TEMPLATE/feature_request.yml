@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a change to what engmem does
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        engmem is deliberately small: plain files, no database, no derived index, one
+        runtime dependency. `ENGMEM-SPEC.md` §9 lists what was considered and cut, and
+        why — worth reading first, since a proposal it already covers needs to argue
+        against the recorded reason rather than restate the idea.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What went wrong in real use. Not the solution yet — the situation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you considered and rejected
+      description: Including doing nothing.

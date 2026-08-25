@@ -1,0 +1,199 @@
+"""Documentation claims checked against the package, mechanically.
+
+The suite proves the code works. Nothing proved the documentation described that code —
+and it drifted: the output cap was documented as 2 KB long after it became 4 KB, the
+anatomy page asserted that a search over MCP writes no telemetry when it writes one
+tagged `channel="mcp"`, and five private function names outlived a refactor that renamed
+them. Every one of those was found by a person reading, which does not scale and does not
+survive the next rename.
+
+Two things here are checkable without guessing at prose:
+
+- a **private** name in code formatting is unambiguously a code symbol, so it must exist;
+- a **numeric constant** the docs quote must equal the constant in the module.
+
+Anything softer is left to review on purpose: a test that fails on rewording teaches
+people to delete tests.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGE = ROOT / "src" / "engmem"
+DOCS = (
+    [ROOT / "README.md", ROOT / "ENGMEM-SPEC.md", ROOT / "docs" / "engmem-anatomy.html"]
+    + sorted((ROOT / "docs" / "design").rglob("*.md"))
+)
+
+_CODE_SPAN = re.compile(r"<code>([^<]+)</code>|`([^`\n]+)`")
+_PRIVATE = re.compile(r"^_[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _defined_names() -> set[str]:
+    names: set[str] = set()
+    for path in PACKAGE.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.add(node.id)
+    return names
+
+
+def _cited_private_names(text: str) -> set[str]:
+    spans = (a or b for a, b in _CODE_SPAN.findall(text))
+    return {s.strip().removesuffix("()") for s in spans if _PRIVATE.match(s.strip().removesuffix("()"))}
+
+
+DEFINED = _defined_names()
+
+
+@pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
+def test_private_names_in_the_docs_still_exist(doc):
+    """`_stray_markdown_files` never existed; `_fail` and `_cmd_install` stopped existing
+    when they moved modules. Prose cannot produce a leading underscore, so anything that
+    has one is a claim about the code and can be checked."""
+    stale = sorted(_cited_private_names(doc.read_text(encoding="utf-8")) - DEFINED)
+
+    assert not stale, (
+        f"{doc.relative_to(ROOT)} names {stale}, which no longer exist in engmem. "
+        "Rename in the docs, or the reader is sent looking for something gone."
+    )
+
+
+def _constant(module: str, name: str):
+    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{module}.{name} not found")
+
+
+def _kb(value: int) -> list[str]:
+    """How a byte count is spelled in prose, in both languages."""
+    return [str(value), f"{value // 1024} KB", f"{value // 1024} КБ"]
+
+
+# constant -> the documents that state its value and must keep matching it
+QUOTED_CONSTANTS = [
+    ("output", "MAX_OUTPUT_BYTES", ["README.md", "ENGMEM-SPEC.md", "engmem-anatomy.html", "data-model.md"]),
+]
+
+
+@pytest.mark.parametrize("module,name,doc_names", QUOTED_CONSTANTS, ids=lambda a: a if isinstance(a, str) else "")
+def test_documents_that_state_a_constant_state_the_current_one(module, name, doc_names):
+    """Asserted positively, and that matters: an earlier version of this test only banned
+    the old spelling, so raising the constant left every document quoting a number that was
+    no longer true and the test stayed green. What must hold is that the document agrees
+    with the module *now*, whatever the value becomes."""
+    value = _constant(module, name)
+    spellings = _kb(value)
+
+    for doc in DOCS:
+        if doc.name not in doc_names:
+            continue
+        text = doc.read_text(encoding="utf-8")
+        assert any(s in text for s in spellings), (
+            f"{doc.relative_to(ROOT)} documents {module}.{name} but states none of "
+            f"{spellings} — the module says {value}"
+        )
+        # and no other plausible cap is left lying around from a previous value
+        for other in (1024, 2048, 8192, 16384):
+            if other == value:
+                continue
+            for stale in _kb(other):
+                hits = [
+                    m for m in re.finditer(rf"(?<![\d.]){re.escape(stale)}", text)
+                    if stale.isdigit() or True
+                ]
+                assert not hits, (
+                    f"{doc.relative_to(ROOT)} still states {stale!r} for {module}.{name}, "
+                    f"which is now {value}"
+                )
+
+
+def test_the_role_vocabulary_the_docs_quote_is_the_one_the_code_defines():
+    """Nineteen is asserted in several places, and the number moved once already."""
+    from engmem.sections import CANONICAL_ROLES
+
+    n = len(CANONICAL_ROLES)
+    anatomy = (ROOT / "docs" / "engmem-anatomy.html").read_text(encoding="utf-8")
+    spelled = {19: ["nineteen", "девятнадцат"]}.get(n)
+
+    assert spelled, f"CANONICAL_ROLES is now {n}; teach this test the new spelling"
+    for word in spelled:
+        assert word in anatomy.lower(), f"the page no longer says {word!r} for {n} roles"
+
+def test_cli_commands_and_flags_named_in_the_docs_exist(doc=None):
+    """The anatomy walks the reader through real commands. A flag that was renamed leaves
+    the page telling them to type something the CLI rejects — and unlike a wrong number,
+    they find out only by trying it."""
+    import re
+
+    from engmem.cli import build_parser
+
+    parser = build_parser()
+    subcommands = set(next(
+        a.choices for a in parser._actions if hasattr(a, "choices") and a.choices
+    ))
+    flags = {o for a in parser._actions for o in a.option_strings}
+    for sub in subcommands:
+        flags |= {
+            o
+            for a in next(
+                x.choices[sub] for x in parser._actions
+                if hasattr(x, "choices") and x.choices and sub in x.choices
+            )._actions
+            for o in a.option_strings
+        }
+
+    anatomy = (ROOT / "docs" / "engmem-anatomy.html").read_text(encoding="utf-8")
+    cited_subs = set(re.findall(r"engmem (search|roles|install|uninstall|mcp|telemetry|backfill)\b", anatomy))
+    # only flags written next to an engmem invocation — the page's CSS custom
+    # properties (`--accent`, `--bg`) look identical to a long flag
+    cited_flags = {
+        flag
+        for line in anatomy.splitlines()
+        if "engmem " in line
+        for flag in re.findall(r"(--[a-z][a-z-]+)", line)
+    }
+
+    assert cited_subs <= subcommands, f"the page names subcommands the CLI lacks: {cited_subs - subcommands}"
+    unknown = cited_flags - flags
+    assert not unknown, f"the page names flags the CLI lacks: {sorted(unknown)}"
+
+
+def test_the_spec_parking_section_exists_and_is_not_empty():
+    """`ENGMEM-SPEC.md` §9 is where a rejected idea goes with its reason. An empty parking
+    section means the next proposal argues against nothing."""
+    spec = (ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8")
+    start = spec.index("## 9. Deliberately cut")
+    end = spec.index("## 10.", start)
+    body = spec[start:end]
+
+    assert len(body.split()) > 80, "the parking section has lost its content"
+    assert "Built after all" in body, "entries that left the list must stay recorded with their reason"
+
+
+
+def test_the_save_template_asks_about_a_superseded_citation():
+    """Prose in a template is only as good as the agent's compliance, so this guards the
+    weaker half: that the instruction is still there at all. A Reuse Log row citing a
+    superseded document is indistinguishable from honest reuse once the session is over —
+    the question has to be asked while the human is still in the room."""
+    template = (ROOT / "src" / "engmem" / "templates" / "engmem.save.md").read_text(
+        encoding="utf-8"
+    )
+    rules_start = template.index("### Reuse Log rules")
+    rules = template[rules_start : template.index("## 3.", rules_start)]
+
+    assert "superseded" in rules, "the Reuse Log rules must address citing a stale document"
+    assert "harmful" in rules, "and say how such a row is classified"

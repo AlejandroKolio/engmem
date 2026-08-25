@@ -1,0 +1,41 @@
+name: Bug report
+description: Something behaved differently from what the output claimed
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please redact anything private. Document titles, ticket ids, and matched text
+        from your store often quote proprietary work — replace them with placeholders.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran and its full output, redacted as needed.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: engmem version and Python version
+      placeholder: "engmem 0.1.0, Python 3.13 on macOS 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: store-shape
+    attributes:
+      label: Store shape
+      description: >-
+        Roughly how many documents, and anything unusual about them — nested
+        directories, hand-written front matter, documents predating engmem.

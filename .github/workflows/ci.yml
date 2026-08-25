@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# a fork's pull request runs with this token; nothing here needs to write
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # POSIX-only tests (chmod-based permission checks, symlink containment)
+        # skip themselves on Windows via tests/conftest.py rather than failing.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install the project and its dev group
+        run: uv sync --group dev --python ${{ matrix.python-version }}
+
+      - name: Run the test suite
+        run: uv run --python ${{ matrix.python-version }} pytest -q
+
+  runtime-dependencies:
+    # engmem's runtime must stay pyyaml-only. A dev-only tool leaking into the
+    # runtime dependency set is a defect this catches before release, not after.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build --wheel
+      - name: Assert the wheel requires nothing but pyyaml
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          names = zipfile.ZipFile(wheel).namelist()
+          meta = zipfile.ZipFile(wheel).read(
+              next(n for n in names if n.endswith("METADATA"))
+          ).decode()
+          requires = sorted(
+              line.split(":", 1)[1].strip()
+              for line in meta.splitlines()
+              if line.startswith("Requires-Dist:")
+          )
+          print("Requires-Dist:", requires)
+          assert requires == ["pyyaml"], f"runtime dependencies drifted: {requires}"
+          PY
+
+  # The single check branch protection should require. Requiring the matrix jobs by name
+  # means every matrix change silently blocks every PR: the named check stops appearing
+  # and nothing reports it.
+  ci:
+    if: always()
+    needs: [test, runtime-dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every job succeeded
+        run: |
+          echo "test: ${{ needs.test.result }}"
+          echo "runtime-dependencies: ${{ needs.runtime-dependencies.result }}"
+          [ "${{ needs.test.result }}" = "success" ] \
+            && [ "${{ needs.runtime-dependencies.result }}" = "success" ]
