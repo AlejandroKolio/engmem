@@ -1,6 +1,4 @@
-"""Shared ground for CLI entry points: store location and failure reporting.
-Nothing else belongs here.
-"""
+"""Shared ground for CLI entry points: store location and failure reporting."""
 
 from __future__ import annotations
 
@@ -24,7 +22,7 @@ def resolve_store(explicit: str | None) -> Path:
 
 
 def fail(message: str) -> None:
-    # Both streams: the consuming agent only reads stdout (ENGMEM-SPEC.md §1),
+    # Both streams: the consuming agent only reads stdout (ENGMEM-SPEC.md §4, §5),
     # so a failure must land there too, not only on stderr.
     print(f"error: {message}", file=sys.stderr)
     print(f"error: {message}")

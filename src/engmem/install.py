@@ -1,7 +1,4 @@
-"""`engmem install` / `engmem uninstall` — writes and removes the prompt
-templates and trigger rule in an agent's own configuration. Command contract:
-`ENGMEM-SPEC.md` §5.
-"""
+"""`engmem install` / `uninstall` — writes and removes an agent's templates and trigger rule."""
 
 from __future__ import annotations
 
@@ -10,11 +7,13 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Iterable
 from importlib import resources
 from pathlib import Path
 
 from engmem import __version__
 from engmem.runtime import fail, resolve_store
+from engmem.staging import commit, discard, newline_of, read_document, stage
 
 
 # source filename -> installed filename; engmem.start.md installs as engmem.md
@@ -35,9 +34,8 @@ COPILOT_IDE_TEMPLATE_INSTALL_MAP = {
 }
 
 
-# Copilot CLI ignores .github/prompts/ (github/copilot-cli#1113); it reads
-# personal skills from ~/.copilot/skills/<name>/SKILL.md instead. Dots are
-# illegal in skill names, so they become hyphens.
+# Copilot CLI ignores .github/prompts/ (github/copilot-cli#1113); it reads personal skills from
+# ~/.copilot/skills/<name>/SKILL.md instead.
 COPILOT_CLI_SKILL_MAP = {
     "engmem.start.md": "engmem",
     "engmem.save.md": "engmem-save",
@@ -45,9 +43,9 @@ COPILOT_CLI_SKILL_MAP = {
 }
 
 
-# template bodies reference the dotted Claude command names; rewritten to the
-# hyphenated skill names for Copilot CLI. Longest pattern first, or
-# /engmem.save.quick would decay into /engmem-save.quick
+# template bodies reference the dotted Claude command names; rewritten to the hyphenated skill
+# names for Copilot CLI. Longest pattern first, or /engmem.save.quick would decay into
+# /engmem-save.quick
 COPILOT_CLI_COMMAND_RENAMES = (
     ("/engmem.save.quick", "/engmem-save-quick"),
     ("/engmem.save", "/engmem-save"),
@@ -68,15 +66,19 @@ TRIGGER_RULE = (
     'Before proposing a plan, run `engmem search "<key terms for the task>"`'
 )
 
-# install's permissive skip-check: matches even a user's own unrelated
-# sentence, safe only because it decides "leave alone", never "delete" —
-# uninstall must never key removal off this
+# install's permissive skip-check: matches even a user's own unrelated sentence, safe only because
+# it decides "leave alone", never "delete" — uninstall must never key removal off this
 TRIGGER_MARKER = "`engmem search"
 
 # the precise marker written just above the rule line, so uninstall removes
 # exactly that line; _remove_trigger_rule also recognises the bare
 # pre-sentinel TRIGGER_RULE line as a migration fallback for older installs
 TRIGGER_SENTINEL = "<!-- engmem-trigger-rule -->"
+
+
+class _SetupError(Exception):
+    """A step install/uninstall cannot complete; the message names the path and the cause, and
+    reaches the user as an exit-2 diagnosis rather than a traceback."""
 
 
 def _validate_agent(command: str, agent: str) -> int:
@@ -87,39 +89,74 @@ def _validate_agent(command: str, agent: str) -> int:
     return 2
 
 
-def _safe_mkdir(path: Path) -> str | None:
-    """mkdir(parents=True, exist_ok=True); returns None on success, else a
-    message naming the failure (e.g. a path component exists and isn't a
-    directory) instead of letting the OSError escape."""
+def _ensure_directory(path: Path, what: str) -> None:
     try:
         path.mkdir(parents=True, exist_ok=True)
-        return None
     except OSError as exc:
-        return f"{path} exists and is not usable as a directory: {exc}"
+        raise _SetupError(f"cannot create the {what} {path}: {exc}") from exc
 
 
-def _ensure_store(store: Path) -> int:
-    sessions = store / "sessions"
-    mkdir_error = _safe_mkdir(sessions)
-    if mkdir_error is not None:
-        fail(f"engmem install: cannot create the store: {mkdir_error}")
-        return 2
+def _read_user_file(path: Path) -> tuple[str, bytes]:
+    """`(text, byte-order mark)` for a file engmem did not write; both failure modes name it."""
+    try:
+        return read_document(path)
+    except UnicodeDecodeError as exc:
+        raise _SetupError(
+            f"{path} is not valid UTF-8 ({exc.reason} at byte {exc.start}) — engmem will "
+            f"not rewrite a file it cannot read. Re-save it as UTF-8 and re-run"
+        ) from exc
+    except OSError as exc:
+        raise _SetupError(f"cannot read {path}: {exc}") from exc
+
+
+def _replace_user_file(path: Path, text: str, bom: bytes = b"") -> None:
+    """Atomic replacement for a file engmem does not own — see contracts/install.md."""
+    # written through the link, never over it: `os.replace` on the link itself detaches a
+    # CLAUDE.md symlinked into a dotfiles repo from what it points at
+    target = Path(os.path.realpath(path)) if path.is_symlink() else path
+    try:
+        tmp_path = stage(target, bom + text.encode("utf-8"))
+    except OSError as exc:
+        raise _SetupError(f"cannot write {path}: {exc}") from exc
+    # BaseException, not OSError alone: a Ctrl-C landing between the stage and the commit must
+    # still take the temp file with it
+    try:
+        commit(tmp_path, target)
+    except OSError as exc:
+        discard(tmp_path)
+        raise _SetupError(f"cannot write {path}: {exc}") from exc
+    except BaseException:
+        discard(tmp_path)
+        raise
+
+
+def _write_template(path: Path, text: str) -> None:
+    # engmem's own file, rewritten whole by every install: a torn write costs a re-run, not data
+    try:
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise _SetupError(f"cannot write the template {path}: {exc}") from exc
+
+
+def _ensure_store(store: Path) -> None:
+    _ensure_directory(store / "sessions", "store directory")
     if (store / ".git").exists():
-        return 0
+        return
     try:
         subprocess.run(
             ["git", "init"], cwd=store, check=True, capture_output=True, text=True
         )
-    except FileNotFoundError:
-        fail(
-            "engmem install: `git` not found on PATH — the store must be a git "
-            "repository. Install git and re-run."
-        )
-        return 2
+    except FileNotFoundError as exc:
+        raise _SetupError(
+            "`git` not found on PATH — the store must be a git repository. "
+            "Install git and re-run."
+        ) from exc
+    except OSError as exc:
+        # a `git` on PATH that cannot be executed at all: exec raises PermissionError here,
+        # not FileNotFoundError, and it is still the user's environment, not a bug
+        raise _SetupError(f"cannot run `git init` in {store}: {exc}") from exc
     except subprocess.CalledProcessError as exc:
-        fail(f"engmem install: `git init` failed in {store}: {exc.stderr.strip()}")
-        return 2
-    return 0
+        raise _SetupError(f"`git init` failed in {store}: {exc.stderr.strip()}") from exc
 
 
 def _stamp_after_front_matter(content: str, stamp: str) -> str:
@@ -133,21 +170,22 @@ def _stamp_after_front_matter(content: str, stamp: str) -> str:
     return stamp + "\n" + content
 
 
-def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> int:
-    mkdir_error = _safe_mkdir(dest_dir)
-    if mkdir_error is not None:
-        fail(f"engmem install: cannot create the templates directory: {mkdir_error}")
-        return 2
-    source_root = resources.files("engmem") / "templates"
+def _version_stamp(source_name: str) -> str:
+    return f"<!-- engmem-template: {source_name.removesuffix('.md')} v{__version__} -->"
+
+
+def _template_source(source_name: str) -> str:
+    return (resources.files("engmem") / "templates" / source_name).read_text(encoding="utf-8")
+
+
+def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> None:
+    _ensure_directory(dest_dir, "templates directory")
     for source_name, installed_name in install_map.items():
-        content = (source_root / source_name).read_text(encoding="utf-8")
-        stamp = (
-            f"<!-- engmem-template: {source_name.removesuffix('.md')} v{__version__} -->"
+        content = _template_source(source_name)
+        _write_template(
+            dest_dir / installed_name,
+            _stamp_after_front_matter(content, _version_stamp(source_name)),
         )
-        (dest_dir / installed_name).write_text(
-            _stamp_after_front_matter(content, stamp), encoding="utf-8"
-        )
-    return 0
 
 
 def _to_skill_front_matter(content: str, skill_name: str) -> str:
@@ -166,37 +204,33 @@ def _to_skill_front_matter(content: str, skill_name: str) -> str:
 
 
 def _install_skill_templates(skills_root: Path) -> None:
-    source_root = resources.files("engmem") / "templates"
     for source_name, skill_name in COPILOT_CLI_SKILL_MAP.items():
-        content = (source_root / source_name).read_text(encoding="utf-8")
+        content = _template_source(source_name)
         for dotted, hyphenated in COPILOT_CLI_COMMAND_RENAMES:
             content = content.replace(dotted, hyphenated)
         content = _to_skill_front_matter(content, skill_name)
-        stamp = (
-            f"<!-- engmem-template: {source_name.removesuffix('.md')} v{__version__} -->"
-        )
         skill_dir = skills_root / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        (skill_dir / "SKILL.md").write_text(
-            _stamp_after_front_matter(content, stamp), encoding="utf-8"
+        _ensure_directory(skill_dir, "skill directory")
+        _write_template(
+            skill_dir / "SKILL.md",
+            _stamp_after_front_matter(content, _version_stamp(source_name)),
         )
 
 
 def _append_trigger_rule(instructions_file: Path) -> bool:
-    """Adds the sentinel-anchored rule and returns True, or leaves the file
-    untouched and returns False if `TRIGGER_MARKER` already appears anywhere
-    in it. The caller reports a False result so a skip is never silent."""
-    existing = (
-        instructions_file.read_text(encoding="utf-8")
-        if instructions_file.exists()
-        else ""
-    )
+    """Adds the sentinel-anchored rule, or returns False if `TRIGGER_MARKER` is already present."""
+    existing, bom = _read_user_file(instructions_file) if instructions_file.exists() else ("", b"")
     if TRIGGER_MARKER in existing:
         return False
-    instructions_file.parent.mkdir(parents=True, exist_ok=True)
-    prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
-    instructions_file.write_text(
-        prefix + TRIGGER_SENTINEL + "\n" + TRIGGER_RULE + "\n", encoding="utf-8"
+    _ensure_directory(instructions_file.parent, "instructions directory")
+    # the file's own line ending, not this platform's: LF appended to a CRLF file leaves it
+    # with both, and the whole file then reads as changed under `core.autocrlf`
+    newline = newline_of(existing) or "\n"
+    prefix = existing if not existing or existing.endswith(("\n", "\r")) else existing + newline
+    _replace_user_file(
+        instructions_file,
+        prefix + TRIGGER_SENTINEL + newline + TRIGGER_RULE + newline,
+        bom,
     )
     return True
 
@@ -211,7 +245,7 @@ def _unlink_reporting_failure(path: Path) -> bool:
         return False
 
 
-def _remove_files(paths) -> tuple[int, int]:
+def _remove_files(paths: Iterable[Path]) -> tuple[int, int]:
     removed = failed = 0
     for path in paths:
         if not path.is_file():
@@ -244,13 +278,12 @@ def _remove_skill_dirs(skills_root: Path) -> tuple[int, int]:
 
 
 def _remove_trigger_rule(instructions_file: Path) -> int:
-    """Drops exactly the lines engmem wrote: a `TRIGGER_SENTINEL` line plus
-    the rule line after it, or a bare pre-sentinel `TRIGGER_RULE` line.
-    Deliberately not keyed off `TRIGGER_MARKER` — that broad substring can
-    also match a user's own prose."""
+    """Drops exactly the lines engmem wrote, keyed off the sentinel rather than the broader
+    `TRIGGER_MARKER`."""
     if not instructions_file.is_file():
         return 0
-    lines = instructions_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    existing, bom = _read_user_file(instructions_file)
+    lines = existing.splitlines(keepends=True)
     kept: list[str] = []
     dropped = 0
     i = 0
@@ -270,13 +303,20 @@ def _remove_trigger_rule(instructions_file: Path) -> int:
         kept.append(lines[i])
         i += 1
     if dropped:
-        instructions_file.write_text("".join(kept), encoding="utf-8")
+        _replace_user_file(instructions_file, "".join(kept), bom)
     return dropped
 
 
-class _MalformedConfigError(Exception):
-    """Claude Desktop's config file exists but is not a mergeable JSON
-    object — never discarded silently."""
+def _remove_trigger_rule_reporting_failure(instructions_file: Path | None) -> tuple[int, bool]:
+    # an unwritable instructions file must not abort the uninstall and take the summary of what
+    # was already removed with it
+    if instructions_file is None:
+        return 0, False
+    try:
+        return _remove_trigger_rule(instructions_file), False
+    except _SetupError as exc:
+        fail(str(exc))
+        return 0, True
 
 
 def _claude_desktop_config_path() -> Path:
@@ -295,21 +335,25 @@ def _claude_desktop_config_path() -> Path:
 
 
 def _load_json_object(path: Path) -> dict:
-    """`{}` for an absent or empty file, the parsed object for a valid one,
-    or raises `_MalformedConfigError` — never a value a caller could write
-    back without knowing it discarded something."""
+    """`{}` for an absent file, the parsed object for a valid one, else `_SetupError`."""
     if not path.is_file():
         return {}
-    text = path.read_text(encoding="utf-8")
+    # the BOM is dropped, not carried: engmem re-serialises the whole document, and RFC 8259
+    # forbids emitting one
+    text, _ = _read_user_file(path)
     if not text.strip():
         return {}
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise _MalformedConfigError(f"{path} is not valid JSON: {exc}") from exc
+        raise _SetupError(
+            f"{path} is not valid JSON: {exc} — fix or remove the file by hand and "
+            f"re-run (refusing to overwrite a config engmem cannot parse)"
+        ) from exc
     if not isinstance(data, dict):
-        raise _MalformedConfigError(
-            f"{path} does not contain a JSON object at the top level"
+        raise _SetupError(
+            f"{path} does not contain a JSON object at the top level — fix or remove "
+            f"the file by hand and re-run (refusing to overwrite it)"
         )
     return data
 
@@ -323,64 +367,43 @@ def _claude_desktop_mcp_entry(store: Path) -> dict:
     }
 
 
-def _install_claude_desktop(store: Path) -> int:
-    """Merges the `engmem` key into whatever is already on disk; never
-    overwrites the file wholesale."""
+def _install_claude_desktop(store: Path) -> None:
+    """Merges the `engmem` key into whatever is already on disk, never overwriting wholesale."""
     config_path = _claude_desktop_config_path()
-    try:
-        config = _load_json_object(config_path)
-    except _MalformedConfigError as exc:
-        fail(
-            f"engmem install: {exc} — fix or remove the file by hand and re-run "
-            f"(refusing to overwrite a config engmem cannot parse)"
-        )
-        return 2
+    config = _load_json_object(config_path)
     mcp_servers = config.get("mcpServers", {})
     if not isinstance(mcp_servers, dict):
-        fail(
-            f"engmem install: {config_path} has a `mcpServers` key that is not a "
-            f"JSON object — fix it by hand and re-run (refusing to overwrite it)"
+        raise _SetupError(
+            f"{config_path} has a `mcpServers` key that is not a JSON object — "
+            f"fix it by hand and re-run (refusing to overwrite it)"
         )
-        return 2
     mcp_servers["engmem"] = _claude_desktop_mcp_entry(store)
     config["mcpServers"] = mcp_servers
-    mkdir_error = _safe_mkdir(config_path.parent)
-    if mkdir_error is not None:
-        fail(f"engmem install: cannot create the Claude Desktop config directory: {mkdir_error}")
-        return 2
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    return 0
+    _ensure_directory(config_path.parent, "Claude Desktop config directory")
+    _replace_user_file(config_path, json.dumps(config, indent=2) + "\n")
 
 
 def _uninstall_claude_desktop() -> tuple[int, int]:
-    """`(removed, failed)`, matching `_remove_files`'s shape. Removes exactly
-    `mcpServers.engmem`; every other server and key is left in place."""
+    """`(removed, failed)`; removes exactly `mcpServers.engmem` and nothing else."""
     config_path = _claude_desktop_config_path()
     try:
         config = _load_json_object(config_path)
-    except _MalformedConfigError as exc:
+        mcp_servers = config.get("mcpServers")
+        if not isinstance(mcp_servers, dict) or "engmem" not in mcp_servers:
+            return 0, 0
+        del mcp_servers["engmem"]
+        _replace_user_file(config_path, json.dumps(config, indent=2) + "\n")
+    except _SetupError as exc:
         # duplicated to stdout: fail() reaches the stdout-only consumer too
-        fail(
-            f"{exc} — fix or remove the file by hand and re-run "
-            f"(refusing to overwrite a config engmem cannot parse)"
-        )
+        fail(str(exc))
         return 0, 1
-    mcp_servers = config.get("mcpServers")
-    if not isinstance(mcp_servers, dict) or "engmem" not in mcp_servers:
-        return 0, 0
-    del mcp_servers["engmem"]
-    config["mcpServers"] = mcp_servers
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     return 1, 0
 
 
 def _claude_desktop_entry_present() -> bool:
-    """Whether an `engmem` entry already sits in the config — informational
-    only, used to nudge `uninstall --agent <other>`. A malformed config
-    counts as "nothing found" here."""
     try:
         config = _load_json_object(_claude_desktop_config_path())
-    except _MalformedConfigError:
+    except _SetupError:
         return False
     mcp_servers = config.get("mcpServers")
     return isinstance(mcp_servers, dict) and "engmem" in mcp_servers
@@ -415,9 +438,7 @@ def _reject_local_home_scoped(command: str, agent: str) -> int:
 
 
 def _agent_command_dir(agent: str, local: bool) -> Path | None:
-    """The one place install and uninstall both compute an agent mode's
-    template directory, so their destinations can't drift apart. None for
-    `claude-desktop` — its only artifact is a JSON key, not a file."""
+    """An agent mode's template directory, or None for `claude-desktop`."""
     if agent == "claude":
         return (Path.cwd() if local else Path.home()) / ".claude" / "commands"
     if agent == "copilot-ide":
@@ -428,11 +449,11 @@ def _agent_command_dir(agent: str, local: bool) -> Path | None:
 
 
 def _agent_instructions_file(agent: str, local: bool) -> Path | None:
-    """The trigger-rule file for an agent mode, or None where the mode writes
-    no rule (`copilot-cli`, `claude-desktop`)."""
+    """The trigger-rule file for an agent mode, or None where the mode writes none."""
     if agent == "claude":
-        base = Path.cwd() if local else Path.home()
-        return Path.cwd() / "CLAUDE.md" if local else base / ".claude" / "CLAUDE.md"
+        # --local puts it at the project root, which is where Claude Code reads a
+        # project's CLAUDE.md from; the global one lives inside ~/.claude
+        return Path.cwd() / "CLAUDE.md" if local else Path.home() / ".claude" / "CLAUDE.md"
     if agent == "copilot-ide":
         return Path.cwd() / ".github" / "copilot-instructions.md"
     return None
@@ -448,10 +469,7 @@ def _agent_targets(args: argparse.Namespace) -> tuple[list[Path], Path | None]:
 
 
 def _template_paths_for_agent(agent: str, local: bool) -> list[Path]:
-    """Same computation as `_agent_targets`, keyed on an explicit agent name
-    rather than `args.agent` — used to check whether a *different* agent's
-    files are present. `claude-desktop` is checked separately, by config
-    entry rather than file existence."""
+    """`_agent_targets` keyed on an explicit agent name, for checking another agent's files."""
     dest_dir = _agent_command_dir(agent, local)
     if dest_dir is None:
         return []
@@ -474,9 +492,9 @@ def _other_agents_with_files_present(args: argparse.Namespace) -> list[str]:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    failed = _validate_agent("uninstall", args.agent)
-    if failed:
-        return failed
+    invalid = _validate_agent("uninstall", args.agent)
+    if invalid:
+        return invalid
     if args.local and args.agent in _HOME_SCOPED_AGENTS:
         return _reject_local_home_scoped("uninstall", args.agent)
     if _cwd_is_repo_scoped(args) and not (Path.cwd() / ".git").is_dir():
@@ -491,19 +509,25 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     else:
         removed, failed = _remove_files(template_paths)
 
-    rule_lines = _remove_trigger_rule(instructions) if instructions else 0
+    rule_lines, rule_failed = _remove_trigger_rule_reporting_failure(instructions)
 
     store = resolve_store(args.store)
     item_noun = "config entry(ies)" if args.agent == "claude-desktop" else "template file(s)"
+    incomplete = bool(failed) or rule_failed
     # the verb itself must carry the outcome for a reader who stops at line one
-    summary_verb = "engmem uninstall incomplete" if failed else "engmem uninstalled"
+    summary_verb = "engmem uninstall incomplete" if incomplete else "engmem uninstalled"
     print(
         f"{summary_verb}: {removed} {item_noun} removed, "
         f"{rule_lines} trigger rule line(s) removed, agent={args.agent}"
     )
     if failed:
         print(f"{failed} {item_noun} could not be removed — see stderr; re-run to retry")
-    if removed == 0 and not failed:
+    if rule_failed:
+        print(
+            f"the trigger rule could not be removed from {instructions} — "
+            f"see stderr; re-run to retry"
+        )
+    if removed == 0 and not incomplete:
         # nothing found for the requested agent — worth a nudge before the
         # user concludes engmem was never installed
         other_agents = _other_agents_with_files_present(args)
@@ -514,44 +538,44 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
                 f"the mode you installed with if this wasn't what you meant"
             )
     print(f"store left untouched: {store}  (your documents — remove it yourself if you want)")
-    return 2 if failed else 0
+    return 2 if incomplete else 0
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    failed = _validate_agent("install", args.agent)
-    if failed:
-        return failed
+    invalid = _validate_agent("install", args.agent)
+    if invalid:
+        return invalid
     if args.local and args.agent in _HOME_SCOPED_AGENTS:
         return _reject_local_home_scoped("install", args.agent)
     if _cwd_is_repo_scoped(args) and not (Path.cwd() / ".git").is_dir():
         return _reject_non_repo_cwd("install")
 
+    try:
+        return _run_install(args)
+    except _SetupError as exc:
+        fail(f"engmem install: {exc}")
+        return 2
+
+
+def _run_install(args: argparse.Namespace) -> int:
     store = resolve_store(args.store)
-    failed = _ensure_store(store)
-    if failed:
-        return failed
+    _ensure_store(store)
 
     trigger_added: bool | None = None
     if args.agent in ("claude", "copilot-ide"):
-        failed = _install_templates(
+        _install_templates(
             _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent]
         )
-        if failed:
-            return failed
         trigger_added = _append_trigger_rule(
             _agent_instructions_file(args.agent, args.local)
         )
     elif args.agent == "claude-desktop":
         # no commands directory, no instructions file — only the MCP config entry
-        failed = _install_claude_desktop(store)
-        if failed:
-            return failed
+        _install_claude_desktop(store)
     else:
         # copilot-cli: skills are self-invoked, no global-instructions file to append to
         _install_skill_templates(_agent_command_dir("copilot-cli", args.local))
 
-    trigger_note = ""
-    if trigger_added is False:
-        trigger_note = " (trigger rule already present — not added)"
+    trigger_note = " (trigger rule already present — not added)" if trigger_added is False else ""
     print(f"engmem installed: store={store}, agent={args.agent}{trigger_note}")
     return 0

@@ -1,6 +1,4 @@
-"""Renders search results, the scoreboard, role-filtered results, telemetry
-summaries, and backfill proposals as the plain-text search prints on stdout.
-"""
+"""Renders search results, the scoreboard, telemetry summaries and backfill proposals."""
 
 from __future__ import annotations
 
@@ -147,9 +145,7 @@ def _hit_block(
 
 
 def _selected(outcome: SearchOutcome) -> tuple[list, set[str], list]:
-    """Top-N hits plus the superseded redirects that outrank the shown set —
-    the one place deciding what reaches the reader, so `render_search_results`
-    and `surfaced_ids` never drift apart on it."""
+    """Top-N hits plus the superseded redirects outranking them, so the renderers cannot drift."""
     shown_hits = outcome.hits[:TOP_N]
     shown_ids = {h.doc.id for h in shown_hits}
     # a redirect applies only to a doc that would have WON a top-3 place
@@ -159,11 +155,7 @@ def _selected(outcome: SearchOutcome) -> tuple[list, set[str], list]:
 
 
 def surfaced_ids(outcome: SearchOutcome) -> list[str]:
-    """Every document id actually shown to the agent, in render order. Wider
-    than `hits`: a superseded redirect names the old document and its
-    successor, neither of which is a `hit`. `related` expansion is excluded —
-    it's reconstructible from front matter, and logging it here would claim
-    ids the search never printed."""
+    """Every document id actually shown to the agent, in render order."""
     shown_hits, _, notes = _selected(outcome)
     ids: list[str] = [h.doc.id for h in shown_hits]
     for note in notes:
@@ -190,10 +182,35 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
     for note in notes:
         safe_id = _escape_newlines(note.doc.id)
         safe_superseded_by = _escape_newlines(note.doc.superseded_by)
+        if not note.doc.superseded_by:
+            blocks.append(f"{safe_id}: superseded (no successor recorded)")
+            continue
         if note.successor is None:
             blocks.append(
                 f"{safe_id}: superseded by {safe_superseded_by} "
                 f"(successor not in store)"
+            )
+            continue
+        if note.successor.status == "superseded":
+            # known-wrong, and the reader is not told the chain continues. `_related_line`
+            # already refuses to render a superseded target for the same reason; it collapses
+            # "absent" and "not in store" into one tail, which this splits — and an absent id
+            # must never render as "None", which is what `_escape_newlines(None)` gives
+            onward = note.successor.superseded_by
+            if not onward:
+                tail = "itself superseded, no successor recorded"
+            elif onward not in docs_by_id:
+                tail = f"itself superseded by {_escape_newlines(onward)}, not in store"
+            else:
+                tail = f"itself superseded by {_escape_newlines(onward)}"
+            blocks.append(f"{safe_id}: superseded by {safe_superseded_by} ({tail})")
+            continue
+        if note.successor.status == "draft":
+            # a draft is excluded from search results (data-model.md), and a redirect is
+            # still a search result. Its id comes from the superseded document's own front
+            # matter and is named; the draft's own content is not
+            blocks.append(
+                f"{safe_id}: superseded by {safe_superseded_by} (successor is still a draft)"
             )
             continue
         blocks.append(f"{safe_id}: superseded by {safe_superseded_by}")
@@ -253,10 +270,8 @@ class RoleHit:
 def select_role_hits(
     outcome: SearchOutcome, role_map: dict[str, dict[str, Section]], role: str
 ) -> tuple[list[RoleHit], int]:
-    """Walks word-ranked `outcome.hits` and keeps the first `ROLE_TOP_N` whose
-    document has a `role` section. Returns `(kept, n_with_role)` — `n_with_role`
-    counts every ranked hit carrying the role, past the cap too, so a caller
-    can report a withheld count like an ordinary search does."""
+    """`(kept, n_with_role)`, where `n_with_role` counts past the cap so a withheld count can be
+    reported."""
     kept: list[RoleHit] = []
     n_with_role = 0
     for hit in outcome.hits:
@@ -288,10 +303,7 @@ def _role_hit_block(role_hit: RoleHit, role: str) -> str:
 def render_role_search_results(
     outcome: SearchOutcome, role_map: dict[str, dict[str, Section]], role: str
 ) -> str:
-    """A `--role`-filtered result: each block names the role, so it can't be
-    mistaken for an ordinary word-matched result. Distinguishes "no document
-    matched the query" from "N document(s) matched, but none has this role" —
-    different failures, not one collapsed miss message."""
+    """A `--role` result: "nothing matched" and "matched, but none has this role" stay distinct."""
     kept, n_with_role = select_role_hits(outcome, role_map, role)
     lead = f"role: {role}"
 
@@ -343,9 +355,7 @@ def _navigation_miss_line(count: int) -> str:
 
 
 def render_telemetry_summary(summary: "TelemetrySummary", navigation_misses: int = 0) -> str:
-    """`engmem telemetry`'s reading surface: totals, hit rate, and context
-    spent, by channel and overall — a screenful, not a substitute for reading
-    telemetry.jsonl directly."""
+    """`engmem telemetry`'s reading surface: totals, hit rate and context spent."""
     unreadable_note = (
         f" ({summary.unreadable} unreadable line(s) skipped)" if summary.unreadable else ""
     )
@@ -360,24 +370,30 @@ def render_telemetry_summary(summary: "TelemetrySummary", navigation_misses: int
     return "\n".join(lines) + _navigation_miss_line(navigation_misses)
 
 
+# a whole `Search Keywords` section can yield hundreds of terms; the preview is what a human
+# reads before typing yes, and one 5000-character line is not something anyone reads
+PREVIEW_LIST_MAX = 20
+
+
 def _display_value(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, list):
-        return "[" + ", ".join(str(v) for v in value) + "]"
+        shown = ", ".join(str(v) for v in value[:PREVIEW_LIST_MAX])
+        if len(value) > PREVIEW_LIST_MAX:
+            shown += f", … (+{len(value) - PREVIEW_LIST_MAX} more)"
+        return "[" + shown + "]"
     return str(value)
 
 
 def render_backfill_proposal(proposal: "BackfillProposal") -> str:
-    """`engmem backfill`'s preview: one line per proposed field plus the
-    evidence it came from, so a human approving it sees exactly what would be
-    written before it is."""
+    """`engmem backfill`'s preview: one line per proposed field plus its evidence."""
     if proposal.already_complete:
         return f"{proposal.doc_id}: spine already complete — nothing to backfill"
 
     lines = [f"{proposal.doc_id} ({proposal.path.name}):"]
     if not proposal.fields:
-        lines.append("  (no field could be derived — nothing to write)")
+        lines.append("  (nothing left to write — see the note below)")
     for f in proposal.fields:
         lines.append(f"  {f.name}: {_display_value(f.value)}")
         lines.append(f"    <- {f.source}")

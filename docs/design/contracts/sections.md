@@ -11,6 +11,28 @@ over the 4096-byte cap (max 13.53 KB). Sub-splitting those on `###` drops the
 over-cap count to 2 (max 4.29 KB) — a couple of dense reference sections with no
 `###` boundary at all. See task brief B2 for the full measurement table.
 
+A subsection produced by that sub-split inherits the parent section's canonical role
+unless its own heading names one. Splitting is a size decision, not a semantic one: without
+inheritance the role survived only on the text before the first `###`, so a section that
+opened straight onto its first subheading lost its role entirely — `sections_for_role`
+returned nothing and `sections_by_locator` had no entry for it. Because the role's content
+is then spread over several `Section`s, a consumer that needs the whole of it (`backfill`
+reading `Search Keywords`) must use `sections_for_role`, which returns every piece in
+document order; `sections_by_locator` and `scoring._role_index_from_entries` keep returning
+one section, which is the right answer for a reader being pointed at a place to look.
+
+Which one is not simply "the first". An inherited role loses to a section whose own heading
+names that role, wherever each sits in the document: `CANONICAL_ALIASES` maps several
+headings onto one role (`architecture`/`system architecture`, `business context`/`glossary`),
+so a document can hold two sections answering for one role, and without this rule an
+oversized `## Business Context` splitting into `### Actors` would take `context` away from
+the `## Glossary` below it — pointing a `--role` reader at a subheading that does not name
+the role at all. `role_is_inherited` is that test, and both indexes make two passes with it.
+
+Changing this changed the `canonical` values written into the section cache, so
+`cache.CACHE_FORMAT_VERSION` was bumped to 2 — entries written before it are ignored rather
+than served with stale roles for files whose mtime and size never changed.
+
 `split_sections` deliberately does no tokenisation and is not cached — it measures
 well under a millisecond per document even at an 800-document corpus. The expensive
 step downstream is BM25 tokenisation, which `engmem.scoring` caches on disk keyed

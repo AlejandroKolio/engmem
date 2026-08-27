@@ -102,10 +102,20 @@ active --(save of a LATER doc: human confirms "yes, this supersedes it")--> supe
 - `active`: the only state search actually returns as a primary result.
 - `superseded`: excluded from primary results; a query that would otherwise rank it
   returns `superseded by <id>` plus the successor document, if the successor itself
-  exists in the store.
+  exists in the store and can be output. Two successors cannot: a `draft` one is
+  named but not rendered (a draft is excluded from search results, and a redirect
+  is a search result), and one that is *itself* superseded is named along with what
+  supersedes it, since handing over a known-stale document is the harm the redirect
+  exists to prevent. A superseded document with no `superseded_by` recorded says so
+  rather than naming an absent id.
 - No other transitions exist (a superseded document does not return to `active`; this is
   intentionally out of scope — reversing supersession is a manual front-matter edit, not
   a supported CLI/template operation, per principle V).
+
+`superseded_by` is coerced to `str` like every other id-shaped field. Unquoted, YAML reads
+`2026-01-01` as a `date`, and the MCP `mark_superseded` tool writes the value unquoted,
+re-reads it and compares it against the string it was given — so that round trip used to
+refuse its own write.
 
 ### Reuse Log Entry (row of the Reuse Log table)
 
@@ -130,13 +140,18 @@ section is exactly the sentence `Prior docs used: none.` — never blank, never 
 | error | duplicate `id` across documents | fails loud; the offending document is named in the error (principle VIII) |
 | error | invalid YAML front matter | fails loud for that document |
 | error | the file cannot be read (`OSError`: permission denied, a dangling symlink, a directory shadowing the `.md` name) | fails loud for that document; never an uncaught exception that aborts the whole load |
-| error | `sessions/` itself cannot be listed (`OSError`: permission denied) | distinct from a single unreadable file above — `Path.glob` silently swallows the `os.scandir` failure and would otherwise render an unlistable directory byte-identical, on stdout, to a genuinely empty store; reported as an error (the true document count is unknown, not zero) with a dedicated stdout line, not merely folded into the generic failed-to-load count |
+| error | `sessions/` itself cannot be listed (`OSError`: permission denied) | distinct from a single unreadable file above — the scan uses `Path.iterdir`, which propagates the `os.scandir` failure rather than swallowing it as a glob would and rendering an unlistable directory byte-identical, on stdout, to a genuinely empty store; reported as an error (the true document count is unknown, not zero) with a dedicated stdout line, not merely folded into the generic failed-to-load count |
 | error | a front-matter value of the wrong type for its field (e.g. `capture_minutes: [1, 2]`, `tags: 5`) | fails loud for that document, named by field |
 | error | `id` contains an embedded newline | fails loud for that document; a multi-line `id` can never equal the filename stem, and rendered into a `### <id> (score: ...)` header it forges a second, fabricated result block |
 | warning | `entities` is empty | surfaced on stderr; document still processed |
 | warning | `id` ≠ filename stem | surfaced on stderr; document still processed |
 | warning | a scalar value in a list-typed field (`tags`, `entities`, `related`, `covers_files`), e.g. `entities: WidgetCache` | coerced to a one-element list and named on stderr — never silently exploded into single characters by `list(str)` |
 | warning | `status` is not `draft`/`active`/`superseded` after case-insensitive normalization, e.g. `status: wip` | degraded to `active` and named on stderr — never silently ranks or counts as whichever of the three states its raw string happens to equal |
+| warning | `backfilled` is not a YAML boolean, e.g. `backfilled: "false"` | treated as `false` and named on stderr — `bool("false")` is `True`, so a quoted value would read as the opposite of what it says |
+| warning | `capture_minutes` coerces but was not written as an integer, e.g. `"12"` or `3.9` | read and named on stderr, so the same quoting slip is reported for this field as for `backfilled` |
+| warning | `superseded_by` is not a string, e.g. an unquoted `2026-01-01` | read as its `str` and named — a non-string would otherwise print as a fabricated id |
+| error | `capture_minutes` is `.inf`/`.nan` | the document is skipped, the rest of the store still returns. `int(float("inf"))` raises `OverflowError` and `.nan` raises `ValueError`; `_coerce_int` catches both and re-raises as the `ValueError` `load_store` handles, so one document's infinity does not take the whole load down |
+| error | `capture_minutes` is a boolean | rejected: `int(True)` is `1`, so a boolean would arrive as one measured minute rather than as the wrong type it is |
 
 Per spec FR-008 / Edge Cases: an **error** on one document during a `search` call MUST
 NOT abort the whole call — the malformed document is skipped (with the error/warning

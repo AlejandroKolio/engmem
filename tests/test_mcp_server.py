@@ -1,17 +1,16 @@
-"""Contract tests for the stdio MCP server (`engmem.mcp_server.serve`).
-
-Transport rule under test throughout: stdout carries newline-delimited JSON-RPC
-frames and nothing else. Every test that inspects stdout parses it strictly as
-one JSON object per line; a stray non-JSON line anywhere is a protocol violation.
-"""
+"""Contract tests for the stdio MCP server: stdout carries newline-delimited JSON-RPC frames and
+nothing else."""
 
 from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+from conftest import requires_permission_enforcement
 
 from engmem import __version__, mcp_server
 from engmem.mcp_server import serve
@@ -20,22 +19,9 @@ PROTOCOL_VERSION = "2025-06-18"
 
 
 # ---------------------------------------------------------------------------
-# The real process stdout must never see a single byte from `serve()` — every
-# test in this module runs against this guard so a stray write anywhere fails
-# loudly instead of silently landing in a buffer no assertion ever reads (see
-# the module docstring). The tests below also pass `serve()` an explicit
-# `io.StringIO()` via `_run`/direct calls, which is unaffected — this fixture
-# only catches code that reaches the real `sys.stdout` directly instead of
-# that injected stream.
-#
-# Deliberately built on pytest's own `capsys` fixture rather than a
-# monkeypatched stand-in object: pytest's capture manager re-establishes its
-# own capture object on `sys.stdout` at the setup/call phase boundary, which
-# silently discards a plain `monkeypatch.setattr(sys, "stdout", ...)` done
-# during fixture setup — tried first, and proven not to work. Reading pytest's
-# own capture buffer via `capsys` sidesteps that entirely: whatever pytest
-# itself intercepted is exactly what is asserted empty here, regardless of
-# which capture object pytest chose.
+# The real process stdout must never see a single byte from `serve()` — every test in this module
+# runs against this guard so a stray write anywhere fails loudly instead of silently landing in a
+# buffer no assertion ever reads (see the module docstring).
 # ---------------------------------------------------------------------------
 
 
@@ -64,9 +50,8 @@ def _stdin_of_messages(*messages: dict) -> io.StringIO:
 
 
 def _run(store: Path, *messages: dict) -> tuple[int, list[dict], str]:
-    """Feeds each message as its own line, returns (exit_code, parsed_responses,
-    raw_stdout). Every non-empty stdout line MUST be valid JSON — that is checked
-    unconditionally here, not left to individual tests to remember."""
+    """`(exit_code, parsed_responses, raw_stdout)`; every non-empty stdout line must be valid
+    JSON, checked here unconditionally."""
     stdin = _stdin_of_messages(*messages)
     stdout = io.StringIO()
     exit_code = serve(store, stdin=stdin, stdout=stdout)
@@ -102,9 +87,8 @@ def _prompts_get_msg(msg_id, *, name, arguments=None) -> dict:
 
 
 def _engmem_arg_name(store) -> str:
-    """The declared argument name for the `engmem` prompt, discovered the way a
-    real client would (via prompts/list) rather than hard-coded, so a rename of
-    the underlying argument-hint text does not silently desync these tests."""
+    """Discovered via prompts/list the way a real client would, so an argument rename cannot
+    silently desync these tests."""
     list_msg = {"jsonrpc": "2.0", "id": 999, "method": "prompts/list"}
     _, responses, _ = _run(store, list_msg)
     prompt = next(p for p in responses[0]["result"]["prompts"] if p["name"] == "engmem")
@@ -176,9 +160,8 @@ def test_initialize_with_unsupported_client_version_does_not_error(store):
 
 
 # ---------------------------------------------------------------------------
-# ping — MUST be answered promptly with an empty result, unconditionally
-# (spec 2025-06-18, Utilities/Ping): not gated behind a declared capability.
-# Claude Desktop uses this as a liveness probe.
+# ping — MUST be answered promptly with an empty result, unconditionally (spec 2025-06-18,
+# Utilities/Ping): not gated behind a declared capability.
 # ---------------------------------------------------------------------------
 
 
@@ -219,10 +202,7 @@ def test_notifications_initialized_then_a_real_request_still_works(store):
 
 
 def test_tools_list_exposes_engmem_search_first(store):
-    """`engmem_search` stays first in the list — the second, role-addressed tool
-    (see the role-search tests below) is an addition alongside it, never a
-    replacement, and every test that indexes `tools[0]` (e.g. the input-schema
-    test right below) depends on this order."""
+    """`engmem_search` stays first: every test that indexes `tools[0]` depends on this order."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
@@ -234,11 +214,7 @@ def test_tools_list_exposes_engmem_search_first(store):
 
 
 def test_tools_list_exposes_exactly_two_read_tools(store):
-    """Role-addressed retrieval is a second tool alongside `engmem_search`, not a
-    parameter bolted onto it — a model deciding whether the question is about
-    subject matter or structure picks between two named tools. (The store's write
-    tools — engmem_create_draft, engmem_complete_draft, engmem_mark_superseded —
-    are a separate, later addition; see test_mcp_write_tools.py.)"""
+    """Role-addressed retrieval is a second named tool, not a parameter bolted onto the first."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
@@ -249,10 +225,8 @@ def test_tools_list_exposes_exactly_two_read_tools(store):
 
 
 def test_tools_list_exposes_exactly_the_five_documented_tools(store):
-    """A closed inventory check, deliberately separate from the read-only check
-    above: every tool this server has ever declared, named once, so a stray sixth
-    tool (or a silently dropped one) fails loudly here rather than passing by
-    omission."""
+    """A closed inventory, so a stray sixth tool or a silently dropped one fails loudly rather
+    than passing by omission."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
@@ -353,15 +327,13 @@ def test_tools_call_missing_store_reports_in_result_without_dying(empty_store):
     assert "error" not in responses[0]
 
 
-def test_tools_call_missing_query_argument_is_invalid_params(store):
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments={}))
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-
-
-def test_tools_call_blank_query_is_invalid_params(store):
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "   "}))
+@pytest.mark.parametrize(
+    "arguments",
+    [{}, {"query": "   "}],
+    ids=["missing", "blank"],
+)
+def test_tools_call_missing_or_blank_query_is_invalid_params(store, arguments):
+    _, responses, _ = _run(store, _tools_call_msg(3, arguments=arguments))
 
     error = responses[0]["error"]
     assert error["code"] == -32602
@@ -380,9 +352,18 @@ def test_tools_call_unknown_tool_name_is_invalid_params(store):
 # the wrong JSON type) must not be reported as "unknown tool: None" — that
 # tells a client author they asked for a real tool literally called None.
 
+_NO_PARAMS_KEY = object()  # sentinel: omit the "params" key entirely, vs. explicit params=None
 
-def test_tools_call_with_no_params_at_all_names_the_missing_field(store):
+
+@pytest.mark.parametrize(
+    "params",
+    [_NO_PARAMS_KEY, None, [1, 2]],
+    ids=["omitted", "null", "array"],
+)
+def test_tools_call_with_malformed_params_names_the_missing_field(store, params):
     msg = {"jsonrpc": "2.0", "id": 3, "method": "tools/call"}
+    if params is not _NO_PARAMS_KEY:
+        msg["params"] = params
     _, responses, _ = _run(store, msg)
 
     error = responses[0]["error"]
@@ -391,31 +372,9 @@ def test_tools_call_with_no_params_at_all_names_the_missing_field(store):
     assert "none" not in error["message"].lower()
 
 
-def test_tools_call_with_null_params_names_the_missing_field(store):
-    msg = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": None}
-    _, responses, _ = _run(store, msg)
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-    assert "name" in error["message"].lower()
-    assert "none" not in error["message"].lower()
-
-
-def test_tools_call_with_array_params_names_the_missing_field(store):
-    msg = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": [1, 2]}
-    _, responses, _ = _run(store, msg)
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-    assert "name" in error["message"].lower()
-    assert "none" not in error["message"].lower()
-
-
-# --- a permission failure scanning the store root for stray markdown must
-# surface as a tool-level `isError` result, not a JSON-RPC internal error — the
-# module's own docstring says a store condition is never a protocol fault. This
-# targets only the stray-file scan (`stray_documents`), not `load_store`'s own
-# handling of an unreadable `sessions/` directory (a separate concern).
+# --- a permission failure scanning the store root for stray markdown must surface as a tool-level
+# `isError` result, not a JSON-RPC internal error — the module's own docstring says a store
+# condition is never a protocol fault.
 
 
 def test_tools_call_unreadable_store_root_scan_is_a_tool_error_not_a_protocol_fault(
@@ -439,9 +398,40 @@ def test_tools_call_unreadable_store_root_scan_is_a_tool_error_not_a_protocol_fa
     assert "content" in result
 
 
-# --- a `tools/call` with no `id` is unanswerable — any response would be
-# discarded (notifications get none) — so the (potentially expensive) store
-# scan behind it must never run at all.
+def test_tools_call_prints_load_store_warnings_to_stderr(store, capsys):
+    """Mirrors the errors loop right above it in `_load_store_for_tool` — warnings take the same
+    path to stderr and were previously untested."""
+    (store / "sessions" / "20260103-no-entities.md").write_text(
+        """---
+id: 20260103-no-entities
+title: No entities doc
+date: 2026-01-03
+task_date: 2026-01-03
+status: active
+tags: []
+entities: []
+related: []
+covers_files: []
+---
+
+## Cold-start primer
+
+Body text with no entities listed.
+""",
+        encoding="utf-8",
+    )
+
+    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+
+    # asserted here, not drained and left for the autouse fixture: draining capsys inside the
+    # test would make `_real_stdout_must_stay_empty`'s teardown check pass vacuously
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "entities is empty" in captured.err
+
+
+# --- a `tools/call` with no `id` is unanswerable — any response would be discarded (notifications
+# get none) — so the (potentially expensive) store scan behind it must never run at all.
 
 
 def test_notification_shaped_tools_call_never_runs_the_store_scan(store, monkeypatch):
@@ -465,10 +455,8 @@ def test_notification_shaped_tools_call_never_runs_the_store_scan(store, monkeyp
 
 
 def test_tools_call_on_broken_store_never_puts_non_json_on_stdout(tmp_path):
-    """Covers the three ways a store can be broken at once: missing directory
-    (separate test above), malformed YAML, and an unreadable document (a
-    directory shadowing the .md filename, per spine.py's own note on that case). None of
-    these may crash the loop or corrupt a stdout frame."""
+    """Missing directory, malformed YAML and an unreadable document at once — none may crash the
+    loop or corrupt a frame."""
     sessions = tmp_path / "sessions"
     sessions.mkdir()
     (sessions / "20260101-widget-cache.md").write_text(
@@ -520,9 +508,8 @@ def _role_tools_call_msg(msg_id, *, query, role, session_id=None) -> dict:
 
 @pytest.fixture
 def role_store(tmp_path) -> Path:
-    """One document with a Decision Log AND a Lessons Learned section, and one
-    matching the same query with neither — the role tool must return only the
-    former's role section and skip the latter outright, never pad it."""
+    """One document carrying the role and one matching the same query without it, which must be
+    skipped rather than padded."""
     sessions = tmp_path / "sessions"
     sessions.mkdir()
     (sessions / "20260101-widget-cache.md").write_text(
@@ -595,25 +582,22 @@ def test_role_tool_states_when_no_matched_document_has_the_role(role_store):
     assert "none" in text.lower()
 
 
-def test_role_tool_missing_role_argument_is_invalid_params(role_store):
+@pytest.mark.parametrize(
+    "arguments, expected_substring",
+    [
+        ({"query": "WidgetCache"}, " (missing)"),
+        ({"query": "WidgetCache", "role": "not-a-real-role"}, " (got 'not-a-real-role')"),
+    ],
+    ids=["missing_role", "unknown_role_value_names_valid_ones"],
+)
+def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, expected_substring):
     _, responses, _ = _run(
-        role_store, _tools_call_msg(3, name="engmem_search_by_role", arguments={"query": "WidgetCache"})
+        role_store, _tools_call_msg(3, name="engmem_search_by_role", arguments=arguments)
     )
 
     error = responses[0]["error"]
     assert error["code"] == -32602
-    assert "role" in error["message"].lower()
-
-
-def test_role_tool_unknown_role_value_is_invalid_params_naming_the_valid_ones(role_store):
-    _, responses, _ = _run(
-        role_store,
-        _role_tools_call_msg(3, query="WidgetCache", role="not-a-real-role"),
-    )
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-    assert "decisions" in error["message"]
+    assert expected_substring in error["message"].lower()
 
 
 def test_role_tool_missing_store_reports_in_result_without_dying(empty_store):
@@ -650,6 +634,51 @@ def test_role_tool_writes_its_own_telemetry_line_with_role_and_session(role_stor
     assert telemetry["role"] == "decisions"
     assert telemetry["session_id"] == "s-1"
     assert telemetry["surfaced"] == ["20260101-widget-cache"]
+
+
+def test_role_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
+    """Role-addressed counterpart to `test_tool_result_reports_an_unreadable_subdirectory`."""
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+    (store / "sessions" / "widget-cache.md").write_text(
+        "---\nid: widget-cache\ntitle: Widget Cache\ndate: 2026-05-04\n"
+        "entities: [WidgetCache]\n---\n\n## Decision Log\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    def boom(_store):
+        return [], [f"{_store}/sessions/archive: cannot list directory for stray documents"]
+
+    monkeypatch.setattr("engmem.mcp_server.stray_documents", boom)
+
+    text, is_error = mcp_server._run_role_search_for_tool(store, "WidgetCache", "decisions")
+
+    assert "cannot list directory" in text
+
+
+def test_role_tool_notes_stray_files_when_no_role_hits(role_store):
+    (role_store / "some-stray-notes.md").write_text("not in sessions/", encoding="utf-8")
+
+    _, responses, _ = _run(
+        role_store, _role_tools_call_msg(3, query="WidgetCache", role="production")
+    )
+
+    text = responses[0]["result"]["content"][0]["text"]
+    assert "sit outside the searched set" in text
+
+
+def test_role_tool_telemetry_failure_note_reaches_the_agent_without_breaking_the_protocol(
+    role_store,
+):
+    (role_store / "telemetry.jsonl").mkdir()
+
+    _, responses, _ = _run(
+        role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions")
+    )
+
+    text = responses[0]["result"]["content"][0]["text"]
+    assert "note: telemetry not recorded" in text
+    assert "isError" not in responses[0]["result"]
 
 
 # ---------------------------------------------------------------------------
@@ -746,13 +775,9 @@ def test_prompts_get_engmem_missing_argument_substitutes_empty_not_literal(store
     assert 'Task description: ""' in text
 
 
-# --- the argument substitution once used a truthiness check (`if value else
-# ""`) where an emptiness check belongs, and fell back to Python's `str()`/
-# `repr()` for non-string JSON values — leaking `{'a': 1}`-style text into a
-# prompt body. Per the MCP spec, `prompts/get` arguments are always strings
-# (`Record<string, string>`); a non-string value is a malformed request, the
-# same class of problem as `tools/call` missing its required `query` — so it
-# is rejected with -32602 rather than coerced or silently emptied.
+# --- the argument substitution once used a truthiness check (`if value else ""`) where an
+# emptiness check belongs, and fell back to Python's `str()`/ `repr()` for non-string JSON values
+# — leaking `{'a': 1}`-style text into a prompt body.
 
 
 def test_prompts_get_explicit_empty_string_argument_substitutes_to_empty(store):
@@ -765,7 +790,9 @@ def test_prompts_get_explicit_empty_string_argument_substitutes_to_empty(store):
     assert 'Task description: ""' in text
 
 
-@pytest.mark.parametrize("bad_value", [0, False, {"a": 1}, ["a", "b"]])
+@pytest.mark.parametrize(
+    "bad_value", [0, False, {"a": 1}, ["a", "b"]], ids=["int", "bool", "dict", "list"]
+)
 def test_prompts_get_non_string_argument_is_rejected_not_stringified(store, bad_value):
     arg_name = _engmem_arg_name(store)
     msg = _prompts_get_msg(5, name="engmem", arguments={arg_name: bad_value})
@@ -778,6 +805,49 @@ def test_prompts_get_non_string_argument_is_rejected_not_stringified(store, bad_
     assert repr(bad_value) not in error["message"]
 
 
+# ---------------------------------------------------------------------------
+# `_load_template` defensive branches: a shipped template (install.py's own
+# templates/*.md) always has well-formed mapping front matter, so these three
+# shapes only arise from a corrupted or hand-edited install — not a live user
+# action, but a real state the file on disk can end up in.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "content, expected_body",
+    [
+        pytest.param(
+            "no front matter delimiter at all\n",
+            "no front matter delimiter at all\n",
+            id="missing_delimiter",
+        ),
+        pytest.param(
+            "---\nunclosed: front matter\n",
+            "---\nunclosed: front matter\n",
+            id="unclosed_delimiter",
+        ),
+        pytest.param(
+            "---\n- just\n- a\n- list\n---\nbody\n",
+            "body\n",
+            id="non_mapping_front_matter",
+        ),
+    ],
+)
+def test_load_template_falls_back_on_a_malformed_template_file(
+    monkeypatch, tmp_path, content, expected_body
+):
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+    (templates_dir / "broken.md").write_text(content, encoding="utf-8")
+    monkeypatch.setattr(mcp_server.resources, "files", lambda pkg: tmp_path)
+
+    description, argument_hint, body = mcp_server._load_template("broken.md")
+
+    assert description == ""
+    assert argument_hint is None
+    assert body == expected_body
+
+
 def test_prompts_get_unknown_prompt_name_is_invalid_params(store):
     _, responses, _ = _run(store, _prompts_get_msg(5, name="not-a-real-prompt"))
 
@@ -785,10 +855,25 @@ def test_prompts_get_unknown_prompt_name_is_invalid_params(store):
     assert error["code"] == -32602
 
 
+@pytest.mark.parametrize(
+    "bad_name",
+    [{"engmem": 1}, ["engmem"], 7, None],
+    ids=["object", "array", "number", "null"],
+)
+def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(store, bad_name):
+    # an object or array `name` is unhashable: looked up in PROMPT_TEMPLATES it raises
+    # TypeError, which the last-resort guard would report as -32603 — a client's malformed
+    # request dressed up as a server bug
+    _, responses, _ = _run(store, _prompts_get_msg(5, name=bad_name))
+
+    error = responses[0]["error"]
+    assert error["code"] == -32602
+    assert "unknown prompt" in error["message"]
+
+
 def test_prompts_get_with_string_params_names_the_missing_field(store):
-    # `"params": "engmem"` is not a JSON object at all — `name` is missing, not
-    # present-but-wrong, so the message must say so rather than claiming
-    # "engmem" is an unknown prompt.
+    # `"params": "engmem"` is not a JSON object at all — `name` is missing, not present-but-wrong,
+    # so the message must say so rather than claiming "engmem" is an unknown prompt.
     msg = {"jsonrpc": "2.0", "id": 5, "method": "prompts/get", "params": "engmem"}
     _, responses, _ = _run(store, msg)
 
@@ -849,10 +934,8 @@ def test_stdin_closing_makes_serve_return_cleanly(store):
 
 
 def test_a_deeply_nested_json_line_does_not_crash_the_loop(store):
-    """A pathologically nested array parses past json.JSONDecodeError straight into a
-    RecursionError (CPython's json module has no depth cap of its own) — this must be
-    reported as an ordinary parse error, not left to escape `serve()` and kill the rest
-    of the session."""
+    """A pathologically nested array raises RecursionError past json.JSONDecodeError; it must read
+    as an ordinary parse error."""
     deeply_nested = "[" * 100_000 + "]" * 100_000
     stdin = _stdin_of(deeply_nested, json.dumps(_initialize_msg(msg_id=13)))
     stdout = io.StringIO()
@@ -868,6 +951,57 @@ def test_a_deeply_nested_json_line_does_not_crash_the_loop(store):
     assert exit_code == 0
 
 
+# ---------------------------------------------------------------------------
+# UTF-8 transport. `\ud800` is well-formed JSON syntax that `json.loads` accepts, but the string
+# it produces cannot be encoded as UTF-8 at all — so it can be neither written to a document nor
+# echoed back inside a frame a strict client will parse. It has to be refused at the envelope.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"jsonrpc": "2.0", "id": "\ud800", "method": "ping"},
+        {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "\ud800"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "engmem_search", "arguments": {"query": "cache \udfff"}},
+        },
+        {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"\ud800": "value"}},
+    ],
+    ids=["in_the_id", "in_a_prompt_name", "in_a_tool_argument", "in_a_params_key"],
+)
+def test_an_unpaired_surrogate_anywhere_in_a_message_is_invalid_request(store, message):
+    stdin = _stdin_of(json.dumps(message), json.dumps(_initialize_msg(msg_id=14)))
+    stdout = io.StringIO()
+
+    exit_code = serve(store, stdin=stdin, stdout=stdout)
+
+    lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    assert first["error"]["code"] == -32600
+    assert "surrogate" in first["error"]["message"]
+    # the id may itself be the unencodable value, so it is never echoed
+    assert first["id"] is None
+    # every stdout frame must survive a strict re-encode, not just Python's tolerant json
+    assert lines[0].encode("utf-8")
+    assert json.loads(lines[1])["id"] == 14, "the loop must keep serving the next request"
+    assert exit_code == 0
+
+
+def test_a_valid_surrogate_pair_is_not_mistaken_for_an_unpaired_one(store):
+    """Guard against over-rejection: an astral character arrives as two `\\u` escapes that the
+    decoder joins into one code point, which encodes to UTF-8 perfectly well."""
+    msg = _tools_call_msg(15, arguments={"query": "widget \U0001f600 cache"})
+    _, responses, _ = _run(store, msg)
+
+    assert "error" not in responses[0], responses[0]
+    assert responses[0]["result"]["content"][0]["text"]
+
+
 def test_a_non_object_top_level_message_is_invalid_request(store):
     stdin = _stdin_of(json.dumps([1, 2, 3]))
     stdout = io.StringIO()
@@ -880,34 +1014,52 @@ def test_a_non_object_top_level_message_is_invalid_request(store):
 
 
 # ---------------------------------------------------------------------------
-# `jsonrpc` version validation. Decision: enforce it. Claude Desktop always
-# sends exactly "2.0", so a real client is never at risk; a wrong or missing
-# version is itself the signature of a client that misimplements the protocol,
-# and the spec is unambiguous that -32600 is the answer. Treated exactly like
-# the existing "missing method" check just above: an id gets an error
-# response, a notification-shaped message gets silence, never a normal result.
+# `jsonrpc` version validation.
 # ---------------------------------------------------------------------------
 
 
-def test_jsonrpc_version_1_0_is_invalid_request(store):
-    msg = {"jsonrpc": "1.0", "id": 1, "method": "initialize", "params": {}}
-    _, responses, _ = _run(store, msg)
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"jsonrpc": "1.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": 99, "id": 1, "method": "initialize", "params": {}},
+        {"id": 1, "method": "initialize", "params": {}},
+    ],
+    ids=["wrong_version_string", "wrong_version_type", "field_missing"],
+)
+def test_invalid_jsonrpc_field_is_invalid_request(store, message):
+    _, responses, _ = _run(store, message)
 
     assert responses[0]["error"]["code"] == -32600
 
 
-def test_jsonrpc_version_wrong_type_is_invalid_request(store):
-    msg = {"jsonrpc": 99, "id": 1, "method": "initialize", "params": {}}
+# --- a request-shaped message with no usable `method` at all: previously untested, so the
+# `_dispatch` branch that answers it (or, for a notification, deliberately does not) had no
+# coverage.
+
+
+@pytest.mark.parametrize(
+    "method",
+    [None, "", 123],
+    ids=["absent", "empty_string", "wrong_type"],
+)
+def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method):
+    msg = {"jsonrpc": "2.0", "id": 1, "params": {}}
+    if method is not None:
+        msg["method"] = method
     _, responses, _ = _run(store, msg)
 
     assert responses[0]["error"]["code"] == -32600
+    assert "method" in responses[0]["error"]["message"].lower()
 
 
-def test_missing_jsonrpc_field_is_invalid_request(store):
-    msg = {"id": 1, "method": "initialize", "params": {}}
-    _, responses, _ = _run(store, msg)
+def test_missing_method_notification_shaped_produces_no_response(store):
+    msg = {"jsonrpc": "2.0", "params": {}}  # no "method", no "id" — unanswerable either way
+    exit_code, responses, raw = _run(store, msg)
 
-    assert responses[0]["error"]["code"] == -32600
+    assert exit_code == 0
+    assert responses == []
+    assert raw == ""
 
 
 def test_jsonrpc_wrong_version_notification_produces_no_response(store):
@@ -920,25 +1072,32 @@ def test_jsonrpc_wrong_version_notification_produces_no_response(store):
 
 
 # ---------------------------------------------------------------------------
-# `id` type validation: JSON-RPC 2.0 restricts `id` to string, number, or
-# null. Per spec, when the id itself cannot be trusted the error response's id
-# MUST be null, not an echo of the malformed value.
+# `id` type validation: JSON-RPC 2.0 restricts `id` to string, number, or null.
 # ---------------------------------------------------------------------------
 
 
-def test_object_id_is_invalid_request_with_a_null_id_in_the_response(store):
-    msg = {"jsonrpc": "2.0", "id": {"a": 1}, "method": "initialize", "params": {}}
+@pytest.mark.parametrize(
+    "bad_id",
+    [{"a": 1}, [1, 2]],
+    ids=["object_id", "array_id"],
+)
+def test_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store, bad_id):
+    msg = {"jsonrpc": "2.0", "id": bad_id, "method": "initialize", "params": {}}
+    _, responses, _ = _run(store, msg)
+
+    assert responses[0]["error"]["code"] == -32600
+    # the error's own id is null, never an echo of an id that could not be trusted in the first place
+    assert responses[0]["id"] is None
+
+
+def test_a_boolean_id_is_invalid_request_despite_bool_being_an_int_subclass(store):
+    # `isinstance(True, int)` is True, so a plain `(str, int, float)` check waves `id: true`
+    # through and echoes it back as an id JSON-RPC 2.0 does not allow
+    msg = {"jsonrpc": "2.0", "id": True, "method": "initialize", "params": {}}
     _, responses, _ = _run(store, msg)
 
     assert responses[0]["error"]["code"] == -32600
     assert responses[0]["id"] is None
-
-
-def test_array_id_is_invalid_request(store):
-    msg = {"jsonrpc": "2.0", "id": [1, 2], "method": "initialize", "params": {}}
-    _, responses, _ = _run(store, msg)
-
-    assert responses[0]["error"]["code"] == -32600
 
 
 def test_falsy_ids_zero_and_empty_string_are_still_handled_correctly(store):
@@ -977,8 +1136,8 @@ def test_broken_pipe_while_writing_exits_cleanly_without_raising(store):
 
 
 def test_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
-    """The CLI names an unlistable directory; the MCP tool asked the same question
-    through its own private copy of the scan and silently answered "none"."""
+    """The MCP tool asked the same question through its own copy of the scan and silently answered
+    "none"."""
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     (store / "sessions" / "widget-cache.md").write_text(
@@ -1056,11 +1215,12 @@ def test_session_id_is_stripped_the_same_way_the_cli_strips_it(store):
     assert _telemetry_lines(store)[0]["session_id"] == "20260823-draft"
 
 
-@pytest.mark.parametrize("bad_value", [0, False, {"a": 1}, ["x"]])
+@pytest.mark.parametrize(
+    "bad_value", [0, False, {"a": 1}, ["x"]], ids=["int", "bool", "dict", "list"]
+)
 def test_non_string_session_id_is_rejected_not_stringified(store, bad_value):
-    """Same rule as `query` and as prompts/get arguments: a wrongly-typed value is a
-    malformed request, not something to coerce — `str()` on a dict would write Python
-    repr syntax straight into the experiment's own log."""
+    """A wrongly-typed value is a malformed request, not something to coerce — `str()` on a dict
+    would log Python repr syntax."""
     _, responses, _ = _run(
         store,
         _tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": bad_value}),
@@ -1081,17 +1241,15 @@ def test_a_search_that_found_nothing_is_still_logged(store):
 
 
 def test_missing_store_is_not_logged_as_a_search(empty_store):
-    """Mirrors the CLI, which exits before logging: no store means no measurement, and
-    a row here would inflate the search count with runs that never happened."""
+    """No store means no measurement; a row here would inflate the search count with runs that
+    never happened."""
     _run(empty_store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     assert _telemetry_lines(empty_store) == []
 
 
 def test_telemetry_failure_note_reaches_the_agent_without_breaking_the_protocol(store):
-    """The CLI prints this note to stdout because that is what its reader reads. Here
-    stdout carries JSON-RPC frames only, so the note must travel inside the tool result
-    text — `_run` already asserts every stdout line parses as JSON."""
+    """Here stdout carries frames only, so the note must travel inside the tool result text."""
     (store / "telemetry.jsonl").mkdir()
 
     _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
@@ -1111,12 +1269,7 @@ def test_tools_list_declares_session_id_as_an_optional_string(store):
 
 
 # ---------------------------------------------------------------------------
-# `channel` + `context_bytes` — the MCP side of both. `channel` must always
-# read "mcp" for a search run through the tool-call path, distinguishing this
-# population from a CLI search in the same `telemetry.jsonl` file.
-# `context_bytes` must be the exact UTF-8 byte count of the document-derived
-# render the caller actually received — computed the same way as the CLI's,
-# so the number means the same thing regardless of which channel produced it.
+# `channel` + `context_bytes` — the MCP side of both.
 # ---------------------------------------------------------------------------
 
 
@@ -1161,9 +1314,7 @@ def test_tools_call_context_bytes_is_near_zero_for_a_miss(store):
 
 
 def test_tools_call_context_bytes_excludes_the_stray_files_note(store):
-    """A store with stray markdown files appends a note to the tool result text on a
-    miss — that note is store housekeeping, not prior-document content, and must not
-    inflate `context_bytes` (mirrors the CLI's same exclusion)."""
+    """Stray-file housekeeping is not prior-document content and must not inflate `context_bytes`."""
     from engmem.output import render_no_match
 
     (store / "some-stray-notes.md").write_text("not in sessions/", encoding="utf-8")
@@ -1202,3 +1353,28 @@ def test_tools_call_records_a_token_estimate_derived_from_context_bytes(store):
 
     row = _telemetry_lines(store)[0]
     assert row["context_tokens_estimate"] == estimate_tokens(row["context_bytes"])
+
+
+@requires_permission_enforcement
+def test_an_unreadable_store_is_a_tool_error_not_an_internal_error(tmp_path):
+    """`is_dir()` propagates a PermissionError, which reached the client as `-32603` — the
+    channel reserved for engmem's own bugs — with no named cause and no remedy."""
+    store = tmp_path / "store"
+    sessions = store / "sessions"
+    sessions.mkdir(parents=True)
+
+    # the *parent*: `is_dir()` on `sessions` itself still succeeds while `store` is readable,
+    # and `load_store` then reports the unlistable directory in its own words
+    os.chmod(store, 0o000)
+    try:
+        _, responses, _ = _run(
+            store,
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+             "params": {"name": "engmem_search", "arguments": {"query": "anything"}}},
+        )
+    finally:
+        os.chmod(store, 0o755)
+
+    result = responses[0]["result"]
+    assert result.get("isError") is True
+    assert "store not readable" in result["content"][0]["text"]

@@ -1,18 +1,13 @@
-"""`tools/verify_citations.py` — the check the save template already promises.
-
-`engmem.save.md`'s Reuse Log rules say a quote "is checked mechanically against the cited
-file, so an approximate quote reads as a fabricated one." Nothing performed that check, so
-the sentence was a claim about a tool that did not exist — in the layer the project calls
-its product. These tests are the check's contract.
-"""
+"""The save template promised a mechanical quote check that nothing performed; these tests are its
+contract."""
 
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
+from conftest import run_tool
+
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "verify_citations.py"
 
@@ -28,11 +23,8 @@ def _doc(sessions: Path, doc_id: str, body: str, *, status: str = "active",
     )
 
 
-def _run(store: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, str(TOOL), "--store", str(store)],
-        capture_output=True, text=True, timeout=30,
-    )
+def _run(store: Path) -> "subprocess.CompletedProcess[str]":
+    return run_tool(TOOL, store)
 
 
 def _cited(quote: str) -> str:
@@ -56,8 +48,8 @@ def test_a_quote_that_is_in_the_cited_document_passes(tmp_path):
 
 
 def test_a_quote_that_is_not_in_the_cited_document_is_reported(tmp_path):
-    """The failure this exists to catch: a quote that reads plausibly but was never
-    written in the document it is attributed to."""
+    """The failure this exists to catch: a quote that reads plausibly but was never written where
+    it is attributed."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot, not lazily.")
     _doc(sessions, "widget-cache-v2", _cited("Eviction is performed lazily on first read."))
@@ -70,8 +62,7 @@ def test_a_quote_that_is_not_in_the_cited_document_is_reported(tmp_path):
 
 
 def test_whitespace_and_line_wrapping_do_not_count_as_a_mismatch(tmp_path):
-    """A quote copied out of a wrapped paragraph carries a newline where the reader saw a
-    space. Failing on that would train people to ignore the checker."""
+    """A quote copied from a wrapped paragraph carries a newline where the reader saw a space."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot,\nnot lazily.")
     _doc(sessions, "widget-cache-v2", _cited("Eviction runs on boot, not lazily."))
@@ -80,8 +71,8 @@ def test_whitespace_and_line_wrapping_do_not_count_as_a_mismatch(tmp_path):
 
 
 def test_a_row_with_no_detectable_quote_is_reported(tmp_path):
-    """The template forbids a quoteless row outright. Undelimited prose cannot be checked,
-    so it is reported rather than silently accepted."""
+    """Undelimited prose cannot be checked, so a quoteless row is reported rather than silently
+    accepted."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
     _doc(
@@ -131,9 +122,8 @@ def test_a_clean_store_says_so_on_stdout(tmp_path):
 
 
 def test_a_row_citing_a_superseded_document_is_flagged_with_its_successor(tmp_path):
-    """The quote is genuine, so this is not a fabrication — it is the other way a Reuse
-    Log row goes wrong: real reuse of knowledge that has since been replaced. After the
-    session ends the two are indistinguishable, so it has to be surfaced here."""
+    """The quote is genuine — this is real reuse of knowledge since replaced, indistinguishable
+    once the session ends."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.",
          status="superseded", superseded_by="widget-cache-v2")
@@ -148,9 +138,8 @@ def test_a_row_citing_a_superseded_document_is_flagged_with_its_successor(tmp_pa
 
 
 def test_a_superseded_citation_alone_does_not_fail_the_run(tmp_path):
-    """Exit code means "a citation could not be verified". This one verified fine. Making
-    it fail too would blur the two, and a checker that cries about both is one people stop
-    running."""
+    """This citation verified fine, and a checker that cries about both kinds of problem is one
+    people stop running."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.",
          status="superseded", superseded_by="widget-cache-v2")
@@ -182,15 +171,13 @@ def test_the_footer_counts_the_two_kinds_separately(tmp_path):
 
     out = _run(tmp_path).stdout
 
-    assert "0 unverifiable" in out
-    assert "1 " in out and "superseded" in out
+    assert "0 unverifiable citation(s), 1 citing a superseded document" in out
 
 
 
 def test_the_report_is_printable_on_a_windows_console(tmp_path):
-    """Windows writes stdout in the locale code page, not UTF-8. A character outside it
-    raises `UnicodeEncodeError` inside the tool — so the run fails with no report at all,
-    which is the least useful way for a checker to break."""
+    """Windows writes stdout in the locale code page, so a character outside it fails the run with
+    no report at all."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
     _doc(sessions, "widget-cache-v2", _cited("Never written anywhere."))

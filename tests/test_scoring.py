@@ -1,73 +1,99 @@
-from pathlib import Path
 
 import pytest
 
-from engmem import cache
-from engmem.scoring import role_coverage, search, search_with_role_sections
-from engmem.spine import load_store
+from conftest import fixture_docs
 
-FIXTURES = Path(__file__).parent / "fixtures" / "sessions"
+import dataclasses
+import json
+
+from engmem import cache
+from engmem.scoring import (
+    _NULLABLE_PAYLOAD_FIELDS,
+    _PAYLOAD_FIELD_TYPES,
+    _build_section_index,
+    _entries_for_doc,
+    _section_entry_from_payload,
+    _section_to_payload,
+    _tokenize_counts,
+    role_coverage,
+    search,
+    search_with_role_sections,
+)
+from engmem.sections import Section
+from engmem.spine import load_store
 
 
 @pytest.fixture(autouse=True)
 def _isolated_body_cache(tmp_path, monkeypatch):
-    """Every test gets its own on-disk cache directory, isolated from the real
-    `~/.cache/engmem` and from every other test — B4's body-token cache (see
-    `engmem.cache`) must never leak state across test runs or touch the
-    developer's actual cache while the suite runs."""
+    """Every test gets its own cache directory, isolated from `~/.cache/engmem` and from every
+    other test."""
     monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "engmem-cache-dir")
-
-
-def _docs():
-    return load_store(FIXTURES).docs
 
 
 def _top_id(outcome):
     return outcome.hits[0].doc.id
 
 
-def test_g1_exact_id_ranks_first():
-    outcome = search(_docs(), "1000001")
-    assert _top_id(outcome) == "1000001-response-cache"
+@pytest.mark.parametrize(
+    "query,expected_top_id",
+    [
+        pytest.param("1000001", "1000001-response-cache", id="g1_exact_id_ranks_first"),
+        pytest.param(
+            "ResponseCacheController",
+            "1000001-response-cache",
+            id="g3_class_name_ranks_first",
+        ),
+        pytest.param(
+            "response cache",
+            "1000001-response-cache",
+            id="g4_camelcase_fragments_rank_first",
+        ),
+        pytest.param(
+            "MessageQueue sweeper",
+            "mq-message-sweeper",
+            id="g7_class_plus_tag_two_token_coverage_ranks_first",
+        ),
+        pytest.param(
+            "etag revalidation",
+            "ttl-etag-revalidation-v2",
+            id="g11_two_token_coverage_ranks_revalidation_first",
+        ),
+    ],
+)
+def test_gN_query_ranks_expected_document_first(query, expected_top_id):
+    outcome = search(fixture_docs(), query)
+    assert _top_id(outcome) == expected_top_id
 
 
-def test_g2_numeric_prefix_does_not_match():
-    outcome = search(_docs(), "482")
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("482", id="g2_numeric_prefix_does_not_match"),
+        pytest.param("ET", id="g10_short_token_et_does_not_match_etag"),
+    ],
+)
+def test_gN_query_yields_no_hits(query):
+    outcome = search(fixture_docs(), query)
     assert outcome.hits == []
 
 
-def test_g3_class_name_ranks_first():
-    outcome = search(_docs(), "ResponseCacheController")
-    assert _top_id(outcome) == "1000001-response-cache"
-
-
-def test_g4_camelcase_fragments_rank_first():
-    outcome = search(_docs(), "response cache")
-    assert _top_id(outcome) == "1000001-response-cache"
-
-
-def test_g5_short_ambiguous_token_returns_two_clusters():
-    outcome = search(_docs(), "MQ")
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("MQ", id="g5_short_ambiguous_token_returns_two_clusters"),
+        pytest.param("mq", id="g6_lowercase_short_token_identical_to_g5"),
+    ],
+)
+def test_gN_short_token_is_ambiguous_across_two_clusters(query):
+    outcome = search(fixture_docs(), query)
     assert outcome.ambiguous is True
     ids = {h.doc.id for h in outcome.hits}
     assert ids == {"mq-message-sweeper", "metrics-query-refactor"}
-
-
-def test_g6_lowercase_short_token_identical_to_g5():
-    outcome = search(_docs(), "mq")
-    assert outcome.ambiguous is True
-    ids = {h.doc.id for h in outcome.hits}
-    assert ids == {"mq-message-sweeper", "metrics-query-refactor"}
-
-
-def test_g7_class_plus_tag_two_token_coverage_ranks_first():
-    outcome = search(_docs(), "MessageQueue sweeper")
-    assert _top_id(outcome) == "mq-message-sweeper"
 
 
 def test_g8_non_latin_noise_does_not_break_and_does_not_match():
-    outcome = search(_docs(), "σφάλματα και MessageQueue sweeper")
-    baseline = search(_docs(), "MessageQueue sweeper")
+    outcome = search(fixture_docs(), "σφάλματα και MessageQueue sweeper")
+    baseline = search(fixture_docs(), "MessageQueue sweeper")
 
     assert _top_id(outcome) == "mq-message-sweeper"
 
@@ -88,27 +114,19 @@ def test_g8_non_latin_noise_does_not_break_and_does_not_match():
 
 
 def test_g9_etag_ranks_response_and_revalidation_above_rest():
-    outcome = search(_docs(), "ETAG")
-    top_ids = {h.doc.id for h in outcome.hits[:2]}
+    outcome = search(fixture_docs(), "ETAG")
+    # the corpus produces exactly these two hits for "ETAG" — the query returns no third
+    # hit for the old `hits[2:]` loop to compare against, and scoring sorts by `-score`
+    # so a comparison against `hits[0]` would hold by construction regardless
+    assert len(outcome.hits) == 2
+    top_ids = {h.doc.id for h in outcome.hits}
     assert top_ids == {"1000001-response-cache", "ttl-etag-revalidation-v2"}
-    for h in outcome.hits[2:]:
-        assert h.score < outcome.hits[0].score
-
-
-def test_g10_short_token_et_does_not_match_etag():
-    outcome = search(_docs(), "ET")
-    assert outcome.hits == []
-
-
-def test_g11_two_token_coverage_ranks_revalidation_first():
-    outcome = search(_docs(), "etag revalidation")
-    assert _top_id(outcome) == "ttl-etag-revalidation-v2"
+    assert outcome.hits[1].score < outcome.hits[0].score
 
 
 def test_nfkc_runs_before_tokenization(tmp_path):
-    """Review M2: §7 mandates NFKC → casefold → tokenize. Splitting on ASCII first
-    dropped fullwidth ＭＱ entirely and mangled ﬁlter (ligature) into 'lter' — a
-    plausible-looking but WRONG token."""
+    """M2: splitting on ASCII first dropped fullwidth characters entirely and mangled a ligature
+    into a plausible but wrong token."""
     from engmem.spine import load_store
 
     (tmp_path / "filter-doc.md").write_text("""---
@@ -136,8 +154,8 @@ Filter.
     ligature_outcome = search(docs, "ﬁlter")  # 'ﬁlter'
     assert [h.doc.id for h in ligature_outcome.hits] == ["filter-doc"]
 
-    fullwidth_outcome = search(_docs(), "ＭＱ")  # 'ＭＱ'
-    plain_outcome = search(_docs(), "MQ")
+    fullwidth_outcome = search(fixture_docs(), "ＭＱ")  # 'ＭＱ'
+    plain_outcome = search(fixture_docs(), "MQ")
     assert {h.doc.id for h in fullwidth_outcome.hits} == {
         h.doc.id for h in plain_outcome.hits
     }
@@ -145,10 +163,9 @@ Filter.
 
 
 def test_shared_acronym_with_same_meaning_is_not_ambiguous():
-    """Review H1: §7 requires ambiguity only when the FULL FORMS differ. TTL appears as
-    a literal entity in two fixture docs meaning the same thing (no CamelCase entity
-    expands to 'ttl'), so this must rank normally, not report ambiguous."""
-    outcome = search(_docs(), "TTL")
+    """H1: ambiguity requires the full forms to differ, and no CamelCase entity here expands to
+    `ttl`."""
+    outcome = search(fixture_docs(), "TTL")
     assert outcome.ambiguous is False
     ids = [h.doc.id for h in outcome.hits]
     assert "1000001-response-cache" in ids
@@ -195,8 +212,8 @@ def _write_ambig_store(tmp_path):
 
 
 def test_ambiguity_filter_keeps_non_entity_matches(tmp_path):
-    """Review H2: a doc matching the short token via title/tags must not be silently
-    deleted when the entity-cluster ambiguity rule triggers for other docs."""
+    """H2: a document matching via title or tags must not be deleted when the entity-cluster rule
+    triggers for others."""
     from engmem.spine import load_store
 
     _write_ambig_store(tmp_path)
@@ -225,9 +242,8 @@ def test_ambiguous_flag_marks_only_cluster_representatives(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# B4: id-weight fix — a slug word alone is only as informative as a title
-# word (weight 2); weight 5 is reserved for a whole-id match or the numeric
-# ticket component.
+# B4: id-weight fix — a slug word alone is only as informative as a title word (weight 2); weight
+# 5 is reserved for a whole-id match or the numeric ticket component.
 # ---------------------------------------------------------------------------
 
 ID_WEIGHT_DOC = """---
@@ -343,8 +359,8 @@ def _write_body_doc(tmp_path, filename, id_, title, n, body, tags="[]", entities
 
 
 def test_body_only_match_surfaces_document_and_names_the_section(tmp_path):
-    """A query naming a concept explained only in the body must still find the
-    document — and the explainability line must name which section it lives in."""
+    """A concept explained only in the body must still be found, and the line must name which
+    section it lives in."""
     from engmem.spine import load_store
 
     body = """## Pre-reg
@@ -391,9 +407,15 @@ LeaseGuard guards the job.
         assert spine_field not in hit.matched_fields
 
 
-def test_long_document_does_not_win_purely_on_length(tmp_path):
-    """max-over-sections, not sum: a document whose best section is identical to a
-    short document's only section must not outscore it just for having more of them."""
+def test_repeating_a_matching_section_does_not_multiply_the_documents_score(tmp_path):
+    """`_body_scores_from_entries` takes a document's single best-scoring section, not the
+    sum of every matching one — else a document would win purely by repeating one section
+    many times over. That promise is about the *multiplier*, not about which of two
+    differently-shaped documents ranks first: corpus-wide statistics (avgdl, df) still let
+    the 8-section document nudge narrowly ahead of the 1-section one with the identical
+    text (measured ~1.02x) — a prior version of this test was misnamed for claiming
+    otherwise. What the 1.5x bound below actually catches is a regression from max to sum,
+    which multiplies the score by the section count (measured ~8.15x for 8 sections)."""
     from engmem.spine import load_store
 
     explainer = (
@@ -426,17 +448,15 @@ def test_long_document_does_not_win_purely_on_length(tmp_path):
     long_score = hits_by_id["long-doc"].score
     short_score = hits_by_id["short-doc"].score
 
-    assert long_score < short_score * 2, (
+    assert long_score < short_score * 1.5, (
         f"long doc ({long_score}) must not blow past the short doc ({short_score}) "
         f"just for repeating the same section 8 times over"
     )
 
 
 def test_restricted_query_token_matches_body_literal_only(tmp_path):
-    """§7's restricted-token rule applies to the body index too: a short/numeric
-    token may only match text as literally written, never a CamelCase-derived
-    fragment — otherwise "MQ" would match every CamelCase word starting with those
-    initials anywhere in any body."""
+    """A short or numeric token may match only text as literally written, or `MQ` would match
+    every CamelCase word so initialled."""
     from engmem.spine import load_store
 
     literal_body = "## Notes\n\nThe MQ backlog was cleared manually.\n"
@@ -457,9 +477,8 @@ def test_restricted_query_token_matches_body_literal_only(tmp_path):
 
 
 def test_ubiquitous_body_term_is_dropped_from_body_scoring(tmp_path):
-    """A term present in over half of the corpus's sections is dropped from body
-    scoring entirely — the self-tuning stand-in for a stopword list that also
-    neutralises honesty tags like [Verified] that appear in nearly every section."""
+    """A term in over half the corpus's sections is dropped — the self-tuning stand-in for a
+    stopword list."""
     from engmem.spine import load_store
 
     # 3 docs x 4 sections; "ubiquitous" appears in 3 of every 4 sections per doc,
@@ -480,18 +499,15 @@ def test_ubiquitous_body_term_is_dropped_from_body_scoring(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# B4 cache: `_build_section_index` (via `engmem.cache`) must be transparent —
-# identical results whether the body-token index came from a cold cache, a
-# warm cache, or a cache invalidated by an edit — and must actually avoid
-# re-tokenizing an unchanged document on a warm run.
+# B4 cache: `_build_section_index` (via `engmem.cache`) must be transparent — identical results
+# whether the body-token index came from a cold cache, a warm cache, or a cache invalidated by an
+# edit — and must actually avoid re-tokenizing an unchanged document on a warm run.
 # ---------------------------------------------------------------------------
 
 
 def _outcome_signature(outcome):
-    """A comparable snapshot of everything a reader of `SearchOutcome` can see,
-    so "cached and uncached results match exactly" is a single equality check
-    rather than several ad hoc ones that could each individually miss a field
-    the cache accidentally dropped or reordered."""
+    """One equality check over everything a reader of `SearchOutcome` sees, rather than several
+    that could each miss a field."""
     return [
         (
             h.doc.id,
@@ -583,7 +599,7 @@ def test_editing_one_document_only_retokenizes_that_document(tmp_path, monkeypat
         assert "dropped warm keys and cold keys" in text or "Decision Log" in text or "CacheWarmer" in text
 
 
-def test_stale_cache_after_edit_does_not_change_the_answer(tmp_path):
+def test_stale_cache_after_edit_does_not_change_the_answer(tmp_path, monkeypatch):
     docs = _write_cache_bench_docs(tmp_path, n=3)
     search(docs, "eviction")  # warm the cache
 
@@ -602,14 +618,8 @@ def test_stale_cache_after_edit_does_not_change_the_answer(tmp_path):
     # recompute from a completely fresh, empty cache directory to get the
     # ground truth this cached run must match
     fresh_dir = tmp_path / "fresh-cache"
-    import engmem.cache as cache_module
-
-    original_cache_root_fn = cache_module.cache_root
-    cache_module.cache_root = lambda: fresh_dir
-    try:
-        without_cache = search(docs, "quokka migration checklist")
-    finally:
-        cache_module.cache_root = original_cache_root_fn
+    monkeypatch.setattr(cache, "cache_root", lambda: fresh_dir)
+    without_cache = search(docs, "quokka migration checklist")
 
     assert _outcome_signature(with_cache) == _outcome_signature(without_cache)
     assert len(with_cache.hits) == 1
@@ -618,11 +628,6 @@ def test_stale_cache_after_edit_does_not_change_the_answer(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Role-addressed retrieval: `search_with_role_sections` and `role_coverage`.
-# Ranking stays word-based even with a role in play (see the design note in
-# `output.select_role_hits`) — these tests pin that `search_with_role_sections`
-# produces the exact same ranked `SearchOutcome` `search()` does, plus a
-# doc_id -> {role: Section} map built from the same section-index parse, so a
-# role-addressed search costs no more than an ordinary one.
 # ---------------------------------------------------------------------------
 
 
@@ -721,7 +726,7 @@ def test_role_coverage_excludes_draft_and_superseded_documents(tmp_path):
     active_body = "## Decision Log\n\nActive doc's own decision.\n"
     _write_role_doc(tmp_path, "a.md", "active-doc", "Active Doc", 1, active_body)
 
-    draft_content = f"""---
+    draft_content = """---
 id: draft-doc
 title: Draft Doc
 date: 2026-07-09
@@ -743,7 +748,7 @@ A draft's decision must not count toward coverage.
 """
     (tmp_path / "draft.md").write_text(draft_content)
 
-    superseded_content = f"""---
+    superseded_content = """---
 id: superseded-doc
 title: Superseded Doc
 date: 2026-07-09
@@ -799,9 +804,7 @@ def _doc_with_body(path, doc_id, body):
 def test_a_cache_payload_of_the_wrong_shape_recomputes_instead_of_crashing(
     tmp_path, monkeypatch, capsys, payload, label
 ):
-    """A payload written by an older format is a miss, not a crash. The document must still
-    be searchable, and the warning must go to stderr only — the agent reads stdout, and a
-    slow-but-correct search must not look like a failed one."""
+    """A payload of an older shape is a miss, not a crash, and the warning goes to stderr only."""
     from engmem import cache
     from engmem.scoring import _entries_for_doc
 
@@ -826,8 +829,8 @@ def test_a_cache_payload_of_the_wrong_shape_recomputes_instead_of_crashing(
 
 
 def test_a_recomputed_entry_replaces_the_bad_payload(tmp_path, monkeypatch, capsys):
-    """Recomputing is not enough on its own — the bad entry has to be overwritten, or every
-    later search pays the same cost and prints the same warning forever."""
+    """The bad entry has to be overwritten, or every later search pays the same cost and prints
+    the same warning."""
     from engmem import cache
     from engmem.scoring import _entries_for_doc
 
@@ -846,3 +849,232 @@ def test_a_recomputed_entry_replaces_the_bad_payload(tmp_path, monkeypatch, caps
     _entries_for_doc(doc)
 
     assert "unexpected shape" not in capsys.readouterr().err
+
+
+def test_role_search_prefers_the_section_that_names_the_role_over_an_inherited_one(tmp_path, monkeypatch):
+    """`--role` hands back a place to read. An oversized `## Business Context` splitting into
+    `### Actors` must not take `context` away from the document's own `## Glossary`."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    filler = ", ".join(f"`Term{i}`" for i in range(400))
+    (sessions / "widget-cache-warmup.md").write_text(
+        "---\nid: widget-cache-warmup\ntitle: Widget Cache Warmup\ndate: 2026-05-04\n"
+        "task_date: 2026-05-04\nstatus: active\ntags: [platform]\nentities: [WidgetCache]\n---\n\n"
+        f"## Business Context\n\n### Actors\n\n{filler}\n\n### Flows\n\nflows\n\n"
+        "## Glossary\n\nWidgetCache is the request-scoped cache.\n",
+        encoding="utf-8",
+    )
+
+    docs = load_store(sessions).docs
+    _outcome, role_map = search_with_role_sections(docs, "WidgetCache")
+
+    assert role_map["widget-cache-warmup"]["context"].heading == "Glossary"
+
+
+def test_an_edit_during_a_search_does_not_poison_the_section_cache(tmp_path, monkeypatch):
+    """The cached sections come from `doc.body`; keying them to the file as it is *now* files
+    the old body under the edited file's identity, and that entry never invalidates."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    path = sessions / "widget-cache-warmup.md"
+    front_matter = (
+        "---\nid: widget-cache-warmup\ntitle: Widget Cache Warmup\ndate: 2026-05-04\n"
+        "task_date: 2026-05-04\nstatus: active\ntags: [platform]\nentities: [WidgetCache]\n---\n\n"
+    )
+    path.write_text(front_matter + "## Notes\n\nThe oldword path.\n", encoding="utf-8")
+
+    doc = load_store(sessions).docs[0]
+    path.write_text(front_matter + "## Notes\n\nThe newword path.\n", encoding="utf-8")
+    _entries_for_doc(doc)  # caches the sections of the body that was read
+
+    reloaded = load_store(sessions).docs[0]
+    bodies = " ".join(e.section.body for e in _entries_for_doc(reloaded))
+
+    assert "newword" in bodies
+    assert "oldword" not in bodies
+
+
+# ---------------------------------------------------------------------------
+# what indexing a subset is, and is not, allowed to do
+# ---------------------------------------------------------------------------
+
+
+def _store_with_each_status(tmp_path):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    for name, status in (("alpha-doc", "active"), ("beta-draft", "draft"),
+                         ("gamma-old", "superseded")):
+        (sessions / f"{name}.md").write_text(
+            f"---\nid: {name}\ntitle: T\ndate: 2026-01-01\ntask_date: 2026-01-01\n"
+            f"status: {status}\ntags: [x]\nentities: [WidgetCache]\n---\n\n"
+            "## Notes\n\nWidgetCache prose here.\n",
+            encoding="utf-8",
+        )
+    return sessions
+
+
+def test_role_coverage_does_not_evict_the_documents_it_skips(tmp_path, monkeypatch):
+    """`prune_orphans` means "no longer in the store". `role_coverage` narrows to searchable
+    documents first, so passing it that list deletes every draft and superseded entry."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    docs = load_store(sessions).docs
+    search(docs, "WidgetCache")
+    assert len(list((tmp_path / "cache-home").glob("*.json"))) == 3
+
+    role_coverage(docs)
+
+    assert len(list((tmp_path / "cache-home").glob("*.json"))) == 3
+
+
+def test_a_document_gone_from_the_store_still_loses_its_entry(tmp_path, monkeypatch):
+    """The narrowing fix must not turn pruning off."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    docs = load_store(sessions).docs
+    search(docs, "WidgetCache")
+
+    (sessions / "gamma-old.md").unlink()
+    search(load_store(sessions).docs, "WidgetCache")
+
+    assert len(list((tmp_path / "cache-home").glob("*.json"))) == 2
+
+
+def test_a_damaged_frequency_table_is_recomputed_not_believed(tmp_path, monkeypatch, capsys):
+    """`Counter` accepts any iterable, so a `literal_tf` that arrived as a list would count its
+    elements and rank on frequencies of 1 — wrong, silently, for as long as the entry lives."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    doc = next(d for d in load_store(sessions).docs if d.id == "alpha-doc")
+    _entries_for_doc(doc)
+
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    record["payload"]["sections"][0]["literal_tf"] = ["widgetcache", "prose"]
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+
+    entries = _entries_for_doc(doc)
+
+    assert entries[0].literal_tf == _tokenize_counts(
+        f"{entries[0].section.heading}\n{entries[0].section.body}"
+    )[0]
+    captured = capsys.readouterr()
+    assert "unexpected shape" in captured.err
+    assert captured.out == ""
+
+
+def test_a_payload_field_of_the_wrong_type_is_recomputed_not_believed(tmp_path, monkeypatch, capsys):
+    """"A shape mismatch is a miss, never a crash" has to cover the shapes that would not
+    crash here: a non-string `body` reaches `output._section_snippet` and dies there."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    doc = next(d for d in load_store(sessions).docs if d.id == "alpha-doc")
+    _entries_for_doc(doc)
+
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    record["payload"]["sections"][0]["body"] = 42
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+
+    entries = _entries_for_doc(doc)
+
+    assert isinstance(entries[0].section.body, str)
+    captured = capsys.readouterr()
+    assert "unexpected shape" in captured.err
+    assert captured.out == ""
+
+
+def test_building_an_index_requires_the_store_it_prunes_against():
+    """The default was a trap: a wrongly pruned cache does not fail, does not warn, and only
+    costs a rebuild — which is why the original defect survived until entries were counted."""
+    with pytest.raises(TypeError):
+        _build_section_index([])
+
+
+def _cluster_store(tmp_path, first_status):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    for name, status, title, entities in (
+        ("aaa-queue-hidden", first_status, "MQ rollout", "[MessageQueue, MQ]"),
+        ("bbb-queue-active", "active", "T", "[MessageQueue, MQ]"),
+        ("ccc-metrics-doc", "active", "T", "[MetricsQuery, MQ]"),
+    ):
+        extra = "superseded_by: ccc-metrics-doc\n" if status == "superseded" else ""
+        (sessions / f"{name}.md").write_text(
+            f"---\nid: {name}\ntitle: {title}\ndate: 2026-01-01\ntask_date: 2026-01-01\n"
+            f"status: {status}\ntags: [x]\nentities: {entities}\n{extra}---\n\n"
+            "## Notes\n\nProse.\n",
+            encoding="utf-8",
+        )
+    return load_store(sessions).docs
+
+
+@pytest.mark.parametrize("hidden_status", ["draft", "superseded"])
+def test_a_hidden_document_cannot_evict_an_active_one_from_its_cluster(
+    tmp_path, monkeypatch, hidden_status
+):
+    """The status partition runs after clustering, so a representative that cannot be output
+    collapsed its cluster-mates and was then dropped itself."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    docs = _cluster_store(tmp_path, hidden_status)
+
+    hits = [h.doc.id for h in search(docs, "MQ").hits]
+
+    assert "bbb-queue-active" in hits
+    assert "aaa-queue-hidden" not in hits
+
+
+def test_a_superseded_cluster_mate_is_still_collapsed(tmp_path, monkeypatch):
+    """Only representative *choice* is narrowed. Collapsing every member was never the defect,
+    and letting a superseded member through would emit a second entry for one cluster.
+    Superseded only: a draft has no observable through `SearchOutcome` either way."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    docs = _cluster_store(tmp_path, "superseded")
+
+    outcome = search(docs, "MQ")
+
+    assert outcome.ambiguous is True
+    assert "aaa-queue-hidden" not in [n.doc.id for n in outcome.superseded_notes]
+
+
+def test_a_boolean_where_the_payload_wants_an_int_is_recomputed(tmp_path, monkeypatch, capsys):
+    """`isinstance(True, int)` is True, so an `index` of `true` rendered the locator
+    `§True-notes` — plausible, wrong, silent, and cached for the life of the entry."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    doc = next(d for d in load_store(sessions).docs if d.id == "alpha-doc")
+    _entries_for_doc(doc)
+
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    record["payload"]["sections"][0]["index"] = True
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+
+    entries = _entries_for_doc(doc)
+
+    assert entries[0].section.index is not True
+    assert "unexpected shape" in capsys.readouterr().err
+
+
+def test_a_section_survives_the_payload_round_trip_field_by_field():
+    """Three hand-maintained lists say the same thing: the payload, its type table, and the
+    `Section(...)` kwargs. A field added to two of them and forgotten in the third is silent."""
+    section = Section(
+        anchor="notes", heading="Notes", body="Body text.", size_bytes=10,
+        level=3, canonical="lessons", index=7,
+    )
+    literal, derived = _tokenize_counts("Body text.")
+
+    payload = _section_to_payload(section, literal, derived)
+    entry = _section_entry_from_payload("alpha-doc", payload)
+
+    assert entry.section == section
+    assert entry.literal_tf == literal and entry.derived_tf == derived
+    assert set(payload) == set(_PAYLOAD_FIELD_TYPES) | set(_NULLABLE_PAYLOAD_FIELDS)
+    # the equality above cannot see a *defaulted* field forgotten in the `Section(...)`
+    # kwargs — both sides would take the default — so the field list is checked directly
+    assert set(payload) - {"literal_tf", "derived_tf"} == {
+        f.name for f in dataclasses.fields(Section)
+    }

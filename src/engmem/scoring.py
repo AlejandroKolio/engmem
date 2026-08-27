@@ -1,7 +1,4 @@
-"""Deterministic search ranking: spine-field matching (`ENGMEM-SPEC.md` §7)
-plus BM25 over body sections and role-addressed retrieval. Tuning rationale:
-`docs/design/contracts/scoring.md`.
-"""
+"""Deterministic search ranking: spine-field matching plus BM25 over body sections."""
 
 from __future__ import annotations
 
@@ -12,10 +9,13 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from engmem import cache
-from engmem.sections import CANONICAL_ROLES, Section, split_sections
+from engmem.sections import CANONICAL_ROLES, Section, role_is_inherited, split_sections
 from engmem.spine import Doc
 
 FIELD_WEIGHTS = {"id": 5, "entities": 3, "title": 2, "tags": 1}
+
+# statuses that never appear as a primary result (data-model.md "State transitions")
+_NEVER_PRIMARY = frozenset({"draft", "superseded"})
 
 # see contracts/scoring.md — a lone slug word is as informative as a title word
 ID_SLUG_WEIGHT = FIELD_WEIGHTS["title"]
@@ -37,9 +37,7 @@ def normalize_token(token: str) -> str:
 
 
 def tokenize_raw(text: str) -> list[str]:
-    # NFKC before splitting: an ASCII-only split would drop fullwidth forms
-    # and mangle ligatures. Casefold stays per-token so CamelCase splitting
-    # still sees the original case.
+    # NFKC before splitting: an ASCII-only split would drop fullwidth forms and mangle ligatures.
     normalized = unicodedata.normalize("NFKC", text)
     return [t for t in _RAW_SPLIT_RE.split(normalized) if t]
 
@@ -69,7 +67,7 @@ def _is_restricted(token: str) -> bool:
 
 
 def _field_token_sets(value) -> tuple[set[str], set[str]]:
-    """(original_tokens, all_tokens_including_derived_fragments)."""
+    """`(original_tokens, all_tokens_including_derived_fragments)`."""
     originals: set[str] = set()
     all_tokens: set[str] = set()
     items = value if isinstance(value, list) else [value]
@@ -170,9 +168,7 @@ def _id_field_weight(
 
 
 def _spine_score(query_tokens: list[_QueryToken], doc: Doc) -> tuple[float, dict[str, list[str]]]:
-    """Scores `doc` against `query_tokens` on the four spine fields only —
-    body scoring is separate (`_body_scores_from_entries`), added by the
-    caller. An unmatched document is (0.0, {}), never None."""
+    """Scores `doc` against `query_tokens` on the four spine fields only."""
     if not query_tokens:
         return 0.0, {}
 
@@ -218,9 +214,7 @@ def _spine_score(query_tokens: list[_QueryToken], doc: Doc) -> tuple[float, dict
 
 
 def _tokenize_counts(text: str) -> tuple[Counter[str], Counter[str]]:
-    """Two token-frequency counters for a chunk of body text: literal (as
-    written) and derived (literal plus CamelCase fragments/acronyms), needed
-    for BM25 term frequency rather than mere membership."""
+    """Literal and derived token-frequency counters for a chunk of body text."""
     literal: Counter[str] = Counter()
     derived: Counter[str] = Counter()
     for raw in tokenize_raw(text):
@@ -246,6 +240,22 @@ class _SectionEntry:
     length: int
 
 
+# `canonical` is the one nullable field, so it is checked separately below. `bool` is
+# excluded from the int fields on purpose: `isinstance(True, int)` is True, and an `index`
+# of `true` renders a locator of `§True-notes` — plausible, wrong and silent
+_PAYLOAD_FIELD_TYPES = {
+    "anchor": (str,),
+    "heading": (str,),
+    "body": (str,),
+    "size_bytes": (int,),
+    "level": (int,),
+    "index": (int,),
+    "literal_tf": (dict,),
+    "derived_tf": (dict,),
+}
+_NULLABLE_PAYLOAD_FIELDS = ("canonical",)
+
+
 def _section_to_payload(section: Section, literal: Counter[str], derived: Counter[str]) -> dict:
     return {
         "anchor": section.anchor,
@@ -261,6 +271,8 @@ def _section_to_payload(section: Section, literal: Counter[str], derived: Counte
 
 
 def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
+    if data["canonical"] is not None and not isinstance(data["canonical"], str):
+        raise TypeError("canonical is neither a string nor null")
     section = Section(
         anchor=data["anchor"],
         heading=data["heading"],
@@ -270,6 +282,14 @@ def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
         canonical=data["canonical"],
         index=data["index"],
     )
+    # every field, by type. `Counter` accepts any iterable, so a `literal_tf` that arrived as
+    # a list would count its elements and rank on a plausible index of all-ones; a non-string
+    # `body` reaches `output._section_snippet` and crashes the search there. Both are shapes
+    # that would otherwise pass, which is what "a mismatch is a miss, never a crash" claims
+    for name, expected in _PAYLOAD_FIELD_TYPES.items():
+        value = data[name]
+        if isinstance(value, bool) or not isinstance(value, expected):
+            raise TypeError(f"{name} is {type(value).__name__}, not {expected[0].__name__}")
     literal_tf = Counter(data["literal_tf"])
     derived_tf = Counter(data["derived_tf"])
     return _SectionEntry(
@@ -281,7 +301,7 @@ def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
     )
 
 
-def _entries_from_cache(doc: Doc, cached_payload: dict) -> list[_SectionEntry] | None:
+def _entries_from_cache(doc: Doc, cached_payload: object) -> list[_SectionEntry] | None:
     # a shape mismatch (payload predates a format bump) is a miss, not a crash
     try:
         return [
@@ -296,9 +316,11 @@ def _entries_from_cache(doc: Doc, cached_payload: dict) -> list[_SectionEntry] |
 
 
 def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
-    """Section-level token index for one document, from the on-disk cache
-    when unchanged since last cached, else computed fresh and re-cached."""
-    identity = cache.identity_for(doc.path)
+    """Section-level token index for one document, from cache when unchanged."""
+    # the identity of the read `doc.body` came from, not of the file as it is now: stat'ing
+    # here would key an entry built from the old body to the edited file, and that entry then
+    # never invalidates — the search keeps returning the pre-edit document until it changes again
+    identity = doc.source_identity
     cached_payload = cache.load(doc.path, identity)
     if cached_payload is not None:
         entries = _entries_from_cache(doc, cached_payload)
@@ -324,8 +346,10 @@ def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
     return entries
 
 
-def _build_section_index(docs: list[Doc]) -> list[_SectionEntry]:
-    cache.prune_orphans([doc.path for doc in docs])
+def _build_section_index(docs: list[Doc], store_docs: list[Doc]) -> list[_SectionEntry]:
+    """Section entries for `docs`, pruning the cache against `store_docs` — the whole store,
+    which is the only set entitled to say an entry is an orphan."""
+    cache.prune_orphans([doc.path for doc in store_docs])
     entries: list[_SectionEntry] = []
     for doc in docs:
         entries.extend(_entries_for_doc(doc))
@@ -360,8 +384,9 @@ def _bm25_entry_score(
         if tf == 0:
             continue
         df_map = df_literal if restricted else df_derived
-        df = df_map.get(text, 0)
-        if df == 0 or df / n > DF_CEILING_RATIO:
+        # df >= 1 whenever tf > 0: this entry contributed the key to the counter
+        df = df_map[text]
+        if df / n > DF_CEILING_RATIO:
             continue
         idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
         denom = tf + BM25_K1 * (1 - BM25_B + BM25_B * entry.length / avgdl)
@@ -373,9 +398,7 @@ def _bm25_entry_score(
 def _body_scores_from_entries(
     entries: list[_SectionEntry], query_tokens: list[_QueryToken]
 ) -> dict[str, tuple[float, list[SectionHit]]]:
-    """Per document, (best-section BM25 score, every matched section
-    best-first). A document's body score is its single best section (`max`,
-    not `sum`) — stops a document winning purely by section count."""
+    """A document scores its single best section, not the sum — else it wins by section count."""
     if not query_tokens:
         return {}
 
@@ -411,8 +434,7 @@ def _body_scores_from_entries(
 
 
 def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
-    """The longer entity (if any) whose CamelCase acronym equals `token`,
-    normalized, as this doc's ambiguity-cluster key — see contracts/scoring.md."""
+    """The longer entity whose CamelCase acronym equals `token`, as this doc's cluster key."""
     for entity in doc.entities:
         for raw in tokenize_raw(entity):
             expansion = _camel_expansion(raw)
@@ -426,15 +448,14 @@ def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
 
 def search(docs: list[Doc], query: str) -> SearchOutcome:
     query_tokens = _build_query_tokens(query)
-    entries = _build_section_index(docs)
+    entries = _build_section_index(docs, docs)
     return _search_core(docs, query_tokens, entries)
 
 
 def _search_core(
     docs: list[Doc], query_tokens: list[_QueryToken], entries: list[_SectionEntry]
 ) -> SearchOutcome:
-    """`search()`'s ranking, factored out so `search_with_role_sections` can
-    share one section-index build instead of parsing the corpus twice."""
+    """`search()`'s ranking, factored out so the role variant shares one section-index build."""
     body_scores = _body_scores_from_entries(entries, query_tokens)
 
     scored: list[Hit] = []
@@ -482,7 +503,13 @@ def _search_core(
             key = _cluster_key_for_short_token(short_token, h.doc)
             if key is None:
                 continue
+            # every cluster member is collapsed, whatever its status — but only a document
+            # that can be output may represent one. The status partition runs below, so a
+            # draft or superseded representative collapses its cluster-mates and is then
+            # dropped itself, taking an active document out of the results with it
             clustered_ids.add(h.doc.id)
+            if h.doc.status in _NEVER_PRIMARY:
+                continue
             if key not in clusters or h.score > clusters[key].score:
                 clusters[key] = h
         if len(clusters) > 1:
@@ -496,7 +523,7 @@ def _search_core(
             for h in scored:
                 h.ambiguous = h.doc.id in rep_ids
 
-    active_by_id = {d.id: d for d in docs}
+    docs_by_id = {d.id: d for d in docs}
     hits: list[Hit] = []
     superseded_notes: list[SupersededNote] = []
 
@@ -504,7 +531,7 @@ def _search_core(
         if h.doc.status == "draft":
             continue
         if h.doc.status == "superseded":
-            successor = active_by_id.get(h.doc.superseded_by) if h.doc.superseded_by else None
+            successor = docs_by_id.get(h.doc.superseded_by) if h.doc.superseded_by else None
             superseded_notes.append(
                 SupersededNote(doc=h.doc, successor=successor, score=h.score)
             )
@@ -515,38 +542,39 @@ def _search_core(
 
 
 def _role_index_from_entries(entries: list[_SectionEntry]) -> dict[str, dict[str, Section]]:
-    """doc_id -> {canonical role: Section}, from the section index a search
-    already parsed — no second `split_sections` pass, no second cache read."""
+    """`doc_id -> {canonical role: Section}`, from the section index a search already parsed."""
     index: dict[str, dict[str, Section]] = {}
-    for entry in entries:
-        canonical = entry.section.canonical
-        if canonical is None:
-            continue
-        # a doc is not expected to carry the same role twice; ties keep the
-        # first in document order rather than being silently overwritten
-        index.setdefault(entry.doc_id, {}).setdefault(canonical, entry.section)
+    # two passes, matching sections_by_locator: a role named by a section's own heading wins
+    # over one inherited from an oversized parent, wherever each sits in the document
+    for inherited_ok in (False, True):
+        for entry in entries:
+            section = entry.section
+            if section.canonical is None:
+                continue
+            if not inherited_ok and role_is_inherited(section):
+                continue
+            # a doc is not expected to carry the same role twice; ties keep the
+            # first in document order rather than being silently overwritten
+            index.setdefault(entry.doc_id, {}).setdefault(section.canonical, section)
     return index
 
 
 def search_with_role_sections(
     docs: list[Doc], query: str
 ) -> tuple[SearchOutcome, dict[str, dict[str, Section]]]:
-    """Same ranked `SearchOutcome` as `search()`, plus a `doc_id -> {role:
-    Section}` map built from the same section-index parse — no second corpus
-    scan (`ENGMEM-SPEC.md` §5, role-addressed retrieval)."""
+    """`search()` plus a `doc_id -> {role: Section}` map built from the same parse."""
     query_tokens = _build_query_tokens(query)
-    entries = _build_section_index(docs)
+    entries = _build_section_index(docs, docs)
     outcome = _search_core(docs, query_tokens, entries)
     role_map = _role_index_from_entries(entries)
     return outcome, role_map
 
 
 def role_coverage(docs: list[Doc]) -> dict[str, int]:
-    """role -> number of searchable (active, non-draft, non-superseded)
-    documents carrying it. Every `CANONICAL_ROLES` name is present with 0 for
-    an unrepresented role, so "zero" and "never checked" stay distinguishable."""
-    searchable = [d for d in docs if d.status not in ("draft", "superseded")]
-    entries = _build_section_index(searchable)
+    """role -> searchable documents carrying it, with 0 present so "zero" and "never checked"
+    differ."""
+    searchable = [d for d in docs if d.status not in _NEVER_PRIMARY]
+    entries = _build_section_index(searchable, docs)
     role_map = _role_index_from_entries(entries)
     counts = {role: 0 for role in CANONICAL_ROLES}
     for roles in role_map.values():

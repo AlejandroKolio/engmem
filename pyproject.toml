@@ -23,6 +23,10 @@ classifiers = [
 ]
 dependencies = [
     "pyyaml",
+    # backfill reads link destinations out of a document body to derive `related`.
+    # A regex cannot tell a real link from one quoted inside a code fence, and an
+    # invented edge is worse than a missing one in a store built on deliberate edges.
+    "markdown-it-py",
 ]
 
 [project.urls]
@@ -34,12 +38,11 @@ Issues = "https://github.com/AlejandroKolio/engmem/issues"
 engmem = "engmem.cli:main"
 
 [dependency-groups]
-# markdown-it-py is a dev-only reference implementation for
-# tests/test_commonmark_parity.py, which keeps the regex section splitter honest
-# against a real CommonMark parser. The runtime still requires pyyaml alone.
+# markdown-it-py is a runtime dependency (see above) that doubles as the reference
+# implementation for tests/test_commonmark_parity.py, which keeps sections.py's regex
+# splitter honest against a real CommonMark parser.
 dev = [
     "pytest",
-    "markdown-it-py",
 ]
 
 [build-system]

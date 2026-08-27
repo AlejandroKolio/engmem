@@ -1,5 +1,7 @@
 import datetime
 
+from conftest import write_file
+
 from engmem.output import render_scoreboard
 from engmem.scoring import search
 from engmem.spine import load_store
@@ -21,14 +23,8 @@ WidgetCacheWarmer runs once at startup and populates WidgetCache from WidgetRepo
 """
 
 
-def _write(dir_path, name, text):
-    path = dir_path / name
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def test_document_without_front_matter_loads_with_derived_id_and_title(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     result = load_store(tmp_path)
 
@@ -41,7 +37,7 @@ def test_document_without_front_matter_loads_with_derived_id_and_title(tmp_path)
 
 
 def test_partial_front_matter_keeps_authored_values_and_defaults_the_rest(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "widget-cache-warmup.md",
         """---
@@ -71,7 +67,7 @@ Preloads the cache on boot.
 
 
 def test_date_is_derived_from_preamble_when_front_matter_has_none(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     doc = load_store(tmp_path).docs[0]
 
@@ -80,12 +76,12 @@ def test_date_is_derived_from_preamble_when_front_matter_has_none(tmp_path):
 
 
 def test_bold_and_updated_preamble_date_spellings_are_recognised(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "bold-date.md",
         "# Bold Date\n\n- **Date:** 2026-05-05 (last updated) · **Author:** A. Author\n",
     )
-    _write(tmp_path, "updated-date.md", "# Updated Date\n\n- Updated:  2026-05-06\n")
+    write_file(tmp_path, "updated-date.md", "# Updated Date\n\n- Updated:  2026-05-06\n")
 
     docs = {d.id: d for d in load_store(tmp_path).docs}
 
@@ -94,7 +90,7 @@ def test_bold_and_updated_preamble_date_spellings_are_recognised(tmp_path):
 
 
 def test_date_falls_back_to_mtime_when_nothing_else_states_one(tmp_path):
-    path = _write(tmp_path, "no-date-anywhere.md", "# No Date Anywhere\n\nBody.\n")
+    path = write_file(tmp_path, "no-date-anywhere.md", "# No Date Anywhere\n\nBody.\n")
     expected = datetime.date.fromtimestamp(path.stat().st_mtime)
 
     doc = load_store(tmp_path).docs[0]
@@ -103,7 +99,7 @@ def test_date_falls_back_to_mtime_when_nothing_else_states_one(tmp_path):
 
 
 def test_degraded_document_defaults_to_active_and_is_searchable(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     docs = load_store(tmp_path).docs
     assert docs[0].status == "active"
@@ -113,7 +109,7 @@ def test_degraded_document_defaults_to_active_and_is_searchable(tmp_path):
 
 
 def test_degraded_fields_are_recorded_on_the_doc(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     doc = load_store(tmp_path).docs[0]
 
@@ -124,7 +120,7 @@ def test_degraded_fields_are_recorded_on_the_doc(tmp_path):
 
 
 def test_complete_document_is_not_marked_degraded(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "widget-cache-warmup.md",
         """---
@@ -156,7 +152,7 @@ Body.
 
 
 def test_malformed_yaml_is_still_a_loud_error(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "bad-yaml.md",
         "---\nid: bad-yaml\ntitle: Bad YAML\ntags: [platform\n---\n\n## Pre-reg\n",
@@ -169,10 +165,8 @@ def test_malformed_yaml_is_still_a_loud_error(tmp_path):
 
 
 def test_present_but_empty_fields_degrade_instead_of_failing(tmp_path):
-    # `date:` with nothing after it states no date — identical in meaning to omitting
-    # the key. Treating it as a parse failure dropped the document; treating it as a
-    # value produced the literal string "None" as an id.
-    _write(
+    # `date:` with nothing after it states no date — identical in meaning to omitting the key.
+    write_file(
         tmp_path,
         "widget-cache-warmup.md",
         """---
@@ -241,9 +235,9 @@ Body.
 def test_front_matter_that_is_not_a_mapping_is_a_collected_error(tmp_path):
     # a YAML scalar or list between the delimiters is corruption, not incompleteness:
     # it must not take the whole store down with an uncaught exception
-    _write(tmp_path, "scalar-fm.md", "---\njust a bare string\n---\n\n## Pre-reg\n")
-    _write(tmp_path, "list-fm.md", "---\n- one\n- two\n---\n\n## Pre-reg\n")
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "scalar-fm.md", "---\njust a bare string\n---\n\n## Pre-reg\n")
+    write_file(tmp_path, "list-fm.md", "---\n- one\n- two\n---\n\n## Pre-reg\n")
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     result = load_store(tmp_path)
 
@@ -252,7 +246,7 @@ def test_front_matter_that_is_not_a_mapping_is_a_collected_error(tmp_path):
 
 
 def test_garbage_date_is_still_a_loud_error(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "bad-date.md",
         "---\nid: bad-date\ntitle: Bad Date\ndate: not-a-date\n---\n\n## Pre-reg\n",
@@ -266,8 +260,8 @@ def test_garbage_date_is_still_a_loud_error(tmp_path):
 
 
 def test_duplicate_id_is_still_a_loud_error_even_when_derived(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", "# Widget Cache Warmup\n\nBody.\n")
-    _write(
+    write_file(tmp_path, "widget-cache-warmup.md", "# Widget Cache Warmup\n\nBody.\n")
+    write_file(
         tmp_path,
         "other-file.md",
         "---\nid: widget-cache-warmup\ntitle: Clashing Id\n---\n\n## Pre-reg\n",
@@ -281,8 +275,8 @@ def test_duplicate_id_is_still_a_loud_error_even_when_derived(tmp_path):
 
 
 def test_scoreboard_reports_the_partial_spine_count(tmp_path):
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
-    _write(
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(
         tmp_path,
         "queue-backpressure.md",
         """---
@@ -324,11 +318,11 @@ def test_scoreboard_omits_the_partial_count_when_every_spine_is_complete():
 
 
 def test_empty_document_is_a_warning_not_a_silent_member_of_the_store(tmp_path):
-    """A zero-content file loads with an id and inflates `docs: N`, the number the agent
-    trusts as the size of the store. It can never match anything: say so."""
+    """A zero-content file inflates `docs: N`, the number the agent trusts, and can never match
+    anything."""
     (tmp_path / "blank.md").write_text("", encoding="utf-8")
     (tmp_path / "whitespace-only.md").write_text("\n\n\n", encoding="utf-8")
-    _write(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
+    write_file(tmp_path, "widget-cache-warmup.md", LEGACY_NO_FRONT_MATTER)
 
     result = load_store(tmp_path)
 
@@ -362,10 +356,8 @@ Naive baseline written before opening the store.
 
 
 def test_a_draft_written_by_the_shipped_template_is_not_flagged_degraded(tmp_path):
-    """The degradation flag exists to mark real damage. A draft cannot know the commit
-    it will be verified at, nor how long the capture will take — flagging every draft
-    the tool's own `/engmem` command creates trains the reader to ignore the signal."""
-    _write(tmp_path, "20260823-widget-cache-eviction.md", DRAFT_AS_THE_SHIPPED_TEMPLATE_WRITES_IT)
+    """Flagging every draft the tool's own command creates trains the reader to ignore the signal."""
+    write_file(tmp_path, "20260823-widget-cache-eviction.md", DRAFT_AS_THE_SHIPPED_TEMPLATE_WRITES_IT)
 
     doc = load_store(tmp_path).docs[0]
 
@@ -374,7 +366,7 @@ def test_a_draft_written_by_the_shipped_template_is_not_flagged_degraded(tmp_pat
 
 
 def test_absent_telemetry_fields_do_not_count_as_spine_damage(tmp_path):
-    _write(
+    write_file(
         tmp_path,
         "widget-cache-warmup.md",
         """---
@@ -401,9 +393,9 @@ Body.
 
 
 def test_absent_retrieval_fields_still_count_as_spine_damage(tmp_path):
-    """entities and tags carry search weight; their absence really does degrade
-    ranking, unlike telemetry."""
-    _write(
+    """entities and tags carry search weight, so their absence really does degrade ranking, unlike
+    telemetry."""
+    write_file(
         tmp_path,
         "widget-cache-warmup.md",
         "---\nid: widget-cache-warmup\ntitle: Widget Cache Warmup\ndate: 2026-05-04\n---\n\n## Pre-reg\n",
@@ -416,8 +408,8 @@ def test_absent_retrieval_fields_still_count_as_spine_damage(tmp_path):
 
 
 def test_shipped_draft_template_does_not_claim_zero_capture_minutes():
-    """`0` means "measured as instantaneous"; a draft has measured nothing. The
-    template must leave the value absent so it reads as null."""
+    """`0` means measured as instantaneous; a draft has measured nothing, so the value must read
+    as null."""
     from importlib import resources
 
     template = (resources.files("engmem") / "templates" / "engmem.start.md").read_text(

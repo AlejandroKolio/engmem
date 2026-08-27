@@ -1,20 +1,5 @@
-"""Documentation claims checked against the package, mechanically.
-
-The suite proves the code works. Nothing proved the documentation described that code —
-and it drifted: the output cap was documented as 2 KB long after it became 4 KB, the
-anatomy page asserted that a search over MCP writes no telemetry when it writes one
-tagged `channel="mcp"`, and five private function names outlived a refactor that renamed
-them. Every one of those was found by a person reading, which does not scale and does not
-survive the next rename.
-
-Two things here are checkable without guessing at prose:
-
-- a **private** name in code formatting is unambiguously a code symbol, so it must exist;
-- a **numeric constant** the docs quote must equal the constant in the module.
-
-Anything softer is left to review on purpose: a test that fails on rewording teaches
-people to delete tests.
-"""
+"""Two documentation claims are checkable without guessing at prose: a private name must exist, a
+quoted constant must match."""
 
 from __future__ import annotations
 
@@ -56,9 +41,8 @@ DEFINED = _defined_names()
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
 def test_private_names_in_the_docs_still_exist(doc):
-    """`_stray_markdown_files` never existed; `_fail` and `_cmd_install` stopped existing
-    when they moved modules. Prose cannot produce a leading underscore, so anything that
-    has one is a claim about the code and can be checked."""
+    """Prose cannot produce a leading underscore, so anything carrying one is a claim about the
+    code."""
     stale = sorted(_cited_private_names(doc.read_text(encoding="utf-8")) - DEFINED)
 
     assert not stale, (
@@ -83,6 +67,38 @@ def _kb(value: int) -> list[str]:
 
 
 # constant -> the documents that state its value and must keep matching it
+# A constant whose value a contract states in prose, with the exact spelling that document uses.
+# Prose cannot be diffed, and a document arguing for a tuned value the code no longer holds sends
+# the reader to a conclusion the engine does not implement.
+STATED_VALUES = [
+    ("scoring", "BM25_K1", None, "`k1 = {value}`", "scoring.md"),
+    ("scoring", "BM25_B", None, "`b = {value}`", "scoring.md"),
+    ("scoring", "FIELD_WEIGHTS", "entities", "returns `{value}.0,", "scoring.md"),
+    ("scoring", "FIELD_WEIGHTS", "id", "caps a token at {value}", "scoring.md"),
+]
+
+
+@pytest.mark.parametrize(
+    "module,name,key,template,doc_name",
+    STATED_VALUES,
+    ids=[f"{row[1]}{'[' + row[2] + ']' if row[2] else ''}" for row in STATED_VALUES],
+)
+def test_a_contract_that_argues_for_a_value_states_the_one_the_code_holds(
+    module, name, key, template, doc_name
+):
+    value = _constant(module, name)
+    if key is not None:
+        value = value[key]
+    doc = next(d for d in DOCS if d.name == doc_name)
+
+    stated = template.format(value=value)
+
+    assert stated in doc.read_text(encoding="utf-8"), (
+        f"{doc_name} no longer states {stated!r} for {module}.{name}"
+        f"{'[' + key + ']' if key else ''}, which the code now sets to {value}"
+    )
+
+
 QUOTED_CONSTANTS = [
     ("output", "MAX_OUTPUT_BYTES", ["README.md", "ENGMEM-SPEC.md", "engmem-anatomy.html", "data-model.md"]),
 ]
@@ -90,10 +106,8 @@ QUOTED_CONSTANTS = [
 
 @pytest.mark.parametrize("module,name,doc_names", QUOTED_CONSTANTS, ids=lambda a: a if isinstance(a, str) else "")
 def test_documents_that_state_a_constant_state_the_current_one(module, name, doc_names):
-    """Asserted positively, and that matters: an earlier version of this test only banned
-    the old spelling, so raising the constant left every document quoting a number that was
-    no longer true and the test stayed green. What must hold is that the document agrees
-    with the module *now*, whatever the value becomes."""
+    """Asserted positively: banning only the old spelling left the docs quoting a dead number
+    while staying green."""
     value = _constant(module, name)
     spellings = _kb(value)
 
@@ -110,10 +124,7 @@ def test_documents_that_state_a_constant_state_the_current_one(module, name, doc
             if other == value:
                 continue
             for stale in _kb(other):
-                hits = [
-                    m for m in re.finditer(rf"(?<![\d.]){re.escape(stale)}", text)
-                    if stale.isdigit() or True
-                ]
+                hits = list(re.finditer(rf"(?<![\d.]){re.escape(stale)}", text))
                 assert not hits, (
                     f"{doc.relative_to(ROOT)} still states {stale!r} for {module}.{name}, "
                     f"which is now {value}"
@@ -132,10 +143,8 @@ def test_the_role_vocabulary_the_docs_quote_is_the_one_the_code_defines():
     for word in spelled:
         assert word in anatomy.lower(), f"the page no longer says {word!r} for {n} roles"
 
-def test_cli_commands_and_flags_named_in_the_docs_exist(doc=None):
-    """The anatomy walks the reader through real commands. A flag that was renamed leaves
-    the page telling them to type something the CLI rejects — and unlike a wrong number,
-    they find out only by trying it."""
+def test_cli_commands_and_flags_named_in_the_docs_exist():
+    """A renamed flag leaves the page telling the reader to type something the CLI rejects."""
     import re
 
     from engmem.cli import build_parser
@@ -172,8 +181,7 @@ def test_cli_commands_and_flags_named_in_the_docs_exist(doc=None):
 
 
 def test_the_spec_parking_section_exists_and_is_not_empty():
-    """`ENGMEM-SPEC.md` §9 is where a rejected idea goes with its reason. An empty parking
-    section means the next proposal argues against nothing."""
+    """An empty parking section means the next proposal argues against nothing."""
     spec = (ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8")
     start = spec.index("## 9. Deliberately cut")
     end = spec.index("## 10.", start)
@@ -185,10 +193,8 @@ def test_the_spec_parking_section_exists_and_is_not_empty():
 
 
 def test_the_save_template_asks_about_a_superseded_citation():
-    """Prose in a template is only as good as the agent's compliance, so this guards the
-    weaker half: that the instruction is still there at all. A Reuse Log row citing a
-    superseded document is indistinguishable from honest reuse once the session is over —
-    the question has to be asked while the human is still in the room."""
+    """A row citing a superseded document is indistinguishable from honest reuse once the session
+    is over."""
     template = (ROOT / "src" / "engmem" / "templates" / "engmem.save.md").read_text(
         encoding="utf-8"
     )

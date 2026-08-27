@@ -51,10 +51,20 @@ showing it:
 
 1. Local-first, git-native, LLM-agnostic. Markdown is the source of truth. No databases.
 2. No server/daemon/cloud. No network calls from the CLI at all.
-3. Python ≥3.11. Dependencies: **pyyaml only**. CLI scaffolding is argparse (stdlib).
-   Forbidden: click, typer, rich, pydantic, and any other packages.
+3. Python ≥3.11. Dependencies: **pyyaml and markdown-it-py only**. CLI scaffolding is
+   argparse (stdlib). Forbidden: click, typer, rich, pydantic, and any other packages.
 4. The CLI is thin and dumb; all the intelligence lives in the prompt templates.
 5. Nothing "for future growth": the list of cut features is §11; build none of it.
+
+Update (author-approved exception): constraint 3 admits a second runtime dependency,
+`markdown-it-py`. `backfill` reads link destinations out of a document body to derive
+`related`, and a regex over raw markdown cannot tell a real link from one quoted inside
+a code fence, an inline code span, or escaped brackets — it invents edges between
+documents in a store whose premise is that edges are set deliberately. The parser was
+already in the repository as the dev-only oracle for `tests/test_commonmark_parity.py`,
+so this promotes a component the suite already exercises rather than adding an unknown
+one. `sections.py`'s splitter stays on regexes, held honest by that same oracle. The
+rest of the list is unchanged and still in force.
 
 ## 3. Architecture (three layers)
 
@@ -81,10 +91,12 @@ it is built once, then read instead of the documents, so it can silently drift f
 exactly the failure this "NO derived index" decision exists to prevent. The cache
 is the opposite shape: it is keyed on the source file's own identity (path, `st_mtime_ns`,
 `st_size`), so a changed file produces a different key and a cache hit is only ever
-possible when the key still matches the file *right now*. There is no invalidation logic
-to get wrong and no window where the cache and the document can disagree — a mismatch is
-not a bug to fix, it is simply a miss that falls back to recomputing from the document
-itself, the very thing `search` already does on every call. Losing the entire cache
+possible when the key still matches the read the entry was built from — the stamp is
+taken by that read, not by a fresh `stat()` later, which is what would let an entry built
+from an old body be filed under an edited file (see `contracts/cache.md`). There is no
+invalidation logic to get wrong and no lag between an edit and the miss it causes — a
+mismatch is not a bug to fix, it is simply a miss that falls back to recomputing from the
+document itself, the very thing `search` already does on every call. Losing the entire cache
 directory changes nothing observable except latency; it is disposable, reconstructible,
 and never consulted as an authority independent of the markdown files it was derived from.
 That is what makes it a pure function of file bytes rather than an index.
@@ -143,11 +155,11 @@ of the wrong type for its field (e.g. `capture_minutes: [1, 2]`, `tags: 5`), an
 `OSError` while reading one file itself (permission denied, a dangling symlink, a
 directory in place of the file — none of these reach the YAML parser at all), or an
 `OSError` while listing `sessions/` itself (e.g. the directory is unreadable). The latter
-is an error even though `Path.glob` silently returns an empty result for it (it does not
-propagate the `OSError` `os.scandir` raises) — unlike one bad file, whose blast radius is
-exactly that one document, an unlistable directory hides an *unknown* count of documents,
-which makes the whole run untrustworthy the same way a duplicate id does, not merely
-degraded; **warning**
+is an error, and the scan uses `Path.iterdir` rather than a glob so that the `OSError`
+`os.scandir` raises propagates instead of reading as an empty directory — unlike one bad
+file, whose blast radius is exactly that one document, an unlistable directory hides an
+*unknown* count of documents, which makes the whole run untrustworthy the same way a
+duplicate id does, not merely degraded; **warning**
 — empty entities, id not equal to the filename stem, incomplete spine, a scalar value in
 a list-typed field (`tags`, `entities`, `related`, `covers_files`) — degraded to a
 one-element list rather than exploded character-by-character by `list(str)`, or rejected
@@ -177,6 +189,21 @@ Do not duplicate as-is architecture, flows, or contracts that are already in the
 
 ## 5. CLI — command contracts
 
+A usage error argparse itself catches — a missing argument, an unknown flag, an unknown or
+absent subcommand — exits 2 and is named on **stdout as well as stderr**, like every other
+terminal state in this section (§10, principle VIII). argparse writes its own errors to
+stderr only, which left a mistyped command invisible to a reader that never reads stderr.
+`engmem mcp` is the single exception, for the reason its own subsection below gives: on that
+invocation stdout is the protocol channel, and no usage error reaches it — including one the
+*root* parser reports before the subcommand is dispatched, which is what a misplaced
+`engmem --store PATH mcp` produces. An argv naming `mcp` as its command is recognised as
+such by the first token that spells a subcommand **and is not itself the value of a
+value-taking option** — so `engmem --store search mcp` is the mcp command with a misplaced
+`--store`, not a search, while a search whose *query* is the word `mcp`, and a `--store`
+path spelled `mcp`, both keep the ordinary stdout mirror. Which options take a value is
+read off the actions each parser owns — argument groups included, since a group shares its
+parser's action list — so a new one cannot silently reopen the gap.
+
 ### `engmem install [--agent claude|copilot|claude-desktop] [--local] [--store PATH]`
 
 Idempotent (re-running = upgrade, nothing breaks):
@@ -192,10 +219,12 @@ Idempotent (re-running = upgrade, nothing breaks):
    the line engmem wrote, not any line that merely contains the same substring — an
    earlier version deleted a user's own unrelated sentence that happened to mention
    `engmem search`; installs from before the sentinel existed are still recognised
-   for removal by their exact bare rule text. Precondition failures during install
-   (the store path or a template destination already existing as a regular file, in
-   addition to the pre-existing `git`-missing and repo-root-guard cases) exit 2 with
-   a named cause on stdout and stderr, never a traceback.
+   for removal by their exact bare rule text. The rule is appended with the line
+   ending the file already uses, and the file it goes into is replaced atomically —
+   see `docs/design/contracts/install.md` for why that file, and not the templates.
+   Any failure during install (an occupied destination, an undecodable instructions
+   file, an unwritable directory, `git` missing, the repo-root guard) exits 2 with a
+   named cause on stdout and stderr, never a traceback.
 5. `--agent claude-desktop` writes no templates and no trigger rule (Claude Desktop has
    neither a commands directory nor a global instructions file to write them to).
    Instead it writes one entry into Claude Desktop's own
@@ -218,7 +247,10 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    kills the client session. This is the opposite convention from every other command
    in this section, where a terminal failure must leave a line on stdout because the
    consumer reads only stdout; here the CLI wiring itself must stay silent on stdout no
-   matter what, and any diagnostics belong on stderr only.
+   matter what, and any diagnostics belong on stderr only. `engmem mcp --help` is the
+   one thing that still prints there: argparse's help action, asked for explicitly by a
+   human at a terminal and never by a client, which prints the help text and exits 0
+   without ever starting the protocol loop.
 3. The stdio loop's own protocol behavior (tool schema, request/response shapes,
    error handling within the protocol) is out of scope for this section — it lives with
    `engmem.mcp_server`. Two tools are exposed: `engmem_search` (word search, unchanged)
@@ -335,6 +367,34 @@ words are in the query.
   behavior, with the role vocabulary as its `role` parameter's JSON Schema `enum` so a
   calling model picks from the real vocabulary rather than guessing a spelling.
 
+### `engmem telemetry [--store PATH]`
+
+The reading surface for the `telemetry.jsonl` rows §5's `search` subsection writes:
+totals, hit rate and context spent, split by channel (`cli`/`mcp`) and overall, plus the
+navigation misses recorded in the store's own documents.
+
+- **A missing log is zero rows; a log that cannot be read is not.** No `telemetry.jsonl`
+  means no search has run yet, which is honestly reported as a zero-row summary. A log
+  that exists but cannot be *read* (permission denied) or *decoded* (a non-UTF-8 byte —
+  `UnicodeDecodeError`, which is a `ValueError` and not an `OSError`, so a handler
+  catching only `OSError` lets it out as a traceback) is a terminal failure: exit 2, the
+  path and the cause named on both stdout and stderr, and never the phrase `0 row(s)`.
+  Reporting an unreadable log as an empty one would tell an author their store recorded
+  nothing while it recorded everything — the same phantom-empty failure the scoreboard's
+  `scan_error` line exists to prevent, and the reason this command reads the store
+  through the same loader as every other subcommand rather than reaching into it.
+- A single bad *line* is not fatal: it is counted in the summary's `unreadable` tally and
+  the remaining rows are still totalled. One truncated append — the usual way a line goes
+  bad — must not cost the reader the entire measurement history. "Bad" is every line the
+  reader cannot total, not only unparseable JSON: valid JSON that is not an object
+  (`123`, `null`), a `context_bytes`/`context_tokens_estimate` that is not a number, a
+  `channel` that is not a string, and the shapes that defeat the decoder itself before any
+  field is inspected — a number with more digits than CPython will convert, nesting deep
+  enough to exhaust the stack. Each of those is one row's defect; charging the whole
+  file for it (or letting it out as a traceback) would be the same phantom-empty lie as
+  the bullet above, only louder. The distinction the two bullets draw is byte versus row:
+  a bad byte invalidates every offset in the file, a bad row does not.
+
 ## 6. Prompt templates — behavior specification
 
 ### `/engmem <task description>` (start)
@@ -424,7 +484,7 @@ Assertions (id → expected outcome):
 
 | # | Query | Expected outcome |
 |---|---|---|
-| G1 | `1000001` | response-cache first (exact id) |
+| G1 | `1000001` | response-cache first (exact id) — holds at fixture size; see `contracts/scoring.md`, "Spine and body scores are not on one scale" |
 | G2 | `482` | response-cache NOT found (numbers are exact-match only) |
 | G3 | `ResponseCacheController` | response-cache first |
 | G4 | `response cache` | response-cache first (CamelCase fragments) |
@@ -525,7 +585,8 @@ implementation. Ambiguity is resolved, not assumed away.
 
 **VII. Simplicity and dependency discipline.** Standard library first. A new runtime
 dependency needs an explicit reason the standard library cannot serve, and the author's
-approval. The runtime requires `pyyaml` and nothing else; CI enforces that.
+approval. The runtime requires `pyyaml` and `markdown-it-py` and nothing else; CI
+enforces that.
 
 **VIII. Errors are loud.** No silent `except: pass`, no fallback values papering over broken
 state. A failure names its cause. This one governs the design: the consumer is an agent that

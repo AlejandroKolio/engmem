@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
-"""Check that every Reuse Log quote occurs in the document it cites.
-
-    python tools/verify_citations.py --store <store>
-
-A quote is a span in double quotes or guillemets; backticks mark the artifact, not the
-quotation. Exit 0 when clean, 1 when a quote cannot be verified.
-"""
+"""Checks that every Reuse Log quote occurs in the document it cites; exit 1 when one cannot be
+verified."""
 
 from __future__ import annotations
 
@@ -73,9 +68,8 @@ def verify(store: Path) -> tuple[list[str], list[str]]:
                 if _normalized(quote) not in bodies[cited]:
                     problems.append(f'{where}: quote not found in {cited} — "{quote}"')
 
-            # a genuine quote from a document that has since been replaced: not a
-            # fabrication, but reuse of stale knowledge — and after the session ends the
-            # two read the same
+            # a genuine quote from a document that has since been replaced: not a fabrication, but
+            # reuse of stale knowledge — and after the session ends the two read the same
             if docs[cited].status == "superseded":
                 successor = docs[cited].superseded_by or "(no successor recorded)"
                 stale.append(f"{where}: cites {cited}, superseded by {successor}")

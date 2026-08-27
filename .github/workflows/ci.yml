@@ -38,14 +38,15 @@ jobs:
         run: uv run --python ${{ matrix.python-version }} pytest -q
 
   runtime-dependencies:
-    # engmem's runtime must stay pyyaml-only. A dev-only tool leaking into the
-    # runtime dependency set is a defect this catches before release, not after.
+    # engmem's runtime is pyyaml and markdown-it-py, nothing else. A dev-only tool
+    # leaking into the runtime dependency set is a defect this catches before
+    # release, not after.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv build --wheel
-      - name: Assert the wheel requires nothing but pyyaml
+      - name: Assert the wheel requires nothing beyond the two declared dependencies
         run: |
           python - <<'PY'
           import pathlib, zipfile
@@ -60,7 +61,9 @@ jobs:
               if line.startswith("Requires-Dist:")
           )
           print("Requires-Dist:", requires)
-          assert requires == ["pyyaml"], f"runtime dependencies drifted: {requires}"
+          assert requires == ["markdown-it-py", "pyyaml"], (
+              f"runtime dependencies drifted: {requires}"
+          )
           PY
 
   # The single check branch protection should require. Requiring the matrix jobs by name

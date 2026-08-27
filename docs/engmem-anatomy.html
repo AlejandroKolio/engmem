@@ -883,14 +883,14 @@ answer_tokens:   9600   # только если рантайм реально е
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T2</span>
-        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>_parse_one</code> ×N</span><span class="step-s">spine.py · неполнота — не то же самое, что порча</span></span>
+        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>parse_document</code> ×N</span><span class="step-s">spine.py · неполнота — не то же самое, что порча</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>Неполнота и порча разведены намеренно: первую загрузчик достраивает, вторая исключает один файл — и только его.</p></div>
         <div class="io">
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p>Пустое поле из <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) выводится: <code>id</code> ← имя файла, <code>title</code> ← первый <code>&lt;h1&gt;</code>, <code>date</code> ← строка «<code>- Date: …</code>» в первых 40 строках тела или mtime, <code>status</code> ← <code>active</code>. Наружу не бросается ничего — каждый <code>_parse_one(path)</code> обёрнут в <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
+          <div class="io-v"><p>Пустое поле из <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) выводится: <code>id</code> ← имя файла, <code>title</code> ← первый <code>&lt;h1&gt;</code>, <code>date</code> ← строка «<code>- Date: …</code>» в первых 40 строках тела или mtime, <code>status</code> ← <code>active</code>. Наружу не бросается ничего — каждый <code>parse_document(path)</code> обёрнут в <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
             <pre><code>LoadResult(docs=7, errors=1, warnings=1)
 errors[0]   = "broken.md: while parsing a flow sequence…"
 warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
@@ -1871,14 +1871,14 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T2</span>
-        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>_parse_one</code> ×N</span><span class="step-s">spine.py · incompleteness is not the same thing as corruption</span></span>
+        <span class="step-titles"><span class="step-t"><code>load_store</code> → <code>parse_document</code> ×N</span><span class="step-s">spine.py · incompleteness is not the same thing as corruption</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>Incompleteness and corruption are deliberately kept apart: the loader derives the first, and the second excludes one file — only that one.</p></div>
         <div class="io">
           <div class="io-k">What runs</div>
-          <div class="io-v"><p>An empty field from <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) is derived: <code>id</code> from the filename stem, <code>title</code> from the first <code>&lt;h1&gt;</code>, <code>date</code> from a "<code>- Date: …</code>" line in the first 40 lines of the body or the file's mtime, <code>status</code> from the <code>active</code> default. Nothing is raised outward — each <code>_parse_one(path)</code> is wrapped in <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
+          <div class="io-v"><p>An empty field from <code>SPINE_FIELDS</code> (<code>id, title, date, task_date, status, tags, entities</code>) is derived: <code>id</code> from the filename stem, <code>title</code> from the first <code>&lt;h1&gt;</code>, <code>date</code> from a "<code>- Date: …</code>" line in the first 40 lines of the body or the file's mtime, <code>status</code> from the <code>active</code> default. Nothing is raised outward — each <code>parse_document(path)</code> is wrapped in <code>try/except (yaml.YAMLError, ValueError, OSError)</code>:</p>
             <pre><code>LoadResult(docs=7, errors=1, warnings=1)
 errors[0]   = "broken.md: while parsing a flow sequence…"
 warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
@@ -2244,7 +2244,7 @@ rm -rf ~/Developer/engmem         # your documents — only if you're sure</code
     <div class="tablewrap"><table>
       <thead><tr><th>Constraint</th><th>What it protects</th></tr></thead>
       <tbody>
-        <tr><td>One dependency, a standard-library CLI, no "just in case" features</td><td>Minimum investment before the verdict: if it doesn't hold up, throwing it away is cheap.</td></tr>
+        <tr><td>Two dependencies, a standard-library CLI, no "just in case" features</td><td>Minimum investment before the verdict: if it doesn't hold up, throwing it away is cheap.</td></tr>
         <tr><td>Deterministic search, golden tests as the source of truth</td><td>A reproducible sensor: a channel that answers one query differently on different days can neither be compared against a baseline nor meaningfully logged. "It found it yesterday, not today" is impossible by construction.</td></tr>
         <tr><td>The tool makes no network calls</td><td>True of the tool, not of the system: document contents reach the model on every task — that's a sign-off question, not a settled one.</td></tr>
         <tr><td>The measuring instruments may not be simplified</td><td>Reuse Log, pre-reg, telemetry, scoreboard. Switching them off means running the experiment with no data.</td></tr>

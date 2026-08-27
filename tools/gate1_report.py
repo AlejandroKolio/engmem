@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Every Reuse Log row in one table for the Gate 1 review.
-
-    python tools/gate1_report.py --store <store>
-
-Adjacent = shares a repo or tag with the citing document, or one `related` edge
-(`ENGMEM-SPEC.md` §11). The verdict column is the human's. `repos` is read from the front
-matter directly — `spine.py` does not parse it.
-"""
+"""Every Reuse Log row in one table for the Gate 1 review; the verdict column is the human's."""
 
 from __future__ import annotations
 

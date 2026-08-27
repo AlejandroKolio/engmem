@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
-"""Side A of the search-vs-self-grep baseline (`ENGMEM-SPEC.md` §11).
-
-    python tools/baseline_cost.py --store <store> --queries queries.tsv
-
-`queries.tsv`: `query<TAB>expected-doc-id` per line. Side B needs a fresh agent session,
-so that column is left empty.
-"""
+"""Side A of the search-versus-self-grep baseline (`ENGMEM-SPEC.md` §11); side B needs a fresh
+agent session."""
 
 from __future__ import annotations
 
@@ -19,10 +14,7 @@ from engmem.telemetry import estimate_tokens
 
 
 def _search_output(query: str, store: Path) -> tuple[str, str]:
-    """`(stdout, stderr)`. The store's own diagnostics are captured rather than left to
-    interleave with the table — the same problem would otherwise be printed once per
-    query. They are reported at the end instead, never dropped: a baseline measured over
-    a store that is quietly missing a document is not a baseline."""
+    """`(stdout, stderr)` — store diagnostics are captured and reported once, not once per query."""
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         engmem_main(["search", query, "--store", str(store)])

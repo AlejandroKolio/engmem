@@ -1,26 +1,18 @@
-"""Markdown sitting in the store root is never searched — engmem only reads `sessions/`.
-
-Found during the first real dogfooding session: the author's documents lived in the store
-root, `engmem search` reported `prior context: none found`, and the agent then answered
-the question by reading those very files directly. The tool had contributed nothing while
-appearing to participate — the worst possible failure, because the session was afterwards
-counted as a partial success.
-
-Constitution VIII: this must be loud, not silent.
-"""
+"""Markdown in the store root is never searched; the first dogfooding session reported `none
+found` while the answer sat on disk."""
 
 import os
 import shutil
-import sys
-from pathlib import Path
 
 import pytest
 
-from conftest import requires_unreadable_paths
+from conftest import (
+    FIXTURES,
+    requires_permission_enforcement,
+)
 
 from engmem.cli import main
 
-FIXTURES = Path(__file__).parent / "fixtures" / "sessions"
 
 STRAY_DOC = """---
 id: my-old-notes
@@ -64,8 +56,19 @@ def _run(store, query, capsys):
     return code, captured.out, captured.err
 
 
-def test_stray_markdown_in_store_root_is_reported(store, capsys):
-    (store / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        pytest.param("my-old-notes.md", id="store-root"),
+        pytest.param("sessions/2026-archive/my-old-notes.md", id="nested-under-sessions"),
+    ],
+)
+def test_stray_markdown_is_reported(store, capsys, relative_path):
+    """The store scan is flat — `iterdir`, no descent — so a document foldered one directory
+    deeper is loaded no more than a stray sitting in the store root is."""
+    path = store / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(STRAY_DOC, encoding="utf-8")
 
     code, out, err = _run(store, "platform", capsys)
 
@@ -74,17 +77,26 @@ def test_stray_markdown_in_store_root_is_reported(store, capsys):
     assert "sessions" in err, "the message must say where documents belong"
 
 
-def test_none_found_points_at_stray_docs_on_stdout(empty_store, capsys):
-    """The misleading case: nothing in sessions/, documents in the root. The agent reads
-    stdout; a warning only on stderr is how this went unnoticed the first time."""
-    (empty_store / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")
-    (empty_store / "another-doc.md").write_text(STRAY_DOC, encoding="utf-8")
+@pytest.mark.parametrize(
+    "relative_paths, expected_count",
+    [
+        pytest.param(["my-old-notes.md", "another-doc.md"], 2, id="store-root"),
+        pytest.param(["sessions/2026-archive/my-old-notes.md"], 1, id="nested-under-sessions"),
+    ],
+)
+def test_none_found_points_at_strays_on_stdout(empty_store, capsys, relative_paths, expected_count):
+    """The agent reads stdout, and a warning only on stderr is how this went unnoticed the first
+    time — true whether the stray sits in the store root or nested under `sessions/`."""
+    for relative_path in relative_paths:
+        path = empty_store / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(STRAY_DOC, encoding="utf-8")
 
     code, out, err = _run(empty_store, "platform", capsys)
 
     assert code == 0
     assert "prior context: none found" in out
-    assert "2 markdown file(s) sit outside the searched set" in out
+    assert f"{expected_count} markdown file(s) sit outside the searched set" in out
     assert "sessions" in out
 
 
@@ -97,40 +109,13 @@ def test_clean_store_says_nothing_about_strays(store, capsys):
 
 
 def test_readme_in_store_root_is_not_a_stray(store, capsys):
-    """`docs/store-readme.md` is meant to be copied to the store root as README.md —
-    warning about the file we told the user to put there would be noise."""
+    """`docs/store-readme.md` is meant to be copied there, so warning about it would be noise."""
     (store / "README.md").write_text("# My store\n", encoding="utf-8")
 
     code, out, err = _run(store, "platform", capsys)
 
     assert code == 0
     assert "README" not in err
-
-
-def test_markdown_nested_under_sessions_is_reported(store, capsys):
-    """Filing documents into `sessions/2026-archive/` is the natural move once a store
-    grows. `glob("*.md")` does not descend, so those documents vanish — same silent loss
-    as the store root, one directory deeper."""
-    nested = store / "sessions" / "2026-archive"
-    nested.mkdir()
-    (nested / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")
-
-    code, out, err = _run(store, "platform", capsys)
-
-    assert code == 0
-    assert "my-old-notes.md" in err, "the unreachable file must be named, not just counted"
-
-
-def test_none_found_points_at_nested_docs_on_stdout(empty_store, capsys):
-    nested = empty_store / "sessions" / "2026-archive"
-    nested.mkdir()
-    (nested / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")
-
-    code, out, err = _run(empty_store, "platform", capsys)
-
-    assert code == 0
-    assert "prior context: none found" in out
-    assert "1 markdown file(s) sit outside the searched set" in out
 
 
 def test_root_strays_and_nested_docs_are_counted_together(empty_store, capsys):
@@ -167,12 +152,10 @@ def test_no_match_without_strays_keeps_the_bare_message(empty_store, capsys):
     assert "not searched" not in out.lower()
 
 
-@requires_unreadable_paths
+@requires_permission_enforcement
 def test_unreadable_nested_subdirectory_is_reported_not_treated_as_clean(store, capsys):
-    """D2, applied one level up: `Path.rglob` swallows the `PermissionError` a locked
-    subdirectory under sessions/ raises, so a stray document sitting behind it used to
-    be reported as "no strays" — the same silent loss `_stray_documents` itself exists
-    to catch, just from a different filesystem call."""
+    """D2 one level up: `os.walk` skips an unreadable directory in silence, so without its
+    `onerror` callback a locked subdirectory would read as "no strays"."""
     locked = store / "sessions" / "locked-archive"
     locked.mkdir()
     (locked / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")

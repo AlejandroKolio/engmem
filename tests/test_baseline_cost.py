@@ -1,13 +1,5 @@
-"""`tools/baseline_cost.py` — side A of the search-versus-self-grep baseline.
-
-Side A is mechanical: run the query, measure what the agent would receive, check whether
-the document the author knows to be right came back. Side B needs a fresh agent session
-with no prior knowledge of the corpus, so the tool leaves that column empty rather than
-inventing it — the same division of labour as `gate1_report.py`.
-
-Both sides must be counted with `telemetry.estimate_tokens`, or the comparison is between
-two different rulers.
-"""
+"""Both sides of the baseline must be counted with `telemetry.estimate_tokens`, or the comparison
+uses two rulers."""
 
 from __future__ import annotations
 
@@ -55,8 +47,7 @@ def test_a_query_whose_expected_document_is_returned_counts_as_found(tmp_path):
 
 
 def test_a_query_whose_expected_document_is_missing_counts_as_not_found(tmp_path):
-    """The interesting half of the table: a query the engine does not answer is exactly
-    what side B has to be compared against."""
+    """A query the engine does not answer is exactly what side B has to be compared against."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
     _doc(sessions, "sweeper-job", "SweeperJob", "Sweeps nightly.")
@@ -69,8 +60,8 @@ def test_a_query_whose_expected_document_is_missing_counts_as_not_found(tmp_path
 
 
 def test_token_cost_uses_the_same_estimator_as_telemetry(tmp_path):
-    """If side A were counted differently from what `engmem telemetry` reports, the
-    baseline would compare the engine against itself measured two ways."""
+    """Counting side A differently from `engmem telemetry` would compare the engine against itself
+    measured two ways."""
     from engmem.telemetry import estimate_tokens
 
     sessions = tmp_path / "sessions"
@@ -108,15 +99,21 @@ def test_the_footer_totals_side_a_so_the_comparison_has_one_number(tmp_path):
 
     result = _run(tmp_path, queries)
 
-    assert "2 quer" in result.stdout
-    assert "found 1" in result.stdout
+    # the whole line, with the total recomputed from the table: a substring check passes just as
+    # happily when the total is stuck at zero
+    per_query = [
+        int(row.strip().strip("|").split("|")[2])
+        for row in result.stdout.splitlines()
+        if row.startswith("| ") and "---" not in row and not row.startswith("| query")
+    ]
+    assert len(per_query) == 2, result.stdout
+    assert f"2 queries   side A: {sum(per_query)} tokens total, found 1" in result.stdout
+    assert sum(per_query) > 0, "a zero total would make the comparison vacuous"
 
 
 def test_store_problems_are_reported_once_and_do_not_break_the_table(tmp_path):
-    """A store with one unparseable document would otherwise print the same error for
-    every query, shredding the table it exists to produce. Silencing it would be worse —
-    a baseline measured against a store that is quietly missing a document is not a
-    baseline. So: collected, stated once, table left contiguous."""
+    """One unparseable document would otherwise print the same error per query and shred the
+    table."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
     (sessions / "broken.md").write_text(

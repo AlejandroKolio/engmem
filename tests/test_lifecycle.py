@@ -1,14 +1,5 @@
-"""Round-trips a document shaped exactly as contracts/prompt-templates.md's "finish"
-section and data-model.md's Front matter fields / Body sections require /engmem.save to
-produce, through spine.py's parser.
-
-This is a contract test, not a red-before-green TDD test in the usual sense: /engmem.save
-is a markdown prompt template (Phase 5), not Python code, so there is no implementation
-task that makes this test transition from failing to passing. Its purpose is (a) to prove
-spine.py already accepts the full documented save-output shape, and (b) to serve as the
-executable ground truth the save-template checklist (checklists/save-template.md) is
-verified against.
-"""
+"""Contract test: proves `spine.py` already accepts the full documented `/engmem.save` output
+shape."""
 
 from engmem.spine import load_store
 
@@ -82,9 +73,8 @@ Two or three lines of intended approach, written before any search.
 
 
 def test_draft_shaped_document_parses_and_counts_in_scoreboard(tmp_path):
-    """The exact placeholder front matter engmem.start.md instructs the agent to write
-    (per the C3 review decision: full front matter with placeholders, spine stays strict)
-    must parse with zero errors and register as a draft."""
+    """The exact placeholder front matter the start template instructs the agent to write must
+    parse with zero errors."""
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     (sessions_dir / "20260819-fresh-draft.md").write_text(DRAFT_SHAPED_DOC)

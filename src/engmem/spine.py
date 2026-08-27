@@ -1,6 +1,4 @@
-"""Loads `sessions/*.md` into `Doc` records: parses front matter, derives
-missing spine fields from the body, and reports load errors/warnings/degradation.
-"""
+"""Loads `sessions/*.md` into `Doc` records and reports load errors, warnings and degradation."""
 
 from __future__ import annotations
 
@@ -12,12 +10,10 @@ from pathlib import Path
 
 import yaml
 
-# Fields whose absence degrades retrieval: the scored fields plus the ones that
-# order and filter results. A document missing one still loads, with the value
-# derived or defaulted, and the gap is reported rather than hiding the document
-# (principle VIII). `backfilled`/`verified_at_commit`/`capture_minutes` are
-# deliberately excluded: nothing outside this module reads them, and a draft
-# cannot know its own verification commit or capture time in advance.
+from engmem.cache import identity_for
+
+# Fields whose absence degrades retrieval: the scored fields plus the ones that order and filter
+# results.
 SPINE_FIELDS = (
     "id",
     "title",
@@ -34,21 +30,15 @@ _PREAMBLE_DATE_RE = re.compile(
     r"^[-*]\s*\*{0,2}(?:Date|Updated)\*{0,2}\s*:\s*\*{0,2}\s*(\d{4}-\d{2}-\d{2})",
     re.MULTILINE,
 )
-_PREAMBLE_SCAN_LINES = 40
+PREAMBLE_SCAN_LINES = 40
 
-# Canonical id shape (ENGMEM-SPEC.md §4 / data-model.md "id"): `<story-id>-<slug>`
-# or `<YYYYMMDD>-<slug>`. ASCII-lowercase-hyphen only, since an id also doubles
-# as a filename: no case-folding surprise, no homoglyph, nothing shell-special.
-# Requiring 2+ hyphen-separated groups also rules out every reserved Windows
-# device name (CON, AUX, NUL, COM1..9, LPT1..9), none of which contain a hyphen.
+# Canonical id shape (ENGMEM-SPEC.md §4 / data-model.md "id"): `<story-id>-<slug>` or
+# `<YYYYMMDD>-<slug>`.
 DOC_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)+$")
 
 
 def validate_doc_id(doc_id: object) -> str | None:
-    """None if `doc_id` is safe as a `sessions/<doc_id>.md` filename and
-    matches the spine's id shape, else a reason. Only the write path (creating
-    or renaming a document) calls this — `load_store` stays permissive of
-    whatever id an existing document already states."""
+    """None if `doc_id` is safe as a filename and matches the spine's id shape, else a reason."""
     if not isinstance(doc_id, str) or not doc_id:
         return "id must be a non-empty string"
     if "\x00" in doc_id:
@@ -70,9 +60,7 @@ def validate_doc_id(doc_id: object) -> str | None:
 
 @dataclass
 class NavigationMiss:
-    """A document the search failed to surface but the author used anyway. The query
-    matters as much as the id: it says whether the miss was a wording gap or a ranking
-    one, and that is what the semantic-search decision is pre-registered against."""
+    """A document the search failed to surface but the author used anyway."""
 
     doc: str
     query: str
@@ -96,6 +84,9 @@ class Doc:
     path: Path
     body: str
     spine_complete: bool = True
+    # `(mtime_ns, size)` as of the read below, so a caller deriving values from `body` can
+    # prove the file has not moved under it since — see contracts/backfill.md
+    source_identity: tuple[int, int] | None = None
     navigation_miss: list[NavigationMiss] = field(default_factory=list)
     degraded_fields: list[str] = field(default_factory=list)
     field_warnings: list[str] = field(default_factory=list)
@@ -121,19 +112,33 @@ class LoadResult:
 STORE_ROOT_ALLOWED = {"README.md"}
 
 
+def sessions_dir_unreadable(sessions_dir: Path) -> str | None:
+    """A reason string when `sessions_dir` cannot even be examined, else None. `is_dir()`
+    returns False for an absent path but *propagates* a `PermissionError`."""
+    try:
+        sessions_dir.is_dir()
+    except OSError as exc:
+        return f"store not readable: {sessions_dir} ({exc})"
+    return None
+
+
+def _is_dir(path: Path, scan_errors: list[str]) -> bool:
+    """`Path.is_dir()` returns False for an absent path but *propagates* a `PermissionError`, so
+    an unreadable directory would leave through a function whose callers expect a report."""
+    try:
+        return path.is_dir()
+    except OSError as exc:
+        scan_errors.append(f"{path}: cannot examine directory for stray documents ({exc})")
+        return False
+
+
 def stray_documents(store: Path) -> tuple[list[Path], list[str]]:
-    """Markdown engmem will never read: sitting in the store root, or filed
-    into a subdirectory of sessions/ — the store is scanned flat, so foldering
-    a document makes it invisible to search.
-
-    Returns `(strays, scan_errors)`. `Path.glob`/`rglob` swallow a
-    `PermissionError` and just yield fewer results, so an unreadable directory
-    would otherwise silently read as "no strays"; `scan_errors` names every
-    place that happened instead."""
-    if not store.is_dir():
-        return [], []
-
+    """`(strays, scan_errors)` — `os.walk` skips an unreadable directory in silence, so one
+    would otherwise read as "no strays"."""
     scan_errors: list[str] = []
+    if not _is_dir(store, scan_errors):
+        return [], scan_errors
+
     try:
         root = sorted(
             p
@@ -146,7 +151,7 @@ def stray_documents(store: Path) -> tuple[list[Path], list[str]]:
 
     sessions_dir = store / "sessions"
     nested: list[Path] = []
-    if sessions_dir.is_dir():
+    if _is_dir(sessions_dir, scan_errors):
         # os.walk's onerror callback reports one locked-down subdirectory and
         # keeps walking its siblings, instead of losing the whole scan to it
         def _record_walk_error(exc: OSError) -> None:
@@ -154,6 +159,10 @@ def stray_documents(store: Path) -> tuple[list[Path], list[str]]:
                 f"{exc.filename}: cannot list directory for stray documents ({exc})"
             )
 
+        # `followlinks=False` (the default): a symlinked subdirectory of `sessions/` is
+        # classified as a directory and never descended, so documents under it are neither
+        # loaded (the store scan is flat) nor reported here. Following it would buy a cycle
+        # risk for a layout nothing in engmem creates — recorded, not closed
         for dirpath, _dirnames, filenames in os.walk(sessions_dir, onerror=_record_walk_error):
             current = Path(dirpath)
             if current == sessions_dir:
@@ -180,20 +189,29 @@ def _coerce_date(field_name: str, value) -> datetime.date:
     raise ValueError(f"{field_name} is not a date: {value!r}")
 
 
-def _coerce_int(field_name: str, value) -> int:
+def _coerce_int(field_name: str, value) -> tuple[int, str | None]:
+    """`(minutes, warning)`. A value that coerces but was not written as an integer is read
+    and named, so `"12"` and `3.9` do not pass where `backfilled: "false"` warns."""
+    # `isinstance(True, int)`, so `int(True)` is 1 — a boolean would arrive as one measured
+    # minute rather than as the wrong type it is
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} is not a number: {value!r}")
     # int([1, 2]) raises TypeError, not ValueError — catch both so a wrongly
     # typed value is reported, not left as an uncaught exception
     try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
+        coerced = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        # OverflowError for `.inf`: `load_store` catches ValueError, so without this one
+        # document's infinity takes the whole store load down with it
         raise ValueError(f"{field_name} is not a number: {value!r}") from exc
+    if isinstance(value, int):
+        return coerced, None
+    return coerced, f"{field_name} is {value!r}, not an integer — read as {coerced}"
 
 
 def _coerce_list_field(field_name: str, value) -> tuple[list[str], str | None]:
-    """A bare scalar is a plausible "forgot the brackets" slip only for `str`
-    — `list("WidgetCache")` does not raise, it silently explodes into single
-    characters. Degrade that case to a one-element list with a warning; any
-    other scalar (`5`, `true`, a mapping) is a real type error."""
+    """A bare `str` degrades to a one-element list, since `list("WidgetCache")` explodes into
+    characters."""
     if value is None:
         return [], None
     if isinstance(value, list):
@@ -206,10 +224,21 @@ def _coerce_list_field(field_name: str, value) -> tuple[list[str], str | None]:
     raise ValueError(f"{field_name} is not a list: {value!r}")
 
 
+def _coerce_bool(field_name: str, value) -> tuple[bool, str | None]:
+    """Only a real boolean counts. `bool("false")` is True, so any quoted value read as the
+    opposite of what it says."""
+    if value is None:
+        return False, None
+    if isinstance(value, bool):
+        return value, None
+    return False, (
+        f"{field_name} is {value!r}, not true/false — treated as false"
+    )
+
+
 def _coerce_navigation_miss(value) -> tuple[list[NavigationMiss], list[str]]:
-    """Entries needing both `doc` and `query`; anything else is dropped with a warning.
-    Not a load gate: nothing ranks or filters on this field, so a half-written entry
-    must never cost the document."""
+    """Entries need both `doc` and `query`; anything else is dropped with a warning, never costing
+    the document."""
     if value is None:
         return [], []
     if not isinstance(value, list):
@@ -224,7 +253,8 @@ def _coerce_navigation_miss(value) -> tuple[list[NavigationMiss], list[str]]:
     return entries, warnings
 
 
-def _split_front_matter(text: str) -> tuple[str, str]:
+def split_front_matter(text: str) -> tuple[str, str]:
+    """`(front_matter_text, body)`. Raises `ValueError` on a block opened and never closed."""
     # delimiters must be whole lines, so a --- inside a value can't end the block
     lines = text.splitlines(keepends=True)
     if not lines or lines[0].strip() != "---":
@@ -243,14 +273,19 @@ def _derive_title(body: str, path: Path) -> str:
 
 
 def _derive_date(body: str, path: Path) -> datetime.date:
-    head = "\n".join(body.splitlines()[:_PREAMBLE_SCAN_LINES])
+    head = "\n".join(body.splitlines()[:PREAMBLE_SCAN_LINES])
     match = _PREAMBLE_DATE_RE.search(head)
     if match:
-        return datetime.date.fromisoformat(match.group(1))
+        try:
+            return datetime.date.fromisoformat(match.group(1))
+        except ValueError:
+            # the regex accepts `2026-02-30`; a document that stated no `date:` must still
+            # load (ENGMEM-SPEC.md §4), and the mtime below is what that promise rests on
+            pass
     return datetime.date.fromtimestamp(path.stat().st_mtime)  # last resort, not clone-stable
 
 
-def _stated(raw: dict, name: str) -> bool:
+def stated(raw: dict, name: str) -> bool:
     """`date:` with no value states nothing, same as a missing `date`."""
     return raw.get(name) is not None
 
@@ -261,10 +296,8 @@ _KNOWN_STATUSES = frozenset({"draft", "active", "superseded"})
 
 
 def _normalize_status(raw_value, field_warnings: list[str]) -> str:
-    """Status comparisons elsewhere are lowercase-literal, so a raw-case value
-    (`Draft`) would neither rank as draft nor count in the scoreboard. An
-    unrecognized value defaults to `active` with a warning, rather than pass
-    through unremarked."""
+    """Comparisons elsewhere are lowercase-literal, so `Draft` would rank as neither draft nor
+    active."""
     normalized = str(raw_value).strip().casefold()
     if normalized not in _KNOWN_STATUSES:
         field_warnings.append(
@@ -274,23 +307,28 @@ def _normalize_status(raw_value, field_warnings: list[str]) -> str:
     return normalized
 
 
-def _parse_one(path: Path) -> Doc:
+def parse_document(path: Path) -> Doc:
+    """One document, or `yaml.YAMLError`/`ValueError`/`OSError` — `load_store` is the path that
+    reports those instead, and the only one that also checks ids across the store."""
+    # stat first: a change landing mid-read is then caught by a later comparison rather than
+    # stamped as if it had already been there
+    identity = identity_for(path)
     text = path.read_text(encoding="utf-8-sig")  # strips a BOM, else the opening --- is missed
-    front_matter_text, body = _split_front_matter(text)
+    front_matter_text, body = split_front_matter(text)
     raw = yaml.safe_load(front_matter_text) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"front matter is not a mapping: parsed as {type(raw).__name__}")
 
-    if _stated(raw, "id") and "\n" in str(raw["id"]):
+    if stated(raw, "id") and "\n" in str(raw["id"]):
         # breaks filename/related-id equality and corrupts rendered search output
         raise ValueError(f"id contains embedded newline(s): {raw['id']!r}")
 
-    degraded = [f for f in SPINE_FIELDS if not _stated(raw, f)]
+    degraded = [f for f in SPINE_FIELDS if not stated(raw, f)]
     body = body.strip("\n")
 
-    date = _coerce_date("date", raw["date"]) if _stated(raw, "date") else _derive_date(body, path)
+    date = _coerce_date("date", raw["date"]) if stated(raw, "date") else _derive_date(body, path)
     task_date = (
-        _coerce_date("task_date", raw["task_date"]) if _stated(raw, "task_date") else date
+        _coerce_date("task_date", raw["task_date"]) if stated(raw, "task_date") else date
     )
 
     field_warnings: list[str] = []
@@ -308,35 +346,55 @@ def _parse_one(path: Path) -> Doc:
     navigation_miss, nav_warnings = _coerce_navigation_miss(raw.get("navigation_miss"))
     field_warnings.extend(nav_warnings)
 
+    backfilled, backfilled_warning = _coerce_bool("backfilled", raw.get("backfilled"))
+    if backfilled_warning:
+        field_warnings.append(backfilled_warning)
+
+    # None = "never measured"; 0 would misreport as "measured as instantaneous"
+    capture_minutes = None
+    if stated(raw, "capture_minutes"):
+        capture_minutes, minutes_warning = _coerce_int("capture_minutes", raw["capture_minutes"])
+        if minutes_warning:
+            field_warnings.append(minutes_warning)
+
+    # str like every other id-shaped field. Unquoted, `superseded_by: 2026-01-01` is a
+    # `datetime.date`, and `mcp_server._handle_mark_superseded` writes the value unquoted,
+    # re-reads it and compares against the `str` it was given — so that round trip refused
+    # its own write. A non-string is still reported: it would print as a fabricated id
+    superseded_by = None
+    if stated(raw, "superseded_by"):
+        superseded_by = str(raw["superseded_by"])
+        if not isinstance(raw["superseded_by"], str):
+            field_warnings.append(
+                f"superseded_by is {raw['superseded_by']!r}, not a string — "
+                f"read as {superseded_by!r}"
+            )
+
     return Doc(
-        id=str(raw["id"]) if _stated(raw, "id") else path.stem,
-        title=str(raw["title"]) if _stated(raw, "title") else _derive_title(body, path),
+        id=str(raw["id"]) if stated(raw, "id") else path.stem,
+        title=str(raw["title"]) if stated(raw, "title") else _derive_title(body, path),
         date=date,
         task_date=task_date,
         status=(
             _normalize_status(raw["status"], field_warnings)
-            if _stated(raw, "status")
+            if stated(raw, "status")
             else "active"  # never default to draft — that would hide the document
         ),
-        superseded_by=raw.get("superseded_by") or None,
-        backfilled=bool(raw.get("backfilled") or False),
+        superseded_by=superseded_by,
+        backfilled=backfilled,
         tags=tags,
         entities=entities,
         related=related,
         covers_files=covers_files,
         navigation_miss=navigation_miss,
         verified_at_commit=str(raw.get("verified_at_commit") or ""),
-        capture_minutes=(
-            # None = "never measured"; 0 would misreport as "measured as instantaneous"
-            _coerce_int("capture_minutes", raw["capture_minutes"])
-            if raw.get("capture_minutes") is not None
-            else None
-        ),
+        capture_minutes=capture_minutes,
         path=path,
         body=body,
         spine_complete=not degraded,
         degraded_fields=degraded,
         field_warnings=field_warnings,
+        source_identity=identity,
     )
 
 
@@ -365,15 +423,12 @@ def load_store(sessions_dir: Path) -> LoadResult:
 
     for path in paths:
         try:
-            doc = _parse_one(path)
+            doc = parse_document(path)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             # OSError covers failures before front matter is even reached:
             # permission-denied, a dangling symlink, a directory shadowing the name
             result.errors.append(Problem(path=path, message=f"{path.name}: {exc}"))
             continue
-
-        for warning in doc.field_warnings:
-            result.warnings.append(Problem(path=path, message=f"{path.name}: {warning}"))
 
         if doc.id in seen_ids:
             other = seen_ids[doc.id]
@@ -387,6 +442,11 @@ def load_store(sessions_dir: Path) -> LoadResult:
             )
             continue
         seen_ids[doc.id] = path
+
+        # after the duplicate check, not before: a rejected document reported its field
+        # warnings and none of the three below, so it was half-described and not in the store
+        for warning in doc.field_warnings:
+            result.warnings.append(Problem(path=path, message=f"{path.name}: {warning}"))
 
         if not doc.body.strip():
             result.warnings.append(

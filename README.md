@@ -18,8 +18,8 @@ document that changed a decision. `tools/verify_citations.py` checks those quote
 the documents they cite. The point is not to accumulate documents; it is to find out
 whether accumulated documents pay for themselves.
 
-Underneath: markdown files in a local git-tracked store, deterministic search, one runtime
-dependency, no database, no server, no network calls.
+Underneath: markdown files in a local git-tracked store, deterministic search, two runtime
+dependencies, no database, no server, no network calls.
 
 **[Anatomy of engmem](docs/engmem-anatomy.html)** walks one task end to end — the command
 run at each step, the real output it returns, and the call path through the code. It is a
@@ -190,15 +190,16 @@ uv sync --group dev
 uv run pytest -q
 ```
 
-Python ≥3.11. Runtime dependency: `pyyaml` only (hard constraint — see
-`ENGMEM-SPEC.md` §2). Search correctness is defined by the golden fixture tests in
+Python ≥3.11. Runtime dependencies: `pyyaml` and `markdown-it-py`, and nothing else
+(hard constraint — see `ENGMEM-SPEC.md` §2). Search correctness is defined by the golden fixture tests in
 `tests/test_scoring.py` / `tests/test_cli.py`; at any conflict between the scoring
 formula and a golden test, the test wins.
 
 ## What engmem touches on your machine
 
 **No network.** No telemetry upload, no model calls, no fetching at runtime. Search,
-ranking, and storage are entirely local. One runtime dependency: `pyyaml`.
+ranking, and storage are entirely local. Two runtime dependencies, `pyyaml` and
+`markdown-it-py`; neither opens a socket.
 
 **Your store is private.** engmem reads and writes markdown under a directory you choose.
 That store commonly holds notes about proprietary code — it lives outside this repository
@@ -216,7 +217,10 @@ contained; JSON cannot. A corrupted entry degrades to a cache miss.
 
 **Installing touches known paths only.** `engmem install` writes templates into the agent
 directory you name and, for `claude-desktop`, adds one key to that app's config. `engmem
-uninstall` removes exactly what it added and never touches the store.
+uninstall` removes exactly what it added and never touches the store. The two files engmem
+edits but does not own — your instructions file and that config, which holds every other
+MCP server you configured — are replaced atomically, through any symlink rather than over
+it, so a failed write leaves them exactly as they were.
 
 One thing to know: `engmem search` prints matched document text to stdout. In a shared
 terminal or a logged CI job, that text goes wherever the output goes.

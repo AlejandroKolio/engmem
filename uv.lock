@@ -16,23 +16,23 @@ name = "engmem"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "markdown-it-py" },
     { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "markdown-it-py" },
     { name = "pytest" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyyaml" }]
+requires-dist = [
+    { name = "markdown-it-py" },
+    { name = "pyyaml" },
+]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "markdown-it-py" },
-    { name = "pytest" },
-]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "iniconfig"

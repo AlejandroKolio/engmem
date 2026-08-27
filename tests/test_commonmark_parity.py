@@ -1,30 +1,12 @@
-"""Our regex section splitter, kept beside a real CommonMark parser.
-
-`sections.py` finds headings with regexes rather than parsing markdown. That is a
-deliberate trade — the roles, oversized-section splitting and locators around it are
-engmem's own and no parser supplies them — but it is the kind of trade that rots
-silently: markdown has more edge cases than anyone holds in their head. Three real
-defects were found in one afternoon by running exactly this comparison (a heading
-inside a code fence, a closed ATX heading keeping its hashes, setext headings not
-recognised at all), so it is a test rather than an afternoon.
-
-The parser is a dev-only dependency: engmem's runtime still requires nothing but
-`pyyaml`. When it is absent the check skips loudly rather than passing vacuously.
-
-Two divergences are intentional and asserted as such. If either ever starts agreeing,
-that is also news — it means our policy was lost in an edit.
-"""
+"""The regex splitter kept beside a real CommonMark parser, which found three defects in one
+afternoon."""
 
 import pytest
+from markdown_it import MarkdownIt
 
 from engmem.sections import split_sections
 
-markdown_it = pytest.importorskip(
-    "markdown_it",
-    reason="dev-only CommonMark parity check; install the dev dependency group to run it",
-)
-
-_MD = markdown_it.MarkdownIt("commonmark")
+_MD = MarkdownIt("commonmark")
 
 
 def _parser_h2(text: str) -> list[str]:
@@ -62,10 +44,8 @@ def test_our_splitter_agrees_with_commonmark(name):
 
 
 def test_unclosed_fence_diverges_on_purpose():
-    """CommonMark runs an unclosed fence to end of document, so the parser never emits
-    the headings after it. Here that would mean one stray ``` silently hides the rest
-    of a document — the whole-document loss this tool exists to catch. We suppress only
-    between matched fences, so an unpaired one costs nothing."""
+    """CommonMark runs an unclosed fence to EOF, which here would let one stray fence hide the
+    rest of a document."""
     text = "## Architecture\n\n```\nstray fence, never closed\n\n## Testing\n\nc\n"
 
     assert _our_h2(text) == ["Architecture", "Testing"]
@@ -73,8 +53,8 @@ def test_unclosed_fence_diverges_on_purpose():
 
 
 def test_blockquoted_heading_diverges_on_purpose():
-    """A heading inside a blockquote is quoted material — another document's heading,
-    cited. Opening a section there would file our prose under someone else's title."""
+    """A quoted heading is another document's; opening a section there files our prose under
+    someone else's title."""
     text = "## Architecture\n\n> ## quoted from elsewhere\n\ntail\n"
 
     assert _our_h2(text) == ["Architecture"]

@@ -1,6 +1,4 @@
-"""Records one JSONL row per search and summarizes them for Gate 1 review.
-Row shape and field semantics: `ENGMEM-SPEC.md` §5, point 6/6a.
-"""
+"""Records one JSONL row per search and summarizes them for Gate 1 review."""
 
 from __future__ import annotations
 
@@ -46,9 +44,7 @@ def log_search(
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
 ) -> str | None:
-    """Appends one JSON line. Returns None on success, else a short failure
-    reason — never raises, so a write failure cannot crash a search that already
-    printed a correct answer, but is reported by the caller rather than hidden."""
+    """Appends one JSON line, returning a failure reason rather than raising."""
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -84,11 +80,7 @@ def log_role_search(
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
 ) -> str | None:
-    """Same shape and failure contract as `log_search`, for a role-addressed
-    search (`search --role`, or `engmem_search_by_role`). `role_hits` is already
-    role-filtered, so it — not the underlying word ranking — is what `surfaced`
-    and `result` reflect; reusing `log_search`'s computation would over-report
-    documents the role filter skipped."""
+    """`log_search` for a role search, reporting role-filtered hits rather than the word ranking."""
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -131,22 +123,57 @@ class TelemetrySummary:
     overall: ChannelTotals = field(default_factory=lambda: ChannelTotals(channel="overall"))
 
 
-def _accumulate(bucket: ChannelTotals, record: dict) -> None:
+@dataclass(frozen=True)
+class _Row:
+    """One log line reduced to the fields the summary totals, each already the right type."""
+
+    channel: str
+    result: object
+    context_bytes: int
+    context_tokens_estimate: int
+
+
+def _read_row(line: str) -> _Row | None:
+    """The row this line contributes, or `None` when its shape is not one this reader can total —
+    every rejection here is counted as `unreadable`, never raised at the caller."""
+    try:
+        record = json.loads(line)
+    except (ValueError, RecursionError):
+        # `JSONDecodeError` is only the commonest of these: a number with more digits than
+        # CPython will convert raises a plain `ValueError`, and deep nesting a `RecursionError`,
+        # both from inside the decoder — one row's defect either way, not the file's
+        return None
+    if not isinstance(record, dict):
+        # valid JSON, but `123` / `[1, 2]` / `null` is not a telemetry row
+        return None
+    # "unknown", not the pre-channel default "cli" — a guess would misattribute it
+    channel = record.get("channel") or "unknown"
+    if not isinstance(channel, str):
+        return None  # a bucket key of another type makes the by-channel sort unorderable
+    try:
+        context_bytes = int(record.get("context_bytes") or 0)
+        context_tokens_estimate = int(record.get("context_tokens_estimate") or 0)
+    except (TypeError, ValueError, OverflowError):
+        # a string, a list, `Infinity`: one row's bad field, not the file's
+        return None
+    return _Row(channel, record.get("result"), context_bytes, context_tokens_estimate)
+
+
+def _accumulate(bucket: ChannelTotals, row: _Row) -> None:
     bucket.total += 1
-    result = record.get("result")
-    if result == "hit":
+    if row.result == "hit":
         bucket.hits += 1
-    elif result == "ambiguous":
+    elif row.result == "ambiguous":
         bucket.ambiguous += 1
     else:
         bucket.misses += 1  # covers "miss" and any value from a row shape this reader predates
-    bucket.context_bytes += int(record.get("context_bytes") or 0)
-    bucket.context_tokens_estimate += int(record.get("context_tokens_estimate") or 0)
+    bucket.context_bytes += row.context_bytes
+    bucket.context_tokens_estimate += row.context_tokens_estimate
 
 
 def summarize(jsonl_path: Path) -> TelemetrySummary:
-    """Never raises: a missing file reads as zero rows, and a line that fails
-    `json.loads` is counted in `unreadable` and skipped rather than aborting."""
+    """A missing file reads as zero rows and any line this reader cannot total counts as
+    `unreadable`; a file it cannot read (`OSError`) or decode (`UnicodeDecodeError`) raises."""
     overall = ChannelTotals(channel="overall")
     if not jsonl_path.is_file():
         return TelemetrySummary(total=0, unreadable=0, by_channel=[], overall=overall)
@@ -158,16 +185,13 @@ def summarize(jsonl_path: Path) -> TelemetrySummary:
             line = raw_line.strip()
             if not line:
                 continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
+            row = _read_row(line)
+            if row is None:
                 unreadable += 1
                 continue
-            # "unknown", not the pre-channel default "cli" — a guess would misattribute it
-            channel = record.get("channel") or "unknown"
-            bucket = by_channel.setdefault(channel, ChannelTotals(channel=channel))
-            _accumulate(bucket, record)
-            _accumulate(overall, record)
+            bucket = by_channel.setdefault(row.channel, ChannelTotals(channel=row.channel))
+            _accumulate(bucket, row)
+            _accumulate(overall, row)
 
     return TelemetrySummary(
         total=overall.total,

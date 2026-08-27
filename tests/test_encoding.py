@@ -1,9 +1,5 @@
-"""Review M3: no file may be opened without an explicit encoding — under a non-UTF-8
-locale (LANG unset in cron/CI) the Cyrillic trigger rule and non-ASCII doc content would
-crash with UnicodeDecodeError instead of parsing. macOS defaults to UTF-8 so the bug
-can't be reproduced directly here; instead we assert the absence of default-encoding
-opens via Python's EncodingWarning (-X warn_default_encoding), which fires exactly when
-an open()/read_text() omits the encoding argument."""
+"""M3: no file may be opened without an explicit encoding, asserted via `EncodingWarning` since
+macOS defaults to UTF-8."""
 
 import subprocess
 import sys

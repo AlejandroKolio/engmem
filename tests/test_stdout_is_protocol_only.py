@@ -1,15 +1,4 @@
-"""A structural guard on the MCP server's one unforgiving rule.
-
-`engmem mcp` writes JSON-RPC frames to stdout. One stray byte there corrupts a frame and
-ends the client session — and the damage shows up in the client, not in any test that
-happens to be running. Until now the rule was held by review alone: `runtime.fail()`
-writes to *both* streams by design, so a single well-meaning `from engmem.runtime import
-fail` inside the server would be enough.
-
-This reads the module's syntax tree rather than running it, so it holds for code paths no
-test exercises — an error branch reached once a year is exactly where a bare `print()`
-survives review.
-"""
+"""A structural guard read from the syntax tree, so it holds for error branches no test exercises."""
 
 from __future__ import annotations
 
@@ -33,8 +22,8 @@ def _print_calls() -> list[ast.Call]:
 
 
 def test_the_module_contains_print_calls_at_all():
-    """Guards the guard: if the diagnostics were ever refactored away from `print`, the
-    assertions below would pass vacuously while checking nothing."""
+    """Guards the guard: refactoring the diagnostics away from `print` would make the assertions
+    below pass vacuously."""
     assert _print_calls(), "expected diagnostics in this module — has the guard gone stale?"
 
 
@@ -55,8 +44,8 @@ def test_every_print_goes_to_stderr(call):
 
 
 def test_the_module_never_imports_the_dual_stream_failure_helper():
-    """`runtime.fail` deliberately writes to stdout as well, because the CLI's consumer
-    never reads stderr. That is exactly wrong here."""
+    """`runtime.fail` deliberately writes to stdout as well, because the CLI's consumer never
+    reads stderr."""
     imported: list[str] = []
     for node in ast.walk(TREE):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("engmem.runtime"):
@@ -71,8 +60,8 @@ def test_the_module_never_imports_the_dual_stream_failure_helper():
 
 
 def test_no_bare_sys_stdout_writes_outside_the_transport():
-    """Frames reach stdout through the single writer the transport owns. A direct
-    `sys.stdout.write` anywhere else bypasses that and can interleave mid-frame."""
+    """A direct `sys.stdout.write` bypasses the transport's single writer and can interleave mid-
+    frame."""
     offenders = [
         node.lineno
         for node in ast.walk(TREE)

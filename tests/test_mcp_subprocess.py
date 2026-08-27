@@ -1,108 +1,37 @@
-"""End-to-end evidence, driven against a REAL subprocess (`engmem mcp --store
-<tmp>`), not `serve()` called in-process — a distinct guarantee from
-`test_mcp_write_tools.py`: that stdio buffering, process startup, and the actual
-installed console script all behave the way the in-process tests assume.
-
-Covers every item the write-tools task asked to be verified with evidence:
-  - create a draft, then read it back with `load_store` and confirm it parses
-    with no errors;
-  - complete that draft and confirm `status` became `active` and the body
-    sections are present;
-  - confirm the created document is findable by `engmem_search` in the same
-    session;
-  - attempt each escape vector and show the refusal;
-  - confirm every stdout line parses as JSON throughout.
-"""
+"""End-to-end evidence against a real `engmem mcp` subprocess, covering stdio buffering and the
+installed console script."""
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from conftest import requires_symlinks
+from conftest import (
+    ACTIVE_CONTENT,
+    DRAFT_CONTENT,
+    requires_symlinks,
+)
 
 from engmem.spine import load_store
+
+requires_broken_pipe_semantics = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows has no SIGPIPE/EPIPE write semantics to exercise here",
+)
 
 ENGMEM_BIN = Path(sys.executable).parent / (
     "engmem.exe" if sys.platform == "win32" else "engmem"
 )
 
-DRAFT_CONTENT = """---
-id: 20260101-widget-cache
-title: WidgetCache rollout
-date: 2026-01-01
-task_date: 2026-01-01
-status: draft
-superseded_by:
-backfilled: false
-tags: []
-entities: []
-related: []
-covers_files: []
-verified_at_commit:
-capture_minutes:
----
-
-## Pre-reg
-
-Naive baseline: read the code and guess at the rollout shape.
-pre-reg source: self (no sub-agent available)
-"""
-
-ACTIVE_CONTENT = """---
-id: 20260101-widget-cache
-title: WidgetCache rollout
-date: 2026-01-01
-task_date: 2026-01-01
-status: active
-superseded_by:
-backfilled: false
-tags: [cache]
-entities: [WidgetCache, CacheWarmer]
-related: []
-covers_files: [WidgetCache.java]
-verified_at_commit: abc1234
-capture_minutes: 14
----
-
-## Pre-reg
-
-Naive baseline: read the code and guess at the rollout shape.
-pre-reg source: self (no sub-agent available)
-
-## Decision Log
-
-Chose CacheWarmer over a lazy cache fill because cold start latency was too high.
-
-## Landmines
-
-CacheWarmer must run before WidgetCache accepts traffic or the first request hangs.
-
-## Cold-start primer
-
-WidgetCache serves cached widgets behind CacheWarmer, which pre-fills on boot.
-
-## Reuse Log
-
-Prior docs used: none.
-
-## Search Trace
-
-shell
-"""
-
 
 class _Client:
-    """A minimal newline-delimited JSON-RPC client talking to a real `engmem mcp`
-    subprocess over its actual OS pipes. Every line ever read from the child's
-    stdout is recorded in `self.all_stdout_lines`, so a single assertion at
-    teardown can confirm the invariant that matters most: stdout carried nothing
-    but JSON-RPC frames for the entire session, not just for the calls a given
-    test happened to inspect."""
+    """Records every line read from the child's stdout, so one teardown assertion covers the whole
+    session, not just inspected calls."""
 
     def __init__(self, store: Path) -> None:
         assert ENGMEM_BIN.exists(), f"expected installed console script at {ENGMEM_BIN}"
@@ -319,12 +248,79 @@ def test_cli_and_mcp_searches_against_the_same_store_are_distinguishable_by_chan
         assert row["context_tokens_estimate"] > 0
 
 
+@requires_broken_pipe_semantics
+def test_broken_pipe_on_the_real_process_stdout_exits_cleanly_without_a_traceback(tmp_path):
+    """A client that closes the pipe must leave a clean exit, not a traceback — reachable only
+    over a real process, never through an injected stream."""
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+
+    proc = subprocess.Popen(
+        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        bufsize=1,
+    )
+    assert proc.stdout is not None and proc.stdin is not None
+    proc.stdout.close()  # no reader left: the child's next write raises BrokenPipeError
+
+    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.close()
+
+    exit_code = proc.wait(timeout=5)
+    stderr = proc.stderr.read() if proc.stderr else ""
+
+    assert exit_code == 0
+    assert "Traceback" not in stderr
+    assert "downstream pipe closed" in stderr
+
+
+def test_an_undecodable_stdin_byte_does_not_kill_the_session(tmp_path):
+    """`sys.stdin`'s error handler is environment-dependent — `surrogateescape` under UTF-8 mode
+    or a C locale, but `strict` under a plain `en_US.UTF-8`, where one bad byte from the client
+    raised UnicodeDecodeError out of the read loop and took the whole session with it. Reachable
+    only over a real process: an injected `StringIO` has already decoded."""
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+
+    env = dict(
+        os.environ,
+        PYTHONIOENCODING="utf-8:strict",
+        PYTHONUTF8="0",
+        LANG="en_US.UTF-8",
+        LC_ALL="en_US.UTF-8",
+    )
+    proc = subprocess.Popen(
+        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stdin is not None
+    proc.stdin.write(b"\xff\xfe not utf-8 at all\n")
+    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode() + b"\n")
+    proc.stdin.close()
+
+    stdout, stderr = proc.communicate(timeout=10)
+
+    assert proc.returncode == 0
+    assert b"Traceback" not in stderr, stderr.decode(errors="replace")
+    frames = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+    assert len(frames) == 2, frames
+    assert frames[0]["error"]["code"] == -32700
+    assert frames[1] == {"jsonrpc": "2.0", "id": 1, "result": {}}
+
+
 def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protocol_intact(
     tmp_path,
 ):
-    """`telemetry.jsonl` shadowed by a directory must not crash the real
-    subprocess, corrupt its stdout framing, or silently drop the search result —
-    the failure must be stated in the tool result text instead."""
+    """A shadowed `telemetry.jsonl` must not crash the subprocess or corrupt its framing; the
+    failure belongs in the result text."""
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     (store / "telemetry.jsonl").mkdir()

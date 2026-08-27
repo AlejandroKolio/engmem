@@ -1,21 +1,18 @@
-"""A stdio MCP server for engmem, standard library only. stdout carries
-JSON-RPC frames only — this module must never call `runtime.fail` (which also
-writes to stdout). Protocol/write-tool contract: `contracts/mcp-server.md`."""
+"""A stdio MCP server for engmem; stdout carries JSON-RPC frames and nothing else."""
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from importlib import resources
 from pathlib import Path
 from typing import Any, TextIO
-from uuid import uuid4
 
 import yaml
 
 from engmem import __version__
+from engmem.cache import identity_for
 from engmem.output import (
     render_no_match,
     render_role_search_results,
@@ -25,11 +22,19 @@ from engmem.output import (
 )
 from engmem.scoring import search as run_search, search_with_role_sections
 from engmem.sections import CANONICAL_ROLES
-from engmem.spine import Doc, LoadResult, load_store, stray_documents, validate_doc_id
 # imported, not reimplemented, so a document a write tool below produces is
 # validated by the exact rules load_store applies when reading it back
-from engmem.spine import _parse_one as _spine_parse_one
-from engmem.spine import _split_front_matter as _spine_split_front_matter
+from engmem.spine import (
+    Doc,
+    LoadResult,
+    load_store,
+    parse_document,
+    sessions_dir_unreadable,
+    split_front_matter,
+    stray_documents,
+    validate_doc_id,
+)
+from engmem.staging import commit, discard, newline_of, read_document, stage
 from engmem.telemetry import log_role_search, log_search
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -71,9 +76,8 @@ ROLE_TOOL_DESCRIPTION = (
 )
 
 # ---------------------------------------------------------------------------
-# write tools — the save half of the workflow for a shell-less runtime
-# (Claude Desktop): create a draft, finish it (draft -> active), mark an
-# earlier document superseded. Security/staging contract: contracts/mcp-server.md.
+# write tools — the save half of the workflow for a shell-less runtime (Claude Desktop): create a
+# draft, finish it (draft -> active), mark an earlier document superseded.
 CREATE_DRAFT_TOOL_NAME = "engmem_create_draft"
 CREATE_DRAFT_TOOL_DESCRIPTION = (
     "Create a new engmem session document as a draft — the first step of "
@@ -131,9 +135,7 @@ _ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 
 
 class _ProtocolError(Exception):
-    """Raised by a method handler to produce a JSON-RPC error response —
-    never for a tool-level failure, which is an ordinary `isError: true`
-    result instead. See contracts/mcp-server.md."""
+    """Raised to produce a JSON-RPC error response, never for a tool-level failure."""
 
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
@@ -142,10 +144,7 @@ class _ProtocolError(Exception):
 
 
 class _ToolError(Exception):
-    """Raised internally by the write-tool helpers for a failure the security
-    contract calls for (bad id, path escaping sessions/, refused overwrite,
-    unparseable content). Always caught by its own handler and turned into an
-    `isError: true` result, never a JSON-RPC error or an uncaught exception."""
+    """Raised by the write-tool helpers for a failure the security contract calls for."""
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +153,7 @@ class _ToolError(Exception):
 
 
 def _load_template(source_name: str) -> tuple[str, Any, str]:
-    """`(description, argument_hint, body)` with the front matter removed
-    from body. `argument_hint` is None when the template declares none."""
+    """`(description, argument_hint, body)`, with the front matter removed from body."""
     content = (
         (resources.files("engmem") / "templates" / source_name).read_text(encoding="utf-8")
     )
@@ -193,17 +191,16 @@ def _argument_name_from_hint(hint: str) -> str:
 
 
 class _StoreLoadError(Exception):
-    """Raised by `_load_store_for_tool` when the store itself can't be read
-    at all — a tool-level failure, never a protocol fault."""
+    """Raised when the store itself cannot be read at all."""
 
 
 def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]]:
-    """Resolves `sessions/`, loads every document (per-document load
-    errors/warnings go to stderr only, as on the CLI), and scans for stray
-    markdown. Raises `_StoreLoadError` on a broken store rather than
-    returning, so a caller can't forget to check for one."""
+    """Loads `sessions/`, raising `_StoreLoadError` rather than returning on a broken store."""
     sessions_dir = store / "sessions"
 
+    unreadable = sessions_dir_unreadable(sessions_dir)
+    if unreadable:
+        raise _StoreLoadError(f"error: {unreadable}")
     if not sessions_dir.is_dir():
         raise _StoreLoadError(
             f"error: store not found: {sessions_dir} does not exist "
@@ -232,8 +229,7 @@ def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]
 def _run_search_for_tool(
     store: Path, query: str, session_id: str | None = None
 ) -> tuple[str, bool]:
-    """`(rendered_text, is_error)`, mirroring exactly what `_cmd_search`
-    prints to stdout — the prompt templates are written against that shape."""
+    """`(rendered_text, is_error)`, mirroring exactly what `_cmd_search` prints to stdout."""
     try:
         result, strays, stray_scan_errors = _load_store_for_tool(store)
     except _StoreLoadError as exc:
@@ -286,9 +282,7 @@ def _run_search_for_tool(
 def _run_role_search_for_tool(
     store: Path, query: str, role: str, session_id: str | None = None
 ) -> tuple[str, bool]:
-    """Role-addressed counterpart to `_run_search_for_tool`: same
-    store-loading/stray/scoreboard/telemetry handling, ranks with
-    `search_with_role_sections` and renders with `render_role_search_results`."""
+    """Role-addressed counterpart to `_run_search_for_tool`."""
     try:
         result, strays, stray_scan_errors = _load_store_for_tool(store)
     except _StoreLoadError as exc:
@@ -331,17 +325,16 @@ def _run_role_search_for_tool(
 
 
 # ---------------------------------------------------------------------------
-# write tools — path containment, atomic staged writes, and the three
-# handlers. Security contract (binding for every function below):
-# contracts/mcp-server.md.
+# write tools — path containment, atomic staged writes, and the three handlers.
 # ---------------------------------------------------------------------------
 
 
 def _resolve_sessions_dir(store: Path) -> Path:
-    """Resolved `store/sessions`. Raises `_ToolError` when missing,
-    unreadable, or itself a symlink resolving outside the store — both sides
-    are resolved before comparing, or that case would go undetected."""
+    """Resolved `store/sessions`, raising `_ToolError` when it is missing or escapes the store."""
     sessions_dir = store / "sessions"
+    unreadable = sessions_dir_unreadable(sessions_dir)
+    if unreadable:
+        raise _ToolError(unreadable)
     if not sessions_dir.is_dir():
         raise _ToolError(
             f"store not found: {sessions_dir} does not exist (run `engmem install` "
@@ -363,10 +356,7 @@ def _resolve_sessions_dir(store: Path) -> Path:
 
 
 def _resolve_write_target(store: Path, doc_id: object) -> Path:
-    """The chokepoint every write tool calls before touching disk: the
-    `sessions/<doc_id>.md` path, after confirming `doc_id` is a safe filename,
-    `sessions/` is genuinely inside the store, and an existing file at that
-    name is not a symlink. Never returns a path outside `sessions/`."""
+    """The chokepoint every write tool calls first; never returns a path outside `sessions/`."""
     reason = validate_doc_id(doc_id)
     if reason is not None:
         raise _ToolError(f"invalid document id {doc_id!r}: {reason}")
@@ -389,29 +379,14 @@ def _resolve_write_target(store: Path, doc_id: object) -> Path:
     return target
 
 
-def _stage_content(target: Path, content: str) -> tuple[Doc | None, Path, str | None]:
-    """Writes `content` to a `.md.tmp` sibling of `target` (invisible to
-    `load_store`/`stray_documents`) and parses it with `spine._parse_one`.
-    `(doc, tmp_path, None)` on success, `(None, tmp_path, reason)` on a parse
-    failure — the temp file is left for the caller's own `finally` to remove."""
-    tmp_path = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
-    tmp_path.write_text(content, encoding="utf-8")
+def _stage_content(target: Path, content: bytes) -> tuple[Doc | None, Path, str | None]:
+    """Stages `content` and parses it; the caller commits or discards what comes back."""
+    tmp_path = stage(target, content)
     try:
-        doc = _spine_parse_one(tmp_path)
+        doc = parse_document(tmp_path)
     except (yaml.YAMLError, ValueError, OSError) as exc:
         return None, tmp_path, f"content does not parse: {exc}"
     return doc, tmp_path, None
-
-
-def _discard_staged(tmp_path: Path) -> None:
-    try:
-        tmp_path.unlink(missing_ok=True)
-    except OSError:
-        pass  # best-effort: a leftover .md.tmp is inert and excluded from every scan
-
-
-def _commit_staged(tmp_path: Path, target: Path) -> None:
-    os.replace(tmp_path, target)  # atomic on POSIX — never a partially written target
 
 
 def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
@@ -428,7 +403,7 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
                 f"{COMPLETE_DRAFT_TOOL_NAME} to finish an existing draft."
             )
 
-        doc, tmp_path, parse_error = _stage_content(target, content)
+        doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
         try:
             if parse_error is not None:
                 raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
@@ -442,9 +417,11 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
                     f"content's front matter status is {doc.status!r}, not "
                     f"'draft' — {CREATE_DRAFT_TOOL_NAME} only ever creates a draft."
                 )
-            _commit_staged(tmp_path, target)
-        except _ToolError:
-            _discard_staged(tmp_path)
+            commit(tmp_path, target)
+        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+        # OSError of its own, and the staged file must go either way
+        except BaseException:
+            discard(tmp_path)
             raise
     except _ToolError as exc:
         return str(exc), True
@@ -465,7 +442,7 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
                 f"exist — create it first with {CREATE_DRAFT_TOOL_NAME}."
             )
         try:
-            existing = _spine_parse_one(target)
+            existing = parse_document(target)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             # can't confirm the current document is actually a draft; refuse
             raise _ToolError(
@@ -479,7 +456,7 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
                 "only ever finishes a document still in draft."
             )
 
-        doc, tmp_path, parse_error = _stage_content(target, content)
+        doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
         try:
             if parse_error is not None:
                 raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
@@ -496,9 +473,11 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
                     "'draft' and simply call this tool again later if the "
                     "document is not actually ready to finish yet."
                 )
-            _commit_staged(tmp_path, target)
-        except _ToolError:
-            _discard_staged(tmp_path)
+            commit(tmp_path, target)
+        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+        # OSError of its own, and the staged file must go either way
+        except BaseException:
+            discard(tmp_path)
             raise
     except _ToolError as exc:
         return str(exc), True
@@ -528,8 +507,9 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
                 "not exist."
             )
         try:
-            existing_text = target.read_text(encoding="utf-8-sig")
-            existing = _spine_parse_one(target)
+            # the validating parse first, and it stats before it reads, so its
+            # `source_identity` covers the raw re-read below as well
+            existing = parse_document(target)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             raise _ToolError(
                 f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
@@ -543,14 +523,36 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
                 "superseded twice."
             )
 
-        front_matter_text, body = _spine_split_front_matter(existing_text)
+        try:
+            # bytes, not `read_text`: this handler rebuilds the whole file from what it reads,
+            # and `read_text` drops the BOM and translates every line ending on the way in —
+            # see contracts/backfill.md, "Line endings"
+            existing_text, bom = read_document(target)
+        # ValueError as well as OSError: `read_document` decodes what it read, so a document
+        # replaced with invalid UTF-8 between the two reads raises `UnicodeDecodeError` here.
+        # That is the document's problem, refused as one — not a -32603 server fault
+        except (OSError, ValueError) as exc:
+            raise _ToolError(
+                f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
+            ) from exc
+        # `backfill.apply_backfill`'s rule: a document that moved under the read it is being
+        # rebuilt from is refused, never rewritten from the copy that is already stale
+        if existing.source_identity != identity_for(target):
+            raise _ToolError(
+                f"sessions/{doc_id}.md changed on disk while it was being read — "
+                "refusing to write, so a newer version is not replaced by a stale one. "
+                "Call this tool again."
+            )
+
+        front_matter_text, body = split_front_matter(existing_text)
         front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
         front_matter_text = _patch_front_matter_line(
             front_matter_text, "superseded_by", superseded_by
         )
-        new_content = "---\n" + front_matter_text + "---\n" + body
+        newline = newline_of(front_matter_text) or newline_of(body) or "\n"
+        new_content = f"---{newline}" + front_matter_text + f"---{newline}" + body
 
-        doc, tmp_path, parse_error = _stage_content(target, new_content)
+        doc, tmp_path, parse_error = _stage_content(target, bom + new_content.encode("utf-8"))
         try:
             if parse_error is not None:
                 raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
@@ -559,9 +561,11 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
                     "internal error: patched front matter did not produce the "
                     "expected status/superseded_by — refusing to write it."
                 )
-            _commit_staged(tmp_path, target)
-        except _ToolError:
-            _discard_staged(tmp_path)
+            commit(tmp_path, target)
+        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+        # OSError of its own, and the staged file must go either way
+        except BaseException:
+            discard(tmp_path)
             raise
     except _ToolError as exc:
         return str(exc), True
@@ -572,31 +576,73 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
     ), False
 
 
-_FRONT_MATTER_LINE_RE_CACHE: dict[str, re.Pattern[str]] = {}
-
-
 def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> str:
-    """Rewrites exactly one `key: ...` line in an already-split front matter
-    block, leaving every other line byte-for-byte untouched. Appends a new
-    line when `key` is absent; raises `_ToolError` if it appears more than
-    once, rather than guessing which occurrence to change."""
-    pattern = _FRONT_MATTER_LINE_RE_CACHE.get(key)
-    if pattern is None:
-        pattern = re.compile(rf"^{re.escape(key)}:.*$", re.MULTILINE)
-        _FRONT_MATTER_LINE_RE_CACHE[key] = pattern
+    """Rewrites exactly one `key:` line, or appends it. Raises `_ToolError` when the key
+    appears more than once, when the front matter is a flow mapping, and — for a key that is
+    present — when it is indented or its value spans lines."""
+    # asked of the parser, not a regex, for the reason `backfill._drop_declared_keys` gives:
+    # a column-0 `key:` is not a declaration test, and `^` under `re.MULTILINE` anchors after
+    # `\n` only — never after a bare `\r`, so a CR-only document matched nothing and the
+    # append branch below silently wrote the key a second time
+    try:
+        node = (
+            yaml.compose(front_matter_text, Loader=yaml.SafeLoader) if front_matter_text else None
+        )
+    except yaml.YAMLError as exc:
+        # this function runs once per patched key, so the second call composes what the first
+        # rewrote: an anchored `status: &st active` loses its anchor and every alias to it is
+        # then undefined. A document problem, refused as such rather than escaping as -32603
+        raise _ToolError(
+            f"front matter cannot be re-read to rewrite '{key}:' ({exc}) — refusing to "
+            "modify it. Rewriting one line does not carry a YAML anchor or alias with it; "
+            "write the front matter's values out in full instead."
+        ) from exc
+    if isinstance(node, yaml.MappingNode) and node.flow_style:
+        # a root flow mapping has no line of its own for any key: replacing one rewrites the
+        # brace or the comma beside it, and appending lands after the closing `}`. Column 0
+        # does not catch it — `{\nstatus: active\n}` puts the key there
+        raise _ToolError(
+            f"front matter is a flow mapping, so '{key}:' is not a line of its own — "
+            "refusing to rewrite it."
+        )
+    pairs = node.value if isinstance(node, yaml.MappingNode) else []
+    matches = [(k, v) for k, v in pairs if k.value == key]
 
-    matches = list(pattern.finditer(front_matter_text))
-    new_line = f"{key}: {value}"
     if len(matches) > 1:
         raise _ToolError(
             f"front matter has more than one '{key}:' line — refusing to guess "
             "which one to change."
         )
+
+    lines = front_matter_text.splitlines(keepends=True)
     if not matches:
-        prefix = front_matter_text if front_matter_text.endswith("\n") else front_matter_text + "\n"
-        return prefix + new_line + "\n"
-    m = matches[0]
-    return front_matter_text[: m.start()] + new_line + front_matter_text[m.end() :]
+        newline = newline_of(front_matter_text) or "\n"
+        prefix = front_matter_text
+        if prefix and not prefix.endswith(("\n", "\r")):
+            prefix += newline
+        return prefix + f"{key}: {value}" + newline
+
+    key_node, value_node = matches[0]
+    index = key_node.start_mark.line
+    # the replacement is written at column 0, so an indented block mapping would be de-indented
+    # by it, and the second `compose` would then reject text the first accepted. Refused here
+    # by shape instead of as a parse failure a caller cannot act on; the flow case is rejected
+    # above, and between them the key is a line of its own
+    if key_node.start_mark.column != 0:
+        raise _ToolError(
+            f"'{key}:' is not a line of its own in this front matter — refusing to "
+            "rewrite it."
+        )
+    if value_node.end_mark.line != index:
+        raise _ToolError(
+            f"'{key}:' spans more than one line — refusing to rewrite it."
+        )
+    # the line's own terminator, whatever it is: `splitlines` recognises more separators
+    # than `\r\n` and PyYAML accepts several of them
+    content = lines[index].splitlines()[0]
+    terminator = lines[index][len(content):]
+    lines[index] = f"{key}: {value}" + terminator
+    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -792,10 +838,9 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
     arguments = params.get("arguments")
 
     if name in _WRITE_TOOL_HANDLERS:
-        # the inputSchema declares each of these required, so a missing or
-        # blank value is a protocol-level fault; a valid-but-refused write
-        # (bad id shape, escaping sessions/, overwrite refusal) is an
-        # ordinary isError result from the handler instead
+        # the inputSchema declares each of these required, so a missing or blank value is a
+        # protocol-level fault; a valid-but-refused write (bad id shape, escaping sessions/,
+        # overwrite refusal) is an ordinary isError result from the handler instead
         for field_name in _WRITE_TOOL_REQUIRED_STRING_ARGS[name]:
             value = arguments.get(field_name) if isinstance(arguments, dict) else None
             if not isinstance(value, str) or not value.strip():
@@ -811,9 +856,8 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
 
     query = arguments.get("query") if isinstance(arguments, dict) else None
     if not isinstance(query, str) or not query.strip():
-        # schema declares query required, so a missing/blank value is a
-        # protocol fault, not isError (reserved for a schema-conforming call
-        # that fails at runtime)
+        # schema declares query required, so a missing/blank value is a protocol fault, not
+        # isError (reserved for a schema-conforming call that fails at runtime)
         raise _ProtocolError(
             INVALID_PARAMS, "invalid params: 'query' must be a non-empty string"
         )
@@ -880,9 +924,12 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
     if "name" not in params:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: missing required 'name' field")
     name = params.get("name")
-    source_name = PROMPT_TEMPLATES.get(name)
-    if source_name is None:
+    # the isinstance guard is not redundant: a dict or list `name` is unhashable, so looking it
+    # up would raise TypeError and leave as a -32603 internal error — a malformed request
+    # reported as a server bug. Same treatment `tools/call` gives a wrongly typed tool name
+    if not isinstance(name, str) or name not in PROMPT_TEMPLATES:
         raise _ProtocolError(INVALID_PARAMS, f"unknown prompt: {name!r}")
+    source_name = PROMPT_TEMPLATES[name]
 
     description, argument_hint, body = _load_template(source_name)
 
@@ -890,10 +937,9 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
         supplied = params.get("arguments")
         arg_name = _argument_name_from_hint(str(argument_hint))
         value = supplied.get(arg_name) if isinstance(supplied, dict) else None
-        # missing/None substitutes to empty; a supplied non-string value is a
-        # malformed request (the spec types these as string), not coerced —
-        # str()/repr() would leak Python syntax, and a truthiness check would
-        # wrongly blank out a legitimate "0"
+        # missing/None substitutes to empty; a supplied non-string value is a malformed request
+        # (the spec types these as string), not coerced — str()/repr() would leak Python syntax,
+        # and a truthiness check would wrongly blank out a legitimate "0"
         if value is not None and not isinstance(value, str):
             raise _ProtocolError(
                 INVALID_PARAMS, f"invalid params: argument {arg_name!r} must be a string"
@@ -931,18 +977,53 @@ def _error_response(msg_id: Any, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
 
+def _has_unpaired_surrogate(message: Any) -> bool:
+    """True when any string anywhere in the decoded message cannot be encoded as UTF-8."""
+    # an explicit stack rather than recursion: the decoder already accepted this nesting depth,
+    # and a recursive walk of the same structure could raise RecursionError where it did not
+    stack: list[Any] = [message]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, str):
+            try:
+                current.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+        elif isinstance(current, dict):
+            stack.extend(current.keys())
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return False
+
+
 def _dispatch(message: Any, store: Path) -> dict | None:
-    """The response dict to write, or None when nothing should be written (a
-    notification, or a malformed notification-shaped message)."""
+    """The response dict to write, or None when nothing should be written."""
     if not isinstance(message, dict):
         return _error_response(None, INVALID_REQUEST, "invalid request: expected a JSON object")
+
+    # rejected here, once, rather than at each field: a lone surrogate reaches every consumer
+    # downstream as a different failure — `content.encode` raises, `json.dumps` echoes an
+    # escape strict clients reject — and none of them can be UTF-8, which the MCP stdio
+    # transport requires. The id is null because the id itself may be the offending string
+    if _has_unpaired_surrogate(message):
+        return _error_response(
+            None,
+            INVALID_REQUEST,
+            "invalid request: message contains an unpaired surrogate, which is not UTF-8",
+        )
 
     has_id = "id" in message
     msg_id = message.get("id")
 
     # id must be string/number/null; on failure the error's own id is null,
-    # never an echo of something that couldn't be trusted in the first place
-    if has_id and msg_id is not None and not isinstance(msg_id, (str, int, float)):
+    # never an echo of something that couldn't be trusted in the first place.
+    # `isinstance(True, int)`, so booleans are excluded by name or `id: true` echoes back
+    if (
+        has_id
+        and msg_id is not None
+        and (isinstance(msg_id, bool) or not isinstance(msg_id, (str, int, float)))
+    ):
         return _error_response(None, INVALID_REQUEST, "invalid request: 'id' must be a string, number, or null")
 
     # enforced, not warn-and-served: every real client sends exactly "2.0"
@@ -1002,25 +1083,16 @@ def _write(stdout: TextIO, message: dict) -> None:
     stdout.flush()
 
 
-def _suppress_late_broken_pipe() -> None:
-    """Called after a `BrokenPipeError` is already caught. Interpreter
-    shutdown flushes `sys.stdout` on the way out and would raise the same
-    error again from inside `atexit`; redirecting the fd to `os.devnull`
-    first makes that flush a no-op. Best-effort — see contracts/mcp-server.md."""
-    try:
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull_fd, sys.stdout.fileno())
-        finally:
-            os.close(devnull_fd)
-    except (AttributeError, OSError, ValueError):
-        pass
+def _use_utf8_transport(stdin: TextIO) -> None:
+    """Pins stdin to UTF-8, decoding an undecodable byte to a surrogate instead of raising."""
+    reconfigure = getattr(stdin, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="surrogateescape")
 
 
 def serve(store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
-    """Runs the MCP stdio loop until stdin closes; returns a process exit
-    code. `stdout` carries the protocol and nothing else — this function is
-    its only writer, always through `_write`."""
+    """Runs the MCP stdio loop until stdin closes; the only writer to stdout."""
+    _use_utf8_transport(stdin)
     try:
         for raw_line in stdin:
             line = raw_line.strip()
@@ -1042,8 +1114,6 @@ def serve(store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -
     except BrokenPipeError:
         # client already gone — a clean teardown, not a crash; stderr only
         print("engmem-mcp: downstream pipe closed — stopping", file=sys.stderr)
-        if stdout is sys.stdout:
-            _suppress_late_broken_pipe()
         return 0
 
     return 0

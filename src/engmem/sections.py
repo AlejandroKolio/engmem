@@ -1,7 +1,4 @@
-"""Splits a document body into `##`/`###` sections and resolves headings to a
-stable canonical role. Rationale and the full alias table:
-`docs/design/contracts/sections.md`.
-"""
+"""Splits a document body into sections and resolves headings to a stable canonical role."""
 
 from __future__ import annotations
 
@@ -130,9 +127,8 @@ _TRAILING_PARENTHETICAL_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
 
 def _fold_trailing_parenthetical(normalized_heading: str) -> str | None:
-    # strips one outermost trailing "(...)" and retries the alias table; bounded
-    # narrowly on purpose — see contracts/sections.md for why an unbounded prefix
-    # match is wrong here
+    # strips one outermost trailing "(...)" and retries the alias table; bounded narrowly on
+    # purpose — see contracts/sections.md for why an unbounded prefix match is wrong here
     stripped = _TRAILING_PARENTHETICAL_RE.sub("", normalized_heading).strip()
     if not stripped or stripped == normalized_heading:
         return None
@@ -152,8 +148,10 @@ def _canonical_for(heading: str) -> str | None:
     return None
 
 
-def _make_section(anchor: str, heading: str, content: str, level: int) -> Section:
-    canonical = _canonical_for(heading)
+def _make_section(
+    anchor: str, heading: str, content: str, level: int, inherited: str | None = None
+) -> Section:
+    canonical = _canonical_for(heading) or inherited
     return Section(
         anchor=anchor,
         heading=heading,
@@ -172,6 +170,11 @@ def _split_oversized(heading: str, content: str) -> list[Section]:
     if not h3_matches:
         return [_make_section(_slugify(heading), heading, content, 2)]
 
+    # a subsection inherits the parent's role unless its own heading names one: splitting is
+    # a size decision, and a role that survived only on the lead-in disappeared entirely
+    # whenever the section opened straight onto its first "###"
+    parent_role = _canonical_for(heading)
+
     sections: list[Section] = []
     lead = content[: h3_matches[0].start()].strip("\n")
     if lead.strip():
@@ -182,7 +185,9 @@ def _split_oversized(heading: str, content: str) -> list[Section]:
         end = h3_matches[i + 1].start() if i + 1 < len(h3_matches) else len(content)
         sub_heading = _strip_ordinal(hm.group(1))
         sub_content = content[start:end].strip("\n")
-        sections.append(_make_section(_slugify(sub_heading), sub_heading, sub_content, 3))
+        sections.append(
+            _make_section(_slugify(sub_heading), sub_heading, sub_content, 3, parent_role)
+        )
 
     return sections
 
@@ -205,8 +210,7 @@ def _rewrite_setext(body: str) -> str:
 
 
 def split_sections(body: str) -> list[Section]:
-    """Split on `##` headings; any piece over `MAX_SECTION_BYTES` further splits
-    on `###` (`_split_oversized`)."""
+    """Split on `##`; any piece over `MAX_SECTION_BYTES` splits further on `###`."""
     if not body or not body.strip():
         return []
 
@@ -242,12 +246,28 @@ def split_sections(body: str) -> list[Section]:
     return sections
 
 
+def role_is_inherited(section: Section) -> bool:
+    """True when the section carries a role its own heading does not name — a `###` piece of an
+    oversized parent. Real, but second-best: it loses to a section headed with the role."""
+    return section.canonical is not None and _canonical_for(section.heading) is None
+
+
+def sections_for_role(sections: list[Section], role: str) -> list[Section]:
+    """Every section carrying `role`, in document order. More than one when an oversized
+    section was split: the role's content is then spread across all of them."""
+    return [s for s in sections if s.canonical == role]
+
+
 def sections_by_locator(sections: list[Section]) -> dict[str, Section]:
-    """Both the literal slug and the canonical alias (if any) resolve to the
-    same section, so a caller may look it up by either name."""
+    """Both the literal slug and the canonical alias resolve to the same section."""
     index: dict[str, Section] = {}
     for s in sections:
         index.setdefault(s.anchor, s)
+        if s.canonical and not role_is_inherited(s):
+            index.setdefault(s.canonical, s)
+    # a second pass, so an inherited role only fills a gap: `## Glossary` still answers for
+    # `context` even when an oversized `## Business Context` split earlier in the document
+    for s in sections:
         if s.canonical:
             index.setdefault(s.canonical, s)
     return index

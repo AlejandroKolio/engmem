@@ -1,17 +1,14 @@
-"""CLI-surface tests for `engmem backfill`: --id/--all, --dry-run, --yes, the
-interactive confirmation prompt, and the end-to-end evidence scenarios named
-in the task brief (proposals shown, body byte-identical, an already-complete
-document left untouched, re-running is a no-op, `load_store` afterwards
-reports `spine_complete`, and a search score improves once entities exist).
-"""
+"""CLI-surface tests for `engmem backfill`: flags, the confirmation prompt, and the end-to-end
+evidence scenarios."""
 
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 
 import pytest
 
+from conftest import requires_symlinks
+
+from engmem import cli
 from engmem.cli import main
 from engmem.scoring import search
 from engmem.spine import load_store
@@ -217,11 +214,14 @@ def test_yes_flag_skips_the_prompt_entirely(store, capsys, monkeypatch):
     assert "backfilled" in out
 
 
-def test_eof_on_the_prompt_is_treated_as_decline(store, capsys, monkeypatch):
-    def _eof(prompt=""):
+def test_end_of_input_at_the_prompt_is_a_decline(store, capsys, monkeypatch):
+    """stdin closed — `backfill --all` behind a pipe, or a cron job with no terminal. An
+    unanswered [y/N] is a "no", not a failure, so it exits 0 like typing `n` does."""
+
+    def _raise(prompt=""):
         raise EOFError()
 
-    monkeypatch.setattr("builtins.input", _eof)
+    monkeypatch.setattr("builtins.input", _raise)
     path = store / "sessions" / "widget-cache-warmup.md"
     before = path.read_bytes()
 
@@ -229,6 +229,26 @@ def test_eof_on_the_prompt_is_treated_as_decline(store, capsys, monkeypatch):
 
     assert exit_code == 0
     assert "cancelled" in out
+    assert path.read_bytes() == before
+
+
+def test_an_interrupt_at_the_prompt_exits_130_and_writes_nothing(store, capsys, monkeypatch):
+    """Ctrl-C is not a decline: exit 0 would run the next command of
+    `engmem backfill --all && deploy.sh` because the user pressed Ctrl-C."""
+
+    def _raise(prompt=""):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("builtins.input", _raise)
+    path = store / "sessions" / "widget-cache-warmup.md"
+    before = path.read_bytes()
+
+    exit_code, out, err = _run(["--id", "widget-cache-warmup", "--store", str(store)], capsys)
+
+    assert exit_code == 130
+    # a traceback here reads as a crash partway through a write — the one outcome this
+    # command's staging exists to make impossible
+    assert "interrupted" in out and "interrupted" in err
     assert path.read_bytes() == before
 
 
@@ -249,17 +269,19 @@ def test_all_yes_backfills_every_degraded_document(store, capsys):
 
     assert by_id["widget-cache-warmup"].spine_complete is True
     assert by_id["mq-sweeper-policy"].spine_complete is True
-    assert by_id["cache-invalidation-notes"].spine_complete is True
     # the already-complete document was never touched by --all in the first place
     assert by_id["response-cache-complete"].spine_complete is True
 
     assert by_id["widget-cache-warmup"].backfilled is True
     assert "WidgetCache" in by_id["widget-cache-warmup"].entities
     assert "SweeperJob" in by_id["mq-sweeper-policy"].entities
-    # the document with no Search Keywords section still gets the rest of its
-    # spine filled in — only entities is empty
+    # the document with no Search Keywords section still gets the rest of its spine filled
+    # in, but `entities` is left unset, not written empty — it stays degraded until a human
+    # names its identifiers, which is what the printed note asks for
     assert by_id["cache-invalidation-notes"].entities == []
-    assert by_id["cache-invalidation-notes"].spine_complete is True
+    assert by_id["cache-invalidation-notes"].spine_complete is False
+    assert by_id["cache-invalidation-notes"].degraded_fields == ["entities"]
+    assert by_id["cache-invalidation-notes"].backfilled is True
 
     # related, derived from the markdown link in mq-sweeper-policy's body
     assert "widget-cache-warmup" in by_id["mq-sweeper-policy"].related
@@ -295,9 +317,65 @@ def test_rerunning_all_yes_after_a_backfill_is_a_noop(store, capsys):
     exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
 
     assert exit_code == 0
-    assert "all already have a complete spine" in out
+    assert "nothing to write" in out
     for p in sessions.iterdir():
         assert p.read_bytes() == snapshot[p.name]
+
+
+def test_the_entities_note_keeps_being_reported_until_a_human_acts(store, capsys):
+    """The document with no keywords section stays on the `--all` list with its note, rather
+    than being silently declared complete with an empty `entities`."""
+    _run(["--all", "--yes", "--store", str(store)], capsys)
+
+    exit_code, out, err = _run(["--all", "--dry-run", "--store", str(store)], capsys)
+
+    assert exit_code == 0
+    assert "cache-invalidation-notes" in out
+    assert "no 'Search Keywords' section" in out
+    assert "nothing left to write — see the note below" in out
+
+
+def test_adding_the_missing_section_makes_the_rerun_fill_entities(store, capsys):
+    """End to end over the CLI: the note's own instructions have to work."""
+    _run(["--all", "--yes", "--store", str(store)], capsys)
+    path = store / "sessions" / "cache-invalidation-notes.md"
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n## Search Keywords\n\n**Classes:** `CacheInvalidator`\n",
+        encoding="utf-8",
+    )
+
+    exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
+
+    assert exit_code == 0
+    doc = next(d for d in load_store(store / "sessions").docs if d.id == "cache-invalidation-notes")
+    assert doc.entities == ["CacheInvalidator"]
+    assert doc.spine_complete is True
+
+    # and with nothing degraded left, `--all` takes the "no targets at all" branch
+    exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
+    assert exit_code == 0
+    assert "all already have a complete spine" in out
+
+
+def test_the_prompt_counts_writable_documents_not_printed_blocks(store, capsys, monkeypatch):
+    """A document can be listed with only a note and no field to write, so the count of what
+    would be written is a subset of what was printed — the prompt must not claim otherwise."""
+    _run(["--all", "--yes", "--store", str(store)], capsys)
+    path = store / "sessions" / "widget-cache-warmup.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("id: widget-cache-warmup\n", ""),
+        encoding="utf-8",
+    )
+
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "n")
+    exit_code, out, err = _run(["--all", "--store", str(store)], capsys)
+
+    assert exit_code == 0
+    # two documents printed, only one of them writable
+    assert "cache-invalidation-notes" in out and "widget-cache-warmup" in out
+    assert prompts == ["Write the 1 document(s) with fields to write? [y/N]: "]
 
 
 def test_search_score_improves_once_entities_are_backfilled(store, capsys):
@@ -317,3 +395,95 @@ def test_search_score_improves_once_entities_are_backfilled(store, capsys):
 
     assert "entities" in after_hit.matched_fields
     assert after_hit.score > before_score
+
+
+def test_a_document_edited_while_the_prompt_waits_is_reported_not_written(store, capsys, monkeypatch):
+    """The window the staleness check exists for: the author is free to edit while the prompt
+    waits."""
+    path = store / "sessions" / "cache-invalidation-notes.md"
+
+    def answer_and_edit(prompt=""):
+        path.write_text(
+            path.read_text(encoding="utf-8") + "\n## Search Keywords\n\n`CacheInvalidator`\n",
+            encoding="utf-8",
+        )
+        return "y"
+
+    monkeypatch.setattr("builtins.input", answer_and_edit)
+    exit_code, out, err = _run(["--id", "cache-invalidation-notes", "--store", str(store)], capsys)
+
+    assert exit_code == 2
+    assert "changed on disk" in err
+    assert "0 document(s) written, 1 failed" in out
+    # the author's edit is still there, and the document still has no front matter
+    assert "CacheInvalidator" in path.read_text(encoding="utf-8")
+    assert not path.read_text(encoding="utf-8").startswith("---")
+
+
+@requires_symlinks
+def test_a_symlinked_sessions_directory_is_refused(tmp_path, capsys):
+    """A git checkout carries a symlinked directory as readily as a symlinked file."""
+    store = tmp_path / "store"
+    store.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    doc = outside / "widget-cache-warmup.md"
+    doc.write_text("# Widget Cache Warmup\n\n- Repos: widget-cache\n", encoding="utf-8")
+    (store / "sessions").symlink_to(outside)
+    before = doc.read_bytes()
+
+    exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
+
+    assert exit_code == 2
+    assert "does not resolve to" in err and "refusing to write" in err
+    assert doc.read_bytes() == before
+
+
+def test_a_target_unreadable_at_proposal_time_is_reported_not_raised(store, capsys, monkeypatch):
+    """`propose_backfill` reads the file again, after `load_store` already did."""
+    real_propose = cli.propose_backfill
+
+    def propose_or_fail(doc):
+        if doc.id == "widget-cache-warmup":
+            raise FileNotFoundError(2, "No such file or directory", str(doc.path))
+        return real_propose(doc)
+
+    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
+
+    assert exit_code == 2
+    assert "widget-cache-warmup: could not read" in err
+    # the other degraded documents were still written
+    assert "2 document(s) written, 1 failed" in out
+
+
+def test_an_unreadable_target_costs_the_dry_run_its_exit_code(store, capsys, monkeypatch):
+    """`--dry-run` is what a `--dry-run && --yes` script gates on."""
+    real_propose = cli.propose_backfill
+
+    def propose_or_fail(doc):
+        if doc.id == "widget-cache-warmup":
+            raise PermissionError(13, "Permission denied", str(doc.path))
+        return real_propose(doc)
+
+    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    exit_code, out, err = _run(["--all", "--dry-run", "--store", str(store)], capsys)
+
+    assert exit_code == 2
+    assert "widget-cache-warmup: could not read" in err
+
+
+def test_a_declined_confirmation_still_reports_a_read_failure(store, capsys, monkeypatch):
+    """The read failed before the prompt; it is not what the human declined."""
+    real_propose = cli.propose_backfill
+
+    def propose_or_fail(doc):
+        if doc.id == "widget-cache-warmup":
+            raise PermissionError(13, "Permission denied", str(doc.path))
+        return real_propose(doc)
+
+    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    exit_code, out, err = _run(["--all", "--store", str(store)], capsys, monkeypatch, "n")
+
+    assert "cancelled" in out
+    assert exit_code == 2

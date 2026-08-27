@@ -1,15 +1,11 @@
-"""`tools/gate1_report.py` — every Reuse Log row in one table for the Gate 1 review.
-
-The verdict column is left empty on purpose. The tool decides what is mechanically
-decidable (which document was cited, whether it is adjacent or distant) and hands the
-judgement — did this actually change a decision — to the human, in writing, per row.
-"""
+"""The tool decides what is mechanically decidable and hands the verdict to the human, per row."""
 
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
+
+from conftest import run_tool
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "gate1_report.py"
 
@@ -33,11 +29,8 @@ def _reuse(cited: str, quote: str) -> str:
     )
 
 
-def _run(store: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, str(TOOL), "--store", str(store)],
-        capture_output=True, text=True, timeout=30,
-    )
+def _run(store: Path) -> "subprocess.CompletedProcess[str]":
+    return run_tool(TOOL, store)
 
 
 def test_every_reuse_row_appears_with_an_empty_verdict_column(tmp_path):
@@ -58,8 +51,8 @@ def test_every_reuse_row_appears_with_an_empty_verdict_column(tmp_path):
 
 
 def test_a_cited_doc_sharing_a_tag_is_adjacent(tmp_path):
-    """Adjacent means the author would plausibly have found it anyway — it shows the
-    store works as an archive, which is not what the retrieval layer is claiming."""
+    """Adjacent means the author would plausibly have found it anyway, which is not what the
+    retrieval layer claims."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", tags="[platform]",
          body="## 8. Decision Log\n\nEviction runs on boot.")
@@ -77,7 +70,10 @@ def test_a_cited_doc_sharing_no_tag_repo_or_related_edge_is_distant(tmp_path):
     _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
          body=_reuse("widget-cache-v1", "Eviction runs on boot."))
 
-    assert "distant" in _run(tmp_path).stdout
+    out = _run(tmp_path).stdout
+
+    assert "| distant |" in out
+    assert "reuse rows: 1   distant: 1   documents reporting no reuse: 0" in out
 
 
 def test_a_related_edge_makes_it_adjacent(tmp_path):
@@ -91,13 +87,13 @@ def test_a_related_edge_makes_it_adjacent(tmp_path):
 
 
 def test_prior_docs_used_none_produces_no_row_but_is_counted(tmp_path):
-    """A store that honestly reports no reuse is the result the experiment is most likely
-    to produce. It must be visible as zero, not as an empty screen."""
+    """A store that honestly reports no reuse must be visible as zero, not as an empty screen."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 16. Reuse Log\n\nPrior docs used: none.")
 
     result = _run(tmp_path)
 
     assert result.returncode == 0
-    assert "0" in result.stdout
+    assert "reuse rows: 0" in result.stdout
+    assert "documents reporting no reuse: 1" in result.stdout
     assert "widget-cache-v1 |" not in result.stdout
