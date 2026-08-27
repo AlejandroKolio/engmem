@@ -26,11 +26,41 @@ source's mtime, which the cache has never held for that path, and correctly miss
 timestamp **reused** does: a reproducible-build epoch, an archive extracted twice with the
 same recorded stamps, `touch -r` against the file's own earlier reference.
 
+One reuse needs no reuser. `st_mtime_ns` is nanoseconds of field *width*, not of resolution:
+NTFS takes the value from a system clock that advances about every 15ms, and older filesystems
+are coarser still. Two writes inside one tick are stamped identically, so a size-preserving
+edit landing in the same tick as the `stat` an entry was keyed by is invisible to the key — and
+that entry, being a legitimate hit, is what every later search scores and renders until the
+file changes again. `backfill.md` names the same residual for the same key and can bound it:
+the window it has to survive is a human's confirmation prompt, thousands of ticks wide. The
+window here is the one tick containing `parse_document`'s `stat`, which is what keeps it narrow
+— an author editing by hand cannot aim at it, while a program that writes a document and
+searches in the same breath can. That is not hypothetical: the test that pins the rule below
+(`test_an_edit_during_a_search_does_not_poison_the_section_cache`) wrote `oldword`/`newword` —
+the same length — and so it passed on POSIX only because the two writes are some tens of
+microseconds apart there, and failed on Windows, where they are not. Its edit now changes the
+size, and it asserts the two identities differ before it relies on them differing;
+`test_cache.py::test_editing_the_document_invalidates_the_cache_entry` was already written that
+way.
+
 A stronger key exists — `st_ctime_ns` alongside the same `stat()` (POSIX only; through 3.13,
 Python reports the creation time in that field on Windows), or `sha256(doc.body)`, over bytes
 `spine.parse_document` has already read. Neither has been adopted, and the choice is not
 local: `identity_for` is shared with `apply_backfill`'s staleness guard, and the cache reads
-its key from `doc.source_identity`, stamped in `parse_document`.
+its key from `doc.source_identity`, stamped in `parse_document`. A body hash stamped there
+would close the tick residual above, and the cost is not the hashing — nor a re-read: the
+other two readers of that stamp (`apply_backfill`, `mark_superseded`) are write-side guards
+that compare it against a plain `stat`, and both already hold the document's text when they
+compare, from the `read_document` each runs before its check. What they lack is
+`parse_document`'s normalisation of that text — `read_text`'s universal-newline translation,
+the front-matter split, `body.strip("\n")` — which each would have to reproduce exactly for
+its hash to be comparable against a stamp taken there. `read_document` declines that
+translation deliberately (backfill.md, "Line endings"), so a guard hashing the text it holds
+would disagree with `doc.body` by every line ending in a CRLF document and refuse it as
+changed. That is a tighter coupling to `spine` than the `stat` those guards compare today,
+and it moves what they mean from "the same file" to "the same bytes". Every stored key stops
+being comparable as well, so the change carries a `CACHE_FORMAT_VERSION` bump that retires
+every entry.
 
 `identity_for` returns `None` when the file cannot be `stat()`'d. Both `load` and `store`
 treat that as "no cache": a document with no staleness key could never have its entry

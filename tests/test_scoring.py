@@ -886,10 +886,12 @@ def test_an_edit_during_a_search_does_not_poison_the_section_cache(tmp_path, mon
     path.write_text(front_matter + "## Notes\n\nThe oldword path.\n", encoding="utf-8")
 
     doc = load_store(sessions).docs[0]
-    path.write_text(front_matter + "## Notes\n\nThe newword path.\n", encoding="utf-8")
+    # a same-size edit is invisible to the key inside one filesystem tick — contracts/cache.md
+    path.write_text(front_matter + "## Notes\n\nThe newword path, rewritten.\n", encoding="utf-8")
     _entries_for_doc(doc)  # caches the sections of the body that was read
 
     reloaded = load_store(sessions).docs[0]
+    assert reloaded.source_identity != doc.source_identity, "the edit must be visible in the key"
     bodies = " ".join(e.section.body for e in _entries_for_doc(reloaded))
 
     assert "newword" in bodies
