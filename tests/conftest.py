@@ -167,8 +167,10 @@ def fixture_docs():
 
 
 def write_file(dir_path: Path, name: str, text: str) -> Path:
+    r"""Writes `text` verbatim: `write_text` translates every `\n` to `\r\n` on Windows, so a
+    caller pinning a document's line endings was handed a document it never asked for."""
     path = dir_path / name
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
     return path
 
 
