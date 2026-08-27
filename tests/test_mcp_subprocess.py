@@ -335,12 +335,12 @@ def test_an_undecodable_stdin_byte_does_not_kill_the_session(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    assert proc.stdin is not None
-    proc.stdin.write(b"\xff\xfe not utf-8 at all\n")
-    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode() + b"\n")
-    proc.stdin.close()
+    bad_line = b"\xff\xfe not utf-8 at all\n"
+    ping_line = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode() + b"\n"
 
-    stdout, stderr = proc.communicate(timeout=10)
+    # communicate() owns the write and the close; closing stdin first raises
+    # ValueError: flush of closed file below 3.13
+    stdout, stderr = proc.communicate(input=bad_line + ping_line, timeout=10)
 
     assert proc.returncode == 0
     assert b"Traceback" not in stderr, stderr.decode(errors="replace")
