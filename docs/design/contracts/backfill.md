@@ -23,10 +23,10 @@ this command's staging exists to make impossible.
 |---|---|
 | `id` | filename stem (`doc.id`, already how `spine.parse_document` derives it) |
 | `title` | first `# H1`, `Knowledge Base — ` prefix stripped (`doc.title`, ditto) |
-| `date` | a `- Date:` / `- Updated:` preamble line, else file mtime (`doc.date`, ditto) |
+| `date` | a `- Date:` / `- Updated:` preamble line that carries the date on that same line, else file mtime (`doc.date`, ditto) |
 | `task_date` | = `date` |
 | `status` | a `- Status:` preamble line — `superseded` if it says so, `active` otherwise (matches every observed spelling: "Delivered", "In progress", and the common case of no line at all). "Says so" is the past participle `superseded`, not the stem: `supersedes` and `superseding` state the *opposite* relationship, and reading them as this one wrote `status: superseded` onto the live document and pointed `superseded_by` at the document it had itself replaced |
-| `superseded_by` | the sibling `.md` link on the `- Status:` line, when that line says the document is superseded. Proposed only then, and only when the line actually names a document |
+| `superseded_by` | the sibling `.md` link on the `- Status:` line, when that line says the document is superseded *and* the document's own front matter does not say otherwise. Proposed only then, and only when the line actually names a document |
 | `backfilled` | always `true` — that is what the field is for |
 | `tags` | repo names from a `- Repos:` preamble line. Facet labels ("Classes", "Endpoints") are deliberately *not* tags: nearly every document in this genre has them, so a weight-1 tag built from one distinguishes nothing and only dilutes |
 | `repos` | the same repo names, on their own. Not a redundant copy: `tags` is a scored spine field, so a repo name has to be there to be findable, while `repos` is the declared answer to "which code is this about" and is never ranked on |
@@ -36,6 +36,90 @@ this command's staging exists to make impossible.
 Fields are proposed in the order above. Each is proposed only if it is not already
 present in the document's own front matter (`spine.stated`) — a field a human, or an
 earlier `backfill` run, already set is never proposed for overwriting.
+
+### A preamble line's value is on the line, and a blank label carries none
+
+The rule below governs every preamble label this project reads, so it lives in `spine.py`
+(`preamble`, `preamble_label_value`) and `backfill.py` imports it — `backfill` depends on
+`spine`, never the reverse, and `spine`'s own `date` derivation obeys the same rule.
+
+The `- Status:` and `- Repos:` patterns match the *label* only — bullet, optional bold, the
+word, the colon. Everything after the colon on that same line is the value, and the label
+lines are walked in order until one carries a value that is not blank (`preamble_label_value`).
+
+Both halves of that rule are load-bearing, and each was got wrong once:
+
+  - the value must not run past the line. The patterns used `\s` around the colon, and `\s`
+    spans the line break, so a label the author left empty reached over it and read the
+    *next* preamble line as its own value: `- Status:` above
+    `- Notes: superseded by [old](old-flow.md)` derived `superseded`, and the successor rule
+    then aimed `superseded_by` at the document this one replaced — a field taken from a line
+    about something else entirely;
+  - a label with nothing but whitespace after its colon must count as blank, not as a value
+    of `" "`. Narrowing the gaps alone did not do that: the capture simply took the space.
+    `- Status: ` above `- Status: Superseded by [v2](v2.md)` still matched the blank line
+    first and *shadowed the real one below it* — and a trailing space after an unfilled
+    label is the ordinary way it is typed (two of them is CommonMark's own hard line break).
+
+Shadowing is the worse of the two, because on `- Repos:` it is permanent: the blank line
+matched, no name parsed out of it, and `tags: []` was written — the dead end described under
+"Why `tags` does not follow the same rule", after which the document is spine-complete and
+never offered again. Two real repo names, gone. It also made the evidence string at the
+confirmation prompt a false statement: the proposal said no such line was found while two
+sat in the document, and that string is the whole basis on which the human says yes.
+
+So: a label line whose value is empty, whitespace-only, or nothing but emphasis markers
+matches no value, the walk moves on, and a real label further down is found. When no label
+line carries a value at all, the derivation reports *that* — "no `- Status:` preamble line
+with a value found" — rather than claiming no line exists.
+
+The gap every one of these patterns allows is `[^\S\r\n]`: everything `\s` accepts *except*
+the line break. The rule is "not across the line break", not "an ASCII space", and the ASCII
+`[ \t]` the first attempt reached for expressed the second one — it also dropped the
+non-breaking space, the en/thin/narrow spaces and the ideographic space, all of which `\s`
+accepted and all of which sit on the label's own line. That matters because a
+Confluence/Notion/Google-Docs export writes `- Date:\xa02026-05-04`, and imported documents
+are the only corpus these derivations ever run on — engmem's own templates put the value in
+front matter, where nothing is derived. A dropped line does not announce itself either: it
+falls through to the same default as no line at all. Excluding `\r` alongside `\n` is honesty
+rather than need: `preamble()` rebuilds the window with `str.splitlines()`, which has already
+turned every other separator it recognises (`\r`, `\v`, `\f`, `\x1c`, `\x1d`, `\x1e`,
+`\x85`, `\u2028`, `\u2029`) into a plain `\n` before any of these patterns runs. `\x1f` is the
+one the two classes disagree on: `[^\S\r\n]` accepts it, `str.splitlines()` does not break on
+it, so it stays inside the line as an ordinary gap.
+
+Blank detection survives the wider class, and has to. `str.strip()` strips Unicode
+whitespace, so a value of nothing but a non-breaking space still strips to `""`, still counts
+as blank, and still does not shadow the real line below it; and an entry separated from its
+comma by one (`- Repos: widget-cache,\xa0platform-core`) still parses as a repo name.
+
+The cost is that a value written on the line *below* its label (`- Repos:` over an indented
+`widget-cache`) does not contribute. That shape was never handled properly anyway, since
+only its first continuation line was ever read.
+
+### `date` obeys the line rule, but not the value walk
+
+`spine._derive_date` feeds `Doc.date` for every document in the store, not just the one being
+backfilled: recency in the ranking (`scoring._date_ordinal`), the `last doc: Nd ago` footer, and
+the `date:`/`task_date:` this command writes into the front matter — where a wrong value stops
+being a reading and becomes the document's stated answer. Its pattern had the same `\s` around
+the colon and the same reach across the line break, and there the adopted value is not merely
+wrong, it is *someone else's date*: an unfilled `- Date:` skipped the blank lines under it and
+took the first date-shaped token of whatever came next — a sentence in the body, a bullet, a bold
+run, or the `2024-01-15` at the front of a sibling filename, which is another document's id.
+Because the earliest match in the window wins, that stolen date then shadowed a real `- Date:`
+line further down. Every gap in the pattern is `[^\S\r\n]`, never `\s`: whitespace on the
+label's own line, never across the break that ends it.
+
+What `date` does *not* share is the walk. `preamble_label_value` stops at the first value that is
+not blank, which is the right answer when any value is the answer (`- Status:`, `- Repos:`), and
+the wrong one for a value that still has to parse: `- Date: TBD` above `- Updated: 2024-01-15`
+would stop at `TBD`, find no date in it, and drop the store's date to mtime — a document that
+states its date losing it to a placeholder. So the date pattern keeps the date *in* the pattern,
+which lets the regex itself walk past label lines that carry none. Keeping it in the pattern
+also refuses a widening the free-form walk would have handed over for free: `- Date: see
+2024-01-15-old-flow.md` is a pointer at another document, and "find a date somewhere in the
+value" would have read it as this document's date. Uniformity was not worth either.
 
 ## The successor of a superseded document
 
@@ -55,6 +139,19 @@ aimed backwards, so the live document was hidden and its reader redirected to th
 the worst outcome available here, and silent. The link is still an edge, so it reaches
 `related` either way; it is only `superseded_by` and `status` that the word decides — and
 only on a line that asserts *one* direction.
+
+A stated `status:` decides the direction, and the line only names the successor. `status`
+itself is never proposed for a document that already states one, so without this the author's
+`status: active` stood while a `superseded_by` was appended beside it: a replaced-by claim
+written onto the live document, with nothing else in the write to contradict it, and — under
+residual 1 below — aimed at the document this one had itself replaced. So the effective status
+is an *additional* gate, on top of the word test above, not a replacement for it:
+`superseded_by` is proposed only when the line passes the word test **and** the effective
+status is `superseded` — the derived one when the author stated no `status:`, the author's own
+when they did. A document whose front matter says `status: superseded` therefore still gets its
+successor from the line, since the line is the only place a successor is ever named; but the
+front matter alone unlocks nothing, so `status: superseded` over
+`- Status: Replaced by [v2](v2.md)` — no past participle — proposes no `superseded_by`.
 
 Three residuals are known and left:
 
@@ -81,13 +178,18 @@ bulleted, grouped by facet (`**Classes:** WidgetCache, CacheWarmer`), separated 
 Per candidate term (after label-stripping and delimiter-splitting), a term qualifies as an
 entity if:
   - it is wrapped in backticks in the source (`` `WidgetCache` ``) — the author's own
-    explicit "this is a literal identifier" signal, always accepted regardless of shape; or
+    explicit "this is a literal identifier" signal, accepted whatever its shape; or
   - it contains a digit, or one of `/ _ . -` (endpoint paths, file names, hyphenated
-    identifiers), and is not on the small denylist of tokens that also match this shape but
-    are never entities (`n/a`, `tbd`, `todo`, …); or
+    identifiers); or
   - it has an uppercase letter anywhere after its first character — CamelCase
     (`CacheWarmer`), an ALLCAPS acronym (`TTL`), or a multi-word Title Case phrase
     (`Response Cache`).
+
+A small denylist of tokens that are never entities (`n/a`, `tbd`, `todo`, …) is applied
+*before* all three tests, so it also overrides the backtick signal: several of them pass the
+shape test on their own punctuation ("n/a" on its `/`), and a backticked `` `TBD` `` is still
+a placeholder, not an identifier. Backticks say "read this literally"; they do not say the
+literal is a name.
 
 A term longer than 4 words or 60 characters is never accepted — that is prose, not a
 keyword.
@@ -166,8 +268,9 @@ That argument covers the missing-line case only. A `- Repos:` line that *is* pre
 yields no tag (the parser rejected every entry) has exactly H1's shape: `tags: []` is
 written, the document goes `spine_complete`, and fixing the line later changes nothing.
 That dead end is known and knowingly left — the evidence string distinguishes the two
-cases ("no `- Repos:` preamble line found" vs "`- Repos:` preamble line found, but no
-entry parsed as a repo name") so a proposal at least does not read as the wrong one.
+cases ("no `- Repos:` preamble line with a value found" vs "`- Repos:` preamble line
+found, but no entry parsed as a repo name") so a proposal at least does not read as the
+wrong one.
 
 Because that dead end is permanent, an entry is read through the author's emphasis rather
 than around it: `` ` ``, `*` and `_` — CommonMark's code span and *both* of its emphasis

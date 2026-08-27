@@ -279,6 +279,40 @@ def test_broken_pipe_on_the_real_process_stdout_exits_cleanly_without_a_tracebac
     assert "downstream pipe closed" in stderr
 
 
+@requires_broken_pipe_semantics
+def test_a_block_buffered_stdout_leaves_nothing_for_the_interpreter_shutdown_flush(tmp_path):
+    """The frame that failed to send stays in stdout's buffer and CPython flushes it again on the
+    way out, exiting 120 on the dead pipe. Only a block-buffered stdout reaches that path, so the
+    environment must not carry `PYTHONUNBUFFERED` — with it set, the bug is invisible."""
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"}
+
+    proc = subprocess.Popen(
+        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.stdout is not None and proc.stdin is not None
+    proc.stdout.close()
+
+    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}) + "\n")
+    proc.stdin.flush()
+    proc.stdin.close()
+
+    exit_code = proc.wait(timeout=5)
+    stderr = proc.stderr.read() if proc.stderr else ""
+
+    assert exit_code == 0, f"exit {exit_code}, stderr: {stderr!r}"
+    assert "Exception ignored" not in stderr, stderr
+    assert "Traceback" not in stderr, stderr
+    assert "downstream pipe closed" in stderr
+
+
 def test_an_undecodable_stdin_byte_does_not_kill_the_session(tmp_path):
     """`sys.stdin`'s error handler is environment-dependent — `surrogateescape` under UTF-8 mode
     or a C locale, but `strict` under a plain `en_US.UTF-8`, where one bad byte from the client

@@ -1135,6 +1135,33 @@ def test_broken_pipe_while_writing_exits_cleanly_without_raising(store):
     assert exit_code == 0
 
 
+class _BrokenPipeStdoutOnARealFd(_BrokenPipeStdout):
+    """The same dead stream, but backed by a real file descriptor, the way `sys.stdout` is."""
+
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+
+    def fileno(self) -> int:
+        return self._fd
+
+
+def test_broken_pipe_teardown_leaves_the_stdout_fd_pointing_somewhere_harmless(store):
+    """The frame that failed to send is still in stdout's buffer, and interpreter shutdown flushes
+    it once more; on a descriptor left pointing at the dead pipe that flush fails and CPython exits
+    120 instead of 0."""
+    read_fd, write_fd = os.pipe()
+    os.close(read_fd)
+    stdin = _stdin_of_messages(_initialize_msg())
+
+    try:
+        exit_code = serve(store, stdin=stdin, stdout=_BrokenPipeStdoutOnARealFd(write_fd))
+
+        assert exit_code == 0
+        assert os.write(write_fd, b"a late flush must land somewhere harmless\n") > 0
+    finally:
+        os.close(write_fd)
+
+
 def test_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
     """The MCP tool asked the same question through its own copy of the scan and silently answered
     "none"."""

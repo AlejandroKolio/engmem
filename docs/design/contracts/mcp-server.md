@@ -205,11 +205,26 @@ A `BrokenPipeError` while writing to `stdout` means the client is already
 gone — reported on stderr and the loop exits 0, a clean teardown, not a
 crash.
 
-An earlier version also redirected the stdout file descriptor to `os.devnull`
-on the way out, guarding against the interpreter-shutdown flush raising the
-same error a second time and printing a traceback. It was removed: measured
-end to end against a real closed pipe, exit status, stdout and stderr are
-identical with and without it, so it guarded nothing that could be observed.
-`test_broken_pipe_on_the_real_process_stdout_exits_cleanly_without_a_traceback`
-holds the guarantee that matters — exit 0, no traceback on stderr — and would
-fail if a future change reintroduced the noise.
+Catching it is not enough. A failed flush leaves the frame in the stream's
+buffer, and the interpreter flushes `sys.stdout` once more on the way out;
+that second flush hits the same dead pipe, CPython reports
+`Exception ignored on flushing sys.stdout` and turns a returned 0 into exit
+status 120. So `_mute_broken_stdout()` points the descriptor at `os.devnull`
+before the handler returns, giving the shutdown flush somewhere harmless to
+land. It is best effort by design: an injected stream with no descriptor is
+left alone, and a failure to redirect must not replace a clean teardown with
+a crash. The redirect lasts for the life of the process — fd 1 still points at
+`os.devnull` after `serve()` returns — which is safe only because it is taken
+on a descriptor whose reader is already gone, so what it silently swallows is
+output that had no destination left.
+
+This redirect was once removed as dead weight, on a measurement that showed
+exit status, stdout and stderr identical with and without it. The measurement
+was taken in a shell exporting `PYTHONUNBUFFERED=1`: an unbuffered `stdout`
+has nothing left to flush after the failed write, so the shutdown path the
+redirect exists for was never entered. CI, with a block-buffered `stdout`,
+exited 120. Anything measuring this path must spawn the child without
+`PYTHONUNBUFFERED`, which is what
+`test_a_block_buffered_stdout_leaves_nothing_for_the_interpreter_shutdown_flush`
+does; `test_broken_pipe_on_the_real_process_stdout_exits_cleanly_without_a_traceback`
+holds the same guarantee under whatever environment the suite inherits.

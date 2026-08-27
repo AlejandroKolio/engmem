@@ -38,12 +38,15 @@ YAML front matter + a fixed set of markdown body sections.
 **No field is a load gate.** `derived` means the parser computes the value when the front
 matter omits it (`id` ← filename stem, `title` ← first `# H1`, `date` ← a `- Date:` /
 `- Updated:` preamble line then mtime, `task_date` ← `date`, `status` ← `active`). A
-document loads with a partial or entirely absent spine and is flagged `spine_complete:
-false`; the count of such documents is reported on **stdout** in the search footer, e.g.
-`docs: 9 (7 partial spine) | drafts: 1 | last doc: 0d ago`. Only corruption excludes a
-document: duplicate `id`, invalid YAML, an unclosed front-matter block, an unparseable
-date, an `id` containing an embedded newline, a value of the wrong type for its field, or
-the file being unreadable in the first place (permission denied, a dangling symlink, a
+preamble label is read only as far as the end of its own line — never across the line break,
+whatever whitespace sits on the line itself — so an unfilled `- Date:` takes no date from the
+text below it (contracts/backfill.md, "A preamble line's value is on the line"). A document
+loads with a partial or entirely absent spine and is flagged
+`spine_complete: false`; the count of such documents is reported on **stdout** in the search
+footer, e.g. `docs: 9 (7 partial spine) | drafts: 1 | last doc: 0d ago`. Only corruption
+excludes a document: duplicate `id`, invalid YAML, an unclosed front-matter block, an
+unparseable date, an `id` containing an embedded newline, a value of the wrong type for its
+field, or the file being unreadable in the first place (permission denied, a dangling symlink, a
 directory shadowing the `.md` name). A scalar in a list-typed field (`tags: platform`
 instead of `tags: [platform]`) is *not* corruption — it degrades to a one-element list
 with a warning, the same way a missing value degrades.

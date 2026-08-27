@@ -26,11 +26,30 @@ SPINE_FIELDS = (
 
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _TITLE_PREFIX_RE = re.compile(r"^Knowledge Base\s*[—–-]\s*")
+# every gap is `[^\S\r\n]` — every space `\s` accepts except the line break, which `\s` spans and
+# the value may never cross. An ASCII `[ \t]` would also drop the non-breaking space a
+# Confluence/Notion export writes after the colon. See contracts/backfill.md
 _PREAMBLE_DATE_RE = re.compile(
-    r"^[-*]\s*\*{0,2}(?:Date|Updated)\*{0,2}\s*:\s*\*{0,2}\s*(\d{4}-\d{2}-\d{2})",
+    r"^[-*][^\S\r\n]*\*{0,2}(?:Date|Updated)\*{0,2}[^\S\r\n]*:"
+    r"[^\S\r\n]*\*{0,2}[^\S\r\n]*(\d{4}-\d{2}-\d{2})",
     re.MULTILINE,
 )
 PREAMBLE_SCAN_LINES = 40
+
+
+def preamble(body: str) -> str:
+    """The leading window a preamble label is looked for in."""
+    return "\n".join(body.splitlines()[:PREAMBLE_SCAN_LINES])
+
+
+def preamble_label_value(pattern: re.Pattern[str], body: str) -> str | None:
+    """The first value a label actually carries on its own line — see contracts/backfill.md."""
+    for match in pattern.finditer(preamble(body)):
+        value = match.group(1).strip().strip("*").strip()
+        if value:
+            return value
+    return None
+
 
 # Canonical id shape (ENGMEM-SPEC.md §4 / data-model.md "id"): `<story-id>-<slug>` or
 # `<YYYYMMDD>-<slug>`.
@@ -273,8 +292,7 @@ def _derive_title(body: str, path: Path) -> str:
 
 
 def _derive_date(body: str, path: Path) -> datetime.date:
-    head = "\n".join(body.splitlines()[:PREAMBLE_SCAN_LINES])
-    match = _PREAMBLE_DATE_RE.search(head)
+    match = _PREAMBLE_DATE_RE.search(preamble(body))
     if match:
         try:
             return datetime.date.fromisoformat(match.group(1))

@@ -780,6 +780,102 @@ def test_an_impossible_derived_date_falls_back_to_mtime(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        "- Date:\n\n2026-02-11 is when the vendor contract expires.\n",
+        "- Date:\n\n2026-02-11-old-flow.md\n",
+        "- Date:\n\n* 2026-02-11 team offsite\n",
+        "- Date:\n\n**2026-02-11** kickoff\n",
+        "- Updated:\n2026-02-11\n",
+        "- Date:\n  2026-02-11\n",
+        "-\nDate: 2026-02-11\n",
+        "- Date\n: 2026-02-11\n",
+    ],
+    ids=["body-sentence", "sibling-filename", "bullet", "bold-run", "bare-line",
+         "indented", "empty-bullet", "colon-on-next-line"],
+)
+def test_an_unfilled_date_label_takes_no_date_from_the_line_below(tmp_path, body):
+    r"""`\s` spans the line break, so an unfilled `- Date:` reached past it and adopted the first
+    date-shaped token below, whatever that line was: a body sentence, a bullet, another
+    document's id, or — for `bare-line` and `indented` — a continuation line CommonMark would
+    read as part of the same list item. The last two are the accepted cost of the rule, not
+    the theft; they are here because the rule has to hold at its own boundary."""
+    path = tmp_path / "a-doc.md"
+    path.write_text(f"# A\n\n{body}\n## Notes\n\nBody.\n", encoding="utf-8")
+
+    doc = parse_document(path)
+
+    assert doc.date == datetime.date.fromtimestamp(path.stat().st_mtime)
+
+
+def test_an_unfilled_date_label_does_not_shadow_a_real_one_below_it(tmp_path):
+    """The earliest match in the window wins, so a date stolen from across the line break also
+    hid a `- Date:` line that really did state one."""
+    path = tmp_path / "a-doc.md"
+    path.write_text(
+        "# A\n\n- Date:\n\n2026-02-11-old-flow.md\n\n- Date: 2026-05-04\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    doc = parse_document(path)
+
+    assert doc.date == datetime.date(2026, 5, 4)
+
+
+def test_a_placeholder_date_label_does_not_hide_a_real_one_below_it(tmp_path):
+    """`preamble_label_value` stops at the first non-blank value, which would stop at `TBD`; the
+    date derivation keeps the date in its pattern and walks on to the label that states one."""
+    path = tmp_path / "a-doc.md"
+    path.write_text(
+        "# A\n\n- Date: TBD\n- Updated: 2026-05-04\n\nBody.\n", encoding="utf-8"
+    )
+
+    doc = parse_document(path)
+
+    assert doc.date == datetime.date(2026, 5, 4)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "- Date:\xa02026-05-04",
+        "- Date:\u202f2026-05-04",
+        "- Date:\u30002026-05-04",
+        "- **Date:**\xa02026-05-04",
+        "- Date\xa0: 2026-05-04",
+        "-\xa0Date: 2026-05-04",
+    ],
+    ids=["nbsp", "narrow-nbsp", "ideographic", "bold-label", "before-the-colon",
+         "after-the-bullet"],
+)
+def test_a_non_ascii_space_before_the_date_still_states_it(tmp_path, line):
+    r"""The rule is "not across the line break", not "an ASCII space": every space `\s` accepted
+    on the label's own line still counts. A Confluence/Notion export writes a non-breaking space
+    after the colon, and imported documents are the only ones this derivation ever runs on —
+    losing the line drops the store's date to mtime, which `backfill` then writes into `date:` as
+    the document's permanent stated answer."""
+    path = tmp_path / "a-doc.md"
+    path.write_text(f"# A\n\n{line}\n\n## Notes\n\nBody.\n", encoding="utf-8")
+
+    doc = parse_document(path)
+
+    assert doc.date == datetime.date(2026, 5, 4)
+
+
+def test_a_date_label_pointing_at_another_document_states_no_date(tmp_path):
+    """Reading a date from anywhere in the value would take the `2026-02-11` in a sibling's id
+    as this document's own date."""
+    path = tmp_path / "a-doc.md"
+    path.write_text(
+        "# A\n\n- Date: see 2026-02-11-old-flow.md\n\nBody.\n", encoding="utf-8"
+    )
+
+    doc = parse_document(path)
+
+    assert doc.date == datetime.date.fromtimestamp(path.stat().st_mtime)
+
+
+@pytest.mark.parametrize(
     "written, expected, warns",
     [('"12"', 12, True), ("3.9", 3, True), ("12", 12, False)],
     ids=["quoted", "float", "plain-int"],

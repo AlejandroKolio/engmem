@@ -238,6 +238,88 @@ def test_looks_like_entity_shape_rule(text, expected):
             "active", "Current; superseding the v1 note",
             id="superseding-another-document-is-still-active",
         ),
+        pytest.param(
+            # `\s` after the colon spanned the line break, so an empty label line reached
+            # over it and read the *next* preamble line as its own value — here that meant
+            # `superseded` plus a successor aimed at the document this one replaced
+            "- Status:\n- Notes: superseded by [old](old-flow.md)\n",
+            "active", None,
+            id="empty-status-line-does-not-adopt-the-next-lines-value",
+        ),
+        pytest.param(
+            # and the shadowing it caused: the empty line consumed the real one below it
+            "- Status:\n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="an-empty-status-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            # an unfilled label is far more often typed with a trailing space than bare —
+            # two of them is CommonMark's own hard line break
+            "- Status: \n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-trailing-space-status-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            "- Status:\t\n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-trailing-tab-status-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            "- **Status:** \n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-bold-blank-status-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            # nothing but the emphasis markers is still no value
+            "- Status: **\n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-status-line-holding-only-emphasis-markers-shadows-nothing",
+        ),
+        pytest.param(
+            # the source is the evidence a human approves the write on: a blank line is
+            # not a value, so it must not be reported as one
+            "- Status: \n", "active", None,
+            id="a-blank-status-line-alone-reports-no-source",
+        ),
+        pytest.param(
+            # the line rule is "not across the line break", not "ASCII space only": a
+            # Confluence/Notion export writes a non-breaking space after the colon, and
+            # narrowing the gap to space-and-tab dropped the whole line
+            "- Status:\xa0Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-non-breaking-space-after-the-colon-still-carries-the-value",
+        ),
+        pytest.param(
+            "- **Status**\u202f: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-narrow-non-breaking-space-around-the-label-still-carries-the-value",
+        ),
+        pytest.param(
+            "-\xa0Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-non-breaking-space-after-the-bullet-still-carries-the-value",
+        ),
+        pytest.param(
+            # the other edge of the same class: whitespace, but never the line break. A
+            # bullet whose label sits on the line below it is a lazy continuation to
+            # CommonMark, and reading it would be the cross-line read the rule forbids —
+            # the same cost `spine._PREAMBLE_DATE_RE` accepts for that shape
+            "-\nStatus: Superseded by [v2](widget-cache-v2.md)\n",
+            "active", None,
+            id="a-status-label-on-the-line-below-its-bullet-is-not-read",
+        ),
+        pytest.param(
+            # and the other half of the rule survives the wider class: `str.strip()` strips
+            # Unicode whitespace, so a value that is only a non-breaking space is still blank
+            # and still must not shadow the real line below it
+            "- Status:\xa0\n- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            "superseded", "Superseded by [v2](widget-cache-v2.md)",
+            id="a-non-breaking-space-only-status-line-shadows-nothing",
+        ),
+        pytest.param(
+            "- Status:\u3000\n", "active", None,
+            id="a-non-breaking-space-only-status-line-alone-reports-no-source",
+        ),
     ],
 )
 def test_derive_status_maps_preamble_line_to_status(body, expected_status, expected_source):
@@ -307,6 +389,52 @@ def test_derive_status_maps_preamble_line_to_status(body, expected_status, expec
             # as successful while the other entry is silently gone
             "- Repos: *widget-cache*, _platform-core_\n", ["widget-cache", "platform-core"],
             id="mixed-emphasis-delimiters-keep-both-entries",
+        ),
+        pytest.param(
+            # the empty line used to consume the real one below it and yield no tag at all,
+            # which writes the permanent `tags: []`
+            "- Repos:\n- Repos: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="an-empty-repos-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            "- Repos: \n- Repos: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="a-trailing-space-repos-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            "- Repos:\t\n- Repos: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="a-trailing-tab-repos-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            "- **Repos:** \n- Repos: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="a-bold-blank-repos-line-does-not-shadow-the-real-one-below-it",
+        ),
+        pytest.param(
+            # an export's non-breaking spaces, after the colon and after the comma: the gap
+            # class carries the line, and `part.strip()` strips the one inside the value
+            "- Repos:\xa0widget-cache,\xa0platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="non-breaking-spaces-inside-the-value-still-parse-as-entries",
+        ),
+        pytest.param(
+            # the gaps the class actually governs: bullet to label, label to colon
+            "-\xa0**Repos**\u202f: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="non-breaking-spaces-around-the-repos-label-still-carry-the-line",
+        ),
+        pytest.param(
+            "-\nRepos: widget-cache, platform-core\n", [],
+            id="a-repos-label-on-the-line-below-its-bullet-is-not-read",
+        ),
+        pytest.param(
+            # a value of nothing but a non-breaking space is still blank, so the real line
+            # below it is still reached — losing it writes the permanent `tags: []`
+            "- Repos:\xa0\n- Repos: widget-cache, platform-core\n",
+            ["widget-cache", "platform-core"],
+            id="a-non-breaking-space-only-repos-line-does-not-shadow-the-real-one-below-it",
         ),
     ],
 )
@@ -1667,6 +1795,99 @@ def test_a_superseded_line_naming_no_sibling_proposes_no_successor(tmp_path):
     by_name = {f.name: f for f in propose_backfill(doc).fields}
     assert by_name["status"].value == "superseded"
     assert "superseded_by" not in by_name
+
+
+def test_a_stated_status_the_line_contradicts_gets_no_successor(tmp_path):
+    """The author declared this document active; `superseded_by` would then be a
+    replaced-by claim written onto the live document, aimed at the one it replaced —
+    and `status` is not proposed at all, so nothing else on the write would say so."""
+    write_file(
+        tmp_path,
+        "widget-cache-v2.md",
+        "---\nstatus: active\n---\n# Widget Cache v2\n\n- Date: 2026-05-04\n"
+        "- Status: Active — this superseded [the old flow](widget-cache-v1.md)\n",
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    by_name = {f.name: f for f in propose_backfill(doc).fields}
+
+    assert "status" not in by_name
+    assert "superseded_by" not in by_name
+    # the link is still an edge, just not a successor
+    assert by_name["related"].value == ["widget-cache-v1"]
+
+
+def test_a_stated_superseded_status_still_takes_the_successor_from_the_line(tmp_path):
+    write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
+        "---\nstatus: superseded\n---\n# Widget Cache Warmup\n\n- Date: 2026-05-04\n"
+        "- Status: Superseded by [v2](widget-cache-v2.md)\n",
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    by_name = {f.name: f for f in propose_backfill(doc).fields}
+
+    assert "status" not in by_name
+    assert by_name["superseded_by"].value == "widget-cache-v2"
+
+
+def test_an_empty_status_line_never_supersedes_the_document(tmp_path):
+    """End to end: the preamble line below the empty one is another field entirely, so the
+    document is active and has no successor."""
+    write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
+        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n- Status:\n"
+        "- Notes: superseded by [the old flow](widget-cache-v1.md)\n",
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    by_name = {f.name: f for f in propose_backfill(doc).fields}
+
+    assert by_name["status"].value == "active"
+    assert "superseded_by" not in by_name
+
+
+def test_unfilled_labels_do_not_shadow_the_real_ones_below_them(tmp_path):
+    """The permanent dead end: a blank `- Repos:` above the real one proposed `tags: []`,
+    which counts as answered, so `--all` would never offer the document again and both repo
+    names would be lost for good — while the blank `- Status:` above the real one dropped
+    the successor and left a replaced document rankable with nothing to redirect to."""
+    write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
+        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n- Status: \n"
+        "- Status: Superseded by [v2](widget-cache-v2.md)\n- Repos: \n"
+        "- Repos: widget-cache, platform-core\n",
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    by_name = {f.name: f for f in propose_backfill(doc).fields}
+
+    assert by_name["status"].value == "superseded"
+    assert by_name["superseded_by"].value == "widget-cache-v2"
+    assert by_name["tags"].value == ["widget-cache", "platform-core"]
+    assert by_name["repos"].value == ["widget-cache", "platform-core"]
+
+
+def test_a_blank_label_line_is_not_reported_as_a_value(tmp_path):
+    """The human approves the write on these strings. A document carrying two blank labels
+    was told a value had been read off them, and — before that — that no such line existed."""
+    write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
+        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n- Status: \n- Repos: \n",
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    by_name = {f.name: f for f in propose_backfill(doc).fields}
+
+    assert by_name["status"].value == "active"
+    assert by_name["status"].source == (
+        "no '- Status:' preamble line with a value found — defaulted to active"
+    )
+    assert by_name["tags"].source == "no '- Repos:' preamble line with a value found"
 
 
 def test_superseded_by_survives_the_write_and_reloads(tmp_path):

@@ -1063,7 +1063,7 @@ def test_render_backfill_proposal_shows_each_field_value_and_source():
         path=Path("/store/sessions/widget-cache-warmup.md"),
         already_complete=False,
         fields=[
-            FieldProposal("status", "active", "no '- Status:' preamble line found — defaulted to active"),
+            FieldProposal("status", "active", "no '- Status:' preamble line with a value found — defaulted to active"),
             FieldProposal("backfilled", True, "always true for a document engmem did not itself author"),
             FieldProposal("entities", ["WidgetCache", "CacheWarmer"], "'Search Keywords' section"),
         ],
@@ -1074,7 +1074,7 @@ def test_render_backfill_proposal_shows_each_field_value_and_source():
 
     assert "widget-cache-warmup (widget-cache-warmup.md):" in text
     assert "status: active" in text
-    assert "<- no '- Status:' preamble line found — defaulted to active" in text
+    assert "<- no '- Status:' preamble line with a value found — defaulted to active" in text
     assert "backfilled: true" in text
     assert "entities: [WidgetCache, CacheWarmer]" in text
     assert "note: no 'Search Keywords' section in this document" in text

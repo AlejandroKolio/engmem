@@ -14,8 +14,8 @@ from engmem.cache import identity_for
 from engmem.sections import sections_for_role, split_sections
 from engmem.spine import (
     Doc,
-    PREAMBLE_SCAN_LINES,
     parse_document,
+    preamble_label_value,
     split_front_matter,
     stated,
 )
@@ -54,12 +54,15 @@ def _front_matter_mapping(front_matter_text: str) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+# the label only; the rest of the line is its value. Every gap is `[^\S\r\n]`, the same
+# "whitespace, but not the line break" class `spine._PREAMBLE_DATE_RE` uses — one rule for
+# every preamble label. See contracts/backfill.md
 _PREAMBLE_STATUS_RE = re.compile(
-    r"^[-*]\s*\*{0,2}Status\*{0,2}\s*:\s*\*{0,2}\s*(.+?)\s*\*{0,2}\s*$",
+    r"^[-*][^\S\r\n]*\*{0,2}Status\*{0,2}[^\S\r\n]*:(.*)$",
     re.MULTILINE,
 )
 _PREAMBLE_REPOS_RE = re.compile(
-    r"^[-*]\s*\*{0,2}Repos?\*{0,2}\s*:\s*\*{0,2}\s*(.+?)\s*$",
+    r"^[-*][^\S\r\n]*\*{0,2}Repos?\*{0,2}[^\S\r\n]*:(.*)$",
     re.MULTILINE,
 )
 
@@ -200,16 +203,11 @@ def _extract_entities(section_body: str) -> list[str]:
     return entities
 
 
-def _preamble(body: str) -> str:
-    return "\n".join(body.splitlines()[:PREAMBLE_SCAN_LINES])
-
-
 def _derive_status(body: str) -> tuple[str, str | None]:
     """`(status, raw_source)` — only a `- Status:` line that says so maps to `superseded`."""
-    match = _PREAMBLE_STATUS_RE.search(_preamble(body))
-    if not match:
+    raw = preamble_label_value(_PREAMBLE_STATUS_RE, body)
+    if raw is None:
         return "active", None
-    raw = match.group(1).strip()
     # the past participle only: a stem test ("supersed") also fired on "supersedes" and
     # "superseding", which state the opposite relationship — see contracts/backfill.md
     return ("superseded" if "superseded" in raw.casefold() else "active"), raw
@@ -221,14 +219,14 @@ _REPO_NAME_RE = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*)")
 
 
 def _derive_repo_tags(body: str) -> list[str]:
-    match = _PREAMBLE_REPOS_RE.search(_preamble(body))
-    if not match:
+    line_value = preamble_label_value(_PREAMBLE_REPOS_RE, body)
+    if line_value is None:
         return []
     tags: list[str] = []
     seen: set[str] = set()
     # an em-dash opens a trailing aside about the entry before it; its own
     # commas would otherwise split into phantom entries, so cut before splitting
-    value = re.split(r"\s[—–]\s", match.group(1))[0]
+    value = re.split(r"\s[—–]\s", line_value)[0]
     for part in re.split(r"[,;·]", value):
         # `*` and `_` alongside the backticks — CommonMark's code span and both of its
         # emphasis delimiters. A repo name contains none of the three, and emphasis around the
@@ -380,12 +378,15 @@ def propose_backfill(doc: Doc) -> BackfillProposal:
     candidates.append(FieldProposal(
         "status", status,
         f"preamble line '- Status: {status_source}'" if status_source
-        else "no '- Status:' preamble line found — defaulted to active",
+        else "no '- Status:' preamble line with a value found — defaulted to active",
     ))
     # a superseded document with no successor is a dead end: `output.py` prints a bare
     # "(superseded)" and `scoring.py` has nothing to redirect the reader to. The line that
-    # says so almost always names the successor — "Superseded by [v2](widget-cache-v2.md)"
-    if status == "superseded" and status_source:
+    # says so almost always names the successor — "Superseded by [v2](widget-cache-v2.md)".
+    # The word test above decides direction; the author's own `status:` gates it — both are
+    # required, and neither substitutes for the other. See contracts/backfill.md
+    stated_status = doc.status if stated(raw, "status") else None
+    if status == "superseded" and status_source and stated_status in (None, "superseded"):
         successors = _extract_related_ids(status_source, doc.id)
         if successors:
             candidates.append(FieldProposal(
@@ -417,12 +418,12 @@ def propose_backfill(doc: Doc) -> BackfillProposal:
     repo_tags = _derive_repo_tags(body)
     if repo_tags:
         tags_source = f"'- Repos:' preamble line ({', '.join(repo_tags)})"
-    elif _PREAMBLE_REPOS_RE.search(_preamble(body)):
+    elif preamble_label_value(_PREAMBLE_REPOS_RE, body):
         # a line the author wrote and the parser rejected is not the same evidence as no
         # line at all, and "none found" read as the latter
         tags_source = "'- Repos:' preamble line found, but no entry parsed as a repo name"
     else:
-        tags_source = "no '- Repos:' preamble line found"
+        tags_source = "no '- Repos:' preamble line with a value found"
 
     # a copy, not `repo_tags` itself: `tags` and `repos` must stay separate objects
     candidates.append(FieldProposal("tags", list(repo_tags), tags_source))

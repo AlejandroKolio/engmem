@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from importlib import resources
@@ -1083,6 +1084,20 @@ def _write(stdout: TextIO, message: dict) -> None:
     stdout.flush()
 
 
+def _mute_broken_stdout(stdout: TextIO) -> None:
+    """Points the dead stdout fd at os.devnull so the interpreter's shutdown flush of the frame
+    still sitting in its buffer cannot fail — see contracts/mcp-server.md."""
+    devnull_fd = None
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        return
+    finally:
+        if devnull_fd is not None:
+            os.close(devnull_fd)
+
+
 def _use_utf8_transport(stdin: TextIO) -> None:
     """Pins stdin to UTF-8, decoding an undecodable byte to a surrogate instead of raising."""
     reconfigure = getattr(stdin, "reconfigure", None)
@@ -1113,6 +1128,7 @@ def serve(store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -
                 _write(stdout, response)
     except BrokenPipeError:
         # client already gone — a clean teardown, not a crash; stderr only
+        _mute_broken_stdout(stdout)
         print("engmem-mcp: downstream pipe closed — stopping", file=sys.stderr)
         return 0
 
