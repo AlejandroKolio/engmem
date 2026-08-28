@@ -286,8 +286,14 @@ def _token_counts(table: dict, name: str) -> Counter[str]:
 
 
 def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
-    if data["canonical"] is not None and not isinstance(data["canonical"], str):
+    canonical = data["canonical"]
+    if canonical is not None and not isinstance(canonical, str):
         raise TypeError("canonical is neither a string nor null")
+    # a value outside CANONICAL_ROLES is what a role added without a cache format bump
+    # writes; role_coverage's `counts = {role: 0 for role in CANONICAL_ROLES}` has no slot
+    # for it, so believing it here is the KeyError this whole block exists to prevent
+    if canonical is not None and canonical not in CANONICAL_ROLES:
+        raise TypeError(f"canonical is {canonical!r}, not a recognised role")
     section = Section(
         anchor=data["anchor"],
         heading=data["heading"],

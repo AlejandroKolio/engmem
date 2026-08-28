@@ -62,6 +62,11 @@ requires_posix_modes = pytest.mark.skipif(
     reason="chmod only toggles the read-only bit on Windows; st_mode reports 0o666/0o444",
 )
 
+requires_windows = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="drive letters and per-drive CWDs (os.path.abspath('C:')) only exist on Windows",
+)
+
 
 # resolved at import time, before any test can redirect HOME or the cache root
 _REAL_HOME = Path(os.path.expanduser("~"))

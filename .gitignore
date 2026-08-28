@@ -35,3 +35,11 @@ chat-transcript-*.md
 
 # Agent tool configuration: local convenience, not part of the project.
 CLAUDE.md
+
+# Coverage databases and stray CI logs: never project content. Adding a pattern
+# here does nothing for a file git already tracks -- `.coverage` was tracked, and
+# shipped in every sdist and source archive until it was untracked.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

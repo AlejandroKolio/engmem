@@ -1131,6 +1131,34 @@ def test_a_boolean_where_the_payload_wants_an_int_is_recomputed(tmp_path, monkey
     assert "unexpected shape" in capsys.readouterr().err
 
 
+def test_a_role_the_payload_does_not_recognise_is_recomputed_not_believed(tmp_path, monkeypatch, capsys):
+    """`canonical` keys `role_coverage`'s `{role: 0 for role in CANONICAL_ROLES}`. A payload
+    written by a future install that added a role without bumping `cache.CACHE_FORMAT_VERSION`
+    must be a miss here too, or that dict comprehension raises `KeyError` on a role it has never
+    heard of."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    _write_role_doc(
+        tmp_path, "a.md", "alpha-doc", "Alpha Doc", 1,
+        "## Decision Log\n\nChose write-through.\n",
+    )
+    docs = load_store(tmp_path).docs
+    role_coverage(docs)
+
+    doc = next(d for d in docs if d.id == "alpha-doc")
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    record["payload"]["sections"][0]["canonical"] = "runbook-from-a-newer-install"
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+    capsys.readouterr()
+
+    coverage = role_coverage(docs)
+
+    assert coverage["decisions"] == 1
+    captured = capsys.readouterr()
+    assert "unexpected shape" in captured.err
+    assert captured.out == ""
+
+
 def test_a_section_survives_the_payload_round_trip_field_by_field():
     """Three hand-maintained lists say the same thing: the payload, its type table, and the
     `Section(...)` kwargs. A field added to two of them and forgotten in the third is silent."""

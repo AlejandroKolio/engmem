@@ -129,6 +129,21 @@ descriptive: `_entries_from_cache` catches `(KeyError, TypeError)`, so a `ValueE
 escape that handler and crash the search — the exact failure this check exists to close. A
 second range check added here must raise `TypeError` too, or widen that handler first.
 
+None of the above closes the whole boundary, and it reads as if it does. The type table
+plus `_token_counts` validate SHAPE — is this a string, is that a dict of non-negative
+ints — but most fields are trusted for VALUE once the shape is right. `canonical` is the
+exception, and has to be: it is the one payload field that keys a dict of known values
+rather than flowing straight into a score or a locator, so `role_coverage`'s
+`counts = {role: 0 for role in CANONICAL_ROLES}` has no slot for anything outside
+`sections.CANONICAL_ROLES`, and `_section_entry_from_payload` rejects a `canonical` that
+is not `None` and not one of them, alongside the existing `str | None` check, before
+`role_coverage` ever sees it. Renaming or adding a role changes payload CONTENT, not
+SHAPE, so a `CACHE_FORMAT_VERSION` bump is not guaranteed to cover it — this check is what
+does. `index`, `level`, and `size_bytes` remain range-unchecked: a cached `index` of `-1`
+renders the locator `§-1-notes` — wrong and silent, the same "plausible, wrong and silent"
+`scoring.py` uses to justify excluding `bool` — but it does not crash and does not
+mis-rank, so it is accepted as a smaller, separate cost from the `canonical` case above.
+
 It warns on the mismatch, unlike the
 shapes `cache.load` rejects silently, because a payload that survived every
 check there and still does not fit is a bug in this repo rather than a stale

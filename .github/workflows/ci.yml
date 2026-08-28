@@ -21,10 +21,10 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 
@@ -43,8 +43,8 @@ jobs:
     # release, not after.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv build --wheel
       - name: Assert the wheel requires nothing beyond the two declared dependencies
         run: |
@@ -66,17 +66,71 @@ jobs:
           )
           PY
 
+  packaging:
+    # What ships is not what is committed. hatchling reads `.gitignore`, so a file can be
+    # ignored and still tracked — `.coverage` was, and rode into every sdist and every
+    # source archive until it was untracked. Both halves are asserted here, on every pull
+    # request: the release workflow would only learn after a tag was cut, and a published
+    # version cannot be re-uploaded.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv build --sdist
+
+      - name: Assert the sdist ships exactly the expected top-level entries
+        run: |
+          python - <<'PY'
+          import pathlib, tarfile
+          # An allowlist, not a list of forbidden names: a denylist only catches the stray
+          # file someone already thought of, and rots silently as new ones appear. Growing
+          # a top-level entry is deliberate, so failing here is the review, not the bug.
+          ALLOWED = {
+              ".github", ".gitignore", "CONTRIBUTING.md", "ENGMEM-SPEC.md", "LICENSE",
+              "PKG-INFO", "README.md", "SECURITY.md", "docs", "pyproject.toml",
+              "src", "tests", "tools", "uv.lock",
+          }
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          top = {
+              name.split("/", 1)[1].split("/", 1)[0]
+              for name in tarfile.open(sdist).getnames()
+              if "/" in name
+          }
+          assert not top - ALLOWED, f"unexpected entries in the sdist: {sorted(top - ALLOWED)}"
+          assert not ALLOWED - top, f"entries missing from the sdist: {sorted(ALLOWED - top)}"
+          print(f"{sdist.name}: {len(top)} top-level entries, all expected")
+          PY
+
+      - name: Assert no ignored-class file is tracked
+        run: |
+          python - <<'PY'
+          import subprocess
+          tracked = sorted(subprocess.run(
+              ["git", "ls-files"], capture_output=True, text=True, check=True
+          ).stdout.split())
+          # `--no-index` is the point: it answers "would this be ignored", which is exactly
+          # the question `git add` never asks again once a file is tracked.
+          ignored = subprocess.run(
+              ["git", "check-ignore", "--no-index", *tracked],
+              capture_output=True, text=True,
+          ).stdout.split()
+          assert not ignored, f"tracked files that .gitignore says to ignore: {ignored}"
+          print(f"{len(tracked)} tracked files, none ignored-class")
+          PY
+
   # The single check branch protection should require. Requiring the matrix jobs by name
   # means every matrix change silently blocks every PR: the named check stops appearing
   # and nothing reports it.
   ci:
     if: always()
-    needs: [test, runtime-dependencies]
+    needs: [test, runtime-dependencies, packaging]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded
         run: |
           echo "test: ${{ needs.test.result }}"
           echo "runtime-dependencies: ${{ needs.runtime-dependencies.result }}"
+          echo "packaging: ${{ needs.packaging.result }}"
           [ "${{ needs.test.result }}" = "success" ] \
-            && [ "${{ needs.runtime-dependencies.result }}" = "success" ]
+            && [ "${{ needs.runtime-dependencies.result }}" = "success" ] \
+            && [ "${{ needs.packaging.result }}" = "success" ]
