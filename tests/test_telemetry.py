@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from conftest import fixture_docs
+from conftest import fixture_docs, requires_permission_enforcement
 
 from engmem.scoring import search
 from engmem.spine import load_store
@@ -507,3 +507,136 @@ def test_summarize_treats_a_missing_channel_field_as_unknown(tmp_path):
     assert result.total == 1
     by_name = {c.channel: c for c in result.by_channel}
     assert by_name["unknown"].total == 1
+
+
+# ---------------------------------------------------------------------------
+# `read_session_rows` -- a second reader over the same file, for the field `_Row`/`summarize`
+# never carry: `session_id`. gate1_audit.py's completeness join, not `engmem telemetry`'s output
+# (which stays exactly what `summarize()` already produced -- see contracts/gate1.md).
+# ---------------------------------------------------------------------------
+
+
+def test_read_session_rows_missing_file_reads_as_zero_rows(tmp_path):
+    from engmem.telemetry import read_session_rows
+
+    assert read_session_rows(tmp_path / "telemetry.jsonl") == []
+
+
+def test_read_session_rows_reads_a_row_with_a_session_id(tmp_path):
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    docs = fixture_docs()
+    log_search(
+        jsonl_path, query="1000001", n_docs=len(docs), outcome=search(docs, "1000001"),
+        session_id="20260823-cache-ttl",
+    )
+
+    rows = read_session_rows(jsonl_path)
+
+    assert len(rows) == 1
+    assert rows[0].session_id == "20260823-cache-ttl"
+    assert rows[0].ts is not None
+
+
+@pytest.mark.parametrize(
+    "session_id",
+    [
+        pytest.param(None, id="explicit-null"),
+        pytest.param("", id="blank"),
+        pytest.param("   ", id="whitespace-only"),
+    ],
+)
+def test_read_session_rows_skips_a_row_with_no_usable_session_id(tmp_path, session_id):
+    """Blank/whitespace-only mirrors `log_search`'s own write-side rule: absent, not a value."""
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    docs = fixture_docs()
+    log_search(
+        jsonl_path, query="1000001", n_docs=len(docs), outcome=search(docs, "1000001"),
+        session_id=session_id,
+    )
+
+    assert read_session_rows(jsonl_path) == []
+
+
+def test_read_session_rows_skips_a_non_string_session_id(tmp_path):
+    """A wrong JSON type must not crash the reader -- one row's defect, not the file's."""
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"session_id": 12345, "ts": "2026-08-15T12:00:00+00:00"}) + "\n")
+
+    assert read_session_rows(jsonl_path) == []
+
+
+@pytest.mark.parametrize("malformed_line", MALFORMED_ROW_CASES + [
+    pytest.param('not valid json at all', id="not-json"),
+])
+def test_read_session_rows_skips_malformed_lines_without_raising(tmp_path, malformed_line):
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    docs = fixture_docs()
+    log_search(
+        jsonl_path, query="1000001", n_docs=len(docs), outcome=search(docs, "1000001"),
+        session_id="good-session",
+    )
+    with open(jsonl_path, "a", encoding="utf-8") as f:
+        f.write(malformed_line + "\n")
+
+    rows = read_session_rows(jsonl_path)
+
+    assert len(rows) == 1, "the one good row is still read"
+    assert rows[0].session_id == "good-session"
+
+
+def test_read_session_rows_ts_is_none_when_missing_or_unparseable(tmp_path):
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"session_id": "a"}) + "\n")
+        f.write(json.dumps({"session_id": "b", "ts": "not-a-timestamp"}) + "\n")
+
+    rows = read_session_rows(jsonl_path)
+
+    assert {r.session_id: r.ts for r in rows} == {"a": None, "b": None}
+
+
+def test_read_session_rows_normalizes_a_naive_ts_to_utc(tmp_path):
+    """Every row this project writes calls `datetime.now(timezone.utc).isoformat()`; a naive
+    value predates that convention and is read as UTC rather than left incomparable against an
+    aware `--since` bound."""
+    from datetime import timezone
+
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"session_id": "a", "ts": "2026-08-15T12:00:00"}) + "\n")
+
+    row = read_session_rows(jsonl_path)[0]
+
+    assert row.ts is not None
+    assert row.ts.tzinfo is not None
+    assert row.ts.utcoffset() == timezone.utc.utcoffset(None)
+
+
+@requires_permission_enforcement
+def test_read_session_rows_raises_on_a_file_that_cannot_be_read(tmp_path):
+    """Matches `summarize()`'s own distinction: missing is zero rows, unreadable is not."""
+    import os
+
+    from engmem.telemetry import read_session_rows
+
+    jsonl_path = tmp_path / "telemetry.jsonl"
+    jsonl_path.write_text('{"session_id": "a"}\n', encoding="utf-8")
+    os.chmod(jsonl_path, 0o000)
+    try:
+        with pytest.raises(OSError):
+            read_session_rows(jsonl_path)
+    finally:
+        os.chmod(jsonl_path, 0o644)

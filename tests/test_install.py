@@ -621,6 +621,22 @@ def test_claude_desktop_install_writes_mcp_server_entry(env, tmp_path):
     assert entry["args"] == ["-m", "engmem.cli", "mcp", "--store", str(store)]
 
 
+def test_claude_desktop_config_records_a_relative_store_as_an_absolute_path(env):
+    """The entry outlives this process: Claude Desktop launches the server from a working
+    directory of its own, where `--store notes` names a different directory, or none."""
+    home, project = env
+
+    exit_code = _run_install("--agent", "claude-desktop", "--store", "notes")
+
+    assert exit_code == 0
+    config = json.loads(claude_desktop_config_path(home).read_text(encoding="utf-8"))
+    args = config["mcpServers"]["engmem"]["args"]
+    recorded = Path(args[args.index("--store") + 1])
+
+    assert recorded.is_absolute(), f"a relative store was recorded verbatim: {recorded}"
+    assert recorded == project / "notes"
+
+
 def test_claude_desktop_install_writes_no_templates_and_no_trigger_rule(env, tmp_path):
     """Claude Desktop has no commands directory and no instructions file, so install writes only
     the config entry."""

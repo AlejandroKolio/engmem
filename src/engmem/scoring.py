@@ -103,23 +103,27 @@ class _QueryToken:
 
 
 def _build_query_tokens(query: str) -> list[_QueryToken]:
-    tokens: list[_QueryToken] = []
+    """Distinct query tokens in first-seen order, each carrying its own restricted-ness."""
+    # see contracts/scoring.md, "One rule per query token"
+    tokens: dict[str, _QueryToken] = {}
+
+    def add(text: str) -> None:
+        if text and text not in tokens:
+            tokens[text] = _QueryToken(text, _is_restricted(text))
+
     for raw in tokenize_raw(query):
         orig = normalize_token(raw)
-        restricted = _is_restricted(orig)
-        if restricted:
-            tokens.append(_QueryToken(orig, True))
+        add(orig)
+        if _is_restricted(orig):
             continue
 
-        tokens.append(_QueryToken(orig, False))
         expansion = _camel_expansion(raw)
         if expansion:
             parts_norm, acronym = expansion
             for p in parts_norm:
-                tokens.append(_QueryToken(p, False))
-            if acronym:
-                tokens.append(_QueryToken(acronym, False))
-    return tokens
+                add(p)
+            add(acronym)
+    return list(tokens.values())
 
 
 @dataclass
@@ -270,6 +274,17 @@ def _section_to_payload(section: Section, literal: Counter[str], derived: Counte
     }
 
 
+def _token_counts(table: dict, name: str) -> Counter[str]:
+    """A frequency table from a payload, rejected unless every value really is a token count."""
+    # `dict` in _PAYLOAD_FIELD_TYPES is only half the check — see contracts/scoring.md
+    for count in table.values():
+        if type(count) is not int or count < 0:
+            # TypeError even for the range violation: `_entries_from_cache` catches only
+            # (KeyError, TypeError), and anything else escapes and crashes the search
+            raise TypeError(f"{name} holds {count!r}, not a token count")
+    return Counter(table)
+
+
 def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
     if data["canonical"] is not None and not isinstance(data["canonical"], str):
         raise TypeError("canonical is neither a string nor null")
@@ -290,8 +305,8 @@ def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
         value = data[name]
         if isinstance(value, bool) or not isinstance(value, expected):
             raise TypeError(f"{name} is {type(value).__name__}, not {expected[0].__name__}")
-    literal_tf = Counter(data["literal_tf"])
-    derived_tf = Counter(data["derived_tf"])
+    literal_tf = _token_counts(data["literal_tf"], "literal_tf")
+    derived_tf = _token_counts(data["derived_tf"], "derived_tf")
     return _SectionEntry(
         doc_id=doc_id,
         section=section,
@@ -366,7 +381,7 @@ def _document_frequencies(entries: list[_SectionEntry]) -> tuple[Counter[str], C
 
 
 def _bm25_entry_score(
-    query_texts: list[str],
+    query_tokens: list[_QueryToken],
     entry: _SectionEntry,
     df_literal: Counter[str],
     df_derived: Counter[str],
@@ -375,23 +390,22 @@ def _bm25_entry_score(
 ) -> tuple[float, list[str]]:
     score = 0.0
     matched: list[str] = []
-    for text in query_texts:
-        restricted = _is_restricted(text)
+    for qt in query_tokens:
         # restricted tokens may only match literal text, never a CamelCase
         # fragment, or e.g. "MQ" would match any word starting with those letters
-        tf_map = entry.literal_tf if restricted else entry.derived_tf
-        tf = tf_map.get(text, 0)
+        tf_map = entry.literal_tf if qt.restricted else entry.derived_tf
+        tf = tf_map.get(qt.text, 0)
         if tf == 0:
             continue
-        df_map = df_literal if restricted else df_derived
+        df_map = df_literal if qt.restricted else df_derived
         # df >= 1 whenever tf > 0: this entry contributed the key to the counter
-        df = df_map[text]
+        df = df_map[qt.text]
         if df / n > DF_CEILING_RATIO:
             continue
         idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
         denom = tf + BM25_K1 * (1 - BM25_B + BM25_B * entry.length / avgdl)
         score += idf * tf * (BM25_K1 + 1) / denom
-        matched.append(text)
+        matched.append(qt.text)
     return score, matched
 
 
@@ -410,16 +424,9 @@ def _body_scores_from_entries(
         return {}
     df_literal, df_derived = _document_frequencies(entries)
 
-    query_texts: list[str] = []
-    seen: set[str] = set()
-    for qt in query_tokens:
-        if qt.text not in seen:
-            seen.add(qt.text)
-            query_texts.append(qt.text)
-
     by_doc: dict[str, list[SectionHit]] = {}
     for entry in entries:
-        score, matched = _bm25_entry_score(query_texts, entry, df_literal, df_derived, n, avgdl)
+        score, matched = _bm25_entry_score(query_tokens, entry, df_literal, df_derived, n, avgdl)
         if score <= 0:
             continue
         by_doc.setdefault(entry.doc_id, []).append(

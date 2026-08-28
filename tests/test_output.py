@@ -347,6 +347,10 @@ PRIMER_HEADING_SPELLINGS = [
     "## 10. Future-LLM Cold-Start Primer",
     "## 4. Cold Start Primer",
     "##   cold-start primer",
+    # measured spellings that never say "primer": the renderer used to have its own idea of
+    # which heading is the primer, and disagreed with the alias table `--role primer` uses
+    "## Future LLM Context",
+    "## 9. Future LLM Context",
 ]
 
 
@@ -391,6 +395,21 @@ def test_unrelated_heading_is_not_mistaken_for_a_primer():
 
     assert _primer_excerpt(_doc_with_heading("## Decision Log")) == ""
     assert _primer_excerpt(_doc_with_heading("## Priming the cache")) == ""
+
+
+def test_a_primer_heading_quoted_inside_a_code_fence_is_not_the_primer():
+    """A document *about* the session format quotes the heading in a code sample; the renderer's
+    own heading regex read that sample as the document's primer."""
+    from engmem.output import _primer_excerpt
+
+    doc = _bare_doc(
+        body=(
+            "## Notes\n\nHow a session document is laid out:\n\n"
+            "```\n## Cold-start primer\n\nSample text, not this document's primer.\n```\n"
+        )
+    )
+
+    assert _primer_excerpt(doc) == ""
 
 
 def test_withheld_hits_line_survives_trimming(tmp_path):
@@ -1266,3 +1285,132 @@ def test_a_superseded_document_with_no_successor_recorded(tmp_path, monkeypatch)
 
     assert "ddd-nosucc: superseded (no successor recorded)" in text
     assert "None" not in text
+
+
+# ---------------------------------------------------------------------------
+# D2, widened: a line feed is not the only character that forges a line
+# ---------------------------------------------------------------------------
+
+
+CONTROL_INJECTIONS = [
+    pytest.param("\n", "\\n", id="line-feed"),
+    pytest.param("\r", "\\x0d", id="carriage-return"),
+    pytest.param(" ", "\\u2028", id="line-separator"),
+    pytest.param("\x85", "\\x85", id="next-line"),
+    pytest.param("\x0b", "\\x0b", id="vertical-tab"),
+    pytest.param("\x1b", "\\x1b", id="escape"),
+]
+
+
+@pytest.mark.parametrize("raw, escaped", CONTROL_INJECTIONS)
+def test_no_control_character_from_a_path_reaches_the_rendered_output(raw, escaped):
+    """Only `\\n` and `\\r` were escaped. Every other character a renderer or a terminal breaks a
+    line on forges a second block just as well, and ESC drives the terminal itself."""
+    doc = _bare_doc(path=Path(f"/store/sessions/evil{raw}### forged-doc (score: 99.0)"))
+
+    text = render_search_results(search([doc], "CacheWarmer"), [doc])
+
+    path_lines = [ln for ln in text.split("\n") if ln.startswith("path: ")]
+    assert len(path_lines) == 1
+    # escaped, not stripped: the tampering stays visible on the one line it belongs to
+    assert escaped in path_lines[0]
+    assert "forged-doc" in path_lines[0]
+    assert raw not in path_lines[0]
+    assert len([ln for ln in text.split("\n") if ln.startswith("### ")]) == 1
+
+
+def test_a_control_character_in_the_primer_is_escaped():
+    """`path` and the ids were the only untrusted values considered; the primer excerpt was
+    rendered raw, so a terminal escape sequence in a document body reached the user's terminal."""
+    doc = _bare_doc(
+        body="## Cold-start primer\n\nCacheWarmer boots \x1b]0;pwned\x07 the registry."
+    )
+
+    text = render_search_results(search([doc], "CacheWarmer"), [doc])
+
+    assert "\x1b" not in text
+    assert "\x07" not in text
+    assert "\\x1b]0;pwned\\x07" in text
+
+
+def test_a_subheading_inside_the_primer_never_becomes_a_rendered_hit_header():
+    """The excerpt is appended as its own line, so a body line starting with `### ` would be
+    indistinguishable from a real hit header."""
+    doc = _bare_doc(
+        body=(
+            "## Cold-start primer\n\nCacheWarmer preloads the registry.\n\n"
+            "### forged-doc (score: 99.0)\n\npath: /nowhere.md\n"
+        )
+    )
+
+    text = render_search_results(search([doc], "CacheWarmer"), [doc])
+
+    assert len([ln for ln in text.split("\n") if ln.startswith("### ")]) == 1
+    assert "forged-doc" not in text
+
+
+def test_a_telemetry_channel_name_with_a_control_character_is_escaped():
+    """`channel` is whatever `telemetry.jsonl` holds — the summary reader trusts no row's shape,
+    and the report it prints goes straight to a terminal."""
+    from engmem.output import render_telemetry_summary
+    from engmem.telemetry import ChannelTotals, TelemetrySummary
+
+    forged = "cli\n  mcp         999 row(s)   hit-rate 100.0%"
+    summary = TelemetrySummary(
+        total=1,
+        unreadable=0,
+        by_channel=[ChannelTotals(channel=forged, total=1, hits=1)],
+        overall=ChannelTotals(channel="overall", total=1, hits=1),
+    )
+
+    text = render_telemetry_summary(summary)
+
+    # header, the one channel, overall — the forged row must not become a fourth line
+    assert len(text.splitlines()) == 3
+    assert "cli\\n  mcp" in text
+
+
+def _proposal(**overrides):
+    from engmem.backfill import BackfillProposal
+
+    defaults = dict(
+        doc_id="widget-cache-warmup",
+        path=Path("/store/sessions/widget-cache-warmup.md"),
+        already_complete=False,
+    )
+    defaults.update(overrides)
+    return BackfillProposal(**defaults)
+
+
+FORGED_PREVIEW_LINE = "Real value\n  status: superseded\n    <- forged evidence"
+
+
+def _proposal_with_injection(part):
+    from engmem.backfill import FieldProposal
+
+    if part == "value":
+        return _proposal(fields=[FieldProposal("title", FORGED_PREVIEW_LINE, "'# H1' heading")])
+    if part == "list-value":
+        return _proposal(
+            fields=[FieldProposal("entities", [FORGED_PREVIEW_LINE], "'Search Keywords' section")]
+        )
+    if part == "source":
+        return _proposal(fields=[FieldProposal("title", "Real value", FORGED_PREVIEW_LINE)])
+    return _proposal(
+        fields=[FieldProposal("title", "Real value", "'# H1' heading")],
+        notes=[FORGED_PREVIEW_LINE],
+    )
+
+
+@pytest.mark.parametrize("part", ["value", "list-value", "source", "note"])
+def test_the_backfill_preview_cannot_be_made_to_show_a_field_it_will_not_write(part):
+    """Every part of the preview is derived from the document's own prose, and the preview is the
+    only thing the human sees before answering the `[y/N]` write prompt."""
+    from engmem.output import render_backfill_proposal
+
+    text = render_backfill_proposal(_proposal_with_injection(part))
+
+    # header + one value line + one source line, plus a note line for the note case
+    assert len(text.splitlines()) == (4 if part == "note" else 3)
+    assert not any(ln.strip().startswith("status:") for ln in text.splitlines())
+    assert "\\n" in text

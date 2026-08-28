@@ -5,76 +5,41 @@ verified."""
 from __future__ import annotations
 
 import argparse
-import re
-import sys
 from pathlib import Path
 
-from engmem.sections import split_sections
-from engmem.spine import load_store
-
-QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
-NONE_LINE = "prior docs used: none."
+from engmem import gate1
 
 
-def _normalized(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _rows(section_body: str) -> list[str]:
-    return [
-        line for line in section_body.splitlines()
-        if line.strip().startswith("|") and not re.fullmatch(r"[|\s:-]+", line.strip())
-    ]
-
-
-def _cells(row: str) -> list[str]:
-    return [c.strip() for c in row.strip().strip("|").split("|")]
-
-
-def _line_number(path: Path, row: str) -> int:
-    for n, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
-        if line.strip() == row.strip():
-            return n
-    return 0
-
-
-def verify(store: Path) -> tuple[list[str], list[str]]:
-    result = load_store(store / "sessions")
-    bodies = {d.id: _normalized(d.body) for d in result.docs}
-    docs = {d.id: d for d in result.docs}
+def verify(store: Path) -> tuple[list[str], list[str], list[str]]:
+    """`(problems, stale, conflicts)` — only `problems` decides the exit code."""
+    verdicts = gate1.evaluate(store)
     problems: list[str] = []
     stale: list[str] = []
 
-    for doc in result.docs:
-        reuse = next((s for s in split_sections(doc.body) if s.canonical == "reuse"), None)
-        if reuse is None or NONE_LINE in reuse.body.casefold():
-            continue
+    for row in verdicts.rows:
+        if row.integrity == "no_quote":
+            problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
+        elif row.integrity == "cited_missing":
+            problems.append(f"{row.source}: cited document {row.cited_id} is not in the store")
+        elif row.integrity == "quote_not_found":
+            for quote in row.unfound_quotes:
+                problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
 
-        for row in _rows(reuse.body):
-            cells = _cells(row)
-            if len(cells) < 2 or cells[0].casefold() in ("prior-doc", ""):
-                continue
-            cited = cells[0].strip("[] `")
-            where = f"{Path(doc.path).name}:{_line_number(Path(doc.path), row)}"
+        # a genuine quote from a document that has since been replaced: not a fabrication, but
+        # reuse of stale knowledge — and after the session ends the two read the same
+        if row.staleness == "cited_superseded":
+            successor = row.cited.superseded_by or "(no successor recorded)"
+            stale.append(f"{row.source}: cites {row.cited_id}, superseded by {successor}")
 
-            quotes = [next(g for g in m.groups() if g) for m in QUOTE_RE.finditer(cells[1])]
-            if not quotes:
-                problems.append(f"{where}: no quote in the `taken` cell (cites {cited})")
-                continue
-            if cited not in bodies:
-                problems.append(f"{where}: cited document {cited} is not in the store")
-                continue
-            for quote in quotes:
-                if _normalized(quote) not in bodies[cited]:
-                    problems.append(f'{where}: quote not found in {cited} — "{quote}"')
+    conflicts = [
+        # neither skipped nor silently resolved: every row above was still checked on its own
+        # merits, and this line says the section's own "no reuse" claim contradicts that
+        f"{conflict.doc_id}: Reuse Log has both 'Prior docs used: none.' and "
+        f"{conflict.row_count} row(s) — every row above was still checked individually"
+        for conflict in verdicts.conflicts
+    ]
 
-            # a genuine quote from a document that has since been replaced: not a fabrication, but
-            # reuse of stale knowledge — and after the session ends the two read the same
-            if docs[cited].status == "superseded":
-                successor = docs[cited].superseded_by or "(no successor recorded)"
-                stale.append(f"{where}: cites {cited}, superseded by {successor}")
-
-    return problems, stale
+    return problems, stale, conflicts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,17 +47,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--store", required=True, help="store directory holding sessions/")
     args = parser.parse_args(argv)
 
-    problems, stale = verify(Path(args.store).expanduser())
+    problems, stale, conflicts = verify(Path(args.store).expanduser())
     for problem in problems:
         print(problem)
     for note in stale:
         print(note)
+    for conflict in conflicts:
+        print(conflict)
     print(
         f"verify_citations: {len(problems)} unverifiable citation(s), "
-        f"{len(stale)} citing a superseded document"
+        f"{len(stale)} citing a superseded document, "
+        f"{len(conflicts)} with a conflicting Reuse Log"
     )
-    # only an unverifiable quote fails the run: a superseded citation verified fine and is
-    # a finding for the review, not a defect in the document
+    # only an unverifiable quote fails the run: a superseded citation or a conflicting
+    # section verified fine and is a finding for the review, not a defect that fails it
     return 1 if problems else 0
 
 

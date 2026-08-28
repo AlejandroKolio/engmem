@@ -133,9 +133,10 @@ class _Row:
     context_tokens_estimate: int
 
 
-def _read_row(line: str) -> _Row | None:
-    """The row this line contributes, or `None` when its shape is not one this reader can total —
-    every rejection here is counted as `unreadable`, never raised at the caller."""
+def _load_json_object(line: str) -> dict | None:
+    """One line, decoded and shape-checked — shared by `_read_row` and `read_session_rows`,
+    the two readers over the same file (contracts/gate1.md, "a second reader, not a second
+    file"). `None` covers both a decode failure and valid JSON that is not an object."""
     try:
         record = json.loads(line)
     except (ValueError, RecursionError):
@@ -145,6 +146,15 @@ def _read_row(line: str) -> _Row | None:
         return None
     if not isinstance(record, dict):
         # valid JSON, but `123` / `[1, 2]` / `null` is not a telemetry row
+        return None
+    return record
+
+
+def _read_row(line: str) -> _Row | None:
+    """The row this line contributes, or `None` when its shape is not one this reader can total —
+    every rejection here is counted as `unreadable`, never raised at the caller."""
+    record = _load_json_object(line)
+    if record is None:
         return None
     # "unknown", not the pre-channel default "cli" — a guess would misattribute it
     channel = record.get("channel") or "unknown"
@@ -199,3 +209,66 @@ def summarize(jsonl_path: Path) -> TelemetrySummary:
         by_channel=sorted(by_channel.values(), key=lambda c: c.channel),
         overall=overall,
     )
+
+
+# ---------------------------------------------------------------------------
+# `read_session_rows` — a second reader over the same file `summarize()` reads. `_Row` was
+# never widened to carry `session_id` (it totals channel/result/context only), so `summarize()`
+# structurally cannot answer a per-session question. Rather than grow `_Row` and risk changing
+# what `summarize()` totals or how `engmem telemetry` reads, this is an independent, additive
+# reader for the one field it never touched — see contracts/gate1.md, "A second reader, not
+# a wider `_Row`," for why a second reader and not a wider `_Row`.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SessionRow:
+    """One telemetry row reduced to the fields `gate1_audit.py` joins on."""
+
+    session_id: str
+    # `None` when the row has no `ts`, or one this reader cannot parse — excluded from any
+    # `--since` window rather than guessed into it (see `gate1_audit._parse_since`)
+    ts: datetime | None
+
+
+def _parse_ts(raw: object) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    # every row this project writes calls `datetime.now(timezone.utc).isoformat()`, always
+    # offset-aware; a naive value here predates that convention or was hand-written for a test —
+    # read as UTC rather than left incomparable against an aware `--since` bound
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def read_session_rows(jsonl_path: Path) -> list[SessionRow]:
+    """Every row naming a non-blank `session_id`, for the Gate 1 audit's completeness join. A
+    missing file reads as zero rows and a row this reader cannot use is silently skipped —
+    matching `summarize()`'s tolerance for a bad row; a file that cannot be read or decoded
+    raises, also matching `summarize()` — both readers make the same distinction on the same
+    file. Blank/whitespace-only mirrors `log_search`'s own write-side rule: absent, not a value."""
+    if not jsonl_path.is_file():
+        return []
+
+    rows: list[SessionRow] = []
+    with open(jsonl_path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+            record = _load_json_object(line)
+            if record is None:
+                continue
+            session_id = record.get("session_id")
+            if not isinstance(session_id, str):
+                continue
+            session_id = session_id.strip()
+            if not session_id:
+                continue
+            rows.append(SessionRow(session_id=session_id, ts=_parse_ts(record.get("ts"))))
+    return rows

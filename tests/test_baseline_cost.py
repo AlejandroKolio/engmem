@@ -1,5 +1,5 @@
-"""Both sides of the baseline must be counted with `telemetry.estimate_tokens`, or the comparison
-uses two rulers."""
+"""The tool measures one quantity only -- engmem's own search-output tokens -- and must never
+read as a comparison against anything it did not actually run."""
 
 from __future__ import annotations
 
@@ -43,11 +43,10 @@ def test_a_query_whose_expected_document_is_returned_counts_as_found(tmp_path):
     row = next(l for l in result.stdout.splitlines() if l.startswith("| WidgetCache"))
     cells = [c.strip() for c in row.strip().strip("|").split("|")]
     assert cells[3] == "found"
-    assert cells[4] == "", "side B is the human's to fill from a fresh agent session"
+    assert len(cells) == 4, "no trailing empty column left to be mistaken for pending data"
 
 
 def test_a_query_whose_expected_document_is_missing_counts_as_not_found(tmp_path):
-    """A query the engine does not answer is exactly what side B has to be compared against."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
     _doc(sessions, "sweeper-job", "SweeperJob", "Sweeps nightly.")
@@ -60,8 +59,8 @@ def test_a_query_whose_expected_document_is_missing_counts_as_not_found(tmp_path
 
 
 def test_token_cost_uses_the_same_estimator_as_telemetry(tmp_path):
-    """Counting side A differently from `engmem telemetry` would compare the engine against itself
-    measured two ways."""
+    """Counting the table differently from `engmem telemetry` would compare the engine against
+    itself measured two ways."""
     from engmem.telemetry import estimate_tokens
 
     sessions = tmp_path / "sessions"
@@ -92,7 +91,7 @@ def test_a_blank_or_commented_line_in_the_queries_file_is_skipped(tmp_path):
     assert len(rows) == 2, rows  # header + one query
 
 
-def test_the_footer_totals_side_a_so_the_comparison_has_one_number(tmp_path):
+def test_the_footer_totals_the_estimated_tokens_with_one_labelled_number(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
     queries = _queries(tmp_path, "WidgetCache\twidget-cache-v1", "SweeperJob\twidget-cache-v1")
@@ -107,8 +106,25 @@ def test_the_footer_totals_side_a_so_the_comparison_has_one_number(tmp_path):
         if row.startswith("| ") and "---" not in row and not row.startswith("| query")
     ]
     assert len(per_query) == 2, result.stdout
-    assert f"2 queries   side A: {sum(per_query)} tokens total, found 1" in result.stdout
-    assert sum(per_query) > 0, "a zero total would make the comparison vacuous"
+    assert (
+        f"2 queries -- estimated tokens of engmem search output, not a baseline, "
+        f"not compared against any alternative: {sum(per_query)} total, found 1"
+    ) in result.stdout
+    assert sum(per_query) > 0, "a zero total would make the number vacuous"
+
+
+def test_the_not_a_baseline_caveat_reaches_the_reader_before_the_total(tmp_path):
+    """A caveat printed after the number cannot stop a reader from taking the number at face
+    value; it has to arrive first."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
+    queries = _queries(tmp_path, "WidgetCache\twidget-cache-v1")
+
+    result = _run(tmp_path, queries)
+
+    caveat_at = result.stdout.index("NOT a baseline")
+    total_at = result.stdout.index("total, found")
+    assert caveat_at < total_at, result.stdout
 
 
 def test_store_problems_are_reported_once_and_do_not_break_the_table(tmp_path):

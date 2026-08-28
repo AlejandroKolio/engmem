@@ -175,6 +175,80 @@ def test_the_footer_counts_the_two_kinds_separately(tmp_path):
 
 
 
+# ---------------------------------------------------------------------------
+# "Prior docs used: none." conflicting with real rows -- reported, never silently resolved
+# ---------------------------------------------------------------------------
+
+
+def test_a_conflicting_reuse_log_is_named_and_its_rows_are_still_checked(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
+    body = (
+        "## 16. Reuse Log\n\nPrior docs used: none.\n\n"
+        "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
+        '| widget-cache-v1 | `WidgetCache.flush()` -- "Eviction runs on boot." | reused the shape | reuse |\n'
+    )
+    _doc(sessions, "widget-cache-v2", body)
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, "the row inside the conflict verified fine"
+    assert "widget-cache-v2: Reuse Log has both" in result.stdout
+    assert "1 with a conflicting Reuse Log" in result.stdout
+
+
+def test_a_bad_quote_inside_a_conflicting_reuse_log_still_fails_the_run(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
+    body = (
+        "## 16. Reuse Log\n\nPrior docs used: none.\n\n"
+        "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
+        '| widget-cache-v1 | `WidgetCache.flush()` -- "Something never written anywhere." | reused the shape | reuse |\n'
+    )
+    _doc(sessions, "widget-cache-v2", body)
+
+    result = _run(tmp_path)
+
+    assert result.returncode != 0, "a conflict must not mask a real unverifiable quote"
+    assert "quote not found" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# a draft or superseded citing document's own citations are still checked -- the exclusion in
+# gate1_report.py's counted population does not extend to this tool's mechanical check
+# ---------------------------------------------------------------------------
+
+
+def test_a_drafts_own_citations_are_still_checked(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
+    _doc(sessions, "widget-cache-v2", _cited("Something never written anywhere."), status="draft")
+
+    result = _run(tmp_path)
+
+    assert result.returncode != 0, "a fabricated quote must be caught before the draft goes active"
+    assert "quote not found" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# classification and dogfooding are gate1_report.py's concerns -- this tool's exit condition
+# does not grow to include them
+# ---------------------------------------------------------------------------
+
+
+def test_a_harmful_classification_does_not_fail_the_run(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot.")
+    body = (
+        "## 16. Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
+        '| widget-cache-v1 | `x` -- "Eviction runs on boot." | led astray | harmful |\n'
+    )
+    _doc(sessions, "widget-cache-v2", body)
+
+    assert _run(tmp_path).returncode == 0, "a real, verified quote -- classification is not this tool's job"
+
+
 def test_the_report_is_printable_on_a_windows_console(tmp_path):
     """Windows writes stdout in the locale code page, so a character outside it fails the run with
     no report at all."""

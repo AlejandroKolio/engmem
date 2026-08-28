@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Side A of the search-versus-self-grep baseline (`ENGMEM-SPEC.md` §11); side B needs a fresh
-agent session."""
+"""Estimated token cost of engmem's own search output, per query (see ENGMEM-SPEC.md
+search-token calibration). Not a baseline: no alternative (self-grep, no-memory) is run here."""
 
 from __future__ import annotations
 
@@ -41,8 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     store = Path(args.store).expanduser()
     pairs = _queries(Path(args.queries).expanduser())
 
-    print("| query | expected | tokens A (engmem) | A found? | tokens B (self-grep) | B found? |")
-    print("|---|---|---|---|---|---|")
+    print("NOTE: this measures the estimated token cost of engmem's own search output for")
+    print("each query below -- ceil(bytes / 3.5), the same estimator `engmem telemetry` uses")
+    print("(see ENGMEM-SPEC.md search-token calibration). It is NOT a baseline and NOT a")
+    print("savings figure: no self-grep or no-memory alternative is run or compared here.")
+    print("A real comparison needs a second, deliberately separate measurement -- a fresh")
+    print("agent session per query, file-reading only, counted the same way -- which this")
+    print("tool does not perform.")
+    print()
+
+    print("| query | expected | estimated tokens (engmem search output) | found? |")
+    print("|---|---|---|---|")
 
     total, found = 0, 0
     problems: list[str] = []
@@ -55,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         hit = "found" if expected and expected in output else "not found"
         total += tokens
         found += hit == "found"
-        print(f"| {query} | {expected} | {tokens} | {hit} | | |")
+        print(f"| {query} | {expected} | {tokens} | {hit} |")
 
     print()
     if problems:
@@ -63,9 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         for line in problems:
             print(f"  {line}")
         print()
-    print(f"{len(pairs)} queries   side A: {total} tokens total, found {found}")
-    print("Side B is yours: a fresh agent session per query, told to find the same document")
-    print("with file reading only. Count its tool output the same way — bytes / 3.5.")
+    print(
+        f"{len(pairs)} queries -- estimated tokens of engmem search output, not a baseline, "
+        f"not compared against any alternative: {total} total, found {found}"
+    )
     return 0
 
 

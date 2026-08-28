@@ -13,7 +13,6 @@ import pytest
 from conftest import (
     FIXTURES,
     on_a_shared_runner,
-    redirect_home,
     requires_permission_enforcement,
 )
 
@@ -327,37 +326,8 @@ def test_failed_documents_are_counted_on_stdout(store, capsys):
     assert "unparseable.md" in err, "the name still belongs on stderr"
 
 
-def test_tilde_in_store_path_is_expanded(tmp_path, monkeypatch):
-    """A quoted `--store "~/notes"` reaches argv as a literal tilde and silently creates a
-    directory named `~`."""
-    from engmem.runtime import resolve_store
-
-    redirect_home(monkeypatch, tmp_path)
-    resolved = resolve_store("~/notes")
-
-    assert resolved.is_absolute()
-    assert "~" not in str(resolved)
-    assert resolved == tmp_path / "notes"
-
-
-def test_tilde_in_engmem_home_is_expanded(tmp_path, monkeypatch):
-    from engmem.runtime import resolve_store
-
-    redirect_home(monkeypatch, tmp_path)
-    monkeypatch.setenv("ENGMEM_HOME", "~/notes")
-
-    assert resolve_store(None) == tmp_path / "notes"
-
-
-def test_store_falls_back_to_the_documented_default_when_nothing_is_given(tmp_path, monkeypatch):
-    """Neither --store nor ENGMEM_HOME must land the store somewhere other than the path the
-    docs tell the reader to look in."""
-    from engmem.runtime import resolve_store
-
-    redirect_home(monkeypatch, tmp_path)
-    monkeypatch.delenv("ENGMEM_HOME", raising=False)
-
-    assert resolve_store(None) == tmp_path / "Developer" / "engmem"
+# store resolution itself is `engmem.runtime`'s own contract and is guarded in
+# tests/test_runtime.py; what stays here is the CLI wiring that consumes it.
 
 
 def test_telemetry_write_failure_still_prints_full_results_and_exits_zero(store, capsys):

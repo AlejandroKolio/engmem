@@ -318,16 +318,27 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
       <li><strong>Разбор (Gate 1).</strong> Строки со всего хранилища сводятся в одну таблицу и читаются по правилу, записанному заранее.</li>
     </ol>
     <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на 4–5 межрепозиторных историй. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний автор, скорее всего, вспомнил бы и сам — кредит за него слою поиска не полагается.</p>
-    <p>Механическую половину проверки делают два скрипта, а не человек: <code>tools/verify_citations.py</code> подтверждает, что цитата дословно встречается в цитируемом документе, <code>tools/gate1_report.py</code> считает ближний/дальний и сводит строки в таблицу. Пустая колонка в ней — ровно та половина, которую машина решить не может:</p>
-<pre><code>| story | cited | quote | distance | changed a decision? |
-|---|---|---|---|---|
-| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | distant | |
+    <p>Механическую половину для каждой строки решает один общий модуль, <code>src/engmem/gate1.py</code>: целостность цитаты, классификация, дистанция и устарелость. <code>tools/verify_citations.py</code> и <code>tools/gate1_report.py</code> читают один и тот же вердикт, а не проверяют независимо — расходятся они только кодом выхода: <code>verify_citations.py</code> падает на непроверяемой цитате, <code>gate1_report.py</code> не падает никогда и сводит все четыре оси в таблицу для человека. Пустая колонка в ней — ровно та половина, которую машина решить не может:</p>
+<pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
+|---|---|---|---|---|---|---|---|
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
 
-reuse rows: 1   distant: 1   documents reporting no reuse: 1
-The last column is yours. ENGMEM-SPEC.md §11 holds the endpoints.</code></pre>
+rows: 1
+citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
+classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
+rows excluded from the count: 0
+excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded)
+1 valid (the last column above is theirs to fill), of which 1 distant, 0 adjacent, 0 undecidable
+of the 1 distant, 0 cite a superseded document (flagged, not excluded -- see the staleness column)
+ENGMEM-SPEC.md section 11's primary endpoint counts the distant figure above.
+documents reporting no reuse: 1
+The last column is yours where the tool left it blank.
+
+[... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
+<p>Полный прогон печатает под этим ещё один блок — контроль полноты выборки, а не второй гейт — с двумя оговорками, которые сам инструмент называет в выдаче: <code>--session</code> нарочно не проверяется, поэтому строка про «осиротевшие» записи там же считает и опечатки, и загрязнение из чужого хранилища, а не только настоящие пробелы; а <code>telemetry.jsonl</code> ведётся только дозаписью, без ротации, так что строки до Gate 1 и тестовые неотличимы от экспериментальных в пределах любого окна. Остальное — в <code>docs/design/contracts/gate1.md</code>, раздел «The audit coverage block».</p>
     <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1.</p>
-<pre><code>2000002-widget-cache.md → line 23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
-verify_citations: 1 unverifiable citation(s)</code></pre>
+<pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>Толкование результата тоже зафиксировано до данных. Если основная точка не взята, а вторичные взяты, вывод звучит так: хранилище как сжатый контекст себя оправдало, измерительная надстройка — нет, и надстройку сворачивают. Промах — это результат, а не повод смягчить критерий и попробовать ещё раз.</p>
   </div>
 
@@ -513,7 +524,7 @@ baseline_tokens: 1840</code></pre>
           <div class="io-v"><ul>
             <li>Это <strong>pre-reg</strong>: план, записанный после чтения документов, свидетельством не будет — память переписывает себя под то, что знает.</li>
             <li>Печатать его человеку не нужно: польза шага достаётся разбору через месяц, а такие шаги бросают первыми.</li>
-            <li><code>baseline_tokens</code> — единственная измеренная цена пути без памяти.</li>
+            <li><code>baseline_tokens</code> — расход под-агента на наивный план, а не измеренная цена пути без памяти.</li>
           </ul></div>
         </div>
       </div>
@@ -573,9 +584,9 @@ capture_minutes:
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
             <p>Ключевые слова агент собирает сам — из формулировки задачи и имён классов рядом в коде.</p></div>
           <div class="io-k">Что получается</div>
-          <div class="io-v"><pre><code>### 1000001-response-cache (score: 25.6)
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.8)
 path: /Users/…/sessions/1000001-response-cache.md
-matched: entities=responsecachecontroller,response,cache,controller,rcc,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
+matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
@@ -591,7 +602,7 @@ CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
 docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <ul>
-              <li>Разрыв 25.6 против 16.5 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: шестью словами, а не одним.</li>
+              <li>Разрыв 20.8 против 16.5 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: пятью словами, а не одним.</li>
               <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт.</li>
               <li>Футер — состояние памяти: 7 документов, 1 черновик из шага 02, последний написан 19 дней назад.</li>
             </ul></div>
@@ -919,8 +930,8 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
         веса: id 5 · entities 3 · title 2 · tags 1
 тело  = BM25 лучшего раздела (k1 1.2, b 0.6)
 
-спайн = (3+3+3+3+3+3) × 6/7 = 18 × 0.857 = 15.43
-тело  = 10.18                     →  score 25.6</code></pre>
+спайн = (3+3+3+3+3) × 5/7 = 15 × 0.714 = 10.71
+тело  = 10.13                     →  score 20.8</code></pre>
             <p>Множитель покрытия наказывает частичные совпадения — он и опускает спайн второго документа до 6.86: четыре токена из семи (итог 16.5 — остальное дало тело).</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><ul>
@@ -1306,16 +1317,27 @@ rm -rf ~/Developer/engmem         # ваши документы — только
       <li><strong>The review (Gate 1).</strong> Rows from the whole store are collected into one table and read against a rule written down in advance.</li>
     </ol>
     <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across 4–5 cross-repository stories. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one the author would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
-    <p>Two scripts, not a human, decide the mechanical half: <code>tools/verify_citations.py</code> confirms the quote really occurs verbatim in the document it cites, and <code>tools/gate1_report.py</code> computes adjacent/distant and gathers the rows into a table. Its empty column is precisely the half a machine cannot decide:</p>
-<pre><code>| story | cited | quote | distance | changed a decision? |
-|---|---|---|---|---|
-| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | distant | |
+    <p>One shared module, <code>src/engmem/gate1.py</code>, decides the mechanical half for every row — citation integrity, classification, distance, and staleness. <code>tools/verify_citations.py</code> and <code>tools/gate1_report.py</code> read that same verdict rather than checking independently; they differ only in what happens with it — <code>verify_citations.py</code> fails the run on an unverifiable quote, <code>gate1_report.py</code> never fails and renders all four axes into a table for the human. Its empty column is precisely the half a machine cannot decide:</p>
+<pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
+|---|---|---|---|---|---|---|---|
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
 
-reuse rows: 1   distant: 1   documents reporting no reuse: 1
-The last column is yours. ENGMEM-SPEC.md §11 holds the endpoints.</code></pre>
+rows: 1
+citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
+classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
+rows excluded from the count: 0
+excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded)
+1 valid (the last column above is theirs to fill), of which 1 distant, 0 adjacent, 0 undecidable
+of the 1 distant, 0 cite a superseded document (flagged, not excluded -- see the staleness column)
+ENGMEM-SPEC.md section 11's primary endpoint counts the distant figure above.
+documents reporting no reuse: 1
+The last column is yours where the tool left it blank.
+
+[... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
+<p>The full run prints a second block beneath this one — sample-completeness audit coverage, not another gate — with two standing caveats the tool states in its own output: <code>--session</code> is deliberately unvalidated, so the orphan-row figure there also counts typos and cross-store contamination, not only genuine gaps; and <code>telemetry.jsonl</code> is append-only with no rotation, so pre-Gate-1 and testing rows are indistinguishable from experimental ones within whatever window is in force. See <code>docs/design/contracts/gate1.md</code>, "The audit coverage block," for the rest.</p>
     <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1.</p>
-<pre><code>2000002-widget-cache.md → line 23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
-verify_citations: 1 unverifiable citation(s)</code></pre>
+<pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>The reading of the result is fixed in advance too. If the primary endpoint is missed while the secondaries hold, the verdict reads: the store as compressed context earned its keep, the measurement superstructure did not — and the superstructure gets wound down. A miss is a result, not grounds for softening the criterion and trying again.</p>
   </div>
 
@@ -1501,7 +1523,7 @@ baseline_tokens: 1840</code></pre>
           <div class="io-v"><ul>
             <li>This is <strong>pre-registration</strong>: a plan written after the documents are read is no longer evidence — memory rewrites itself to fit what it now knows.</li>
             <li>The human never types it, because this step's payoff goes to a review a month later, and steps like that are the first ones abandoned.</li>
-            <li><code>baseline_tokens</code> is the one measured cost of the no-memory path.</li>
+            <li><code>baseline_tokens</code> is the sub-agent's spend on the naive plan, not a measured cost of the no-memory path.</li>
           </ul></div>
         </div>
       </div>
@@ -1561,9 +1583,9 @@ control invalidation that way.</code></pre></div>
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
             <p>The agent assembles the keywords itself — from your phrasing and the class names it sees nearby in the code.</p></div>
           <div class="io-k">What comes back</div>
-          <div class="io-v"><pre><code>### 1000001-response-cache (score: 25.6)
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.8)
 path: /Users/…/sessions/1000001-response-cache.md
-matched: entities=responsecachecontroller,response,cache,controller,rcc,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
+matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
@@ -1579,7 +1601,7 @@ CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
 docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <ul>
-              <li>The gap between 25.6 and 16.5 separates a direct hit from a tangential one, and <code>matched</code> shows by what: six words, not one.</li>
+              <li>The gap between 20.8 and 16.5 separates a direct hit from a tangential one, and <code>matched</code> shows by what: five words, not one.</li>
               <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes.</li>
               <li>The footer is the state of the memory: 7 documents, 1 draft from step 02, the newest written 19 days ago.</li>
             </ul></div>
@@ -1907,8 +1929,8 @@ spine = Σ max(weight of the field where the token matched) × (matched / total)
         weights: id 5 · entities 3 · title 2 · tags 1
 body  = BM25 of the best section (k1 1.2, b 0.6)
 
-spine = (3+3+3+3+3+3) × 6/7 = 18 × 0.857 = 15.43
-body  = 10.18                    →  score 25.6</code></pre>
+spine = (3+3+3+3+3) × 5/7 = 15 × 0.714 = 10.71
+body  = 10.13                    →  score 20.8</code></pre>
             <p>The coverage multiplier punishes partial hits — it's what drops the second document's spine to 6.86: four tokens out of seven (16.5 in total — the body supplied the rest).</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><ul>

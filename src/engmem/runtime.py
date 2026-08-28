@@ -11,18 +11,23 @@ def default_store() -> Path:
     return Path.home() / "Developer" / "engmem"
 
 
+def _configured(value: str | None) -> str | None:
+    """A blank setting means "not set"; the value is never trimmed, so a directory whose name
+    really does end in a space still resolves to itself."""
+    return value if value and value.strip() else None
+
+
 def resolve_store(explicit: str | None) -> Path:
-    # pathlib never expands a literal `~` from argv, so do it here.
-    if explicit:
-        return Path(explicit).expanduser()
-    env = os.environ.get("ENGMEM_HOME")
-    if env:
-        return Path(env).expanduser()
-    return default_store()
+    # expanded because pathlib never expands a literal `~` out of argv or the environment,
+    # absolute because the answer outlives this process — see contracts/runtime.md
+    configured = _configured(explicit) or _configured(os.environ.get("ENGMEM_HOME"))
+    if configured is None:
+        return default_store()
+    return Path(configured).expanduser().absolute()
 
 
 def fail(message: str) -> None:
-    # Both streams: the consuming agent only reads stdout (ENGMEM-SPEC.md §4, §5),
-    # so a failure must land there too, not only on stderr.
+    # Both streams: the consuming agent reads stdout and never stderr (ENGMEM-SPEC.md §5,
+    # §10 principle VIII), so a failure named on stderr alone is a swallowed error.
     print(f"error: {message}", file=sys.stderr)
     print(f"error: {message}")

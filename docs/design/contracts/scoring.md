@@ -29,6 +29,40 @@ entirely — a self-tuning, language-agnostic stopword substitute that also
 neutralises honesty tags (`[Verified]`/`[Assumed]`/`[Open]`), which appear in
 nearly every section and would otherwise dominate every score.
 
+The ratio has a floor at `n == 1`: with a single section in the whole corpus every matched
+term has `df / n == 1 > 0.5`, so body scoring returns nothing and only the spine ranks. That
+floor is not the new-store state — one saved session document is already six sections in the
+test fixtures and nineteen under the full save template, and a store holding just that one
+document scores its body normally.
+
+## One rule per query token (`_build_query_tokens`)
+
+`_build_query_tokens` returns *distinct* tokens, each carrying the restricted-ness
+`_is_restricted` gives its own text. Both halves of that sentence were once false, and each
+cost something different.
+
+§7's short-token rule — query tokens of three characters or fewer, and purely numeric ones,
+only exact-match against the ORIGINAL (unsplit) field tokens — is about the token, not about
+where it came from. The expansion emits short tokens of its own (`rcc` from
+`ResponseCacheController`, `mq` from `MQSweeper`), and those used to be stamped unrestricted.
+`_bm25_entry_score` never read the flag: it re-derived restricted-ness from the text, so the
+*body* index applied the rule while the *spine* index did not, for the same token of the same
+query. Query `MQSweeper` against a document whose only link is `entities: [MetricsQuery]`
+matched on `entities: ['mq']` — precisely the acronym collision (MQ → MessageQueue vs
+MetricsQuery) the rule exists to refuse — while that document's body was correctly left
+alone. Acronym retrieval is not what this costs: a restricted `rcc` still matches a field
+written literally `RCC`, because that is an original token. Only acronym-to-acronym is
+dropped, and acronym-to-acronym is the collision generator. `_bm25_entry_score` now reads
+`qt.restricted` instead of re-deriving it, so the rule is applied in one place.
+
+Distinctness matters for the coverage ratio. `_spine_score` divides by
+`len(query_tokens)`, and the expansion can emit a token a neighbouring query word repeats:
+`cache ResponseCache` yielded `cache` twice. A token counted twice adds its weight twice
+*and* raises the denominator, and those do not cancel — `Cache Notes` against
+`Response Times`, each matching one query word at the title tier, scored `1.6` against
+`0.4`. The body side already deduplicated, in a `seen` set of its own; that set is gone,
+because the list it was guarding is now distinct where it is built.
+
 ## Ambiguity clustering (`_cluster_key_for_short_token`)
 
 Every matching document is collapsed into its cluster, but only one that can
@@ -77,7 +111,25 @@ that forgets to bump `cache.CACHE_FORMAT_VERSION`) as a miss, never a crash.
 the two dangerous shapes both survive duck typing: a frequency table that
 arrived as a list would have `Counter` count its *elements* and rank on a
 plausible index of all-ones, and a non-string `body` reaches
-`output._section_snippet` and dies there. It warns on the mismatch, unlike the
+`output._section_snippet` and dies there.
+
+Declaring those two tables `dict` is only half of that check, and `_token_counts` is the
+other half: a table that is a dict of the wrong *values* survives the type entry just as
+readily. A fractional count moves `avgdl` and every BM25 score by a margin no reader can
+see. A negative one moves `entry.length` the same way, and can drive the BM25 denominator —
+`tf + k1(1 - b + b·length/avgdl)`, positive for every real count — to zero, which is the
+crash this section promises not to have. Counts are tested with `type(count) is not int`
+rather than `isinstance`, for the reason `bool` is excluded from the int fields above. It
+costs one pass over each table's distinct keys, measured at about a fifth of the
+`json.loads` that produced them, against a cache read that is already the cheap path.
+
+Both rejections raise `TypeError`, including the negative count, which is a range violation
+and would ordinarily be a `ValueError`. The exception type is load-bearing rather than
+descriptive: `_entries_from_cache` catches `(KeyError, TypeError)`, so a `ValueError` would
+escape that handler and crash the search — the exact failure this check exists to close. A
+second range check added here must raise `TypeError` too, or widen that handler first.
+
+It warns on the mismatch, unlike the
 shapes `cache.load` rejects silently, because a payload that survived every
 check there and still does not fit is a bug in this repo rather than a stale
 file. See `contracts/cache.md`, "Degrading, and how loudly".

@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from engmem.scoring import SearchOutcome, SectionHit
-from engmem.sections import Section
+from engmem.sections import Section, split_sections
 from engmem.spine import Doc
 
 if TYPE_CHECKING:
     # deferred to avoid a circular import (telemetry.py imports surfaced_ids
     # from here); `from __future__ import annotations` makes this safe
-    from engmem.telemetry import TelemetrySummary
+    from engmem.telemetry import ChannelTotals, TelemetrySummary
     from engmem.backfill import BackfillProposal
 
 # 4 KB, not the old 2 KB: sized to also hold section locators, not just
@@ -29,39 +29,63 @@ TRIM_MARKER = "[output trimmed to fit 4 KB]"
 SECTION_DISPLAY_MAX = 3  # sections named per hit; mirrors TOP_N's reasoning
 SECTION_SNIPPET_MAX_CHARS = 140
 
-# any heading containing "cold[- ]start[- ]primer" as a standalone phrase;
-# "##" only (not "###") keeps subheadings out of scope
-_HEADING_RE = re.compile(
-    r"^##\s+.*?\bcold[- ]start[- ]primer\b.*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+# a primer heading spelled in words the canonical alias table does not carry, e.g. the
+# unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
+_PRIMER_PHRASE_RE = re.compile(r"\bcold[- ]start[- ]primer\b", re.IGNORECASE)
 _SENTENCE_RE = re.compile(r"^.*?[.!?](?=\s|$)")
 
+# every character a renderer or a terminal treats as more than one glyph: the C0 and C1
+# ranges, DEL, and the Unicode line/paragraph separators
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
-def _escape_newlines(value) -> str:
-    # an embedded newline in a related id or path could forge a second "### "
-    # header (D2); escape rather than strip, so tampering stays visible
-    text = str(value)
-    return text.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+
+def _escape_control_char(match: re.Match[str]) -> str:
+    char = match.group(0)
+    if char == "\n":
+        return "\\n"
+    code = ord(char)
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+
+def _escape_controls(value: object) -> str:
+    # a control character in a path, an id or a body snippet reaches the agent's context and
+    # the user's terminal verbatim: a line break forges a second "### " header (D2) and ESC
+    # drives the terminal. Escape rather than strip, so tampering stays visible
+    text = str(value).replace("\r\n", "\n")
+    return _CONTROL_RE.sub(_escape_control_char, text)
+
+
+def _primer_section(doc: Doc) -> Section | None:
+    # sections.py owns "which heading is the primer": one parser for the alias table, for
+    # fenced code samples that merely quote a heading, and for setext headings
+    for section in split_sections(doc.body):
+        if section.canonical == "primer" or _PRIMER_PHRASE_RE.search(section.heading):
+            return section
+    return None
 
 
 def _primer_excerpt(doc: Doc, max_lines: int = 2) -> str:
-    match = _HEADING_RE.search(doc.body)
-    if not match:
+    section = _primer_section(doc)
+    if section is None:
         return ""
-    rest = doc.body[match.end():]
-    lines = [ln.strip() for ln in rest.splitlines() if ln.strip()]
-    for i, ln in enumerate(lines):
-        if ln.startswith("##"):
-            lines = lines[:i]
+    lines: list[str] = []
+    for raw in section.body.splitlines():
+        line = raw.strip()
+        # a subheading ends the lead-in — and a rendered line starting with "### " is
+        # indistinguishable from a hit header, which is the forgery D2 is about
+        if line.startswith("#"):
             break
-    excerpt = " ".join(lines[:max_lines])
+        if line:
+            lines.append(line)
+        if len(lines) == max_lines:
+            break
+    excerpt = " ".join(lines)
     if len(excerpt) > PRIMER_MAX_CHARS:
         excerpt = excerpt[: PRIMER_MAX_CHARS - 1].rsplit(" ", 1)[0] + "…"
     return excerpt
 
 
-def _section_snippet(section, max_chars: int = SECTION_SNIPPET_MAX_CHARS) -> str:
+def _section_snippet(section: Section, max_chars: int = SECTION_SNIPPET_MAX_CHARS) -> str:
     # heading or first sentence, capped: lets the agent judge relevance without opening the section
     text = " ".join(section.body.split())
     if not text:
@@ -76,8 +100,8 @@ def _section_snippet(section, max_chars: int = SECTION_SNIPPET_MAX_CHARS) -> str
 def _section_line(section_hit: SectionHit) -> str:
     section = section_hit.section
     size_kb = section.size_bytes / 1024
-    locator = _escape_newlines(section.locator)
-    snippet = _escape_newlines(_section_snippet(section))
+    locator = _escape_controls(section.locator)
+    snippet = _escape_controls(_section_snippet(section))
     return f"  {locator}   {size_kb:.1f} KB   {snippet}"
 
 
@@ -87,7 +111,7 @@ def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
     parts = []
     for rid in doc.related[:RELATED_MAX]:
         related_doc = docs_by_id.get(rid)
-        safe_rid = _escape_newlines(rid)
+        safe_rid = _escape_controls(rid)
         if related_doc is None:
             parts.append(f"{safe_rid} (not in store)")
         elif related_doc.status == "superseded":
@@ -98,13 +122,13 @@ def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
                 parts.append(f"{safe_rid} (superseded)")
             else:
                 parts.append(
-                    f"{safe_rid} (superseded by {_escape_newlines(successor.id)}, "
-                    f"{_escape_newlines(successor.path)})"
+                    f"{safe_rid} (superseded by {_escape_controls(successor.id)}, "
+                    f"{_escape_controls(successor.path)})"
                 )
         elif related_doc.status == "draft":
-            parts.append(f"{safe_rid} (draft, {_escape_newlines(related_doc.path)})")
+            parts.append(f"{safe_rid} (draft, {_escape_controls(related_doc.path)})")
         else:
-            parts.append(f"{safe_rid} ({_escape_newlines(related_doc.path)})")
+            parts.append(f"{safe_rid} ({_escape_controls(related_doc.path)})")
     if len(doc.related) > RELATED_MAX:
         parts.append(f"+{len(doc.related) - RELATED_MAX} more")
     return "related: " + ", ".join(parts)
@@ -116,6 +140,18 @@ def _trim_to_bytes(text: str, limit: int) -> str:
     budget = limit - len(TRIM_MARKER.encode("utf-8")) - 1
     cut = text.encode("utf-8")[:budget].decode("utf-8", errors="ignore")
     return cut.rsplit("\n", 1)[0] + "\n" + TRIM_MARKER
+
+
+def _rendered(blocks: list[str], footer: str = "") -> str:
+    """Joins the blocks inside the output budget, reserving the footer's bytes so the trim
+    cannot eat the line that explains the cut (D3; see contracts/output.md)."""
+    body = "\n\n".join(blocks)
+    limit = MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE
+    if not footer:
+        return _trim_to_bytes(body, limit)
+    separator = "\n\n"
+    reserve = len((separator + footer).encode("utf-8"))
+    return _trim_to_bytes(body, limit - reserve) + separator + footer
 
 
 def _why_matched(hit) -> str:
@@ -130,14 +166,14 @@ def _hit_block(
     why: str = "",
     section_hits: list[SectionHit] | None = None,
 ) -> str:
-    lines = [header, f"path: {_escape_newlines(doc.path)}"]
+    lines = [header, f"path: {_escape_controls(doc.path)}"]
     if why:
         lines.append(f"matched: {why}")
     for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
         lines.append(_section_line(section_hit))
     primer = _primer_excerpt(doc)
     if primer:
-        lines.append(primer)
+        lines.append(_escape_controls(primer))
     related = _related_line(doc, docs_by_id)
     if related:
         lines.append(related)
@@ -174,17 +210,19 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
 
     for hit in shown_hits:
         tag = "  [ambiguous]" if hit.ambiguous else ""
-        header = f"### {_escape_newlines(hit.doc.id)} (score: {hit.score:.1f}){tag}"
+        header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
         blocks.append(
             _hit_block(hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits)
         )
 
     for note in notes:
-        safe_id = _escape_newlines(note.doc.id)
-        safe_superseded_by = _escape_newlines(note.doc.superseded_by)
+        safe_id = _escape_controls(note.doc.id)
         if not note.doc.superseded_by:
             blocks.append(f"{safe_id}: superseded (no successor recorded)")
             continue
+        # only past the guard above: an absent id must never render as the string "None",
+        # which is what `_escape_controls(None)` gives
+        safe_superseded_by = _escape_controls(note.doc.superseded_by)
         if note.successor is None:
             blocks.append(
                 f"{safe_id}: superseded by {safe_superseded_by} "
@@ -194,15 +232,14 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
         if note.successor.status == "superseded":
             # known-wrong, and the reader is not told the chain continues. `_related_line`
             # already refuses to render a superseded target for the same reason; it collapses
-            # "absent" and "not in store" into one tail, which this splits — and an absent id
-            # must never render as "None", which is what `_escape_newlines(None)` gives
+            # "absent" and "not in store" into one tail, which this splits
             onward = note.successor.superseded_by
             if not onward:
                 tail = "itself superseded, no successor recorded"
             elif onward not in docs_by_id:
-                tail = f"itself superseded by {_escape_newlines(onward)}, not in store"
+                tail = f"itself superseded by {_escape_controls(onward)}, not in store"
             else:
-                tail = f"itself superseded by {_escape_newlines(onward)}"
+                tail = f"itself superseded by {_escape_controls(onward)}"
             blocks.append(f"{safe_id}: superseded by {safe_superseded_by} ({tail})")
             continue
         if note.successor.status == "draft":
@@ -215,7 +252,7 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
             continue
         blocks.append(f"{safe_id}: superseded by {safe_superseded_by}")
         if note.successor.id not in shown_ids:
-            header = f"### {_escape_newlines(note.successor.id)} (successor)"
+            header = f"### {_escape_controls(note.successor.id)} (successor)"
             blocks.append(_hit_block(note.successor, docs_by_id, header))
 
     # names how many were left out, so a tie cut mid-list doesn't look decisive
@@ -227,16 +264,7 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
         else ""
     )
 
-    body = "\n\n".join(blocks)
-    limit = MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE
-    if not withheld_line:
-        return _trim_to_bytes(body, limit)
-
-    # reserve its bytes up front so it survives the trim, which cuts from the end (D3)
-    separator = "\n\n"
-    reserve = len((separator + withheld_line).encode("utf-8"))
-    trimmed = _trim_to_bytes(body, limit - reserve)
-    return trimmed + separator + withheld_line
+    return _rendered(blocks, withheld_line)
 
 
 def render_scoreboard(docs: list[Doc], failed: int = 0) -> str:
@@ -288,13 +316,13 @@ def _role_hit_block(role_hit: RoleHit, role: str) -> str:
     # tagged on the header itself so a lone block (after a 4 KB trim) still
     # can't be mistaken for an ordinary best-word-match result
     header = (
-        f"### {_escape_newlines(role_hit.doc.id)} (score: {role_hit.score:.1f})"
+        f"### {_escape_controls(role_hit.doc.id)} (score: {role_hit.score:.1f})"
         f"  [role: {role}]"
     )
     section_hit = SectionHit(section=role_hit.section, score=0.0, matched_tokens=[])
     lines = [
         header,
-        f"path: {_escape_newlines(role_hit.doc.path)}",
+        f"path: {_escape_controls(role_hit.doc.path)}",
         _section_line(section_hit),
     ]
     return "\n".join(lines)
@@ -324,20 +352,12 @@ def render_role_search_results(
         else ""
     )
 
-    body = "\n\n".join(blocks)
-    limit = MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE
-    if not withheld_line:
-        return _trim_to_bytes(body, limit)
-
-    # same reservation trick as render_search_results, same reason (D3)
-    separator = "\n\n"
-    reserve = len((separator + withheld_line).encode("utf-8"))
-    trimmed = _trim_to_bytes(body, limit - reserve)
-    return trimmed + separator + withheld_line
+    return _rendered(blocks, withheld_line)
 
 
-def _telemetry_channel_line(bucket: "TelemetrySummary", label: str | None = None) -> str:
-    name = label or bucket.channel
+def _telemetry_channel_line(bucket: "ChannelTotals", label: str | None = None) -> str:
+    # the channel is read back from telemetry.jsonl, a file on disk like any other
+    name = label or _escape_controls(bucket.channel)
     hit_rate = (bucket.hits / bucket.total * 100) if bucket.total else 0.0
     kb = bucket.context_bytes / 1024
     return (
@@ -379,24 +399,28 @@ def _display_value(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, list):
-        shown = ", ".join(str(v) for v in value[:PREVIEW_LIST_MAX])
+        shown = ", ".join(_escape_controls(v) for v in value[:PREVIEW_LIST_MAX])
         if len(value) > PREVIEW_LIST_MAX:
             shown += f", … (+{len(value) - PREVIEW_LIST_MAX} more)"
         return "[" + shown + "]"
-    return str(value)
+    return _escape_controls(value)
 
 
 def render_backfill_proposal(proposal: "BackfillProposal") -> str:
     """`engmem backfill`'s preview: one line per proposed field plus its evidence."""
+    # every part below is derived from the document's own prose, and this preview is the
+    # only thing the human sees before answering the write prompt: a value carrying a
+    # newline would forge an extra "  field: value" line and be approved with the rest
+    doc_id = _escape_controls(proposal.doc_id)
     if proposal.already_complete:
-        return f"{proposal.doc_id}: spine already complete — nothing to backfill"
+        return f"{doc_id}: spine already complete — nothing to backfill"
 
-    lines = [f"{proposal.doc_id} ({proposal.path.name}):"]
+    lines = [f"{doc_id} ({_escape_controls(proposal.path.name)}):"]
     if not proposal.fields:
         lines.append("  (nothing left to write — see the note below)")
     for f in proposal.fields:
-        lines.append(f"  {f.name}: {_display_value(f.value)}")
-        lines.append(f"    <- {f.source}")
+        lines.append(f"  {_escape_controls(f.name)}: {_display_value(f.value)}")
+        lines.append(f"    <- {_escape_controls(f.source)}")
     for note in proposal.notes:
-        lines.append(f"  note: {note}")
+        lines.append(f"  note: {_escape_controls(note)}")
     return "\n".join(lines)

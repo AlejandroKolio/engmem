@@ -102,7 +102,10 @@ and never consulted as an authority independent of the markdown files it was der
 That is what makes it a pure function of file bytes rather than an index.
 
 **Store** resolves in this order: the `--store PATH` flag → the `ENGMEM_HOME` env var →
-default `~/Developer/engmem`. Inside: `sessions/*.md` + `telemetry.jsonl`. No config files.
+default `~/Developer/engmem`. A blank setting is skipped as if it were unset, and the answer is
+always absolute — `install --agent claude-desktop` writes it into a config file another process
+reads back from a working directory of its own; see `contracts/runtime.md`. Inside:
+`sessions/*.md` + `telemetry.jsonl`. No config files.
 
 ## 4. Document schema (front matter + sections)
 
@@ -519,6 +522,27 @@ ignored, which is the failure this section exists to prevent:
   unreachable from the client the author actually uses. Implemented on the standard
   library alone; the `mcp` SDK stays rejected under §2.3.
 
+**Two new modules in `src/`, and why each earns the exception this section otherwise
+refuses.** Neither `src/engmem/gate1.py` (added 2026-08-27) nor `src/engmem/gate1_audit.py`
+(added 2026-08-27) was ever on the cut list above — both are new surface, which this section is
+deliberately hostile to. Both are admitted for the same reason, applied to two different
+questions: each is the analysis layer for a pre-registered §11 concern, not a product feature,
+and each removes a duplication this section exists to prevent.
+
+- `gate1.py` is the shared per-row verdict (citation integrity, classification, distance,
+  staleness, dogfooding) `tools/verify_citations.py` and `tools/gate1_report.py` both need;
+  their exit-code contracts genuinely differ so they cannot merge into one command, and
+  duplicating that verdict logic across two files is exactly the drift this section exists to
+  prevent (`QUOTE_RE` and the row parser were byte-identical in both before this module
+  existed).
+- `gate1_audit.py` is the sample-completeness question, not the row-validity one: did a session
+  start the ritual, search, and honestly record the outcome, joining `telemetry.jsonl`'s
+  `session_id` against the store for the first time. It is a separate module from `gate1.py`
+  rather than more functions inside it because the two answer different questions over an
+  overlapping input, not because the exception needed spreading thinner.
+
+Full reasoning for both: `docs/design/contracts/gate1.md`.
+
 **Two large modules stay whole, and that is a decision, not a backlog item.**
 `mcp_server.py` and `scoring.py` are the biggest files here, and both were examined for a
 seam. `scoring.py`'s exists but cutting it would break the thing that makes it fast:
@@ -608,9 +632,15 @@ reading the result differently.
 
 **At least one distant reuse event across 4–5 cross-repository work stories.**
 
-A reuse event counts when a Reuse Log row cites a prior document, quotes it verbatim, and
-that quote is traceable to a decision in the new work. `tools/verify_citations.py` decides
-the "verbatim" half mechanically; the human decides the "changed a decision" half.
+A reuse event counts when a Reuse Log row cites a prior document, quotes it verbatim, is
+classified `reuse` (not `anti-reuse`/`harmful`, and not a blank or misspelled cell — a
+classification the count cannot read defaults to excluded, never to `reuse`), and that quote
+is traceable to a decision in the new work. `src/engmem/gate1.py` decides the mechanical
+half — citation integrity, classification, distance, and whether the citing document is
+itself a draft or superseded — shared by `tools/verify_citations.py` (which fails the run on
+an unverifiable quote) and `tools/gate1_report.py` (which never fails; it renders every row
+and hands the "changed a decision" half to the human). See
+`docs/design/contracts/gate1.md`.
 
 *Distant* is the part that matters, so it is defined mechanically rather than felt:
 a cited document is **adjacent** if it shares a repository or a tag with the citing
@@ -622,11 +652,21 @@ found anyway — it demonstrates the store works as an archive. A distant one is
 that had genuinely fallen out of reach, which is the only thing the retrieval layer can
 claim credit for.
 
+A citation of a `superseded` document is **not** excluded by that fact alone: it is flagged
+(`gate1.py`'s staleness axis) and still counts if the row is otherwise `verified`/`reuse`/
+`distant` — per `templates/engmem.save.md`, a stale citation becomes `harmful` only when the
+human says so at review time, and this endpoint does not pre-empt that judgment. Front matter
+this module cannot parse scores **undecidable**, never `distant` — a parse failure must not
+work in the endpoint's favour.
+
 ### Secondary endpoints, declared now rather than after a miss
 
 1. **Token cost**: `engmem search` versus an agent grepping the store for the same query,
-   measured per `tools/gate1_report.py`'s companion baseline (spec task 3), over 15–20
-   real queries taken from `telemetry.jsonl`.
+   over 15–20 real queries taken from `telemetry.jsonl`. `tools/baseline_cost.py` automates
+   only one side of this — the estimated token cost of engmem's own search output per query
+   (`ceil(bytes / 3.5)`, the same estimator `engmem telemetry` uses). The comparison side (a
+   fresh agent session per query, file-reading only, counted the same way) is a second,
+   deliberately separate measurement the tool does not run.
 2. **Navigation hit-rate**: recorded `navigation_miss` entries against total searches. A
    navigation miss is not a search miss — see §4's field table.
 
@@ -642,8 +682,17 @@ claim credit for.
 
 - **Dogfooding.** Reuse requires forgetting, and while building engmem the author forgets
   nothing about engmem. Stories about this repository are excluded from the count.
+  Mechanism: a citing document whose `repos` front matter names `engmem`
+  (case-insensitively) — see `docs/design/contracts/gate1.md`, "Dogfooding identification,"
+  for the alternatives considered and why `repos` was chosen over `covers_files` or a
+  deny-list.
+- **A story still in draft, or superseded.** Search itself excludes `draft` and `superseded`
+  documents from its results (§5.2); the count now excludes a Reuse Log row whose *citing*
+  document carries either status, so the counted population matches what the retrieval layer
+  actually serves.
 - **Divergence between the pre-registered plan and the final one.** It is a secondary
   signal at best: a plan written blind diverges for many reasons, reading the repository
   among them. The verdict is carried by quoted Reuse Log rows.
-- **A row without a verbatim quote.** `tools/verify_citations.py` rejects it, and so does
-  the count.
+- **A row without a verbatim quote.** `src/engmem/gate1.py` rejects it, and so does the
+  count — both `tools/verify_citations.py`'s exit code and `tools/gate1_report.py`'s table
+  are computed from that one verdict, not two independent readings of the same rows.

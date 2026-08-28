@@ -476,6 +476,47 @@ def test_restricted_query_token_matches_body_literal_only(tmp_path):
     )
 
 
+def test_a_short_camelcase_fragment_matches_only_literal_spine_text(tmp_path):
+    """§7's short-token rule is about the query token, not about where it came from. A `mq`
+    split out of `MQSweeper` used to be exempt from it in the spine index while the body index
+    applied it, so one query token was restricted in one half of the score and not the other."""
+    from engmem.spine import load_store
+
+    body = "## Notes\n\nNothing else here.\n"
+    _write_body_doc(tmp_path, "a.md", "alpha-one", "Queue Notes", 1, body, entities="[MQ]")
+    _write_body_doc(
+        tmp_path, "b.md", "beta-two", "Query Notes", 2, body, entities="[MetricsQuery]"
+    )
+    docs = load_store(tmp_path).docs
+
+    outcome = search(docs, "MQSweeper")
+
+    assert [h.doc.id for h in outcome.hits] == ["alpha-one"], (
+        "`mq` may match the entity written literally as MQ, and must not reach "
+        "MetricsQuery through its CamelCase acronym"
+    )
+    assert outcome.hits[0].matched_fields == {"entities": ["mq"]}
+
+
+def test_a_query_token_the_expansion_repeats_is_counted_once(tmp_path):
+    """`cache ResponseCache` expands to `cache` twice. Counted twice it inflated both the weight
+    sum and the coverage denominator, so a document matching that one word outranked a document
+    matching a different query word just as fully."""
+    from engmem.spine import load_store
+
+    body = "## Notes\n\nNothing else here.\n"
+    _write_body_doc(tmp_path, "a.md", "alpha-one", "Cache Notes", 1, body)
+    _write_body_doc(tmp_path, "b.md", "beta-two", "Response Times", 2, body)
+    docs = load_store(tmp_path).docs
+
+    scores = {h.doc.id: h.score for h in search(docs, "cache ResponseCache").hits}
+
+    assert set(scores) == {"alpha-one", "beta-two"}
+    assert scores["alpha-one"] == scores["beta-two"], (
+        "both documents match exactly one distinct query token at the title tier"
+    )
+
+
 def test_ubiquitous_body_term_is_dropped_from_body_scoring(tmp_path):
     """A term in over half the corpus's sections is dropped — the self-tuning stand-in for a
     stopword list."""
@@ -962,6 +1003,36 @@ def test_a_damaged_frequency_table_is_recomputed_not_believed(tmp_path, monkeypa
     assert entries[0].literal_tf == _tokenize_counts(
         f"{entries[0].section.heading}\n{entries[0].section.body}"
     )[0]
+    captured = capsys.readouterr()
+    assert "unexpected shape" in captured.err
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize(
+    "count,label",
+    [
+        pytest.param(2.5, "a fractional count", id="fractional"),
+        pytest.param(-4, "a negative count", id="negative"),
+    ],
+)
+def test_a_token_count_that_is_not_a_count_is_recomputed_not_believed(
+    tmp_path, monkeypatch, capsys, count, label
+):
+    """`dict` is only half the check: a value that is not a token count still shifts every
+    section length and every BM25 score, and a negative one can drive the denominator to zero."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = _store_with_each_status(tmp_path)
+    doc = next(d for d in load_store(sessions).docs if d.id == "alpha-doc")
+    _entries_for_doc(doc)
+
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    record["payload"]["sections"][0]["literal_tf"]["widgetcache"] = count
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+
+    entries = _entries_for_doc(doc)
+
+    assert entries[0].literal_tf["widgetcache"] == 1, label
     captured = capsys.readouterr()
     assert "unexpected shape" in captured.err
     assert captured.out == ""
