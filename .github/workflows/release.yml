@@ -1,0 +1,114 @@
+name: Release
+
+# A tag is the only trigger. `ci.yml` runs on pushes to main and on pull requests,
+# neither of which a tag push is — so this workflow re-runs the suite itself rather
+# than trusting that main was green when the tag was cut.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    # Two things that cannot be undone once uploaded: a version number that does not
+    # match its tag, and a release built from a red tree. PyPI refuses a re-upload of
+    # an existing version, so both are caught here or not at all.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Assert the tag matches the version in pyproject.toml
+        run: |
+          python - <<'PY'
+          import os, pathlib, tomllib
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          print(f"tag={tag} version={version}")
+          assert tag == f"v{version}", (
+              f"tag {tag} does not match pyproject version {version} — "
+              f"expected v{version}"
+          )
+          PY
+
+      - name: Run the test suite
+        run: uv run pytest -q
+
+  build:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build the sdist and the wheel
+        run: uv build
+
+      - name: Re-assert the sdist ships exactly the expected top-level entries
+        # `ci.yml`'s packaging job owns this rule and runs it on every pull request, which
+        # is where it can still be acted on. Repeated here only because the artefact this
+        # job uploads is the one that gets published, and a published version is final.
+        run: |
+          python - <<'PY'
+          import pathlib, tarfile
+          ALLOWED = {
+              ".github", ".gitignore", "CONTRIBUTING.md", "ENGMEM-SPEC.md", "LICENSE",
+              "PKG-INFO", "README.md", "SECURITY.md", "docs", "pyproject.toml",
+              "src", "tests", "tools", "uv.lock",
+          }
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          top = {
+              name.split("/", 1)[1].split("/", 1)[0]
+              for name in tarfile.open(sdist).getnames()
+              if "/" in name
+          }
+          assert not top - ALLOWED, f"unexpected entries in the sdist: {sorted(top - ALLOWED)}"
+          assert not ALLOWED - top, f"entries missing from the sdist: {sorted(ALLOWED - top)}"
+          print(f"{sdist.name}: {len(top)} top-level entries, all expected")
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Trusted Publishing: PyPI trusts this repository, this workflow file and this
+    # environment, and mints a short-lived token per run. There is no long-lived API
+    # token in repository secrets, so there is nothing to leak or rotate.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/engmem
+
+    permissions:
+      id-token: write # the OIDC token PyPI verifies; nothing else is needed
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        # `release/v1` is a BRANCH, not a tag — deliberately, and it is PyPA's documented
+        # form: security fixes reach this job without a manual bump. The cost is that
+        # Dependabot has no version to raise, so the one action holding `id-token: write`
+        # is also the one action nothing reports on. Read its release notes before trusting
+        # a run you did not expect.
+        uses: pypa/gh-action-pypi-publish@release/v1
