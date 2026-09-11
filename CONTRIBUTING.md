@@ -19,6 +19,18 @@ runtime-dependency job both succeed.
 Squash merge is the only merge method; write the PR title as the commit message you
 want in the history.
 
+## Releases
+
+The version lives in `pyproject.toml` only; `engmem.__version__` reads it from the
+installed package metadata. Until 1.0 every release bumps the patch number:
+
+    uv version --bump patch
+    git commit -am "release: v$(uv version --short)"
+    git tag "v$(uv version --short)" && git push --tags
+
+The tag triggers `release.yml`, which refuses a tag that does not match `pyproject.toml`,
+re-runs the suite, builds, and publishes to PyPI.
+
 ## What the tests enforce
 
 Some tests exist to protect invariants rather than behaviour. If one of these fails,

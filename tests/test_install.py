@@ -13,21 +13,26 @@ from conftest import (
     requires_symlinks,
 )
 
+from engmem import __version__
 from engmem.cli import main
 
 SOURCE_TEMPLATE_NAMES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
+def _stamp(template: str) -> str:
+    return f"<!-- engmem-template: {template} v{__version__} -->"
+
+
 COPILOT_CLI_SKILLS = {
-    "engmem": "<!-- engmem-template: engmem.start v0.1.0 -->",
-    "engmem-save": "<!-- engmem-template: engmem.save v0.1.0 -->",
-    "engmem-save-quick": "<!-- engmem-template: engmem.save.quick v0.1.0 -->",
+    "engmem": _stamp("engmem.start"),
+    "engmem-save": _stamp("engmem.save"),
+    "engmem-save-quick": _stamp("engmem.save.quick"),
 }
 STAMPS = {
-    "engmem.md": "<!-- engmem-template: engmem.start v0.1.0 -->",
-    "engmem.save.md": "<!-- engmem-template: engmem.save v0.1.0 -->",
-    "engmem.save.quick.md": "<!-- engmem-template: engmem.save.quick v0.1.0 -->",
-    "engmem.prompt.md": "<!-- engmem-template: engmem.start v0.1.0 -->",
-    "engmem.save.prompt.md": "<!-- engmem-template: engmem.save v0.1.0 -->",
-    "engmem.save.quick.prompt.md": "<!-- engmem-template: engmem.save.quick v0.1.0 -->",
+    "engmem.md": _stamp("engmem.start"),
+    "engmem.save.md": _stamp("engmem.save"),
+    "engmem.save.quick.md": _stamp("engmem.save.quick"),
+    "engmem.prompt.md": _stamp("engmem.start"),
+    "engmem.save.prompt.md": _stamp("engmem.save"),
+    "engmem.save.quick.prompt.md": _stamp("engmem.save.quick"),
 }
 
 

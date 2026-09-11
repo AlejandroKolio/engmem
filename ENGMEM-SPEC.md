@@ -213,7 +213,7 @@ Idempotent (re-running = upgrade, nothing breaks):
 1. Creates the store (`sessions/`, `git init` if missing).
 2. Copies prompt templates into the agent's config: claude → `~/.claude/commands/` (or
    `.claude/commands/` with `--local`); copilot → `.github/prompts/`.
-3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v0.1.0 -->`.
+3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v<package version> -->`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` if not
    already present: "Before proposing a plan, run `engmem search "<key terms for the task>"`". Presence is detected by the substring `` `engmem search ``, so a
    rule the user reworded is recognised and never duplicated; a skip for this reason
