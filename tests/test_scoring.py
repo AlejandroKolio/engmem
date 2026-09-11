@@ -892,6 +892,46 @@ def test_a_recomputed_entry_replaces_the_bad_payload(tmp_path, monkeypatch, caps
     assert "unexpected shape" not in capsys.readouterr().err
 
 
+def test_a_stale_format_version_entry_is_ignored_even_when_the_file_is_unchanged(
+    tmp_path, monkeypatch
+):
+    """`CACHE_FORMAT_VERSION` gates section-boundary changes, not just `canonical`-value
+    changes. A cache entry written under an older version must be recomputed with the
+    current splitter rather than served as-is, or a fix to `split_sections` never reaches an
+    already-cached document until it happens to be edited again."""
+    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    doc = _doc_with_body(
+        sessions / "20260101-widget-cache.md",
+        "20260101-widget-cache",
+        "## Architecture\n\nProse.\n\n  ## Testing Knowledge\n\nHow this is covered.\n",
+    )
+
+    # a stale (pre-fix) cache entry: only the section an older `split_sections` could see,
+    # under a format_version this install no longer trusts
+    cache.store(doc.path, cache.identity_for(doc.path), {
+        "sections": [{
+            "anchor": "architecture", "heading": "Architecture",
+            "body": "Prose.\n\n  ## Testing Knowledge\n\nHow this is covered.",
+            "size_bytes": 60, "level": 2, "canonical": "architecture", "index": 1,
+            "literal_tf": {}, "derived_tf": {},
+        }],
+    })
+    entry_path = cache._entry_path(doc.path)[0]
+    record = json.loads(entry_path.read_text(encoding="utf-8"))
+    # 2, not "current minus one": a real pre-fix cache entry was written under the
+    # literal version this fix bumped past, not under some version relative to today's
+    record["format_version"] = 2
+    entry_path.write_text(json.dumps(record), encoding="utf-8")
+
+    entries = _entries_for_doc(doc)
+
+    assert any(e.section.canonical == "testing" for e in entries), (
+        "the stale entry must be recomputed with the current splitter, not served as-is"
+    )
+
+
 def test_role_search_prefers_the_section_that_names_the_role_over_an_inherited_one(tmp_path, monkeypatch):
     """`--role` hands back a place to read. An oversized `## Business Context` splitting into
     `### Actors` must not take `context` away from the document's own `## Glossary`."""

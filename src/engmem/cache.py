@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Bump when the cached payload shape changes; older-format entries are then
 # treated as absent, not corrupt.
-CACHE_FORMAT_VERSION = 2  # 2: split subsections inherit their parent's canonical role
+CACHE_FORMAT_VERSION = 3  # 3: headings tolerate 0-3 leading spaces, changing section boundaries
 
 
 def cache_root() -> Path:

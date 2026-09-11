@@ -287,38 +287,38 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 <header class="masthead">
   <div class="kicker">engmem v0.1 · полный разбор</div>
   <h1>Анатомия engmem</h1>
-  <p class="standfirst">Инструмент, который не даёт инженерным решениям теряться между задачами — и измеряет, изменило ли это хоть одно решение. Здесь — что он доказывает, как устроен и что происходит внутри на каждом шаге.</p>
-  <p class="standfirst" style="opacity:.7;font-size:.85em">Страница выведена из спецификации, а не наоборот: при расхождении права <code>ENGMEM-SPEC.md</code> и тесты.</p>
+  <p class="standfirst">Память для ИИ-агента: решения, грабли и договорённости не теряются между задачами. И, в отличие от других таких памятей, эта умеет показать, помогает ли она.</p>
+  <p class="standfirst" style="opacity:.7;font-size:.85em">Страница выведена из спецификации: при расхождении права <code>ENGMEM-SPEC.md</code> и тесты.</p>
 </header>
 
-<!-- ===== ЧАСТЬ 1: ЧТО ИЗМЕРЯЕТСЯ ===== -->
+<!-- ===== ЧАСТЬ 1: ЧТО ЭТО ТАКОЕ ===== -->
 <section>
-  <p class="part">Часть 1 · Что измеряется</p>
-  <h2>Прибор, который меряет переиспользование</h2>
+  <p class="part">Часть 1 · Что это такое</p>
+  <h2>Память, которая умеет себя измерить</h2>
 
   <div class="lede prose">
-    <p><strong>Engmem проверяет одно утверждение: поднятый из прошлого документ меняет решение в новой задаче.</strong> Ответ не должен поддаваться подгонке задним числом — поэтому измерение встроено в сам порядок работы, а не приделано к нему отчётом в конце.</p>
-    <p>Всё остальное на этой странице — хранилище, шаблоны записи, поиск, установщик — это обвязка, которая существует ради того, чтобы такой цикл можно было прогонять.</p>
+    <p><strong>Engmem — память для ИИ-агента: то, что выяснено в одной задаче, доступно ему в следующей.</strong> Хранилище, шаблоны записи, поиск и установщик — это она и есть.</p>
+    <p>Необычно в ней другое: она измеряет собственную пользу. Пре-регистрация, журнал переиспользования с дословными цитатами и телеметрия — надстройка, которая отвечает на вопрос, который памяти обычно не задают: <strong>меняет ли поднятый из прошлого документ решение в новой задаче.</strong> Ответ не должен поддаваться подгонке задним числом — поэтому измерение встроено в сам порядок работы, а не приделано к нему отчётом в конце.</p>
   </div>
 
   <div class="prose">
     <p>Продукт стоит на трёх опорах, и порядок здесь содержательный:</p>
     <ol>
       <li><strong>Единица памяти — инженерная история, и хранилище лежит вне всех репозиториев.</strong> Одна история тянется через несколько репозиториев и несколько сессий: решение принято в одном сервисе, грабли обнаружены в соседнем, договорённость — в третьем. Память, привязанная к репозиторию, режет такую историю по его границе; память, копящая отдельные факты, теряет обстоятельства, в которых факт был верен. Из этого следует всё остальное.</li>
-      <li><strong>Причинное измерение переиспользования — по документу, а не по ощущению.</strong> Намерение регистрируется <em>до</em> поиска; после работы каждый реально повлиявший документ получает строку журнала с дословной цитатой; строки проверяются механически и выносятся на разбор.</li>
-      <li><strong>Ограниченный канал выдачи, который можно записать.</strong> Поиск здесь — датчик прибора: детерминированный канал с фиксированным потолком, у которого каждый вызов оставляет строку в <code>telemetry.jsonl</code> с точной ценой в байтах. В этом его назначение, а не в полноте выдачи.</li>
+      <li><strong>Причинное измерение переиспользования — по документу, а не по ощущению.</strong> Как это устроено — четыре такта ниже.</li>
+      <li><strong>Ограниченный канал выдачи, который можно записать.</strong> У каждого вызова известная цена и оставленный след. В этом назначение поиска, а не в полноте выдачи.</li>
     </ol>
 
     <h3>Цикл целиком: четыре такта</h3>
-    <p>Такты идут только в этом порядке — каждый следующий бессмыслен без предыдущего:</p>
+    <p>Порядок обязателен для свидетельства, а не для работы. Пропущенный или переставленный такт не ломает ни задачу, ни разбор: разбор пройдёт по тому, что записано. Он лишь перестаёт быть доказательством — наивный план, написанный после чтения документов, уже ничего не доказывает.</p>
     <ol>
       <li><strong>Пре-регистрация.</strong> Отдельный под-агент, которому дана только формулировка задачи, пишет наивный план до всякого поиска, и план уходит в черновик документа. Порядок здесь и есть измерение: план, написанный после чтения документов, свидетельством уже не будет.</li>
       <li><strong>Работа.</strong> Поиск отдаёт адреса разделов, агент читает найденное, задача делается обычным образом. В середине engmem не участвует вовсе.</li>
-      <li><strong>Строка журнала с дословной цитатой.</strong> На каждый повлиявший документ — строка: что процитировано, что в итоге изменилось, какого рода влияние (<code>reuse</code>, <code>anti-reuse</code>, <code>harmful</code>). Строка без цитаты недействительна; если не пригодилось ничего — пишется ровно <code>Prior docs used: none.</code></li>
+      <li><strong>Строка журнала с дословной цитатой.</strong> На каждый повлиявший документ — строка: что процитировано, что в итоге изменилось, какого рода влияние: <code>reuse</code> — пошли за документом, <code>anti-reuse</code> — сознательно против него, <code>harmful</code> — документ увёл не туда. Строка без цитаты недействительна; если не пригодилось ничего — пишется ровно <code>Prior docs used: none.</code></li>
       <li><strong>Разбор (Gate 1).</strong> Строки со всего хранилища сводятся в одну таблицу и читаются по правилу, записанному заранее.</li>
     </ol>
-    <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на 4–5 межрепозиторных историй. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний автор, скорее всего, вспомнил бы и сам — кредит за него слою поиска не полагается.</p>
-    <p>Механическую половину для каждой строки решает один общий модуль, <code>src/engmem/gate1.py</code>: целостность цитаты, классификация, дистанция и устарелость. <code>tools/verify_citations.py</code> и <code>tools/gate1_report.py</code> читают один и тот же вердикт, а не проверяют независимо — расходятся они только кодом выхода: <code>verify_citations.py</code> падает на непроверяемой цитате, <code>gate1_report.py</code> не падает никогда и сводит все четыре оси в таблицу для человека. Пустая колонка в ней — ровно та половина, которую машина решить не может:</p>
+    <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на всём наборе из 4–5 межрепозиторных историй — одно на набор, а не на каждую историю. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний автор, скорее всего, вспомнил бы и сам — кредит за него слою поиска не полагается.</p>
+    <p>Механическую часть каждой строки решает один общий модуль, <code>src/engmem/gate1.py</code>: целостность цитаты, дистанцию и устарелость; классификацию он не решает, а читает — её ставит автор. <code>tools/verify_citations.py</code> и <code>tools/gate1_report.py</code> читают один и тот же вердикт, а не проверяют независимо — расходятся они только кодом выхода: <code>verify_citations.py</code> падает на непроверяемой цитате, <code>gate1_report.py</code> не падает никогда и сводит все четыре оси в таблицу для человека. Пустая колонка — единственное, чего машина решить не может: изменила ли цитата решение. В счёт идут только строки, классифицированные <code>reuse</code>: <code>anti-reuse</code> и <code>harmful</code> печатаются в таблице, но из подсчёта исключаются — как и строка без цитаты, и строка из черновика. Туда же уходят строки из историй про сам engmem — в выдаче это ось <code>dogfooding</code>: разработка инструмента не может служить доказательством его пользы.</p>
 <pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
 |---|---|---|---|---|---|---|---|
 | 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
@@ -335,7 +335,7 @@ documents reporting no reuse: 1
 The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
-<p>Полный прогон печатает под этим ещё один блок — контроль полноты выборки, а не второй гейт — с двумя оговорками, которые сам инструмент называет в выдаче: <code>--session</code> нарочно не проверяется, поэтому строка про «осиротевшие» записи там же считает и опечатки, и загрязнение из чужого хранилища, а не только настоящие пробелы; а <code>telemetry.jsonl</code> ведётся только дозаписью, без ротации, так что строки до Gate 1 и тестовые неотличимы от экспериментальных в пределах любого окна. Остальное — в <code>docs/design/contracts/gate1.md</code>, раздел «The audit coverage block».</p>
+<p>Полный прогон печатает под этим ещё один блок — контроль полноты выборки, а не второй гейт. Инструмент сам называет две его оговорки. <code>--session</code> нарочно не проверяется, поэтому строка про «осиротевшие» записи считает и опечатки, и загрязнение из чужого хранилища, а не только настоящие пробелы. А <code>telemetry.jsonl</code> ведётся только дозаписью, без ротации, так что строки до Gate 1 и тестовые неотличимы от экспериментальных в пределах любого окна. Остальное — в <code>docs/design/contracts/gate1.md</code>, раздел «The audit coverage block».</p>
     <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1.</p>
 <pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
@@ -363,16 +363,17 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
 
   <div class="prose">
     <h3>Почему обычные способы не срабатывают</h3>
+    <p>Корень у всех четырёх один — <strong>цена записи платится сейчас, а польза приходит потом и не гарантирована</strong>. Человек в этой сделке всегда проигрывает будущему себе.</p>
     <div class="tablewrap"><table>
       <thead><tr><th>Способ</th><th>Почему не работает</th></tr></thead>
       <tbody>
-        <tr><td>Писать в Confluence / Notion</td><td>Дорого писать, ещё дороже искать. Через месяц туда никто не заходит: страница не всплывает сама в момент, когда нужна.</td></tr>
+        <tr><td>Писать в Confluence / Notion</td><td>Дорого писать, ещё дороже искать: страница не всплывает сама в момент, когда нужна.</td></tr>
         <tr><td>Комментарии в коде и в PR</td><td>Отвечают «что делает эта строка», но не «почему мы отказались от другого решения». К моменту нужды PR давно закрыт.</td></tr>
         <tr><td>ADR (записи об архитектурных решениях)</td><td>Работают, но пишутся вручную и только для крупных решений. Мелкие грабли — а именно они съедают часы — туда не попадают.</td></tr>
         <tr><td>Память самого агента</td><td>Живёт в рамках одной сессии или одного продукта, не переносится между инструментами и не поддаётся проверке: нельзя открыть файл и прочитать, что там записано.</td></tr>
       </tbody>
     </table>
-    </div><p>Общий корень у всех четырёх — <strong>цена записи платится сейчас, а польза приходит потом и не гарантирована</strong>. Человек в этой сделке всегда проигрывает будущему себе.</p>
+    </div>
   </div>
 </section>
 
@@ -390,7 +391,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
     <p>Три части, которые делают это возможным:</p>
     <ul>
       <li><strong>Хранилище</strong> — папка markdown-файлов под git. Никакой базы, сервера и облака. Файл можно открыть, прочитать, поправить руками, посмотреть историю через <code>git log</code>.</li>
-      <li><strong>Поиск</strong> — команда <code>engmem search</code>: датчик прибора, а не соперник <code>grep</code>. Детерминированный, без ML: одинаковый запрос всегда даёт одинаковый ответ, объём выдачи ограничен сверху, и каждый вызов оставляет строку телеметрии с точной ценой в байтах. Перечитывает шапки всех документов при каждом вызове.</li>
+      <li><strong>Поиск</strong> — команда <code>engmem search</code>. Детерминированный, без ML: одинаковый запрос всегда даёт одинаковый ответ, объём выдачи ограничен сверху, и каждый вызов оставляет строку телеметрии с точной ценой в байтах. Перечитывает шапки всех документов при каждом вызове.</li>
       <li><strong>Три команды-шаблона</strong> для агента: <code>/engmem</code> в начале задачи, <code>/engmem.save</code> в конце, <code>/engmem.save.quick</code> — короткий документ без раунда проверки, когда нет сил её делать. Это markdown-инструкции, а не код — поэтому работают в любом агенте.</li>
     </ul>
   </div>
@@ -425,7 +426,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </figure>
 
   <div class="prose">
-    <p>Маховик выше — это цикл для одного документа. Если отступить на шаг, хранилище — не просто растущая куча, а граф, который становится всё связнее. В нём соседствуют два разных вида связей: те, что вписал автор, и те, что никто не писал, но канал выдачи всё равно проводит — по сущностям, совпавшим у двух документов, которые никто не связывал. Правило разбора считает такие пары <em>дальними</em>: ни общего репозитория, ни общего тега, ни ребра <code>related</code> — и только на них слой поиска вправе претендовать.</p>
+    <p>Маховик выше — это цикл для одного документа. Если отступить на шаг, хранилище — граф, который становится всё связнее. В нём два вида связей: те, что вписал автор, и те, что не писал никто. Вторые канал выдачи проводит сам — по сущностям, совпавшим у двух документов. Правило разбора считает такие пары <em>дальними</em>: ни общего репозитория, ни общего тега, ни ребра <code>related</code> — и только на них слой поиска вправе претендовать.</p>
   </div>
 
 </section>
@@ -435,8 +436,8 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   <p class="part">Часть 4 · Путь одной задачи</p>
   <h2>Что происходит от постановки до сохранения</h2>
   <div class="prose">
-    <p><em>Роль в цикле:</em> здесь документ попадает в хранилище — это то, как у прибора вообще появляется предмет измерения. Шаги 01 и 07 и есть измерительные такты (пре-регистрация и строка журнала с цитатой); всё между ними — обычная работа.</p>
-    <p><strong>От вас в этом ритуале требуется одно слово «y» — остальной путь, от наивного плана до сохранённого документа, проходит агент.</strong> Ниже — по шагам: что делает инструмент, <strong>что физически попадает в контекст модели</strong> и что остаётся после. Задача: «Добавить кеширование ответов для нового эндпоинта»; похожая работа велась три месяца назад, но вы этого уже не помните. Значения сняты с прогона на тестовом хранилище.</p>
+    <p><em>Роль в цикле:</em> здесь память наполняется — документ попадает в хранилище, и вместе с ним у измерения появляется предмет. Шаги 01 и 07 и есть измерительные такты (пре-регистрация и строка журнала с цитатой); всё между ними — обычная работа.</p>
+    <p><strong>Печатать вам не придётся ничего: агент проходит путь от наивного плана до готового документа, а вы подтверждаете шапку и отвечаете, отменяет ли эта работа прошлое решение.</strong> Полный <code>save</code> просит ещё сверить цитаты — цену этого шага страница называет прямо на 07. Ниже — по шагам: что делает инструмент, <strong>что физически попадает в контекст модели</strong> и что остаётся после. Задача: «Добавить кеширование ответов для нового эндпоинта»; похожая работа велась три месяца назад, но вы этого уже не помните. Значения сняты с прогона на тестовом хранилище.</p>
   </div>
 
 <figure>
@@ -533,7 +534,7 @@ baseline_tokens: 1840</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">02</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:33%"></span></span></span>
-        <span class="step-titles"><span class="step-t">Создаётся черновик документа</span><span class="step-s">Файл появляется сразу — до работы, а не после</span></span>
+        <span class="step-titles"><span class="step-t">Создаётся черновик документа</span><span class="step-s">Файл появляется до работы, а не после неё</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -565,6 +566,7 @@ capture_minutes:
           <div class="io-k">Почему так</div>
           <div class="io-v"><ul>
             <li><code>status: draft</code> держит документ вне поиска: незаконченное не должно выдавать себя за знание.</li>
+            <li><code>backfilled: false</code> означает, что документ написан по ходу работы. Старые задачи можно занести в хранилище задним числом — такие помечаются <code>backfilled: true</code>, ищутся наравне со всеми, но из измерения исключаются: ритуал на них не проводился.</li>
             <li>Спайн пишется целиком не ради парсера (тот достроит недостающее сам, см. T2), а потому что это ровно те поля, по которым работает поиск.</li>
           </ul></div>
         </div>
@@ -607,7 +609,7 @@ docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
               <li>Футер — состояние памяти: 7 документов, 1 черновик из шага 02, последний написан 19 дней назад.</li>
             </ul></div>
           <div class="io-k">Почему так</div>
-          <div class="io-v"><p>Вывод урезан до 4 КБ — это не удобство, а условие измерения: у канала фиксированный потолок, поэтому его цену можно занести в телеметрию и сравнить с базовым уровнем. Показаны всегда те же три документа, сколько бы ни подошло: тридцать подошедших дают те же три блока плюс одну строку «ещё N». А <code>(1 failed to load)</code> идёт в stdout, а не в stderr: агент читает только stdout, и семь документов вместо восьми выглядели бы для него полным ответом.</p></div>
+          <div class="io-v"><p>Вывод урезан до 4 КБ — это условие измерения: у канала фиксированный потолок, поэтому его цену можно занести в телеметрию и сравнить с базовым уровнем. Показаны всегда те же три документа, сколько бы ни подошло: тридцать подошедших дают те же три блока плюс одну строку «ещё N». А <code>(1 failed to load)</code> идёт в stdout, а не в stderr: агент читает только stdout, и семь документов вместо восьми выглядели бы для него полным ответом.</p></div>
         </div>
       </div>
     </article>
@@ -691,7 +693,7 @@ read-эндпоинтов, используя ETAG и TTL…</code></pre></div>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">07</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:83%"></span></span></span>
-        <span class="step-titles"><span class="step-t">Вы вызываете <code>/engmem.save</code></span><span class="step-s">Агент пишет весь документ, вы отвечаете одно «y»</span></span>
+        <span class="step-titles"><span class="step-t">Вы вызываете <code>/engmem.save</code></span><span class="step-s">Документ пишет агент; вы подтверждаете и сверяете</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -794,7 +796,7 @@ answer_tokens:   9600   # только если рантайм реально е
   <p class="part">Часть 5 · Техническая механика</p>
   <h2>Три пути через код</h2>
   <div class="prose">
-    <p><em>Роль в цикле:</em> это обвязка датчика — код, через который запрос превращается в ограниченную выдачу и в строку телеметрии, и код, которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
+    <p><em>Роль в цикле:</em> это код самой памяти — через который запрос превращается в ограниченную выдачу и в строку телеметрии, и которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
     <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для Claude Desktop. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
   </div>
 
@@ -964,7 +966,7 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
 4. итог = обрезанный body + withheld_line</code></pre>
             <p><code>_trim_to_bytes()</code> режет с конца. Раньше строку про недостающие документы дописывали в общий список блоков: она шла последней и обрезалась первой — ровно в том случае, для которого существует.</p></div>
           <div class="io-k">Развилка</div>
-          <div class="io-v"><p>Ничего не подошло — <code>render_no_match()</code>, ровно одна строка <code>prior context: none found</code>. Скорборд печатается в обеих ветках, потому что состояние памяти — часть ответа, а не довесок к успеху:</p>
+          <div class="io-v"><p>Ничего не подошло — <code>render_no_match()</code>, ровно одна строка <code>prior context: none found</code>. Скорборд печатается в обеих ветках, потому что состояние памяти — часть ответа, в том числе когда ответ пустой:</p>
             <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <p>Под него из бюджета заранее вычтены 128 байт: <code>render_search_results</code> урезан до <code>4096 − 128</code>. Потолок удвоили, когда в выдаче появились локаторы разделов.</p></div>
           <div class="io-k">Чем это грозит</div>
@@ -1175,7 +1177,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
           <div class="io-k">Что делает</div>
           <div class="io-v"><p>Читает <code>stdin</code> построчно: пустая строка — пропуск; при <code>JSONDecodeError</code> сразу пишется <code>_error_response(None, PARSE_ERROR, …)</code>, и цикл продолжается, не доходя до <code>_dispatch</code>.</p></div>
           <div class="io-k">Развилка</div>
-          <div class="io-v"><p><code>_dispatch()</code> отличает запрос от уведомления по наличию <code>id</code> (уведомление не получит ответа вовсе, даже при ошибке — требование JSON-RPC), ищет метод в таблице <code>_METHODS</code> — шесть обработчиков со схемы плюс <code>ping</code> — и ловит исключения на двух уровнях: <code>_ProtocolError</code> становится ответом с его кодом, голый <code>Exception</code> — <code>INTERNAL_ERROR</code> с диагностикой в <code>stderr</code>.</p></div>
+          <div class="io-v"><p><code>_dispatch()</code> отличает запрос от уведомления по наличию <code>id</code>: уведомление не получит ответа вовсе, даже при ошибке — так требует JSON-RPC. Метод ищется в таблице <code>_METHODS</code>: шесть обработчиков со схемы плюс <code>ping</code>. Исключения ловятся на двух уровнях: <code>_ProtocolError</code> становится ответом с его кодом, голый <code>Exception</code> — <code>INTERNAL_ERROR</code> с диагностикой в <code>stderr</code>.</p></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p><code>_write()</code> — единственный писатель в <code>stdout</code>, и строка <code>error: …</code> посреди кадров порвала бы следующий и оборвала сессию клиента. Один и тот же приём правильный на пути 1 и катастрофический здесь — потому что у путей разные читатели <code>stdout</code>.</p></div>
         </div>
@@ -1241,7 +1243,7 @@ engmem install --agent claude    # или copilot-ide / copilot-cli</code></pre>
     <h3>Удаление</h3>
     <p>Зеркальная команда с тем же <code>--agent</code>:</p>
 <pre><code>engmem uninstall --agent claude</code></pre>
-    <p>Она удаляет ровно те файлы, что ставила, и убирает ровно те строки триггер-правила, которые сама написала — сентинел-комментарий и строку правила сразу под ним (а для установок постарше, без сентинела, — саму строку правила, побайтово). Это узкое, точное совпадение, а не тот широкий маркер <code>`engmem search </code>, по которому <code>install</code> решает, добавлять правило или нет: удаление по такому широкому маркеру однажды снесло чужую, не связанную с engmem, строку пользователя. Реальный вывод:</p>
+    <p>Она удаляет ровно те файлы, что ставила, и убирает ровно те строки триггер-правила, которые сама написала — сентинел-комментарий и строку правила сразу под ним (а для установок постарше, без сентинела, — саму строку правила, побайтово). Совпадение узкое и точное — почему не широкое, разобрано в пути 2. Реальный вывод:</p>
 <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
 store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre>
 <p>Запускать повторно безопасно — второй раз вернёт нули.</p>
@@ -1261,9 +1263,9 @@ rm -rf ~/Developer/engmem         # ваши документы — только
 <!-- ===== ЧАСТЬ 7: ГРАНИЦЫ ===== -->
 <section>
   <p class="part">Часть 7 · Границы</p>
-  <h2>Почему инструмент такой скупой</h2>
+  <h2>Почему эта память такая скупая</h2>
   <div class="prose">
-    <p>Engmem v0.1 существует, чтобы проверить одну недоказанную гипотезу: <em>поднятые в новую задачу прошлые документы измеримо меняют её результат, и выгода превышает цену записи</em>. Ответ даёт разбор через 3–4 недели работы — по контрольным точкам, записанным до данных (<code>ENGMEM-SPEC.md</code> §11). Отсюда все ограничения — это не аскетизм, а условия чистоты опыта.</p>
+    <p>Engmem — это память; скупа она намеренно, потому что главный вопрос о ней пока открыт: <em>поднятые в новую задачу прошлые документы измеримо меняют её результат, и выгода превышает цену записи</em>. Пока это не проверено, каждая лишняя функция — вложение в недоказанное. Ответ даёт разбор через 3–4 недели работы, по контрольным точкам, записанным до данных (<code>ENGMEM-SPEC.md</code> §11). Отсюда все ограничения — условия чистоты опыта.</p>
     <div class="tablewrap"><table>
       <thead><tr><th>Ограничение</th><th>Что защищает</th></tr></thead>
       <tbody>
@@ -1286,38 +1288,38 @@ rm -rf ~/Developer/engmem         # ваши документы — только
 <header class="masthead">
   <div class="kicker">engmem v0.1 · full walkthrough</div>
   <h1>The Anatomy of engmem</h1>
-  <p class="standfirst">A tool that keeps engineering decisions from getting lost between tasks — and measures whether that changed a single decision. Here's what it sets out to prove, how it's built, and what happens inside at every step.</p>
-  <p class="standfirst" style="opacity:.7;font-size:.85em">This page is derived from the specification, not the other way round: where they disagree, <code>ENGMEM-SPEC.md</code> and the tests are right.</p>
+  <p class="standfirst">Memory for an AI coding agent: decisions, landmines and agreements stop getting lost between tasks. And unlike other such memories, this one can show whether it helps.</p>
+  <p class="standfirst" style="opacity:.7;font-size:.85em">This page is derived from the specification: where they disagree, <code>ENGMEM-SPEC.md</code> and the tests are right.</p>
 </header>
 
-<!-- ===== PART 1: WHAT IS MEASURED ===== -->
+<!-- ===== PART 1: WHAT IT IS ===== -->
 <section>
-  <p class="part">Part 1 · What is measured</p>
-  <h2>An instrument that measures reuse</h2>
+  <p class="part">Part 1 · What it is</p>
+  <h2>Memory that can measure itself</h2>
 
   <div class="lede prose">
-    <p><strong>Engmem tests one claim: a document pulled out of the past changes a decision in a new task.</strong> The answer must not be adjustable after the fact — so the measurement is built into the order of the work, not bolted on as a report at the end.</p>
-    <p>Everything else on this page — the store, the capture templates, the search, the installer — is the plumbing that exists so that loop can be run.</p>
+    <p><strong>Engmem is memory for an AI coding agent: what you worked out in one task is available to it in the next.</strong> The store, the capture templates, the search and the installer are that memory.</p>
+    <p>What is unusual is the rest: it measures its own worth. Pre-registration, a Reuse Log of verbatim quotes, and telemetry are the layer that answers the question memory is rarely asked — <strong>does a document pulled out of the past change a decision in a new task?</strong> The answer must not be adjustable after the fact, so the measurement is built into the order of the work, not bolted on as a report at the end.</p>
   </div>
 
   <div class="prose">
     <p>The product stands on three legs, and the order is the argument:</p>
     <ol>
       <li><strong>The unit of memory is an engineering story, and the store lives outside every repository.</strong> One story spans several repositories and several sessions: the decision is made in one service, the landmine is found in the next, the agreement is recorded in a third. Memory tied to a repository cuts such a story along the repository boundary; memory that hoards isolated facts loses the circumstances in which the fact was true. Everything else follows from this.</li>
-      <li><strong>Causal reuse measurement — per document, not per feeling.</strong> The intent is registered <em>before</em> the search; after the work, every document that actually influenced it gets a Reuse Log row with a verbatim quote; the rows are checked mechanically and carried to a review.</li>
-      <li><strong>A bounded retrieval channel that can be logged.</strong> Search here is the instrument's sensor: a deterministic channel with a fixed ceiling, where every call leaves a line in <code>telemetry.jsonl</code> carrying its exact cost in bytes. That is what it is for — not the completeness of its results.</li>
+      <li><strong>Causal reuse measurement — per document, not per feeling.</strong> How that works is the four beats below.</li>
+      <li><strong>A bounded retrieval channel that can be logged.</strong> Every call has a known cost and leaves a trace. That is what search is for — not the completeness of its results.</li>
     </ol>
 
     <h3>The loop end to end: four beats</h3>
-    <p>The beats run in this order only — each is meaningless without the one before it:</p>
+    <p>The order is required for the evidence, not for the work. A skipped or reordered beat breaks neither the task nor the review — the review runs on whatever was recorded. It simply stops proving anything: a naive plan written after reading the documents proves nothing.</p>
     <ol>
       <li><strong>Pre-registration.</strong> A separate sub-agent, given nothing but the task statement, writes the naive plan before any search runs, and the plan goes into the draft document. The order <em>is</em> the measurement: a plan written after the documents are read is no longer evidence.</li>
       <li><strong>The work.</strong> Search hands back section addresses, the agent reads what it found, the task proceeds as it normally would. In the middle, engmem takes no part at all.</li>
-      <li><strong>A Reuse Log row with a verbatim quote.</strong> One row per influencing document: what was quoted, what changed as a result, and what kind of influence it was (<code>reuse</code>, <code>anti-reuse</code>, <code>harmful</code>). A row without a quote is invalid; if nothing was of use, the line written is exactly <code>Prior docs used: none.</code></li>
+      <li><strong>A Reuse Log row with a verbatim quote.</strong> One row per influencing document: what was quoted, what changed as a result, and what kind of influence it was: <code>reuse</code> — the work followed the document, <code>anti-reuse</code> — it deliberately went against it, <code>harmful</code> — the document led it astray. A row without a quote is invalid; if nothing was of use, the line written is exactly <code>Prior docs used: none.</code></li>
       <li><strong>The review (Gate 1).</strong> Rows from the whole store are collected into one table and read against a rule written down in advance.</li>
     </ol>
-    <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across 4–5 cross-repository stories. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one the author would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
-    <p>One shared module, <code>src/engmem/gate1.py</code>, decides the mechanical half for every row — citation integrity, classification, distance, and staleness. <code>tools/verify_citations.py</code> and <code>tools/gate1_report.py</code> read that same verdict rather than checking independently; they differ only in what happens with it — <code>verify_citations.py</code> fails the run on an unverifiable quote, <code>gate1_report.py</code> never fails and renders all four axes into a table for the human. Its empty column is precisely the half a machine cannot decide:</p>
+    <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across a set of 4–5 cross-repository stories — one across the set, not one per story. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one the author would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
+    <p>One shared module, <code>src/engmem/gate1.py</code>, decides the mechanical part of every row — citation integrity, distance and staleness; classification it does not decide but reads, since the author sets it. <code>tools/verify_citations.py</code> and <code>tools/gate1_report.py</code> read that same verdict rather than checking independently; they differ only in what happens with it — <code>verify_citations.py</code> fails the run on an unverifiable quote, <code>gate1_report.py</code> never fails and renders all four axes into a table for the human. Its empty column is the one thing a machine cannot decide: whether the quote changed a decision. Only rows classified <code>reuse</code> reach the count: <code>anti-reuse</code> and <code>harmful</code> are printed in the table but excluded from it, as are a row without a quote and a row from a draft. So are rows from stories about engmem itself — the <code>dogfooding</code> axis in the output: building the tool cannot be evidence that the tool helps.</p>
 <pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
 |---|---|---|---|---|---|---|---|
 | 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
@@ -1334,7 +1336,7 @@ documents reporting no reuse: 1
 The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
-<p>The full run prints a second block beneath this one — sample-completeness audit coverage, not another gate — with two standing caveats the tool states in its own output: <code>--session</code> is deliberately unvalidated, so the orphan-row figure there also counts typos and cross-store contamination, not only genuine gaps; and <code>telemetry.jsonl</code> is append-only with no rotation, so pre-Gate-1 and testing rows are indistinguishable from experimental ones within whatever window is in force. See <code>docs/design/contracts/gate1.md</code>, "The audit coverage block," for the rest.</p>
+<p>The full run prints a second block beneath this one — sample-completeness audit coverage, not another gate. The tool states two standing caveats of its own. <code>--session</code> is deliberately unvalidated, so the orphan-row figure also counts typos and cross-store contamination, not only genuine gaps. And <code>telemetry.jsonl</code> is append-only with no rotation, so pre-Gate-1 and testing rows are indistinguishable from experimental ones within whatever window is in force. See <code>docs/design/contracts/gate1.md</code>, "The audit coverage block," for the rest.</p>
     <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1.</p>
 <pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
@@ -1362,16 +1364,17 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
 
   <div class="prose">
     <h3>Why the usual answers fail</h3>
+    <p>All four share one root cause: <strong>the cost of writing is paid now, the benefit arrives later and isn't guaranteed</strong>. In that trade, the present self always beats the future one.</p>
     <div class="tablewrap"><table>
       <thead><tr><th>Approach</th><th>Why it doesn't hold</th></tr></thead>
       <tbody>
-        <tr><td>Write it in Confluence / Notion</td><td>Expensive to write, more expensive to find. A month on, nobody visits: the page never surfaces itself at the moment it's needed.</td></tr>
+        <tr><td>Write it in Confluence / Notion</td><td>Expensive to write, more expensive to find: the page never surfaces itself at the moment it's needed.</td></tr>
         <tr><td>Comments in code and PRs</td><td>They answer "what does this line do", never "why did we reject the alternative". By the time you need it, the PR is long closed.</td></tr>
         <tr><td>ADRs (architecture decision records)</td><td>They work, but they're written by hand and only for big decisions. The small traps — the ones that actually eat hours — never make it in.</td></tr>
         <tr><td>The agent's own memory</td><td>Scoped to one session or one vendor, doesn't travel between tools, and can't be inspected: you can't open a file and read what it holds.</td></tr>
       </tbody>
     </table>
-    </div><p>All four share a root cause: <strong>the cost of writing is paid now, the benefit arrives later and isn't guaranteed</strong>. In that trade, the present self always beats the future one.</p>
+    </div>
   </div>
 </section>
 
@@ -1389,7 +1392,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
     <p>Three parts make that possible:</p>
     <ul>
       <li><strong>The store</strong> — a folder of markdown files under git. No database, no server, no cloud. You can open a file, read it, fix it by hand, inspect its history with <code>git log</code>.</li>
-      <li><strong>The search</strong> — the <code>engmem search</code> command: the instrument's sensor, not a rival to <code>grep</code>. Deterministic, no ML: the same query always yields the same answer, the result has a fixed ceiling, and every call leaves a telemetry line carrying its exact cost in bytes. It re-reads every document's header on every call.</li>
+      <li><strong>The search</strong> — the <code>engmem search</code> command. Deterministic, no ML: the same query always yields the same answer, the result has a fixed ceiling, and every call leaves a telemetry line carrying its exact cost in bytes. It re-reads every document's header on every call.</li>
       <li><strong>Three template commands</strong> for the agent: <code>/engmem</code> at the start of a task, <code>/engmem.save</code> at the end, <code>/engmem.save.quick</code> for a short document with no review round, when there's no attention left for one. They're markdown instructions rather than code — which is why they work in any agent.</li>
     </ul>
   </div>
@@ -1424,7 +1427,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </figure>
 
   <div class="prose">
-    <p>The flywheel above traces the loop for one document. Zoom out, and the store itself isn't a pile that only gets bigger — it's a graph that keeps getting more connected. Two different kinds of edge sit side by side in it: the ones an author wrote, and the ones nobody wrote but the retrieval channel still carries, through entities two documents happen to share though nobody linked them. The review rule counts such a pair as <em>distant</em> — no shared repository, no shared tag, no <code>related</code> edge — and those are the only ones the retrieval layer may claim credit for.</p>
+    <p>The flywheel above traces the loop for one document. Zoom out, and the store is a graph that keeps getting more connected. Two kinds of edge sit side by side in it: the ones an author wrote, and the ones nobody wrote. The retrieval channel carries the second kind on its own, through entities two documents happen to share. The review rule counts such a pair as <em>distant</em> — no shared repository, no shared tag, no <code>related</code> edge — and those are the only ones the retrieval layer may claim credit for.</p>
   </div>
 
 </section>
@@ -1434,8 +1437,8 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   <p class="part">Part 4 · One task, end to end</p>
   <h2>From the ask to the saved document</h2>
   <div class="prose">
-    <p><em>Its role in the loop:</em> this is how a document gets into the store — how the instrument acquires anything to measure at all. Steps 01 and 07 are the measuring beats themselves (pre-registration and the quoted Reuse Log row); everything between them is ordinary work.</p>
-    <p><strong>The ritual costs you one "y" — the agent walks the rest of the path, from the naive plan to the saved document.</strong> Below, step by step: what the tool does, <strong>what physically lands in the model's context</strong>, and what remains afterwards. The task: "Add response caching for a new endpoint"; similar work happened three months ago, but you no longer remember it. Every value was captured from a live run against a test store.</p>
+    <p><em>Its role in the loop:</em> this is how the memory fills up — a document reaches the store, and with it the measurement acquires something to measure. Steps 01 and 07 are the measuring beats themselves (pre-registration and the quoted Reuse Log row); everything between them is ordinary work.</p>
+    <p><strong>You type nothing: the agent walks the path from the naive plan to the finished document, and you confirm the header and answer whether this work supersedes an earlier decision.</strong> A full <code>save</code> also asks you to check the quotes — step 07 names the cost of that plainly. Below, step by step: what the tool does, <strong>what physically lands in the model's context</strong>, and what remains afterwards. The task: "Add response caching for a new endpoint"; similar work happened three months ago, but you no longer remember it. Every value was captured from a live run against a test store.</p>
   </div>
 
 <figure>
@@ -1532,7 +1535,7 @@ baseline_tokens: 1840</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">02</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:33%"></span></span></span>
-        <span class="step-titles"><span class="step-t">A draft document is created</span><span class="step-s">The file appears up front, not at the end</span></span>
+        <span class="step-titles"><span class="step-t">A draft document is created</span><span class="step-s">The file appears up front, before the work</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -1564,6 +1567,7 @@ control invalidation that way.</code></pre></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><ul>
             <li><code>status: draft</code> keeps the document out of search: unfinished work must not pass itself off as knowledge.</li>
+            <li><code>backfilled: false</code> means the document was written alongside the work. Older tasks can be entered into the store after the fact — those carry <code>backfilled: true</code>, are searched like any other, and are left out of the measurement, since the ritual was never run on them.</li>
             <li>The spine is written in full not for the parser (it derives what's missing on its own, see T2) but because these are exactly the fields search ranks on.</li>
           </ul></div>
         </div>
@@ -1606,7 +1610,7 @@ docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
               <li>The footer is the state of the memory: 7 documents, 1 draft from step 02, the newest written 19 days ago.</li>
             </ul></div>
           <div class="io-k">Why so</div>
-          <div class="io-v"><p>The 4 KB cap is not a convenience but a condition of measurement: the channel's ceiling is fixed, so its cost can be written to telemetry and compared against a baseline. The same three documents are shown however many matched — thirty matches yield the same three blocks plus a single "N more" line. And <code>(1 failed to load)</code> goes to stdout rather than stderr: the agent reads only stdout, so seven documents instead of eight would look to it like a complete answer.</p></div>
+          <div class="io-v"><p>The 4 KB cap is a condition of measurement: the channel's ceiling is fixed, so its cost can be written to telemetry and compared against a baseline. The same three documents are shown however many matched — thirty matches yield the same three blocks plus a single "N more" line. And <code>(1 failed to load)</code> goes to stdout rather than stderr: the agent reads only stdout, so seven documents instead of eight would look to it like a complete answer.</p></div>
         </div>
       </div>
     </article>
@@ -1690,7 +1694,7 @@ that already arrive instead.</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">07</span><span class="acc-track" aria-hidden="true"><span class="acc-fill" style="width:83%"></span></span></span>
-        <span class="step-titles"><span class="step-t">You run <code>/engmem.save</code></span><span class="step-s">The agent writes the document; you answer one "y"</span></span>
+        <span class="step-titles"><span class="step-t">You run <code>/engmem.save</code></span><span class="step-s">The agent writes the document; you confirm and check</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -1793,7 +1797,7 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
   <p class="part">Part 5 · The machinery</p>
   <h2>Three paths through the code</h2>
   <div class="prose">
-    <p><em>Its role in the loop:</em> this is the sensor's plumbing — the code that turns a query into a bounded result and a telemetry line, and the code that puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
+    <p><em>Its role in the loop:</em> this is the memory's own code — what turns a query into a bounded result and a telemetry line, and what puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
     <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for Claude Desktop. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
   </div>
 
@@ -1963,7 +1967,7 @@ body  = 10.13                    →  score 20.8</code></pre>
 4. result = trimmed body + withheld_line</code></pre>
             <p><code>_trim_to_bytes()</code> cuts from the end. The withheld-count line used to be appended to the same list of blocks: appended last, it was cut first — in exactly the case it exists to cover.</p></div>
           <div class="io-k">The branch</div>
-          <div class="io-v"><p>Nothing matched — <code>render_no_match()</code>, exactly one line: <code>prior context: none found</code>. The scoreboard prints on both branches, because the state of the memory is part of the answer, not a bonus tacked onto success:</p>
+          <div class="io-v"><p>Nothing matched — <code>render_no_match()</code>, exactly one line: <code>prior context: none found</code>. The scoreboard prints on both branches, because the state of the memory is part of the answer, including when the answer is empty:</p>
             <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <p>128 bytes are subtracted from the budget up front for it: <code>render_search_results</code> is capped at <code>4096 − 128</code>. The cap was doubled when section locators joined the output.</p></div>
           <div class="io-k">What it costs</div>
@@ -2174,7 +2178,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
           <div class="io-k">What runs</div>
           <div class="io-v"><p>It reads <code>stdin</code> line by line: a blank line is skipped; on <code>JSONDecodeError</code> it writes <code>_error_response(None, PARSE_ERROR, …)</code> immediately and keeps reading, without ever reaching <code>_dispatch</code>.</p></div>
           <div class="io-k">The branch</div>
-          <div class="io-v"><p><code>_dispatch()</code> tells a request from a notification by whether <code>id</code> is present (a notification gets no reply at all, even on failure — that's JSON-RPC itself), looks the method up in the <code>_METHODS</code> table — the six handlers on the diagram plus <code>ping</code> — and catches exceptions at two levels: <code>_ProtocolError</code> becomes a response carrying that error's code, a bare <code>Exception</code> becomes <code>INTERNAL_ERROR</code> with a diagnostic on <code>stderr</code>.</p></div>
+          <div class="io-v"><p><code>_dispatch()</code> tells a request from a notification by whether <code>id</code> is present: a notification gets no reply at all, even on failure — that is JSON-RPC itself. The method is looked up in the <code>_METHODS</code> table: the six handlers on the diagram plus <code>ping</code>. Exceptions are caught at two levels: <code>_ProtocolError</code> becomes a response carrying that error's code, a bare <code>Exception</code> becomes <code>INTERNAL_ERROR</code> with a diagnostic on <code>stderr</code>.</p></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p><code>_write()</code> is the only writer to <code>stdout</code>, and a line like <code>error: …</code> in the middle of a stream of frames would tear the next one and end the client's session. The same technique is correct on path 1 and catastrophic here — because the two paths have different readers of <code>stdout</code>.</p></div>
         </div>
@@ -2240,7 +2244,7 @@ engmem install --agent claude    # or copilot-ide / copilot-cli</code></pre>
     <h3>Removal</h3>
     <p>The mirror command, with the same <code>--agent</code>:</p>
 <pre><code>engmem uninstall --agent claude</code></pre>
-    <p>It deletes exactly the files it installed, and removes exactly the trigger-rule lines it wrote itself — the sentinel comment plus the rule line right after it (or, for older installs with no sentinel, the bare rule line, matched byte-for-byte). That is a narrow, exact match, not the broad <code>`engmem search </code> marker <code>install</code> uses to decide whether to add the rule at all: deleting on that broad marker once destroyed a user's own, unrelated line. The real output:</p>
+    <p>It deletes exactly the files it installed, and removes exactly the trigger-rule lines it wrote itself — the sentinel comment plus the rule line right after it (or, for older installs with no sentinel, the bare rule line, matched byte-for-byte). The match is narrow and exact — why it is not broad is worked through in path 2. The real output:</p>
 <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
 store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre>
 <p>Safe to run twice — the second run reports zeros.</p>
@@ -2260,9 +2264,9 @@ rm -rf ~/Developer/engmem         # your documents — only if you're sure</code
 <!-- ===== PART 7: LIMITS ===== -->
 <section>
   <p class="part">Part 7 · Limits</p>
-  <h2>Why the tool is so frugal</h2>
+  <h2>Why this memory is so frugal</h2>
   <div class="prose">
-    <p>Engmem v0.1 exists to test one unproven hypothesis: <em>prior documents pulled into a new task measurably change its outcome, and the benefit exceeds the cost of writing them</em>. The answer comes from a review after 3–4 weeks of real work, against endpoints written down before the data (<code>ENGMEM-SPEC.md</code> §11). Hence every constraint — not asceticism, but the conditions for a clean experiment.</p>
+    <p>Engmem is memory; v0.1 is frugal on purpose, because the central question about it is still open: <em>prior documents pulled into a new task measurably change its outcome, and the benefit exceeds the cost of writing them</em>. Until that is tested, every extra feature is an investment in something unproven. The answer comes from a review after 3–4 weeks of real work, against endpoints written down before the data (<code>ENGMEM-SPEC.md</code> §11). Hence every constraint: they are the conditions for a clean experiment.</p>
     <div class="tablewrap"><table>
       <thead><tr><th>Constraint</th><th>What it protects</th></tr></thead>
       <tbody>

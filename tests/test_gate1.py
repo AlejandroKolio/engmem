@@ -110,6 +110,22 @@ def test_harmful_classification_is_read_and_excludes_the_row(tmp_path):
     assert not gate1.is_valid(row)
 
 
+def test_anti_reuse_classification_is_read_and_excludes_the_row(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
+    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
+         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification="anti-reuse"))
+
+    row = _one_row(tmp_path)
+
+    assert row.classification == "anti-reuse"
+    assert row.integrity == "verified", "anti-reuse is a classification fact, not a citation defect"
+    assert row.distance == "distant", "the exclusion must hold even where the row would otherwise count"
+    assert gate1.exclusion_reason(row) == "excluded: classification anti-reuse"
+    assert not gate1.is_valid(row)
+    assert not gate1.is_primary_candidate(row), "a genuine influence event still isn't a reuse event"
+
+
 def test_a_three_column_row_has_a_missing_classification_not_an_indexerror(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")

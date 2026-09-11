@@ -623,10 +623,10 @@ it.
 
 ## 11. Gate 1 — pre-registered endpoints and interpretation
 
-**Recorded 2026-08-25, before the first measured story.** The point of writing this down
-now is that none of it can be chosen after seeing the data. If an endpoint below turns out
-to be the wrong question, it is replaced by editing this section *and saying so* — never by
-reading the result differently.
+**Recorded 2026-08-25.** The intent of writing this down now, rather than after results
+are in, is that no endpoint is chosen to fit data already seen. If an endpoint below turns
+out to be the wrong question, it is replaced by editing this section *and saying so* — never
+by reading the result differently.
 
 ### Primary endpoint
 
@@ -677,6 +677,24 @@ work in the endpoint's favour.
 | Primary met | The retrieval layer earns its place. Continue. |
 | Primary missed, secondaries met | The measurement layer is unproven; the store as compressed context is proven. Keep the store, stop investing in the measurement superstructure. |
 | Primary missed by story 10–12, no distant event at all | The measurement superstructure measures zero. That is a result, not a failure to be retried with softer criteria. |
+| Fewer than 10 counted stories, no distant event | **Undecided, and not a miss.** The sample is too small to separate a rare event from an absent one, so no reading is licensed in either direction — including the flattering one that the tool "just needs more time". This row expires at story 10: past that count the row above governs and "not enough data yet" stops being available. |
+
+**Amendment, recorded 2026-09-06, before the numbers for this period were collected.** The
+table above had no row for the state the experiment occupies most of the time: too few
+completed stories to say anything at all. Without it, a zero at four stories has no
+pre-registered reading, and one would have been chosen *after* seeing that zero — the exact
+substitution this section exists to prevent. Recorded here rather than read into an existing
+row, per this section's own rule. The new row is bounded on purpose so that it cannot become
+the escape hatch the third row forbids: it expires at story 10, and it softens none of the
+three rows above it.
+
+**Left open, and named rather than resolved:** this section counts "stories" without saying
+whether a `backfilled` document is one. It is not, in any reading that matters — a backfilled
+document ran no ritual, has no pre-registration, and its Reuse Log was filled from memory
+(§4: "docs written after the fact") — but that exclusion is *not* currently written into the
+primary endpoint's population, and writing it in now, with the store's composition already
+known, would be choosing a rule against visible data. It is flagged here so the gap is on the
+record, to be closed by the author deliberately rather than discovered at review time.
 
 ### What does not count as evidence
 
@@ -696,3 +714,16 @@ work in the endpoint's favour.
 - **A row without a verbatim quote.** `src/engmem/gate1.py` rejects it, and so does the
   count — both `tools/verify_citations.py`'s exit code and `tools/gate1_report.py`'s table
   are computed from that one verdict, not two independent readings of the same rows.
+- **A row classified `anti-reuse`.** The prior document was opened, quoted, and the work
+  deliberately went the other way because of it — a genuine influence event, not an
+  oversight. It is excluded from the primary count regardless: the endpoint is
+  conservative by design, crediting the store only when it supplied the answer the work
+  used, never when it supplied a foil the work correctly rejected. *(Added 2026-09-03;
+  not a change to the endpoint — the exclusion entered the primary endpoint paragraph
+  above on 2026-08-28, commit `9663592`, and was not declared at the time. It changes no
+  verdict now: the three populated Reuse Log rows in the live store are all classified
+  `reuse`. `anti-reuse` had no written definition anywhere in the repository until this
+  date — see `templates/engmem.save.md`'s Reuse Log rules and `data-model.md`'s Reuse
+  Log Entry table. The count itself is unchanged; `gate1.py` already excluded
+  `anti-reuse` under its own name, this bullet only records the exclusion and its
+  rationale.)*

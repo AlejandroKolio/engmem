@@ -192,6 +192,58 @@ def test_the_spec_parking_section_exists_and_is_not_empty():
 
 
 
+def _start_template() -> str:
+    return (ROOT / "src" / "engmem" / "templates" / "engmem.start.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def _start_step(heading: str, next_heading: str) -> str:
+    template = _start_template()
+    return template[template.index(heading) : template.index(next_heading)]
+
+
+def test_the_start_template_asks_for_the_session_id_inside_each_search_bullet():
+    """An agent acts on the bullet matching its runtime and stops reading, so the requirement
+    has to be part of the call instruction, not a paragraph after the bullets."""
+    step3 = _start_step("## 3. Search for prior context", "## 4.")
+    bullets = ["- " + b for b in step3.split("\n- ")[1:]]
+
+    cli = next(b for b in bullets if b.startswith("- If you can run shell commands"))
+    mcp = next(b for b in bullets if b.startswith("- If your runtime exposes"))
+
+    assert "--session" in cli and "Always" in cli
+    assert "`session_id`" in mcp and "Always" in mcp
+
+
+def test_the_start_template_does_not_excuse_a_search_without_a_session_id():
+    """A draft that could not be created is a thing to report; it is never a sanctioned way to
+    log a row nothing can attribute."""
+    step2 = _start_step("## 2. Create the draft", "## 3.")
+    fallback = step2[step2.index("- If you can do neither") :]
+
+    assert "session_id" not in fallback
+
+
+def test_the_start_template_tells_an_agent_without_a_draft_not_to_pass_an_id():
+    """The id is composed in step 2 before the draft is written, so a failed write leaves the
+    agent holding one while step 3 says to always pass it. Passing it then attributes the row to
+    a document that does not exist -- what the audit reports as an orphan."""
+    from engmem.gate1_audit import AuditReport
+
+    step3 = _start_step("## 3. Search for prior context", "## 4.")
+    no_draft = next(
+        b for b in ("- " + s for s in step3.split("\n- ")[1:])
+        if "could not create the draft" in b
+    )
+
+    assert "Never pass" in no_draft, "the no-draft branch must forbid passing an id, not sanction it"
+    assert "orphan" in no_draft, "and name what such a row becomes in the audit"
+    assert "orphan_session_ids" in AuditReport.__dataclass_fields__, (
+        "the template's 'orphan' is a claim about gate1_audit, which must still report it"
+    )
+
+
 def test_the_save_template_asks_about_a_superseded_citation():
     """A row citing a superseded document is indistinguishable from honest reuse once the session
     is over."""
@@ -203,3 +255,25 @@ def test_the_save_template_asks_about_a_superseded_citation():
 
     assert "superseded" in rules, "the Reuse Log rules must address citing a stale document"
     assert "harmful" in rules, "and say how such a row is classified"
+
+
+def test_the_save_template_defines_anti_reuse():
+    """The discriminator must be agreement-vs-departure, not impact-cell polarity, which
+    inverts when the prior document's own decision was itself a rejection."""
+    template = (ROOT / "src" / "engmem" / "templates" / "engmem.save.md").read_text(
+        encoding="utf-8"
+    )
+    rules_start = template.index("### Reuse Log rules")
+    rules = template[rules_start : template.index("## 3.", rules_start)]
+    normalized = " ".join(rules.split())
+
+    assert "deliberately go the other way" in normalized, (
+        "anti-reuse must be defined, not just listed alongside reuse and harmful"
+    )
+    assert "followed the prior document or went against it" in normalized, (
+        "the discriminator must be agreement-vs-departure, stated explicitly"
+    )
+    assert 'never "so we did X"' not in normalized, (
+        "the impact-cell polarity rule inverts when the prior document's own decision was "
+        "a rejection -- it must not reappear"
+    )

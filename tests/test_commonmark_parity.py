@@ -34,6 +34,10 @@ AGREE = {
     "hash inside the heading text": "## Migrating to C#\n\np\n",
     "setext heading": "Architecture\n------------\n\np\n",
     "thematic break after a blank line": "## Architecture\n\np\n\n---\n\ntail\n",
+    "one-space indented atx heading": "## Architecture\n\np\n\n ## Testing\n\nc\n",
+    "three-space indented atx heading": "## Architecture\n\np\n\n   ## Testing\n\nc\n",
+    "indented setext text line": " Architecture\n------------\n\np\n",
+    "indented setext underline": "Architecture\n ------------\n\np\n",
 }
 
 

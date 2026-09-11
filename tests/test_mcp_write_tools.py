@@ -103,6 +103,24 @@ def test_create_draft_writes_a_document_load_store_parses_cleanly(store):
     assert doc.status == "draft"
 
 
+def test_create_draft_success_text_carries_the_id_into_the_next_search(store):
+    """The draft id is produced here and needed on the next search call; without the directive
+    nothing carries it across, and every search of the task is logged unattributed."""
+    result, is_error = _call(
+        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
+    )
+    text = _text(result)
+
+    assert not is_error
+    assert "session_id" in text, "the id alone does not say what to do with it"
+    assert mcp_server.TOOL_NAME in text and mcp_server.ROLE_TOOL_NAME in text, (
+        "the directive must name the tools the id is passed to"
+    )
+    assert text.count("20260101-widget-cache") >= 2, (
+        "the value to pass must appear beside the directive, not only in the written path"
+    )
+
+
 def test_create_draft_refuses_to_overwrite_an_existing_file(store):
     existing = store / "sessions" / "20260101-widget-cache.md"
     existing.write_text("not touched", encoding="utf-8")
@@ -324,6 +342,217 @@ def test_complete_draft_transitions_status_from_draft_to_active(store):
     assert "## Cold-start primer" in doc.body
     assert "## Reuse Log" in doc.body
     assert "## Search Trace" in doc.body
+
+
+def test_complete_draft_warns_but_still_succeeds_on_an_unverifiable_citation(store):
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        '| some-prior-doc.md | "a quote that cannot be checked" | helped | reuse |\n\n'
+        "## Search Trace",
+    )
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "draft" in text and "active" in text
+    assert "warning" in text.lower()
+    assert "some-prior-doc.md" in text
+    assert "tools/verify_citations.py --store" in text
+    written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
+    assert written == content
+
+
+def test_complete_draft_cited_id_with_md_suffix_is_reported_as_a_citation_problem(store):
+    """A document's id is its front-matter `id`, else the filename stem — never the filename,
+    so a `.md` suffix never resolves and the warning must still name the row."""
+    _write_raw(
+        store,
+        "20260101-other-doc",
+        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
+    )
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        '| 20260101-other-doc.md | "Chose CacheWarmer over a lazy cache fill" | helped | reuse |\n\n'
+        "## Search Trace",
+    )
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "20260101-other-doc.md" in text
+    assert "not in the store" in text
+    assert "20260101-widget-cache.md:" in text
+    assert "prior-doc takes the document's id" in text
+
+
+def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
+    _write_raw(
+        store,
+        "20260101-other-doc",
+        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
+    )
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        '| 20260101-other-doc | "Chose CacheWarmer over a lazy cache fill" | helped | reuse |\n\n'
+        "## Search Trace",
+    )
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "draft" in text and "active" in text
+    assert "warning" not in text.lower()
+
+
+def test_complete_draft_warns_on_a_row_with_no_quote(store):
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        "| some-prior-doc | used it without a direct quote | helped | reuse |\n\n"
+        "## Search Trace",
+    )
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "no quote in the" in text
+
+
+def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
+    _write_raw(
+        store,
+        "20260101-other-doc",
+        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
+    )
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        '| 20260101-other-doc | "this exact sentence is not in the cited document" | helped | reuse |\n\n'
+        "## Search Trace",
+    )
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "quote not found in" in text
+    assert "this exact sentence is not in the cited document" in text
+
+
+def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
+    other_content = ACTIVE_CONTENT.replace(
+        "id: 20260101-widget-cache", "id: 20260101-other-doc"
+    ).replace(
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        "## Reuse Log\n\n"
+        "| prior-doc | taken | impact | classification |\n"
+        "|---|---|---|---|\n"
+        '| leaked-sentinel-doc.md | "a quote that cannot be checked" | helped | reuse |\n\n'
+        "## Search Trace",
+    )
+    _write_raw(store, "20260101-other-doc", other_content)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+
+    result, is_error = _call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "leaked-sentinel-doc.md" not in text
+    assert "warning" not in text.lower()
+
+
+def test_complete_draft_warns_when_the_document_has_no_reuse_log_section_at_all(store):
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "no Reuse Log section" in text
+    assert "it is now active" in text
+    assert 'active documents missing a Reuse Log section' in text
+
+
+def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises(
+    store, monkeypatch
+):
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+
+    def _boom(_store):
+        raise OSError("disk gremlin")
+
+    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+
+    result, is_error = _call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "draft" in text and "active" in text
+    assert "note: citation check did not run" in text
+    written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
+    assert written == ACTIVE_CONTENT
+
+
+def test_complete_draft_skips_the_citation_check_when_there_is_no_reuse_log(store, monkeypatch):
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+
+    def _boom(_store):
+        raise OSError("sessions/ unreadable")
+
+    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+    content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+
+    assert not is_error
+    text = _text(result)
+    assert "no Reuse Log section" in text
+    assert "citation check did not run" not in text
 
 
 def test_complete_draft_refuses_when_no_draft_exists(store):

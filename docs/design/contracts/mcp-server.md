@@ -97,6 +97,37 @@ is unanswerable — its handler is skipped entirely rather than doing
 unhandled bug in a handler reports an internal-error response instead of
 killing the stdio loop for every other request still coming.
 
+## `session_id`: optional to the schema, asked for in every wording
+
+`session_id` is the only field joining a retrieval to the session document that
+later cites it (`contracts/gate1.md`), and a row without one is invisible to the
+Gate 1 analysis. It nevertheless stays out of `inputSchema["required"]` for both
+search tools: a search issued before any draft exists is legitimate, and making
+it required would turn that case into a protocol error instead of an
+unattributed row. Its telemetry semantics are unchanged by any of this — absent,
+blank, or whitespace-only all log an explicit `null` (`cli._session_id`'s rule,
+mirrored so both channels write the same key), and a non-string is `-32602`
+rather than a stringified value.
+
+What carries the requirement instead is the wording, in three places, because at
+tool-call time the schema is what the model reads while the prompt template's
+instruction has long scrolled out of the transcript:
+
+- `_SESSION_ID_SCHEMA["description"]` is imperative and names the consequence of
+  omitting it. It opened with the literal word "Optional:" and made the call
+  conditional ("pass it whenever `/engmem` has already created the draft"); a
+  real store held 26 telemetry rows at the time, and none carried a `session_id`.
+- `TOOL_DESCRIPTION` and `ROLE_TOOL_DESCRIPTION` each ask for it once, so a
+  client that shows only the tool description still surfaces the requirement.
+- `_handle_create_draft`'s success text names the id **and** what to do with it —
+  the draft id is otherwise produced at one call and needed at the next, with
+  nothing carrying it across.
+
+The consequence is deliberately stated in the result text of `create_draft`, not
+appended to a search result that lacks a `session_id`: `context_bytes` measures
+exactly the rendered search text (`_run_search_for_tool`), and a note added there
+would inflate the number the experiment reports.
+
 ## Write tools: security contract
 
 Every write target MUST resolve inside the resolved store's `sessions/`
@@ -145,6 +176,88 @@ The three tools' own rules:
   (`_patch_front_matter_line`), leaving the rest of the document
   byte-for-byte untouched — retyping the whole document to flip two fields
   would risk silent drift in everything else.
+
+### `engmem_complete_draft`: citation-integrity warning
+
+Once the commit above lands, `_citation_notes` runs at most one of two
+checks against the document just completed and returns zero or more lines
+appended to the success text; the tool result is still `isError: false` and
+the write is never undone by anything this diagnostic finds.
+
+1. **Missing Reuse Log section — a guard clause, not a first pass.**
+   `split_sections(doc.body)` on the already-parsed, already-committed `doc`
+   — no re-read — checked for a section whose `canonical` role is `reuse`.
+   Absent, the note fires and the function returns immediately: `sessions/
+   <id>.md has no Reuse Log section — it is now active, so gate1_audit
+   counts it under "active documents missing a Reuse Log section"`
+   (present tense — the transition already happened by the time this text
+   is shown, the front-matter `status` on disk already reads `active`, and
+   the document is already inside `gate1_audit.active_missing_reuse`
+   (`_has_role(doc, "reuse")`) the moment the next audit runs; a note that
+   reads as describing a future condition invites deferring the fix).
+   Returning here is not only about phrasing: with no `reuse` section,
+   `gate1.evaluate`'s per-document loop (`gate1.py`) skips the document
+   entirely — it never produces a `RowVerdict` for it — so point 2 below is
+   guaranteed to find zero rows for this document. Falling through anyway
+   would pay for a `load_store`, a `_repos()` read per document and a
+   `_line_number()` read per row, all for a result already known empty. It
+   would also change output, not only cost: on the one input where the two
+   versions disagree — no `reuse` section AND `gate1.evaluate` raising —
+   falling through would additionally emit `note: citation check did not run
+   (<exc>)`. The guard clause deliberately suppresses that note: there is no
+   citation check to fail, because there was nothing to check, and the
+   missing-section warning above has already said so — the close-out is not
+   silent either way. This is the highest-value of the two checks, and the
+   one `gate1.evaluate` cannot see on its own for the reason just given.
+2. **Row-level citation problems** (only reached when a Reuse Log section
+   exists). `gate1.evaluate(store)` re-evaluates the
+   whole store — the same per-row verdicts `tools/verify_citations.py` and
+   `tools/gate1_report.py` use (`contracts/gate1.md`) — filtered to the rows
+   whose `citing.id` is the document just completed. Only the three
+   integrity verdicts short of `verified` are reported: `no_quote`,
+   `cited_missing`, `quote_not_found`, each message carrying `row.source`
+   (`<filename>:<line>`) so a document with several rows still names the
+   right one. A `cited_missing` message additionally states the fix: `taken`
+   above is fine, `prior-doc` is what wants a document id, not a filename.
+   Staleness (`cited_superseded`) and a conflicted Reuse Log
+   (`verdicts.conflicts`, the section carrying both a "none" line and real
+   rows) are deliberately NOT reported here — both are a judgement call for
+   the reviewing human, not a mechanical defect in the row's shape, and
+   `tools/verify_citations.py`/`tools/gate1_report.py` already surface them
+   at the next full run. `gate1.evaluate` itself can raise (`_repos` and
+   `_line_number` both call `read_text` unguarded on every document's path,
+   not only the one just completed) — caught and degraded to
+   `note: citation check did not run (<exc>)` rather than letting an
+   exception from a read-only diagnostic turn an already-successful commit
+   into a JSON-RPC error the caller did not cause and cannot undo by retrying
+   (retrying only trips the very next check: "not 'draft'").
+
+Warn, not refuse: `engmem_complete_draft` already runs two hard checks before
+this point (existing `status` is `draft`, new content's `status` is `active`
+with a matching `id`) and both concern the transition itself — a state
+`gate1.evaluate` cannot see and that, if wrong, corrupts the store's own
+status invariant. A Reuse Log defect is different in kind: it is a finding
+about content the author already chose to publish, exactly the kind of
+finding `tools/verify_citations.py`/`gate1_audit` report for a document
+already active in the store, neither of which goes back and un-publishes it.
+Refusing the close-out over it would block a save on a defect the human is
+meant to see and fix by hand (a filename instead of an id, a missing
+section, a paraphrased quote), not one `engmem_complete_draft` itself
+introduced or can safely repair. The MCP write tools already have this
+"note, don't fail" shape when the failure is diagnostic rather than
+structural — see `_run_search_for_tool`'s `telemetry not recorded` note in
+`mcp_server.py`, which is `isError: false` for the same reason: search
+succeeded, and the note is about a side channel. Unlike that precedent,
+though, `_citation_notes`'s own failure path (`gate1.evaluate` raising) is
+caught explicitly rather than returned by the callee, because `gate1.evaluate`
+has no error-return shape of its own to report through — see point 2 above.
+
+`tools/verify_citations.py` and `gate1_audit` remain the store-wide gate
+(Gate 1's own exit code and the sample-completeness audit); this warning only
+ever concerns the single document just completed, at the moment it is
+completed, so the two defects above are visible immediately rather than only
+at the next full run — and only those two: staleness and a conflicted Reuse
+Log stay with the store-wide tools, per point 2.
 
 ### `engmem_mark_superseded`: two reads of one document
 

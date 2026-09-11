@@ -127,7 +127,7 @@ refuse its own write.
 | `prior-doc` | id of the prior document that influenced this work |
 | taken | concrete artifact reused (class / contract / decision / pitfall) + a direct quote from the prior document |
 | impact | how it influenced this work |
-| classification | `reuse` \| `anti-reuse` \| `harmful` |
+| classification | `reuse` \| `anti-reuse` (quoted, then deliberately departed from) \| `harmful` |
 
 **Validity rule**: a row exists only if the prior document was actually opened and
 influenced the work; the artifact must be concrete (not "the doc was helpful"); a row

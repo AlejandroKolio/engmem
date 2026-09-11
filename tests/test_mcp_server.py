@@ -1295,6 +1295,36 @@ def test_tools_list_declares_session_id_as_an_optional_string(store):
     assert schema["required"] == ["query"], "session_id must stay optional"
 
 
+def _search_tools(store) -> dict:
+    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    tools = {t["name"]: t for t in responses[0]["result"]["tools"]}
+    return {name: tools[name] for name in (mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME)}
+
+
+@pytest.mark.parametrize("tool_name", [mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME])
+def test_the_session_id_schema_asks_for_the_id_and_names_the_cost_of_omitting_it(
+    store, tool_name
+):
+    """Optional to the schema, asked for in the wording: at tool-call time the description is
+    what the model reads, and calling it "Optional" is what produced rows with no session_id."""
+    description = _search_tools(store)[tool_name]["inputSchema"]["properties"]["session_id"][
+        "description"
+    ]
+
+    assert "optional" not in description.lower(), (
+        "the description must ask for the id, not offer it"
+    )
+    assert "unattributed" in description, (
+        "and must say what omitting it costs — the row drops out of the analysis"
+    )
+
+
+@pytest.mark.parametrize("tool_name", [mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME])
+def test_each_search_tool_description_asks_for_the_session_id(store, tool_name):
+    """A client that shows only the tool description must still surface the requirement."""
+    assert "session_id" in _search_tools(store)[tool_name]["description"]
+
+
 # ---------------------------------------------------------------------------
 # `channel` + `context_bytes` — the MCP side of both.
 # ---------------------------------------------------------------------------

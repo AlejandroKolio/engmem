@@ -85,6 +85,15 @@ counted identically to a `reuse` row. It no longer does: `exclusion_reason()` tr
 `harmful`, `anti-reuse`, `missing`, and `unrecognized` as terminal exclusions from the primary
 count, each under its own name in the printed verdict cell.
 
+`anti-reuse` (`templates/engmem.save.md`'s Reuse Log rules) marks a row that genuinely
+influenced the work: the prior document was opened, quoted, and the work deliberately went
+the other way because of it. That is still excluded from the primary count, and
+deliberately so — the endpoint (`ENGMEM-SPEC.md` §11) is conservative by construction,
+crediting the store only when it supplied the answer the work used, not when it supplied a
+foil the work correctly rejected. `exclusion_reason()` does not distinguish the two
+terminal classifications by weight; both print under their own name and neither passes
+`is_primary_candidate()`.
+
 ## Supersession is a flag, not a filter (requirement 3)
 
 `verify_citations.py` already detected a citation of a `superseded` document and correctly

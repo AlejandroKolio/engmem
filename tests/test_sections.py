@@ -454,6 +454,27 @@ def test_hash_that_is_part_of_the_heading_text_is_kept():
     assert split_sections("## Migrating to C#\n\nBody.\n")[0].heading == "Migrating to C#"
 
 
+def test_atx_heading_indented_up_to_three_spaces_is_still_a_boundary():
+    """CommonMark allows 0-3 leading spaces on an ATX heading; a 1-3 space indent (an easy
+    accident from an editor or an LLM-authored doc) used to be swallowed into the section
+    above it instead of starting its own."""
+    body = "## Architecture\n\nProse.\n\n  ## Testing\n\nCovered.\n"
+
+    sections = split_sections(body)
+
+    assert [s.heading for s in sections] == ["Architecture", "Testing"]
+    assert sections[0].body == "Prose."
+    assert sections[1].canonical == "testing"
+
+
+def test_atx_heading_indented_four_spaces_stays_indented_code():
+    """4+ leading spaces is CommonMark's indented-code-block threshold, not a heading — the
+    indent must not slide past it."""
+    body = "## Architecture\n\nProse.\n\n    ## still code, not a heading\n\ntail\n"
+
+    assert [s.heading for s in split_sections(body)] == ["Architecture"]
+
+
 def test_setext_headings_are_sections_too():
     """A document written with underlined headings collapsed into one anonymous section, losing
     every role at once."""
@@ -462,6 +483,17 @@ def test_setext_headings_are_sections_too():
     sections = split_sections(body)
 
     assert [s.heading for s in sections] == ["Architecture", "Testing"]
+    assert sections[0].canonical == "architecture"
+
+
+def test_indented_setext_heading_still_folds_to_h2():
+    """The whole document collapsed into one anonymous section when a setext title or its
+    underline carried 1-3 leading spaces — CommonMark still reads it as a heading."""
+    body = "  Architecture\n  ------------\n\nProse.\n"
+
+    sections = split_sections(body)
+
+    assert [s.heading for s in sections] == ["Architecture"]
     assert sections[0].canonical == "architecture"
 
 
@@ -477,6 +509,28 @@ def test_list_item_above_a_dashed_line_is_not_a_heading():
     body = "## Architecture\n\n- an item\n---\n\ntail\n"
 
     assert [s.heading for s in split_sections(body)] == ["Architecture"]
+
+
+def test_numbered_list_item_above_a_dashed_line_is_not_a_heading():
+    """CommonMark reads a numbered list item immediately followed by `---` as a list plus a
+    thematic break, not a setext heading — folding it anyway invented a bogus section and
+    truncated the roled section above it at its last numbered item."""
+    body = "## Decision Log\n\n1. Chose X over Y\n2. Chose Z\n---\n\n## Search Trace\n\nTrace body.\n"
+
+    sections = split_sections(body)
+
+    assert [s.heading for s in sections] == ["Decision Log", "Search Trace"]
+    assert sections[0].canonical == "decisions"
+    assert sections[0].body == "1. Chose X over Y\n2. Chose Z\n---"
+
+
+def test_a_leading_digit_that_is_not_a_list_marker_is_still_a_setext_heading():
+    """A leading number is only excluded when it reads as an ordered-list marker (digits then
+    `.`/`)` then whitespace) — "3D" has no such gap, so it stays a heading rather than being
+    misread as list-item "3" followed by text."""
+    body = "3D Rendering\n---\n\ntail\n"
+
+    assert split_sections(body)[0].heading == "3D Rendering"
 
 
 @pytest.mark.parametrize(

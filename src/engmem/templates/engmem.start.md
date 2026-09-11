@@ -85,23 +85,27 @@ capture_minutes:                 # left empty: a draft has measured nothing yet
   document, so a call that fails because the id is already taken means the id itself
   needs to change, not something to retry as-is.
 - If you can do neither: skip creating the draft, say so in your final report, and
-  keep going — steps 3–6 below are not blocked by it (a search below with no
-  `session_id` is still a search).
+  keep going — steps 3–6 below are not blocked by it.
 
 ## 3. Search for prior context
 
+- If step 2 could not create the draft, there is no id to pass: run the search without
+  `--session` / `session_id`, and say so in your final report — an unattributed row is the
+  cost of a missing draft, not a free pass. Never pass an id whose document was never
+  written: that row is attributed to a document that does not exist, and the Gate 1 audit
+  reports it as an orphan. Every bullet below assumes step 2 produced a draft.
 - If you can run shell commands: run
   `engmem search "<key terms from the task>" --session <the draft id from step 2>` directly.
+  **Always pass `--session`** — on every search you run in this task, not just the first.
+  It is what ties a search to the document this task will produce; without it the row is
+  logged unattributed and nothing can connect what was retrieved to what was reused.
 - If your runtime exposes the `engmem_search` MCP tool instead of a shell: call it with the
-  same key terms as `query` and the draft id as `session_id`.
+  same key terms as `query`. **Always pass the draft id from step 2 as `session_id`** — on
+  every call, `engmem_search_by_role` included, for the same reason as `--session` above.
 - If you can do neither (no shell access in this environment): print the exact
   `engmem search "..." --session <id>` command for the user to run themselves, and ask them
   to paste the output back into the conversation. Do not silently skip this step just
   because you can't run it yourself.
-
-**Always pass the session id.** It is what ties a search to the document this task will
-produce: without it the search is logged, but nothing can ever connect what was retrieved
-to what was actually reused, and the row counts as unattributed at review time.
 
 ## 4. Load what was found — and measure what it cost
 

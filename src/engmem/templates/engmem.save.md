@@ -24,8 +24,12 @@ conversation:
 `entities`, `related`, `covers_files`, `verified_at_commit`, `capture_minutes`, `author`,
 `repos`, `branch`, `pr`
 
-The last four are new and worth a word each — derive them, never guess them:
+`related` and the last four are worth a word each — derive them, never guess them:
 
+- `related` — document ids, never filenames: a `.md` suffix will not resolve. It breaks
+  both `gate1`'s adjacency check (a citation that should read `adjacent` reads `distant`
+  instead) and a search hit's rendered related line (a document that IS in the store
+  renders as "not in store").
 - `author` — who did the work. Prefer `git config user.name` (and `user.email` if you
   want both); leave blank if neither is available rather than inventing a name.
 - `repos` — the repository or repositories this work actually touched, as a list (e.g.
@@ -162,6 +166,10 @@ One row per prior document that **actually influenced** this work:
 | prior-doc | taken | impact | classification |
 |---|---|---|---|
 
+- `prior-doc` is the cited document's id — its front-matter `id`, else its filename
+  **stem**. Never the filename as written on disk: a `.md` suffix will not resolve, and
+  the row is reported as citing a document that is not in the store and dropped from the
+  Gate 1 count.
 - `taken` must name a concrete artifact (a class, contract, decision, or pitfall) **and**
   include a direct quote from that prior document. A row without a quote is invalid —
   do not write one. The quote is **verbatim**: copied character for character out of the
@@ -170,6 +178,15 @@ One row per prior document that **actually influenced** this work:
   checks every quote against the cited file; run it before finalising. An approximate
   quote reads as a fabricated one.
 - `classification` is one of `reuse`, `anti-reuse`, `harmful`.
+- Classify a row `anti-reuse` if the prior document was opened and quoted, and the
+  decision it caused was to deliberately go the other way — the new work departs from
+  what the document records, and that document is the reason the departure was a
+  decision rather than an oversight. The test is whether the new work followed the
+  prior document or went against it: adopting a rejection the document itself records
+  is still following it, and stays `reuse`; doing the thing the document rejected,
+  because the document made that choice visible, is `anti-reuse`. This differs from
+  `harmful`, where the author was actually misled — under `anti-reuse` the outcome is
+  better for having read the document.
 - Never estimate time saved in this row — that's a judgment for the human at review time,
   not something to guess here. Record only the fact that the prior document was used.
 - Never list a merely topically-related document that was not actually opened and used.

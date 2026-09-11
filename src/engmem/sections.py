@@ -9,10 +9,12 @@ from dataclasses import dataclass
 # see contracts/sections.md for the measurement behind this cap
 MAX_SECTION_BYTES = 4096
 
+# `[ \t]{0,3}` mirrors CommonMark's up-to-3-space heading indentation (4+ is an
+# indented code block, not a heading) — the same allowance `_FENCE_RE` already uses.
 # `(?:[ \t]+#+)?` eats ATX's optional closing `## X ##` so the hashes don't leak
 # into the heading text; the space before it keeps `C#` intact.
-_H2_RE = re.compile(r"^##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
-_H3_RE = re.compile(r"^###[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
+_H2_RE = re.compile(r"^[ \t]{0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
+_H3_RE = re.compile(r"^[ \t]{0,3}###[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$", re.MULTILINE)
 _FENCE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})([^\n]*)$", re.MULTILINE)
 
 
@@ -192,8 +194,12 @@ def _split_oversized(heading: str, content: str) -> list[Section]:
     return sections
 
 
+# `(?!\d{1,9}[.)][ \t])` rejects an ordered-list marker ("2. " / "10) ") on the text
+# line: CommonMark reads that construct as a list item followed by a thematic break, not
+# a heading, and folding it anyway truncated a roled section at its last numbered item.
 _SETEXT_H2_RE = re.compile(
-    r"^(?P<text>[^\s#>|*+-][^\n]*?)[ \t]*\n-{3,}[ \t]*$", re.MULTILINE
+    r"^[ \t]{0,3}(?!\d{1,9}[.)][ \t])(?P<text>[^\s#>|*+-][^\n]*?)[ \t]*\n[ \t]{0,3}-{3,}[ \t]*$",
+    re.MULTILINE,
 )
 
 

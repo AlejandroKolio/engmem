@@ -12,7 +12,7 @@ from typing import Any, TextIO
 
 import yaml
 
-from engmem import __version__
+from engmem import __version__, gate1
 from engmem.cache import identity_for
 from engmem.output import (
     render_no_match,
@@ -22,7 +22,7 @@ from engmem.output import (
     select_role_hits,
 )
 from engmem.scoring import search as run_search, search_with_role_sections
-from engmem.sections import CANONICAL_ROLES
+from engmem.sections import CANONICAL_ROLES, split_sections
 # imported, not reimplemented, so a document a write tool below produces is
 # validated by the exact rules load_store applies when reading it back
 from engmem.spine import (
@@ -54,7 +54,10 @@ TOOL_DESCRIPTION = (
     "Call this before planning or implementing any non-trivial engineering task, "
     "with the key terms of the task as the query. Returns the best-matching "
     "documents (or the sentence 'prior context: none found' if nothing matched) "
-    "plus a one-line summary of how many documents the store holds."
+    "plus a one-line summary of how many documents the store holds. Whenever a "
+    "draft session document exists for the current task, pass its id as "
+    "`session_id` — without it this retrieval cannot be tied to the document "
+    "that reuses it."
 )
 
 ROLE_TOOL_NAME = "engmem_search_by_role"
@@ -73,7 +76,9 @@ ROLE_TOOL_DESCRIPTION = (
     "A document lacking the requested role is skipped, never padded with the "
     "wrong section. Call `engmem_search` first for an ordinary content question; "
     "reach for this tool instead when the question names a kind of section, not "
-    "a topic."
+    "a topic. Whenever a draft session document exists for the current task, pass "
+    "its id as `session_id` — without it this retrieval cannot be tied to the "
+    "document that reuses it."
 )
 
 # ---------------------------------------------------------------------------
@@ -427,7 +432,12 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
     except _ToolError as exc:
         return str(exc), True
 
-    return f"created sessions/{doc_id}.md (status: draft)", False
+    return (
+        f"created sessions/{doc_id}.md (status: draft). Now pass "
+        f'session_id: "{doc_id}" on every {TOOL_NAME} and {ROLE_TOOL_NAME} call '
+        "for the rest of this task — a search without it is logged unattributed "
+        "and drops out of the analysis."
+    ), False
 
 
 def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
@@ -483,7 +493,49 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     except _ToolError as exc:
         return str(exc), True
 
-    return f"completed sessions/{doc_id}.md (status: draft -> active)", False
+    message = f"completed sessions/{doc_id}.md (status: draft -> active)"
+    for note in _citation_notes(store, doc):
+        message += f"\n{note}"
+    return message, False
+
+
+def _citation_notes(store: Path, doc: Doc) -> list[str]:
+    """Non-fatal diagnostics on the document just completed to active — never demotes a
+    successful commit; see contracts/mcp-server.md, "citation-integrity warning"."""
+    notes: list[str] = []
+    if not any(s.canonical == "reuse" for s in split_sections(doc.body)):
+        notes.append(
+            f'warning: sessions/{doc.id}.md has no Reuse Log section — it is now active, '
+            'so gate1_audit counts it under "active documents missing a Reuse Log section"'
+        )
+        return notes
+
+    try:
+        verdicts = gate1.evaluate(store)
+    except Exception as exc:
+        notes.append(f"note: citation check did not run ({exc})")
+        return notes
+
+    problems: list[str] = []
+    for row in verdicts.rows:
+        if row.citing.id != doc.id:
+            continue
+        if row.integrity == "no_quote":
+            problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
+        elif row.integrity == "cited_missing":
+            problems.append(
+                f"{row.source}: cited document {row.cited_id} is not in the store — "
+                "prior-doc takes the document's id, not its filename"
+            )
+        elif row.integrity == "quote_not_found":
+            for quote in row.unfound_quotes:
+                problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
+    if problems:
+        notes.append(
+            f"warning: {len(problems)} Reuse Log citation problem(s) — run "
+            "tools/verify_citations.py --store <store>: " + "; ".join(problems)
+        )
+    return notes
 
 
 def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
@@ -674,10 +726,11 @@ def _handle_initialized_notification(params: dict, store: Path) -> dict:
 _SESSION_ID_SCHEMA = {
     "type": "string",
     "description": (
-        "Optional: the id of the draft session document this search belongs to. "
-        "Recorded in the search log so a retrieval can later be tied to the "
-        "document that reused it. Pass it whenever `/engmem` has already created "
-        "the draft."
+        "The id of the draft session document this search belongs to. Pass it on "
+        "every search once the draft exists — it is the only field that ties this "
+        "retrieval to the document that later cites it. Omitted, the search is "
+        "logged unattributed and drops out of the analysis entirely. Leave it out "
+        "only when no draft has been created yet."
     ),
 }
 
