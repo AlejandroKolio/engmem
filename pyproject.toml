@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Alexander Shakhov", email = "write.me.messages@gmail.com" },
+    { name = "Alexander Shakhov" },
 ]
 keywords = ["knowledge-base", "retrieval", "bm25", "mcp", "markdown", "cli"]
 classifiers = [
