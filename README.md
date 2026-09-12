@@ -21,7 +21,7 @@ whether accumulated documents pay for themselves.
 Underneath: markdown files in a local git-tracked store, deterministic search, two runtime
 dependencies, no database, no server, no network calls.
 
-**[Anatomy of engmem](docs/engmem-anatomy.html)** walks one task end to end — the command
+**[Anatomy of engmem](https://alejandrokolio.github.io/engmem/engmem-anatomy.html)** walks one task end to end — the command
 run at each step, the real output it returns, and the call path through the code. It is a
 standalone HTML page: open it from a checkout, since GitHub serves `.html` as source.
 
