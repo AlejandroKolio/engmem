@@ -1,41 +1,56 @@
 name: Bug report
-description: Something behaved differently from what the output claimed
+description: Something engmem does wrong, with the command that shows it
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Please redact anything private. Document titles, ticket ids, and matched text
-        from your store often quote proprietary work — replace them with placeholders.
-
-  - type: textarea
-    id: what-happened
+        Paste command output freely, but never a document from your store, a Reuse Log row,
+        or `tools/gate1_report.py` output: those quote your own work. Counts are fine, content is not.
+  - type: input
+    id: version
     attributes:
-      label: What happened
-      description: The command you ran and its full output, redacted as needed.
+      label: engmem version
+      description: Output of `engmem --version`
+      placeholder: engmem 0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Claude Desktop (MCP)
+        - Copilot CLI
+        - Copilot in the IDE
+        - Terminal only
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and Python
+      placeholder: macOS 15.6, Python 3.13.5
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: The exact command you ran and everything it printed, stdout and stderr
       render: shell
     validations:
       required: true
-
   - type: textarea
     id: expected
     attributes:
       label: What you expected instead
     validations:
       required: true
-
-  - type: input
-    id: version
-    attributes:
-      label: engmem version and Python version
-      placeholder: "engmem 0.1.0, Python 3.13 on macOS 15"
-    validations:
-      required: true
-
   - type: textarea
-    id: store-shape
+    id: notes
     attributes:
-      label: Store shape
-      description: >-
-        Roughly how many documents, and anything unusual about them — nested
-        directories, hand-written front matter, documents predating engmem.
+      label: Anything else
+      description: A minimal invented document that reproduces it, if the bug depends on document content
