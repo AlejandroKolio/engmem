@@ -471,7 +471,7 @@ def test_the_audit_block_names_both_started_and_completed_the_ritual(tmp_path):
     """Defect (a): the denominator is draft + active, not active alone -- an abandoned session
     leaves exactly a draft, which is the population this block exists to notice."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nBody.")
+    _doc(sessions, "widget-cache-v1", body="## Pre-reg\n\nBaseline.")
     _doc(sessions, "abandoned-draft", status="draft", body="## Pre-reg\n\nBaseline.")
 
     out = _run(tmp_path).stdout
@@ -485,8 +485,8 @@ def test_the_audit_block_excludes_superseded_from_both_ritual_figures(tmp_path):
     that can catch a regression that quietly folds `superseded` into `started`."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", status="superseded", superseded_by="widget-cache-v2",
-         body="## 8. Decision Log\n\nBody.")
-    _doc(sessions, "widget-cache-v2", body="## 8. Decision Log\n\nBody v2.")
+         body="## Pre-reg\n\nBaseline.")
+    _doc(sessions, "widget-cache-v2", body="## Pre-reg\n\nBaseline v2.")
     _doc(sessions, "abandoned-draft", status="draft", body="## Pre-reg\n\nBaseline.")
 
     out = _run(tmp_path).stdout
@@ -510,13 +510,34 @@ def test_the_audit_block_names_telemetry_rows_and_distinct_sessions_as_two_numbe
 
 def test_the_audit_block_lists_active_documents_missing_sections_by_id(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "bare-story", body="## 8. Decision Log\n\nNothing else.")
+    _doc(sessions, "bare-story", body="## Pre-reg\n\nBaseline.\n\n## 8. Decision Log\n\nNothing else.")
 
     out = _run(tmp_path).stdout
 
     assert "active documents missing a Reuse Log section: 1 -- bare-story" in out
     assert "active documents missing a Search Trace section: 1 -- bare-story" in out
-    assert "active documents missing a Pre-reg section: 1 -- bare-story" in out
+
+
+def test_the_audit_block_names_documents_with_no_prereg_section_by_id(tmp_path):
+    """The live defect: a document written before the Pre-reg section existed was counted as a
+    ritual start. It is excluded now, and named on its own figure rather than dropped."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20260101-widget-cache",
+         body="## Pre-reg\n\nBaseline.\n\n## 8. Decision Log\n\nBody.")
+    _doc(sessions, "20250101-pre-ritual-note", body="## 8. Decision Log\n\nOlder than the ritual.")
+
+    out = _run(tmp_path).stdout
+
+    assert "ritual: 1 started (draft: 0 + active: 1) -> 1 completed (status: active)" in out
+    assert (
+        "1 document(s) with no Pre-reg section also counted in neither figure -- written "
+        "before the ritual existed, or outside it" in out
+    )
+    assert (
+        "session documents with no Pre-reg section, excluded from the ritual population (any "
+        "status; a backfilled document is counted on the backfilled figure instead): 1 -- "
+        "20250101-pre-ritual-note" in out
+    )
 
 
 def test_the_audit_block_flags_a_document_whose_search_trace_has_no_matching_telemetry_row(
@@ -525,7 +546,8 @@ def test_the_audit_block_flags_a_document_whose_search_trace_has_no_matching_tel
     """Defect (c), the free cross-check: a Search Trace of shell/paste with zero telemetry rows
     naming this document's id means the retrieval provenance cannot be reconstructed."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "orphaned-trace", body="## Search Trace\n\nshell\n")
+    _doc(sessions, "orphaned-trace",
+         body="## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nshell\n")
 
     out = _run(tmp_path).stdout
 
@@ -642,7 +664,7 @@ def test_an_unreadable_telemetry_file_does_not_fail_the_run_and_the_table_surviv
 def test_a_header_only_reuse_log_is_present_not_missing_in_the_report(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "header-only-story",
-         body="## Reuse Log\n\n| prior-doc | taken | impact | classification |\n|---|---|---|---|\n")
+         body="## Pre-reg\n\nBaseline.\n\n## Reuse Log\n\n| prior-doc | taken | impact | classification |\n|---|---|---|---|\n")
 
     out = _run(tmp_path).stdout
 
@@ -675,7 +697,11 @@ def test_a_backfilled_document_does_not_inflate_the_ritual_figures(tmp_path):
     audit_block = out.split("=== Audit coverage")[1]
     assert "active documents missing a Reuse Log section: 0" in audit_block
     assert "active documents missing a Search Trace section: 0" in audit_block
-    assert "active documents missing a Pre-reg section: 0" in audit_block
+    assert (
+        "session documents with no Pre-reg section, excluded from the ritual population (any "
+        "status; a backfilled document is counted on the backfilled figure instead): 0"
+        in audit_block
+    ), "a backfilled document is counted once, under the backfilled figure, not twice"
     assert "backfilled-note" not in audit_block, (
         "a backfilled document was never asked to run the ritual, so it must not appear on "
         "any missing-section line"
@@ -694,7 +720,7 @@ def test_a_document_that_genuinely_reports_miss_never_appears_on_the_provenance_
     shell/paste claim."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "honest-miss", body=(
-        "## Search Trace\n\nNo shell was available in this environment, so the search never "
+        "## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nNo shell was available in this environment, so the search never "
         "ran.\nmiss\n"
     ))
 
@@ -711,7 +737,8 @@ def test_a_document_that_genuinely_ran_shell_still_appears_despite_a_nearby_miss
     """False negative direction: a document whose Search Trace really is `shell`, with zero
     matching telemetry rows, must still be flagged even when an earlier line mentions `miss`."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "real-shell", body="## Search Trace\n\n(A miss would mean no search ran.)\nshell\n")
+    _doc(sessions, "real-shell",
+         body="## Pre-reg\n\nBaseline.\n\n## Search Trace\n\n(A miss would mean no search ran.)\nshell\n")
 
     out = _run(tmp_path).stdout
 
@@ -724,7 +751,7 @@ def test_a_document_that_genuinely_ran_shell_still_appears_despite_a_nearby_miss
 def test_a_line_naming_two_vocabulary_words_at_once_does_not_resolve_to_either(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "mixed-story", body=(
-        "## Search Trace\n\nConsidered paste via the user, ended up miss -- shell was "
+        "## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nConsidered paste via the user, ended up miss -- shell was "
         "blocked.\n"
     ))
 
@@ -736,3 +763,20 @@ def test_a_line_naming_two_vocabulary_words_at_once_does_not_resolve_to_either(t
     assert provenance_line.endswith(": 0")
     assert "mixed-story" not in provenance_line
 
+
+
+def test_a_backfilled_document_with_a_shell_trace_still_appears_on_the_provenance_line(tmp_path):
+    """ARCH-001: the ritual exclusions do not reach this figure. A document claiming a search ran,
+    with no telemetry row naming it, is named here whoever wrote it and whenever."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-note", backfilled=True,
+         body="## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nshell\n")
+
+    out = _run(tmp_path).stdout
+
+    audit_block = out.split("=== Audit coverage")[1]
+    assert "ritual: 0 started (draft: 0 + active: 0) -> 0 completed (status: active)" in audit_block
+    assert (
+        "retrieval provenance cannot be reconstructed): 1 -- 20250101-pre-ritual-note"
+        in audit_block
+    )

@@ -696,6 +696,24 @@ primary endpoint's population, and writing it in now, with the store's compositi
 known, would be choosing a rule against visible data. It is flagged here so the gap is on the
 record, to be closed by the author deliberately rather than discovered at review time.
 
+**Amendment, recorded 2026-09-12.** A document created before the `## Pre-reg` section existed —
+and any document without that section — is not a ritual document for the audit coverage figures
+in `tools/gate1_report.py`. Seven such documents sat in the live store on 2026-09-11: written by
+an earlier engmem whose save template had no Pre-reg and no Search Trace section, carrying no
+`backfilled: true` because that flag postdates them, and counted as ritual starts for want of
+anything saying otherwise. The author stamped all seven `backfilled: true` that day, and the
+audit now also reads the missing section directly, so the same gap does not depend on somebody
+remembering to stamp the next one. The excluded documents are counted and named in the block on
+their own line, and a document that is both backfilled and Pre-reg-less is counted once, as
+backfilled. See `docs/design/contracts/gate1.md`, "(e) A document with no Pre-reg section never
+ran the ritual either."
+
+This changes the audit's population and nothing else. The primary endpoint's population is
+untouched: a Reuse Log row from a document the audit now excludes still counts exactly as it did
+before. "Left open, and named rather than resolved," above, holds that gap open on purpose, for
+the reason given there, and this amendment does not close it from the side — recorded here rather
+than read into the endpoint quietly, per this section's own rule.
+
 ### What does not count as evidence
 
 - **Dogfooding.** Reuse requires forgetting, and while building engmem the author forgets

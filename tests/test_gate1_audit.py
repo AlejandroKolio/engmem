@@ -41,6 +41,11 @@ HEADER_ONLY_REUSE = (
     "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
 )
 
+# a document joins the ritual population only by carrying a Pre-reg section (contracts/gate1.md,
+# "(e) A document with no Pre-reg section never ran the ritual either"); fixtures that exercise a
+# different figure prepend this so their document is inside that population
+PREREG = "## Pre-reg\n\nBaseline.\n\n"
+
 
 def _row(jsonl_path: Path, *, session_id, ts: str = "2026-08-15T12:00:00+00:00") -> None:
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,10 +69,10 @@ def _evaluate(store: Path, *, since: str | None = None) -> gate1_audit.AuditRepo
 
 def test_ritual_counts_separate_draft_active_and_superseded(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "draft-one", status="draft")
-    _doc(sessions, "active-one", status="active")
-    _doc(sessions, "active-two", status="active")
-    _doc(sessions, "superseded-one", status="superseded")
+    _doc(sessions, "draft-one", status="draft", body=PREREG)
+    _doc(sessions, "active-one", status="active", body=PREREG)
+    _doc(sessions, "active-two", status="active", body=PREREG)
+    _doc(sessions, "superseded-one", status="superseded", body=PREREG)
 
     report = _evaluate(tmp_path)
 
@@ -139,7 +144,7 @@ def test_reuse_log_count_includes_any_status_with_a_section_present(tmp_path):
 
 def test_a_header_only_reuse_log_counts_as_present_not_missing(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "header-only-story", body=HEADER_ONLY_REUSE)
+    _doc(sessions, "header-only-story", body=PREREG + HEADER_ONLY_REUSE)
 
     report = _evaluate(tmp_path)
 
@@ -183,13 +188,12 @@ def test_active_missing_sections_lists_the_doc_ids(tmp_path):
         "## Search Trace\n\nshell\n"
     )
     _doc(sessions, "complete-story", body=complete_body)
-    _doc(sessions, "bare-story", body="## Decision Log\n\nNothing else.")
+    _doc(sessions, "bare-story", body=PREREG + "## Decision Log\n\nNothing else.")
 
     report = _evaluate(tmp_path)
 
     assert report.active_missing_reuse == ["bare-story"]
     assert report.active_missing_trace == ["bare-story"]
-    assert report.active_missing_prereg == ["bare-story"]
 
 
 def test_a_drafts_missing_sections_are_not_counted_active_only_is_the_population(tmp_path):
@@ -202,7 +206,6 @@ def test_a_drafts_missing_sections_are_not_counted_active_only_is_the_population
 
     assert report.active_missing_reuse == []
     assert report.active_missing_trace == []
-    assert report.active_missing_prereg == []
 
 
 def test_nothing_missing_produces_empty_lists(tmp_path):
@@ -218,7 +221,7 @@ def test_nothing_missing_produces_empty_lists(tmp_path):
 
     assert report.active_missing_reuse == []
     assert report.active_missing_trace == []
-    assert report.active_missing_prereg == []
+    assert report.no_prereg_docs == []
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +232,7 @@ def test_nothing_missing_produces_empty_lists(tmp_path):
 
 def test_a_shell_trace_with_no_matching_telemetry_row_is_unreconstructable(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "orphaned-trace", body="## Search Trace\n\nshell\n")
+    _doc(sessions, "orphaned-trace", body=PREREG + "## Search Trace\n\nshell\n")
 
     report = _evaluate(tmp_path)
 
@@ -238,7 +241,7 @@ def test_a_shell_trace_with_no_matching_telemetry_row_is_unreconstructable(tmp_p
 
 def test_a_shell_trace_with_a_matching_row_is_not_flagged(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "traced-story", body="## Search Trace\n\nshell\n")
+    _doc(sessions, "traced-story", body=PREREG + "## Search Trace\n\nshell\n")
     _row(tmp_path / "telemetry.jsonl", session_id="traced-story")
 
     report = _evaluate(tmp_path)
@@ -250,7 +253,7 @@ def test_a_miss_trace_with_no_telemetry_row_is_not_flagged(tmp_path):
     """`miss` means the search never ran at all -- there is nothing to reconstruct, so this is
     not the gap the cross-check exists to find."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "skipped-story", body="## Search Trace\n\nmiss\n")
+    _doc(sessions, "skipped-story", body=PREREG + "## Search Trace\n\nmiss\n")
 
     report = _evaluate(tmp_path)
 
@@ -259,7 +262,7 @@ def test_a_miss_trace_with_no_telemetry_row_is_not_flagged(tmp_path):
 
 def test_a_paste_trace_with_no_matching_row_is_also_flagged(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "pasted-story", body="## Search Trace\n\npaste\n")
+    _doc(sessions, "pasted-story", body=PREREG + "## Search Trace\n\npaste\n")
 
     report = _evaluate(tmp_path)
 
@@ -280,7 +283,7 @@ def test_a_prose_line_mentioning_shell_around_a_real_miss_line_is_not_read_as_sh
     claiming `shell`/`paste` because a nearby sentence happens to use those words."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "honest-miss", body=(
-        "## Search Trace\n\nNo shell was available in this environment, so the search never "
+        PREREG + "## Search Trace\n\nNo shell was available in this environment, so the search never "
         "ran.\nmiss\n"
     ))
 
@@ -292,7 +295,7 @@ def test_a_prose_line_mentioning_shell_around_a_real_miss_line_is_not_read_as_sh
 def test_a_single_prose_line_naming_both_shell_and_miss_resolves_to_neither(tmp_path):
     """The line itself is not `miss` either -- prose mentioning the word is not the value."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "prose-story", body="## Search Trace\n\nNo shell search was run; miss.\n")
+    _doc(sessions, "prose-story", body=PREREG + "## Search Trace\n\nNo shell search was run; miss.\n")
 
     report = _evaluate(tmp_path)
 
@@ -302,7 +305,7 @@ def test_a_single_prose_line_naming_both_shell_and_miss_resolves_to_neither(tmp_
 def test_a_prose_line_naming_two_different_vocabulary_words_resolves_to_neither(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "mixed-story", body=(
-        "## Search Trace\n\nConsidered paste via the user, ended up miss -- shell was "
+        PREREG + "## Search Trace\n\nConsidered paste via the user, ended up miss -- shell was "
         "blocked.\n"
     ))
 
@@ -315,7 +318,7 @@ def test_a_prose_line_mentioning_miss_before_a_real_shell_line_still_flags_it(tm
     """False negative direction: a document that genuinely ran `shell` must still be flagged even
     when an earlier sentence happens to mention `miss`."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "real-shell", body="## Search Trace\n\n(A miss would mean no search ran.)\nshell\n")
+    _doc(sessions, "real-shell", body=PREREG + "## Search Trace\n\n(A miss would mean no search ran.)\nshell\n")
 
     report = _evaluate(tmp_path)
 
@@ -324,7 +327,7 @@ def test_a_prose_line_mentioning_miss_before_a_real_shell_line_still_flags_it(tm
 
 def test_a_prose_line_mentioning_miss_before_a_real_shell_line_variant(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "real-shell-2", body="## Search Trace\n\nNot a miss this time.\nshell\n")
+    _doc(sessions, "real-shell-2", body=PREREG + "## Search Trace\n\nNot a miss this time.\nshell\n")
 
     report = _evaluate(tmp_path)
 
@@ -395,7 +398,7 @@ def test_since_window_also_scopes_the_unreconstructable_cross_check(tmp_path):
     """A row that happened before the window must not silently cover a document -- the window
     is the scope of the whole audit, not just the row-count line."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "story-a", body="## Search Trace\n\nshell\n")
+    _doc(sessions, "story-a", body=PREREG + "## Search Trace\n\nshell\n")
     _row(tmp_path / "telemetry.jsonl", session_id="story-a", ts="2026-01-01T00:00:00+00:00")
 
     report = _evaluate(tmp_path, since="2026-08-01")
@@ -462,10 +465,10 @@ def test_a_row_with_an_unparseable_ts_is_excluded_once_a_window_is_requested(tmp
 
 def test_a_document_that_fails_to_parse_is_not_counted_in_any_status_figure(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "good-story", status="active")
+    _doc(sessions, "good-story", status="active", body=PREREG)
     (sessions / "duplicate-id.md").write_text(
         "---\nid: good-story\ntitle: dup\ndate: 2026-08-01\nstatus: active\n"
-        "tags: []\nentities: []\nrelated: []\n---\n\n## Decision Log\n\nDup.\n",
+        "tags: []\nentities: []\nrelated: []\n---\n\n## Pre-reg\n\nBaseline.\n",
         encoding="utf-8",
     )
 
@@ -523,7 +526,7 @@ def test_a_telemetry_error_does_not_affect_non_telemetry_figures(tmp_path):
     """Document status counts and section-presence figures never touch telemetry.jsonl -- an
     unreadable telemetry file must not zero them out too."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "active-story", body="## Reuse Log\n\nPrior docs used: none.")
+    _doc(sessions, "active-story", body=PREREG + "## Reuse Log\n\nPrior docs used: none.")
     _doc(sessions, "draft-story", status="draft", body="## Pre-reg\n\nBaseline.")
     jsonl = tmp_path / "telemetry.jsonl"
     with open(jsonl, "wb") as f:
@@ -558,9 +561,9 @@ def test_a_missing_telemetry_file_is_not_an_error(tmp_path):
 
 def test_backfilled_documents_are_excluded_from_the_ritual_figures(tmp_path):
     sessions = tmp_path / "sessions"
-    _doc(sessions, "ritual-story", status="active")
-    _doc(sessions, "backfilled-note", status="active", backfilled=True)
-    _doc(sessions, "backfilled-draft", status="draft", backfilled=True)
+    _doc(sessions, "ritual-story", status="active", body=PREREG)
+    _doc(sessions, "backfilled-note", status="active", backfilled=True, body=PREREG)
+    _doc(sessions, "backfilled-draft", status="draft", backfilled=True, body=PREREG)
 
     report = _evaluate(tmp_path)
 
@@ -570,25 +573,128 @@ def test_backfilled_documents_are_excluded_from_the_ritual_figures(tmp_path):
 
 
 def test_backfilled_documents_are_excluded_from_the_missing_section_lists(tmp_path):
+    """The fixture carries a Pre-reg section on purpose (ARCH-003): without it the document would
+    be excluded by the Pre-reg half of the rule, and this test would stop pinning the backfilled
+    half it exists for -- passing even with the `backfilled` exclusion deleted outright."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "backfilled-note", status="active", backfilled=True,
-         body="## Decision Log\n\nWritten after the fact, no ritual structure.")
+         body=PREREG + "## Decision Log\n\nWritten after the fact, no Reuse Log, no Search Trace.")
 
     report = _evaluate(tmp_path)
 
     assert report.active_missing_reuse == [], "a backfilled document was never asked to run the ritual"
     assert report.active_missing_trace == []
-    assert report.active_missing_prereg == []
     assert report.backfilled_count == 1
 
 
 def test_a_non_backfilled_document_is_unaffected_by_the_backfilled_exclusion(tmp_path):
     sessions = tmp_path / "sessions"
     _doc(sessions, "ritual-story", status="active", backfilled=False,
-         body="## Decision Log\n\nNo ritual sections either.")
+         body=PREREG + "## Decision Log\n\nNo other ritual sections.")
 
     report = _evaluate(tmp_path)
 
     assert report.backfilled_count == 0
     assert report.active_missing_reuse == ["ritual-story"]
+
+
+# ---------------------------------------------------------------------------
+# A document with no Pre-reg section never ran the ritual either -- the save template gained
+# `## Pre-reg` after the store's earliest documents were written, and the absence of
+# `backfilled: true` on them says nothing to the contrary. Same exclusion as backfilled, from the
+# same population, with the missing section recognised directly rather than through a flag
+# somebody has to remember to stamp. ENGMEM-SPEC.md section 11, amendment of 2026-09-12.
+# ---------------------------------------------------------------------------
+
+
+def test_a_document_with_no_prereg_section_is_not_a_ritual_document(tmp_path):
+    """The live defect: 7 pre-ritual documents carrying no flag were counted as ritual starts,
+    reading the countable-story figure as 14 where the honest number was 3."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20260101-widget-cache", status="active",
+         body=PREREG + "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace\n\nmiss\n")
+    _doc(sessions, "20250101-pre-ritual-note", status="active", backfilled=False,
+         body="## Decision Log\n\nWritten before the Pre-reg section existed.")
+
+    report = _evaluate(tmp_path)
+
+    assert report.active_count == 1, "the Pre-reg-less document must not inflate the ritual figure"
+    assert report.draft_count == 0
+    assert report.superseded_count == 0
+    assert report.no_prereg_docs == ["20250101-pre-ritual-note"], (
+        "counted and named on its own figure -- the coverage block exists to show what the "
+        "sample is made of, so this document may never be silently dropped"
+    )
+    assert report.backfilled_count == 0, "it carries no flag; the new figure is what catches it"
+
+
+def test_a_document_with_no_prereg_section_is_not_listed_as_missing_other_sections(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-note", status="active",
+         body="## Decision Log\n\nNo ritual structure at all.")
+
+    report = _evaluate(tmp_path)
+
+    assert report.active_missing_reuse == [], (
+        "a document outside the ritual population is not a document that failed the ritual"
+    )
+    assert report.active_missing_trace == []
+    assert report.no_prereg_docs == ["20250101-pre-ritual-note"]
+
+
+def test_a_prereg_less_document_with_a_shell_trace_is_still_on_the_cross_check(tmp_path):
+    """ARCH-001: leaving the ritual population is not leaving the provenance cross-check. That
+    figure fires on an affirmative claim a document makes about itself, and the claim is owed
+    evidence whoever made it -- the exclusions above are about the ritual, not about honesty."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-note", body="## Search Trace\n\nshell\n")
+
+    report = _evaluate(tmp_path)
+
+    assert report.unreconstructable_docs == ["20250101-pre-ritual-note"]
+    assert report.no_prereg_docs == ["20250101-pre-ritual-note"], (
+        "counted outside the ritual population and still answerable for its own claim"
+    )
+
+
+def test_a_backfilled_document_with_a_shell_trace_is_still_on_the_cross_check(tmp_path):
+    """ARCH-001, the other half: a backfilled document that claims a search ran and has no
+    telemetry row to show for it is exactly what this figure exists to name."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-note", backfilled=True,
+         body=PREREG + "## Search Trace\n\nshell\n")
+
+    report = _evaluate(tmp_path)
+
+    assert report.unreconstructable_docs == ["20250101-pre-ritual-note"]
+    assert report.backfilled_count == 1
+    assert report.active_count == 0, "still outside the ritual figures"
+
+
+def test_a_prereg_less_document_of_any_status_is_counted_on_the_new_figure(tmp_path):
+    """The figure is scoped to the whole store, not to `active`: a draft or a superseded document
+    written before the ritual existed is the same fact about the sample."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-draft", status="draft", body="## Decision Log\n\nOld.")
+    _doc(sessions, "20250102-pre-ritual-old", status="superseded", body="## Decision Log\n\nOld.")
+
+    report = _evaluate(tmp_path)
+
+    assert report.no_prereg_docs == ["20250101-pre-ritual-draft", "20250102-pre-ritual-old"]
+    assert report.draft_count == 0
+    assert report.superseded_count == 0
+
+
+def test_a_backfilled_document_with_no_prereg_section_is_counted_once_as_backfilled(tmp_path):
+    """Precedence: the two exclusions overlap on exactly the documents the user stamped by hand
+    on 2026-09-11, and a document counted on both lines would read as two missing documents."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "20250101-pre-ritual-note", status="active", backfilled=True,
+         body="## Decision Log\n\nWritten after the fact, no Pre-reg section either.")
+
+    report = _evaluate(tmp_path)
+
+    assert report.backfilled_count == 1
+    assert report.no_prereg_docs == [], "already accounted for under the backfilled figure"
+    assert report.active_count == 0
 

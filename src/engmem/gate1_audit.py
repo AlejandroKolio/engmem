@@ -32,7 +32,8 @@ class AuditReport:
     superseded_count: int
     backfilled_count: int  # ENGMEM-SPEC.md §4: "docs written after the fact" never ran the
     # ritual -- excluded from draft/active/superseded and from the missing-section lists below,
-    # counted here on its own (ARCH-103)
+    # counted here on its own (ARCH-103). Its sibling exclusion is `no_prereg_docs` below;
+    # a document matching both is counted here only.
 
     telemetry_error: str | None  # None when telemetry.jsonl was read cleanly; otherwise every
     # telemetry-derived field below is at its empty/zero default and must be rendered as
@@ -42,12 +43,15 @@ class AuditReport:
     telemetry_distinct_sessions: int
 
     reuse_log_count: int  # any status, by section PRESENCE (`_has_role`) -- the same rule
-    # `active_missing_trace`/`active_missing_prereg` use (ARCH-102)
+    # `active_missing_trace` uses (ARCH-102)
     none_report_count: int  # gate1.Verdicts.none_reports, reused rather than re-derived
+
+    no_prereg_docs: list[str] = field(default_factory=list)  # any status, not backfilled, no
+    # `## Pre-reg` section -- written before the ritual existed, or outside it; excluded from the
+    # ritual population and named here so the sample's composition stays visible
 
     active_missing_reuse: list[str] = field(default_factory=list)
     active_missing_trace: list[str] = field(default_factory=list)
-    active_missing_prereg: list[str] = field(default_factory=list)
 
     orphan_session_ids: list[str] = field(default_factory=list)  # session_id -> no doc here
     orphan_row_count: int = 0
@@ -118,7 +122,14 @@ def evaluate(
     # ritual population (draft/active/superseded) and from the missing-section lists below;
     # counted on its own rather than silently folded into either side (ARCH-103).
     backfilled_count = sum(1 for d in docs.values() if d.backfilled)
-    ritual_docs = [d for d in docs.values() if not d.backfilled]
+    # A missing `## Pre-reg` section is the evidence a `backfilled: true` flag nobody stamped
+    # would have carried: the document never ran the ritual either. Counted once, under
+    # `backfilled_count`, when both apply. ENGMEM-SPEC.md §11, amendment of 2026-09-12;
+    # contracts/gate1.md, "(e) A document with no Pre-reg section never ran the ritual either."
+    no_prereg_docs = sorted(
+        d.id for d in docs.values() if not d.backfilled and not _has_role(d, "prereg")
+    )
+    ritual_docs = [d for d in docs.values() if not d.backfilled and _has_role(d, "prereg")]
 
     draft = [d for d in ritual_docs if d.status == "draft"]
     active = [d for d in ritual_docs if d.status == "active"]
@@ -155,6 +166,8 @@ def evaluate(
     if telemetry_error is None:
         orphan_ids = sorted(sid for sid in sessions_by_id if sid not in docs)
         orphan_row_count = sum(len(sessions_by_id[sid]) for sid in orphan_ids)
+        # every document, ritual or not (ARCH-001): this figure fires on an affirmative claim a
+        # document makes about itself, and a claim is owed evidence whoever made it
         unreconstructable = sorted(
             d.id for d in docs.values()
             if _trace_value(d) in TRACE_RAN and not sessions_by_id.get(d.id)
@@ -172,9 +185,9 @@ def evaluate(
         telemetry_distinct_sessions=len(sessions_by_id),
         reuse_log_count=sum(1 for d in docs.values() if _has_role(d, "reuse")),
         none_report_count=len(verdicts.none_reports),
+        no_prereg_docs=no_prereg_docs,
         active_missing_reuse=sorted(d.id for d in active if not _has_role(d, "reuse")),
         active_missing_trace=sorted(d.id for d in active if not _has_role(d, "trace")),
-        active_missing_prereg=sorted(d.id for d in active if not _has_role(d, "prereg")),
         orphan_session_ids=orphan_ids,
         orphan_row_count=orphan_row_count,
         unreconstructable_docs=unreconstructable,

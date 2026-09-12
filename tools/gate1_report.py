@@ -128,7 +128,9 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
         "ritual currently incomplete', not 'did it ever finish'; "
         f"{audit.backfilled_count} backfilled document(s) also counted in neither figure -- "
         "a backfilled document never ran the ritual (ENGMEM-SPEC.md section 4: "
-        "'docs written after the fact')",
+        "'docs written after the fact'); "
+        f"{len(audit.no_prereg_docs)} document(s) with no Pre-reg section also counted in "
+        "neither figure -- written before the ritual existed, or outside it",
     ]
     if audit.telemetry_error is not None:
         lines.append(
@@ -148,7 +150,11 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
     )
     lines.append(_missing_line("active documents missing a Reuse Log section", audit.active_missing_reuse))
     lines.append(_missing_line("active documents missing a Search Trace section", audit.active_missing_trace))
-    lines.append(_missing_line("active documents missing a Pre-reg section", audit.active_missing_prereg))
+    lines.append(_missing_line(
+        "session documents with no Pre-reg section, excluded from the ritual population (any "
+        "status; a backfilled document is counted on the backfilled figure instead)",
+        audit.no_prereg_docs,
+    ))
     lines.append(_telemetry_line(
         "telemetry rows whose session_id matches no document in this store", audit,
         f"{audit.orphan_row_count} row(s) across {len(audit.orphan_session_ids)} session_id(s)"

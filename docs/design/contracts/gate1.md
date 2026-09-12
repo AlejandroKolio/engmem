@@ -402,8 +402,8 @@ conflicts`), which answers "did `gate1.py` recognise a row or a none-sentence he
 separator (`templates/engmem.save.md:162-163`) is present but produces neither, so that
 document read as simultaneously *not* "with a Reuse Log section" and "missing" one, the false
 sentence the header-only case letting a reviewer stop trusting the block. `reuse_log_count` and
-`active_missing_reuse` are now computed the same way their siblings `active_missing_trace` /
-`active_missing_prereg` always were -- `_has_role(doc, "reuse")`, section presence, nothing to
+`active_missing_reuse` are now computed the same way their sibling `active_missing_trace`
+always was -- `_has_role(doc, "reuse")`, section presence, nothing to
 do with `verdicts` -- and `verdicts` genuinely feeds only `none_report_count` again.
 `tests/test_gate1_audit.py::test_a_header_only_reuse_log_counts_as_present_not_missing` pins the
 header-only case at both ends: present in the count, absent from the missing list.
@@ -428,9 +428,12 @@ test_a_document_that_fails_to_parse_is_not_counted_in_any_status_figure` pins th
 id must not inflate the draft/active/superseded population.
 
 **A session document that never ran the ritual is still a `Doc`, but is not part of the ritual
-population.** `backfilled: true` (`ENGMEM-SPEC.md` §4: "docs written after the fact") means the
-document was written after the work, never had a Pre-reg baseline, and never ran a search
-through this ritual -- see "(d) A backfilled document never ran the ritual," below.
+population.** Two things put it outside. `backfilled: true` (`ENGMEM-SPEC.md` §4: "docs written
+after the fact") means the document was written after the work, never had a Pre-reg baseline, and
+never ran a search through this ritual -- see "(d) A backfilled document never ran the ritual,"
+below. A missing `## Pre-reg` section says the same thing about a document nobody stamped -- see
+"(e) A document with no Pre-reg section never ran the ritual either," below. A document matching
+both is counted once, under the backfilled figure.
 
 ### The three corrections to the naive counter list
 
@@ -499,12 +502,92 @@ figure and, being `active` far more often than not, pushed the completion ratio 
 making an incomplete sample look *more* complete than it is, then listing the same ids under
 every "active documents missing ..." line as guaranteed noise. `AuditReport.backfilled_count` is
 its own field, computed from `Doc.backfilled` (already parsed, `spine.py`) rather than silently
-dropped or silently folded into either side; `draft`/`active`/`superseded` and the three
-`active_missing_*` lists are now all computed over `[d for d in docs.values() if not
-d.backfilled]`. `gate1_report.py`'s ritual line names the excluded count in the same sentence as
+dropped or silently folded into either side; `draft`/`active`/`superseded` and the
+`active_missing_*` lists are all computed over a population this exclusion removes the document
+from -- `[d for d in docs.values() if not d.backfilled]` as of ARCH-103, narrowed again by (e)
+below, which quotes the current predicate. `gate1_report.py`'s ritual line names the excluded
+count in the same sentence as
 `superseded_count`, on the same principle: a stated scope choice, not silent data loss.
 `tests/test_gate1_audit.py::test_backfilled_documents_are_excluded_from_the_ritual_figures` and
 `::test_backfilled_documents_are_excluded_from_the_missing_section_lists` pin both halves.
+
+**(e) A document with no Pre-reg section never ran the ritual either.** Found in the live store
+on 2026-09-11: seven documents written by an engmem version whose save template had no
+`## Pre-reg` and no `## Search Trace` section at all. They carried no `backfilled: true` -- the
+flag postdates them -- so (d) did not catch them, and they were counted as ritual documents. Both
+sides of the ritual figure were inflated by seven, and the countable-story figure read 14 where
+the honest number was 3. The correction had to be made by hand: the author stamped all seven
+`backfilled: true` that day. Relying on that stamp is the part worth not repeating: the flag is a
+claim somebody has to remember to make, while the missing
+section is the evidence itself, sitting in the document, readable by the same `_has_role` every
+other figure in this block already uses. `ritual_docs` is now `[d for d in docs.values() if not
+d.backfilled and _has_role(d, "prereg")]`, and the draft/active/superseded triple and the
+`active_missing_*` lists follow from it. The provenance cross-check does not -- see "What does
+not move with them," below.
+
+*Precedence, and why it is stated rather than left to fall out.* The two exclusions overlap on
+exactly the seven documents above. `backfilled_count` is computed first and unchanged;
+`no_prereg_docs` carries `not d.backfilled` so a document matching both is counted once, under
+the backfilled figure. A document on both lines would read as two documents missing from the
+sample, which is the same arithmetic error in the other direction.
+`tests/test_gate1_audit.py::test_a_backfilled_document_with_no_prereg_section_is_counted_once_as_backfilled`
+pins it; so does `tests/test_gate1_report.py::
+test_a_backfilled_document_does_not_inflate_the_ritual_figures` end to end.
+
+*Counted and named, never dropped.* This block exists to show what the sample is made of, so a
+document leaving the ritual population has to leave visibly. `AuditReport.no_prereg_docs` holds
+the ids, of any status; `gate1_report.py` names the count in the ritual sentence itself, in the
+same clause shape `superseded_count` and `backfilled_count` already use, and prints the ids on
+their own line where the retired Pre-reg line used to sit. The two lines do different jobs: the
+ritual sentence accounts for the population it just reported, the id line is the one a reader can
+act on -- which is precisely what was missing on 2026-09-11, when finding the seven documents was
+manual work.
+
+The id line's label carries the precedence rule in it (ARCH-004): *"session documents with no
+Pre-reg section, excluded from the ritual population (any status; a backfilled document is
+counted on the backfilled figure instead)."* Without that parenthesis the line reads `0` on the
+live store today and looks like "no such documents exist," when what it means is that all seven
+are on the backfilled line above. A figure whose zero has a second meaning has to say so on the
+line, not in this file.
+
+*What does not move with them: `unreconstructable_docs` (ARCH-001).* An earlier draft of this
+round narrowed the cross-check to `ritual_docs` on the reasoning that a document outside the
+ritual made no claim on the ritual's terms. That reasoning was wrong, and the difference is worth
+stating because the two kinds of figure look alike from a distance. The `active_missing_*` lists
+fire on an *absence* -- a section the ritual asked for and did not get -- so a document the ritual
+never asked anything of produces guaranteed noise there, which is why (d) drops backfilled
+documents from them. The cross-check fires on a *presence*: a `## Search Trace` reading `shell` or
+`paste` is an affirmative claim the document makes about itself, and a claim is owed evidence
+whoever made it and whenever. A backfilled document whose trace says `shell` with no telemetry row
+naming it is exactly the gap this figure exists to print; narrowing the population printed `0`
+where the honest answer was 1, and it bought nothing for the defect (e) fixes -- the seven live
+documents have no Search Trace section at all and were never on that line.
+
+So `unreconstructable_docs` stays over `docs.values()`, every document the store parses, with no
+exclusion of either kind. Paragraph (c) above already states that population and stays correct as
+written. The asymmetry with (d) is deliberate: presence-figures and absence-figures answer
+different questions, and only the second one is scoped by who was asked to run the ritual.
+`tests/test_gate1_audit.py::test_a_backfilled_document_with_a_shell_trace_is_still_on_the_cross_check`
+and `::test_a_prereg_less_document_with_a_shell_trace_is_still_on_the_cross_check` pin both
+exclusions against it, with
+`tests/test_gate1_report.py::test_a_backfilled_document_with_a_shell_trace_still_appears_on_the_provenance_line`
+pinning the printed line end to end; the mutation that scopes the population back to `ritual_docs`
+was proven to fail all three.
+
+*Retired with it: `active_missing_prereg`.* Once a Pre-reg section is what admits a document to
+the ritual population, "active documents missing a Pre-reg section" is empty by construction --
+the field could never again be non-empty, and the line could only ever print `0`. Keeping it
+would have printed `0` directly underneath a line reporting seven documents with no Pre-reg
+section, which is a contradiction on the face of the output rather than a harmless dead field.
+The field and its line are removed; `no_prereg_docs` answers the same question and answers it
+better, across every status instead of `active` alone, and with the ids attached.
+
+*The boundary this does not cross.* This is the audit's population only. `gate1.py` is untouched,
+and the primary endpoint's row count still includes rows from documents this block now excludes.
+`ENGMEM-SPEC.md` §11's "Left open, and named rather than resolved" paragraph keeps that gap open
+deliberately: writing the exclusion into the endpoint's population now, with the store's
+composition already known, would be choosing a rule against visible data. The amendment recorded
+in §11 on 2026-09-12 says the same thing in the place that governs it.
 
 ### Telemetry unreadable or undecodable does not fail the run (ARCH-101)
 
