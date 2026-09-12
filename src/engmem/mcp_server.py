@@ -520,14 +520,14 @@ def _citation_notes(store: Path, doc: Doc) -> list[str]:
     for row in verdicts.rows:
         if row.citing.id != doc.id:
             continue
-        if row.integrity == "no_quote":
+        if row.integrity == gate1.Integrity.NO_QUOTE:
             problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
-        elif row.integrity == "cited_missing":
+        elif row.integrity == gate1.Integrity.CITED_MISSING:
             problems.append(
                 f"{row.source}: cited document {row.cited_id} is not in the store — "
                 "prior-doc takes the document's id, not its filename"
             )
-        elif row.integrity == "quote_not_found":
+        elif row.integrity == gate1.Integrity.QUOTE_NOT_FOUND:
             for quote in row.unfound_quotes:
                 problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
     if problems:

@@ -47,25 +47,26 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
     # sourced through gate1.is_primary_candidate, not recomputed inline, so the printed
     # figure and the pre-registered endpoint can never drift apart (contracts/gate1.md)
     distant = [r for r in rows if gate1.is_primary_candidate(r)]
-    adjacent = [r for r in valid if r.distance == "adjacent"]
-    undecidable = [r for r in valid if r.distance == "undecidable"]
-    stale_distant = sum(1 for r in distant if r.staleness == "cited_superseded")
+    adjacent = [r for r in valid if r.distance == gate1.Distance.ADJACENT]
+    undecidable = [r for r in valid if r.distance == gate1.Distance.UNDECIDABLE]
+    stale_distant = sum(1 for r in distant if r.staleness == gate1.Staleness.CITED_SUPERSEDED)
     dogfooding_excluded = sum(1 for r in rows if r.dogfooding)
     status_excluded = sum(1 for r in rows if gate1.excluded_by_status(r) is not None)
 
     lines = [
         f"rows: {len(rows)}",
         "citation integrity: "
-        f"{_count(rows, 'integrity', 'verified')} verified, "
-        f"{_count(rows, 'integrity', 'no_quote')} no quote, "
-        f"{_count(rows, 'integrity', 'cited_missing')} cited doc not in store, "
-        f"{_count(rows, 'integrity', 'quote_not_found')} quote not found",
+        f"{_count(rows, 'integrity', gate1.Integrity.VERIFIED)} verified, "
+        f"{_count(rows, 'integrity', gate1.Integrity.NO_QUOTE)} no quote, "
+        f"{_count(rows, 'integrity', gate1.Integrity.CITED_MISSING)} cited doc not in store, "
+        f"{_count(rows, 'integrity', gate1.Integrity.QUOTE_NOT_FOUND)} quote not found",
         "classification: "
-        f"{_count(rows, 'classification', 'reuse')} reuse, "
-        f"{_count(rows, 'classification', 'anti-reuse')} anti-reuse, "
-        f"{_count(rows, 'classification', 'harmful')} harmful, "
-        f"{_count(rows, 'classification', 'missing')} classification missing, "
-        f"{_count(rows, 'classification', 'unrecognized')} classification not recognized",
+        f"{_count(rows, 'classification', gate1.Classification.REUSE)} reuse, "
+        f"{_count(rows, 'classification', gate1.Classification.ANTI_REUSE)} anti-reuse, "
+        f"{_count(rows, 'classification', gate1.Classification.HARMFUL)} harmful, "
+        f"{_count(rows, 'classification', gate1.Classification.MISSING)} classification missing, "
+        f"{_count(rows, 'classification', gate1.Classification.UNRECOGNIZED)} "
+        "classification not recognized",
         f"rows excluded from the count: {len(rows) - len(valid)}",
         "excluded from the count, by axis (a row may match more than one -- see the total "
         "above for the true count, not the sum of these): "

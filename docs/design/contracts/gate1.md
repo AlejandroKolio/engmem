@@ -54,6 +54,40 @@ fields:
 - **E — human verdict**: the `changed a decision?` cell. The only axis this module never
   writes for an eligible row (see "Who fills the last column").
 
+Four of those axes are `enum.StrEnum` types — `Integrity`, `Classification`, `Distance`,
+`Staleness` — not the plain strings they were. The five axes still do not collapse into one
+enum (that is what the heading above is about); each axis is its own closed set. They became
+enums because the only way a mistyped axis value could ever go wrong was in the permissive
+direction: `exclusion_reason` returns `None` for "eligible", so a value no branch matched —
+`"cited_misssing"`, `"reuse "` — fell straight through to *countable toward the primary
+endpoint*, silently, with no branch left to notice. `Integrity("cited_misssing")` now raises
+`ValueError` at construction instead. The member values are byte-identical to the old strings
+and `StrEnum` compares and renders as its value, so the printed table, every summary counter,
+and every consumer comparing against a literal are unchanged. Two separate properties hold
+that up, and they are not the same property, so each has its own test.
+`tests/test_gate1.py::test_an_axis_member_renders_as_its_bare_value` guards rendering:
+`str(member)` and `f"{member}"` give the bare value, where a plain `Enum` would give
+`Distance.ADJACENT`. `::test_the_report_table_joins_axes_as_bare_values` guards something
+else — that the members are `str` subclasses at all, which is what the `" | ".join(...)`
+in `gate1_report.py`'s row renderer needs. `str.join` never calls `Enum.__str__`, so that
+second test says nothing about rendering and everything about inheritance: turning the four
+axes into plain `enum.Enum` fails 64 tests across the suite, that one among them. And because
+the row renderer joins rather than formats, the `Distance.ADJACENT` hazard cannot reach the
+printed column as the code now stands — it becomes reachable the day that line is rewritten
+as an f-string, which is why the rendering guard is kept anyway.
+
+`exclusion_reason` is two lookup tables (`INTEGRITY_EXCLUSIONS`, `CLASSIFICATION_EXCLUSIONS`)
+consulted in the fixed axis sequence below (ARCH-005), rather than a nine-branch `if` chain:
+the order stays visible as code, and "which values exclude" is a table the exhaustiveness
+tests can walk member by member (`tests/test_gate1.py::
+test_every_integrity_short_of_verified_excludes_the_row` and
+`::test_every_classification_other_than_reuse_excludes_the_row`), so a member added to either
+enum without a reason fails the suite instead of quietly reading as eligible. `unrecognized`
+stays an explicit branch: its message quotes `classification_raw`, the human's actual spelling,
+which no static table can hold. `VALID_CLASSIFICATIONS` — the three values a human may write —
+is now a frozenset of `Classification` members, so a cell literally spelling out `missing` or
+`unrecognized` still reads as `unrecognized`, exactly as before.
+
 ## Citation integrity — the join (requirement 1)
 
 `verify_citations.py` already implemented every mechanical check (no quote, cited doc absent,
@@ -105,9 +139,9 @@ primary endpoint, because the quote is genuine.
 Per `templates/engmem.save.md`'s own instruction to the save ritual, a superseded citation
 becomes `harmful` **only when the human says so** at review time. Auto-excluding it here would
 make that human judgment moot before it is ever asked, so staleness stays a *visible flag*
-(`staleness == "cited_superseded"`) that a `verified` + `reuse` + `distant` row can still carry
-straight through to `is_primary_candidate() == True`. The `changed a decision?` cell stays open
-for exactly this row — the tool names the fact, the human makes the call.
+(`staleness == Staleness.CITED_SUPERSEDED`) that a `verified` + `reuse` + `distant` row can still
+carry straight through to `is_primary_candidate() == True`. The `changed a decision?` cell stays
+open for exactly this row — the tool names the fact, the human makes the call.
 
 **ARCH-002.** That backstop only works if a reviewer actually opens the per-row table. The
 primary-endpoint figure in `gate1_report.py`'s summary is quoted on its own, so the summary
@@ -160,13 +194,13 @@ wrong is not excluded. This is the same trust boundary every other front-matter-
 in this store already rests on (`classification`, `status`), not a new one.
 
 **An `_repos()` failure on the citing document reads as "not dogfooding", not as an error.**
-`_row_verdict` computes `dogfooding` from `repos.get(citing.id) or set()`, which conflates
-`None` (unreadable) with `set()` (readable, empty) -- an unreadable `repos` on the citing
-document is silently treated as "does not name this repository". This cannot inflate the
-primary endpoint: the identical lookup also feeds `_distance()`, which returns `"undecidable"`
-whenever either side is `None` (see "Front matter is parsed once," below), so a row whose
-dogfooding status could not be determined can also never be `"distant"` -- it is excluded from
-the primary count either way, just under axis C's name rather than axis 4's.
+`_row_verdict` computes `dogfooding` from `repos.get(citing.id) or set()`, which conflates `None`
+(unreadable) with `set()` (readable, empty) -- an unreadable `repos` on the citing document is
+silently treated as "does not name this repository". This cannot inflate the primary endpoint:
+the identical lookup also feeds `_distance()`, which returns `Distance.UNDECIDABLE` whenever
+either side is `None` (see "Front matter is parsed once," below), so a row whose dogfooding
+status could not be determined can also never be `Distance.DISTANT` -- it is excluded from the
+primary count either way, just under axis C's name rather than axis 4's.
 
 ## Front matter is parsed once (requirement 5, hardened by ARCH-001 / ARCH-004)
 
@@ -184,35 +218,36 @@ beginning with `"---"` followed by more characters (e.g. `tags: [platform,` /
 `---not-a-delimiter]`) — `spine`'s line-based check correctly skips past it and finds the real
 closing delimiter further down, while the substring search stopped there and handed
 `yaml.safe_load` a truncated, syntactically broken fragment. This divergence was, at the time,
-the *only* way `_distance()` could reach `"undecidable"` at all: `load_store` already drops any
-document whose front-matter YAML fails outright (`spine.py:445-449`), so every document that
-reaches `_repos()` has front matter `spine.parse_document` already parsed successfully — the
+the *only* way `_distance()` could reach `Distance.UNDECIDABLE` at all: `load_store` already
+drops any document whose front-matter YAML fails outright (`spine.py:445-449`), so every document
+that reaches `_repos()` has front matter `spine.parse_document` already parsed successfully — the
 two parsers had no business disagreeing, and doing so was a defect of `_repos()`'s private
-boundary rule, not evidence that "undecidable" needed two independent parsers to justify it.
-`_repos()` now calls `spine.split_front_matter` directly for the boundary and `yaml.safe_load`
-on the exact text `spine.parse_document` parses — there is no second boundary rule left to
-diverge. `tests/test_gate1.py::test_the_flow_sequence_edge_case_no_longer_diverges_from_spine`
-and its `test_gate1_report.py` counterpart pin the document that used to trigger this at its
-correct, real `distant`/`adjacent` value — proving the false negative is gone, not merely
-asserting the old (wrong) `"undecidable"` reading.
+boundary rule, not evidence that `Distance.UNDECIDABLE` needed two independent parsers to justify
+it. `_repos()` now calls `spine.split_front_matter` directly for the boundary and
+`yaml.safe_load` on the exact text `spine.parse_document` parses — there is no second boundary
+rule left to diverge.
+`tests/test_gate1.py::test_the_flow_sequence_edge_case_no_longer_diverges_from_spine` and its
+`test_gate1_report.py` counterpart pin the document that used to trigger this at its correct,
+real `distant`/`adjacent` value — proving the false negative is gone, not merely asserting the
+old (wrong) `undecidable` reading.
 
 **The list-vs-scalar rule (ARCH-001, since fixed).** Closing the boundary bug removed one route
-to a false `"distant"` but left another, load-bearing for both distance *and* dogfooding: the
-original line `{str(v) for v in value} if isinstance(value, list) else set()` read a bare YAML
-scalar (`repos: engmem`, not `repos: [engmem]`) as `set()` — "this document names no
+to a false `Distance.DISTANT` but left another, load-bearing for both distance *and* dogfooding:
+the original line `{str(v) for v in value} if isinstance(value, list) else set()` read a bare
+YAML scalar (`repos: engmem`, not `repos: [engmem]`) as `set()` — "this document names no
 repositories" — the same "unreadable reads as absent" shape, reachable the ordinary way a human
 writes the field by hand, not a crafted edge case. `spine._coerce_list_field` already handles
 this for every other list field (`tags`/`entities`/`related`/`covers_files`), with a warning
 `gate1.py` cannot see because `repos` is not a spine field. `_repos()` now calls
-`_coerce_list_field` directly: a `list` reads as before, a bare `str` degrades to a
-one-element set exactly like every other list field, `None`/absent reads as `set()`, and
-anything else (a mapping, a number — neither a list nor a string) raises `ValueError`, which
-`_repos()` turns into `None`. This is also what makes `"undecidable"` genuinely reachable again
-now that ARCH-004 closed its previous, accidental route:
-`tests/test_gate1.py::test_unparseable_front_matter_is_undecidable_never_distant` now
-constructs a `repos: {a: b}` mapping — the one shape `_coerce_list_field` itself cannot read,
-on a document that still loads into the store fine (`repos` is not a spine field, so nothing
-about loading the document depends on it).
+`_coerce_list_field` directly: a `list` reads as before, a bare `str` degrades to a one-element
+set exactly like every other list field, `None`/absent reads as `set()`, and anything else (a
+mapping, a number — neither a list nor a string) raises `ValueError`, which `_repos()` turns into
+`None`. This is also what makes `Distance.UNDECIDABLE` genuinely reachable again now that
+ARCH-004 closed its previous, accidental route:
+`tests/test_gate1.py::test_unparseable_front_matter_is_undecidable_never_distant` now constructs
+a `repos: {a: b}` mapping — the one shape `_coerce_list_field` itself cannot read, on a document
+that still loads into the store fine (`repos` is not a spine field, so nothing about loading the
+document depends on it).
 
 Both fixes mattered for dogfooding (requirement 4, above) as much as for distance: a citing
 document with `repos: engmem` (the scalar form) used to defeat the dogfooding exclusion for
@@ -286,14 +321,19 @@ calls, they are population membership, decided once, the same way for every row.
 axis E is unset for exactly these rows, also "rows awaiting human verdict"; the two are the
 same count, not two peers reported separately (an earlier draft of the summary line printed
 them as siblings, which double-counts the same rows under two names). `is_primary_candidate`
-= `is_valid AND distance == "distant"` is the strict subset `ENGMEM-SPEC.md` §11 actually
+= `is_valid AND distance == Distance.DISTANT` is the strict subset `ENGMEM-SPEC.md` §11 actually
 counts — the summary line reads "N valid ..., of which M distant," never both as independent
 totals.
 
-**ARCH-005 — precedence inside `exclusion_reason`.** The `if` chain checks integrity, then the
-citing document's own status, then dogfooding, then classification, in that order, so the
-FIRST applicable reason is the one printed — a draft citing document with a `harmful`-and-
-dogfooding row prints only `"excluded: citing document status is draft"`. Integrity comes
+**ARCH-005 — precedence inside `exclusion_reason`.** The function consults integrity, then the
+citing document's own status, then dogfooding, then classification, in that order — an
+`INTEGRITY_EXCLUSIONS` lookup, the two per-row predicates, then a `CLASSIFICATION_EXCLUSIONS`
+lookup — so the FIRST applicable reason is the one printed: a draft citing document with a
+`harmful`-and-dogfooding row prints only `"excluded: citing document status is draft"`.
+The order is contract, not an implementation detail of the old `if` chain, so it is pinned by
+a row that fails two axes at once in `tests/test_gate1.py::
+test_a_row_failing_two_axes_reports_the_earlier_axis` (swapping any two neighbours in the
+sequence fails it; before that test, no test in the suite failed on a swap). Integrity comes
 first because a row that never reached `verified` cannot meaningfully be "reuse" or
 "dogfooding" at all — there is no citation to classify or attribute yet. This is cosmetic, not
 a masked count: the `classification` and `distance` columns still show the row's other facts

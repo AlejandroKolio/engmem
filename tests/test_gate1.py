@@ -6,7 +6,10 @@ what each slice must contain is pinned in `tests/test_verify_citations.py` and
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from engmem import gate1
 
@@ -150,17 +153,20 @@ def test_a_blank_classification_cell_is_missing_not_reuse(tmp_path):
     assert row.classification == "missing"
 
 
-def test_a_misspelled_classification_is_unrecognized_not_reuse(tmp_path):
+@pytest.mark.parametrize("written", ["resue", "missing", "unrecognized"])
+def test_a_classification_outside_the_three_writable_ones_is_unrecognized(tmp_path, written):
+    """`missing` and `unrecognized` are this module's own readings of the cell; a human who
+    writes either word has still not written one of the three (VALID_CLASSIFICATIONS)."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
     _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification="resue"))
+         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification=written))
 
     row = _one_row(tmp_path)
 
-    assert row.classification == "unrecognized"
-    assert row.classification_raw == "resue"
-    assert "resue" in gate1.exclusion_reason(row)
+    assert row.classification == gate1.Classification.UNRECOGNIZED
+    assert row.classification_raw == written
+    assert gate1.exclusion_reason(row) == f"excluded: classification {written!r} not recognized"
 
 
 # ---------------------------------------------------------------------------
@@ -405,3 +411,91 @@ def test_primary_candidate_requires_valid_and_distant(tmp_path):
     assert gate1.is_valid(row)
     assert gate1.is_primary_candidate(row)
     assert gate1.exclusion_reason(row) is None
+
+
+# ---------------------------------------------------------------------------
+# the axes are enums -- a misspelled value can never read as "eligible"
+# ---------------------------------------------------------------------------
+
+
+def _eligible_row(store: Path) -> gate1.RowVerdict:
+    sessions = store / "sessions"
+    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nWidget flush runs eagerly.")
+    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
+         body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
+
+    row = _one_row(store)
+
+    assert gate1.exclusion_reason(row) is None, "the row every case below mutates starts eligible"
+    return row
+
+
+@pytest.mark.parametrize("axis, misspelling", [
+    (gate1.Integrity, "cited_misssing"),
+    (gate1.Classification, "resue"),
+    (gate1.Distance, "adjacnet"),
+    (gate1.Staleness, "cited_supersedded"),
+])
+def test_a_misspelled_axis_value_cannot_be_constructed(axis, misspelling):
+    with pytest.raises(ValueError):
+        axis(misspelling)
+
+
+@pytest.mark.parametrize(
+    "integrity", [i for i in gate1.Integrity if i != gate1.Integrity.VERIFIED]
+)
+def test_every_integrity_short_of_verified_excludes_the_row(tmp_path, integrity):
+    row = replace(_eligible_row(tmp_path), integrity=integrity)
+
+    assert gate1.exclusion_reason(row) is not None, f"{integrity} fell through to eligible"
+
+
+@pytest.mark.parametrize(
+    "classification", [c for c in gate1.Classification if c != gate1.Classification.REUSE]
+)
+def test_every_classification_other_than_reuse_excludes_the_row(tmp_path, classification):
+    row = replace(_eligible_row(tmp_path), classification=classification,
+                  classification_raw="resue")
+
+    assert gate1.exclusion_reason(row) is not None, f"{classification} fell through to eligible"
+
+
+@pytest.mark.parametrize("member", [
+    *gate1.Integrity, *gate1.Classification, *gate1.Distance, *gate1.Staleness,
+])
+def test_an_axis_member_renders_as_its_bare_value(member):
+    assert str(member) == member.value
+    assert f"{member}" == member.value
+
+
+def test_the_report_table_joins_axes_as_bare_values(tmp_path):
+    """The members are `str` subclasses, which `gate1_report.py`'s `" | ".join(...)` needs --
+    without that inheritance the join raises TypeError."""
+    row = _eligible_row(tmp_path)
+
+    cells = " | ".join([row.integrity, row.classification, row.distance, row.staleness])
+
+    assert cells == "verified | reuse | distant | cited_active"
+
+
+# ---------------------------------------------------------------------------
+# exclusion_reason's axis order (contracts/gate1.md, ARCH-005) -- first applicable wins
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("row_fields, citing_status, expected", [
+    ({"integrity": gate1.Integrity.NO_QUOTE}, "draft",
+     "excluded: no quote in the `taken` cell"),
+    ({"dogfooding": True}, "draft",
+     "excluded: citing document status is draft"),
+    ({"classification": gate1.Classification.HARMFUL}, "draft",
+     "excluded: citing document status is draft"),
+    ({"classification": gate1.Classification.HARMFUL, "dogfooding": True}, "active",
+     "excluded: dogfooding (story about this repository)"),
+])
+def test_a_row_failing_two_axes_reports_the_earlier_axis(tmp_path, row_fields, citing_status,
+                                                         expected):
+    eligible = _eligible_row(tmp_path)
+    row = replace(eligible, citing=replace(eligible.citing, status=citing_status), **row_fields)
+
+    assert gate1.exclusion_reason(row) == expected

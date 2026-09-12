@@ -17,17 +17,17 @@ def verify(store: Path) -> tuple[list[str], list[str], list[str]]:
     stale: list[str] = []
 
     for row in verdicts.rows:
-        if row.integrity == "no_quote":
+        if row.integrity == gate1.Integrity.NO_QUOTE:
             problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
-        elif row.integrity == "cited_missing":
+        elif row.integrity == gate1.Integrity.CITED_MISSING:
             problems.append(f"{row.source}: cited document {row.cited_id} is not in the store")
-        elif row.integrity == "quote_not_found":
+        elif row.integrity == gate1.Integrity.QUOTE_NOT_FOUND:
             for quote in row.unfound_quotes:
                 problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
 
         # a genuine quote from a document that has since been replaced: not a fabrication, but
         # reuse of stale knowledge — and after the session ends the two read the same
-        if row.staleness == "cited_superseded":
+        if row.staleness == gate1.Staleness.CITED_SUPERSEDED:
             successor = row.cited.superseded_by or "(no successor recorded)"
             stale.append(f"{row.source}: cites {row.cited_id}, superseded by {successor}")
 

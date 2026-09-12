@@ -5,6 +5,7 @@ Rules and their reasons: contracts/gate1.md.
 
 from __future__ import annotations
 
+import enum
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +18,46 @@ from engmem.spine import Doc, _coerce_list_field, load_store, split_front_matter
 QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
 NONE_LINE = "prior docs used: none."
 
-VALID_CLASSIFICATIONS = frozenset({"reuse", "anti-reuse", "harmful"})
+
+class Integrity(enum.StrEnum):
+    """Axis A, in evaluation order -- contracts/gate1.md, "The five axes"."""
+
+    NO_QUOTE = "no_quote"
+    CITED_MISSING = "cited_missing"
+    QUOTE_NOT_FOUND = "quote_not_found"
+    VERIFIED = "verified"
+
+
+class Classification(enum.StrEnum):
+    """Axis B: the three the author may write, plus the two this module derives."""
+
+    REUSE = "reuse"
+    ANTI_REUSE = "anti-reuse"
+    HARMFUL = "harmful"
+    MISSING = "missing"
+    UNRECOGNIZED = "unrecognized"
+
+
+class Distance(enum.StrEnum):
+    """Axis C, computed only once axis A reaches `verified`."""
+
+    ADJACENT = "adjacent"
+    DISTANT = "distant"
+    UNDECIDABLE = "undecidable"
+
+
+class Staleness(enum.StrEnum):
+    """Axis D, computed whenever the cited document resolves in the store."""
+
+    CITED_ACTIVE = "cited_active"
+    CITED_SUPERSEDED = "cited_superseded"
+
+
+# the classification cell a human may write; `missing`/`unrecognized` are this module's
+# own readings, so a cell spelling either of them out is `unrecognized` like any other word
+VALID_CLASSIFICATIONS = frozenset(
+    {Classification.REUSE, Classification.ANTI_REUSE, Classification.HARMFUL}
+)
 KNOWN_STATUSES_EXCLUDED_FROM_THE_COUNT = frozenset({"draft", "superseded"})
 # this repository's own package name (pyproject.toml) -- see contracts/gate1.md
 # "Dogfooding identification" for why `repos` and not `covers_files` or a deny-list
@@ -28,15 +68,15 @@ DOGFOODING_REPOS = frozenset({"engmem"})
 class RowVerdict:
     citing: Doc
     cited: Doc | None
-    cited_id: str  # as written in the row; may not resolve when integrity == "cited_missing"
+    cited_id: str  # as written in the row; may not resolve when integrity is CITED_MISSING
     source: str  # "<filename>:<line>", for human-readable messages
     quotes: tuple[str, ...]
-    integrity: str  # no_quote | cited_missing | quote_not_found | verified
+    integrity: Integrity
     unfound_quotes: tuple[str, ...]
     classification_raw: str
-    classification: str  # reuse | anti-reuse | harmful | missing | unrecognized
-    distance: str | None  # adjacent | distant | undecidable -- set only when integrity == verified
-    staleness: str | None  # cited_active | cited_superseded -- set whenever `cited` resolved
+    classification: Classification
+    distance: Distance | None  # set only when integrity is VERIFIED
+    staleness: Staleness | None  # set whenever `cited` resolved
     dogfooding: bool
 
 
@@ -109,31 +149,31 @@ def _repos(path: Path) -> set[str] | None:
     return set(values)
 
 
-def _distance(citing: Doc, cited: Doc, repos: dict[str, set[str] | None]) -> str:
+def _distance(citing: Doc, cited: Doc, repos: dict[str, set[str] | None]) -> Distance:
     if cited.id in citing.related or citing.id in cited.related:
-        return "adjacent"
+        return Distance.ADJACENT
     if set(citing.tags) & set(cited.tags):
-        return "adjacent"
+        return Distance.ADJACENT
     citing_repos, cited_repos = repos.get(citing.id), repos.get(cited.id)
     if citing_repos is None or cited_repos is None:
         # unparseable front matter must not read as "shares nothing", which is
         # what made an unparseable document score distant -- see contracts/gate1.md
-        return "undecidable"
+        return Distance.UNDECIDABLE
     if citing_repos & cited_repos:
-        return "adjacent"
-    return "distant"
+        return Distance.ADJACENT
+    return Distance.DISTANT
 
 
-def _classification(cells: list[str]) -> tuple[str, str]:
+def _classification(cells: list[str]) -> tuple[str, Classification]:
     if len(cells) < 4:
-        return "", "missing"
+        return "", Classification.MISSING
     raw = cells[3].strip()
     if not raw:
-        return raw, "missing"
+        return raw, Classification.MISSING
     normalized = raw.casefold()
     if normalized in VALID_CLASSIFICATIONS:
-        return raw, normalized
-    return raw, "unrecognized"
+        return raw, Classification(normalized)
+    return raw, Classification.UNRECOGNIZED
 
 
 def _row_verdict(
@@ -153,18 +193,20 @@ def _row_verdict(
     # exactly the check order verify_citations.py already used: each step needs the
     # data the step before it established -- see contracts/gate1.md
     if not quotes:
-        integrity, unfound = "no_quote", ()
+        integrity, unfound = Integrity.NO_QUOTE, ()
     elif cited is None:
-        integrity, unfound = "cited_missing", ()
+        integrity, unfound = Integrity.CITED_MISSING, ()
     else:
         unfound = tuple(q for q in quotes if _normalized(q) not in bodies[cited_id])
-        integrity = "quote_not_found" if unfound else "verified"
+        integrity = Integrity.QUOTE_NOT_FOUND if unfound else Integrity.VERIFIED
 
     staleness = None
     if cited is not None:
-        staleness = "cited_superseded" if cited.status == "superseded" else "cited_active"
+        staleness = (
+            Staleness.CITED_SUPERSEDED if cited.status == "superseded" else Staleness.CITED_ACTIVE
+        )
 
-    distance = _distance(citing, cited, repos) if integrity == "verified" else None
+    distance = _distance(citing, cited, repos) if integrity == Integrity.VERIFIED else None
 
     classification_raw, classification = _classification(cells)
 
@@ -215,29 +257,36 @@ def excluded_by_status(row: RowVerdict) -> str | None:
     return row.citing.status if row.citing.status in KNOWN_STATUSES_EXCLUDED_FROM_THE_COUNT else None
 
 
+INTEGRITY_EXCLUSIONS = {
+    Integrity.NO_QUOTE: "excluded: no quote in the `taken` cell",
+    Integrity.CITED_MISSING: "excluded: cited document not in store",
+    Integrity.QUOTE_NOT_FOUND: "excluded: quote not found in cited document",
+}
+
+CLASSIFICATION_EXCLUSIONS = {
+    Classification.HARMFUL: "excluded: classification harmful",
+    Classification.ANTI_REUSE: "excluded: classification anti-reuse",
+    Classification.MISSING: "excluded: classification cell missing",
+}
+
+
 def exclusion_reason(row: RowVerdict) -> str | None:
     """`None` means the row is eligible: verified, classified reuse, in scope, not dogfooding --
     axis E (the verdict column) is then left for the human, whatever axis C (distance) says."""
-    if row.integrity == "no_quote":
-        return "excluded: no quote in the `taken` cell"
-    if row.integrity == "cited_missing":
-        return "excluded: cited document not in store"
-    if row.integrity == "quote_not_found":
-        return "excluded: quote not found in cited document"
+    # the four axes in the order contracts/gate1.md fixes (ARCH-005): integrity, then the
+    # citing document's status, then dogfooding, then classification -- first one wins
+    integrity_reason = INTEGRITY_EXCLUSIONS.get(row.integrity)
+    if integrity_reason is not None:
+        return integrity_reason
     status = excluded_by_status(row)
     if status is not None:
         return f"excluded: citing document status is {status}"
     if row.dogfooding:
         return "excluded: dogfooding (story about this repository)"
-    if row.classification == "harmful":
-        return "excluded: classification harmful"
-    if row.classification == "anti-reuse":
-        return "excluded: classification anti-reuse"
-    if row.classification == "missing":
-        return "excluded: classification cell missing"
-    if row.classification == "unrecognized":
+    if row.classification == Classification.UNRECOGNIZED:
+        # the one classification whose reason quotes what the human actually wrote
         return f"excluded: classification {row.classification_raw!r} not recognized"
-    return None
+    return CLASSIFICATION_EXCLUSIONS.get(row.classification)
 
 
 def is_valid(row: RowVerdict) -> bool:
@@ -245,4 +294,4 @@ def is_valid(row: RowVerdict) -> bool:
 
 
 def is_primary_candidate(row: RowVerdict) -> bool:
-    return is_valid(row) and row.distance == "distant"
+    return is_valid(row) and row.distance == Distance.DISTANT
