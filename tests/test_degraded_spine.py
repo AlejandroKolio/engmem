@@ -1,4 +1,6 @@
 import datetime
+from importlib import resources
+from pathlib import Path
 
 from conftest import write_file
 
@@ -232,6 +234,23 @@ def test_front_matter_that_is_not_a_mapping_is_a_collected_error(tmp_path):
     assert [d.id for d in result.docs] == ["widget-cache-warmup"]
 
 
+def test_a_garbage_date_is_loud_even_on_an_otherwise_degraded_document(tmp_path):
+    """Degradation tolerance stops at a malformed value. `_derive_date`'s mtime fallback sits on
+    the other arm of the same ternary, three statements below where `degraded` is computed, so
+    widening it to catch the `ValueError` for a document that is already incomplete is a one-line
+    reach — and a document stating `date: not-a-date` would then load with a fabricated date."""
+    write_file(
+        tmp_path,
+        "bad-date.md",
+        "---\nid: bad-date\ntitle: Bad Date\ndate: not-a-date\n---\n\n## Pre-reg\n",
+    )
+
+    result = load_store(tmp_path)
+
+    assert result.docs == []
+    assert "date" in result.errors[0].message
+
+
 def test_duplicate_id_is_still_a_loud_error_even_when_derived(tmp_path):
     write_file(tmp_path, "widget-cache-warmup.md", "# Widget Cache Warmup\n\nBody.\n")
     write_file(
@@ -280,8 +299,6 @@ Body.
 
 
 def test_scoreboard_omits_the_partial_count_when_every_spine_is_complete():
-    from pathlib import Path
-
     fixtures = Path(__file__).parent / "fixtures" / "sessions"
     docs = [d for d in load_store(fixtures).docs if d.spine_complete]
 
@@ -383,8 +400,6 @@ def test_absent_retrieval_fields_still_count_as_spine_damage(tmp_path):
 def test_shipped_draft_template_does_not_claim_zero_capture_minutes():
     """`0` means measured as instantaneous; a draft has measured nothing, so the value must read
     as null."""
-    from importlib import resources
-
     template = (resources.files("engmem") / "templates" / "engmem.start.md").read_text(
         encoding="utf-8"
     )
