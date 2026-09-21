@@ -415,10 +415,10 @@ def _telemetry_row(store: Path, *, session_id, ts: str = "2026-08-15T12:00:00+00
 
 
 def _run_since(store: Path, since: str) -> "subprocess.CompletedProcess[str]":
-    """`conftest.run_tool` without the one flag this block needs."""
+    """`conftest.run_tool` without the one flag this block needs, and decoding the same way."""
     return subprocess.run(
         [sys.executable, str(TOOL), "--store", str(store), "--since", since],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
     )
 
 

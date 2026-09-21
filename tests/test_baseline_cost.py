@@ -20,9 +20,12 @@ def _doc(sessions: Path, doc_id: str, entities: str, body: str) -> None:
 
 
 def _run(store: Path, queries: Path) -> subprocess.CompletedProcess:
+    # `encoding=`, not the locale's: engmem writes UTF-8 whatever the console code page says
+    # (tests/test_cli.py, "output is utf8 whatever the console code page is"), so a reader
+    # that decodes by locale mangles every non-ASCII byte on a cp1252 console.
     return subprocess.run(
         [sys.executable, str(TOOL), "--store", str(store), "--queries", str(queries)],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
     )
 
 
@@ -71,10 +74,12 @@ def test_token_cost_uses_the_same_estimator_as_telemetry(tmp_path):
     row = next(l for l in result.stdout.splitlines() if l.startswith("| WidgetCache"))
     reported = int([c.strip() for c in row.strip().strip("|").split("|")][2])
 
-    # re-run the same search and estimate its output independently
+    # re-run the same search and estimate its output independently. `encoding=` for the same
+    # reason as `_run`, and it matters here: the byte count is the assertion, and one em dash
+    # decoded by a cp1252 locale re-encodes to eight bytes instead of three.
     search = subprocess.run(
         [sys.executable, "-m", "engmem.cli", "search", "WidgetCache", "--store", str(tmp_path)],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
     )
     assert reported == estimate_tokens(len(search.stdout.encode("utf-8")))
 
