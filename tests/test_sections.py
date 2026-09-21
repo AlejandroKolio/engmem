@@ -1,6 +1,7 @@
 import pytest
 
 from engmem.sections import (
+    CANONICAL_ALIASES,
     CANONICAL_ROLES,
     split_sections,
     sections_by_locator,
@@ -161,8 +162,8 @@ def test_locator_combines_index_and_anchor():
 
 
 def test_unmapped_heading_has_no_canonical_alias():
-    # "Pre-reg" itself now has a canonical alias ("prereg") — this heading is chosen
-    # to be document-specific and outside the measured vocabulary instead.
+    # "Rollout Plan" is document-specific and outside the measured vocabulary; "Pre-reg"
+    # would not do, it resolves to the "prereg" role.
     body = "## Rollout Plan\n\nSome content.\n"
     section = split_sections(body)[0]
     assert section.canonical is None
@@ -287,6 +288,11 @@ def test_preamble_before_first_heading_is_captured():
             "code",
             id="code-implementation-full-diff-paren",
         ),
+        pytest.param(
+            "## Code Implementation (the actual change - widget cache rewrite)",
+            "code",
+            id="code-implementation-widget-cache-rewrite-paren",
+        ),
         # status
         pytest.param("## Status at a Glance", "status", id="status-glance-capital"),
         pytest.param("## Status at a glance", "status", id="status-glance-lower"),
@@ -300,41 +306,8 @@ def test_preamble_before_first_heading_is_captured():
 def test_canonical_alias_table_covers_measured_corpus_vocabulary(heading_line, expected_canonical):
     # Every spelling variant listed for the 19 roles measured on the real 9-document
     # corpus (see sections.py's CANONICAL_ALIASES block comment) resolves to its
-    # intended canonical role, exactly as the vocabulary-expansion task measured it.
-    body = f"{heading_line}\n\nSome content.\n"
-    section = split_sections(body)[0]
-    assert section.canonical == expected_canonical
-
-
-@pytest.mark.parametrize(
-    "heading_line,expected_canonical",
-    [
-        pytest.param(
-            "## System Architecture (the read path)", "architecture", id="architecture-paren"
-        ),
-        pytest.param(
-            "## End-to-End Flow (how a dependency CVE blocks a deploy here)",
-            "flow",
-            id="flow-paren",
-        ),
-        pytest.param(
-            "## Code Implementation (the actual change - widget cache rewrite)",
-            "code",
-            id="code-paren",
-        ),
-        pytest.param(
-            "## Acceptance Criteria (live status -> overview)",
-            "acceptance",
-            id="acceptance-paren",
-        ),
-        pytest.param("## Business Context (glossary)", "context", id="context-paren"),
-    ],
-)
-def test_trailing_parenthetical_headings_fold_onto_their_bracket_free_canonical(
-    heading_line, expected_canonical
-):
-    # A heading that differs from a known role's key only by a trailing "(...)" clause
-    # resolves to that role without the clause's own text ever being enumerated.
+    # intended canonical role. A heading that differs from a role's key only by a
+    # trailing "(...)" clause folds onto it, the clause's own text never enumerated.
     body = f"{heading_line}\n\nSome content.\n"
     section = split_sections(body)[0]
     assert section.canonical == expected_canonical
@@ -380,26 +353,26 @@ def test_unmapped_near_miss_still_yields_a_working_literal_anchor():
 # ---------------------------------------------------------------------------
 
 
-def test_canonical_roles_matches_every_distinct_alias_value():
-    from engmem.sections import CANONICAL_ALIASES, CANONICAL_ROLES
-
+def test_canonical_roles_is_the_sorted_distinct_set_of_alias_values():
     assert set(CANONICAL_ROLES) == set(CANONICAL_ALIASES.values())
     assert len(CANONICAL_ROLES) == 19
-
-
-def test_canonical_roles_is_sorted_and_has_no_duplicates():
-    from engmem.sections import CANONICAL_ROLES
-
     assert list(CANONICAL_ROLES) == sorted(CANONICAL_ROLES)
     assert len(CANONICAL_ROLES) == len(set(CANONICAL_ROLES))
 
 
-def test_heading_inside_a_code_fence_is_not_a_section_boundary():
+@pytest.mark.parametrize(
+    "opening,closing",
+    [
+        pytest.param("```bash", "```", id="backtick-with-info-string"),
+        pytest.param("~~~", "~~~", id="tilde"),
+    ],
+)
+def test_heading_inside_a_code_fence_is_not_a_section_boundary(opening, closing):
     """A `## ` line inside a fenced block is sample output; splitting there filed prose under a
     phantom section."""
     body = (
         "## Architecture\n\nThe cache warms on boot.\n\n"
-        "```bash\n## not a heading: this is shell output\necho hi\n```\n\n"
+        f"{opening}\n## not a heading: this is shell output\necho hi\n{closing}\n\n"
         "More prose in the same section.\n\n## Testing\n\nCovered.\n"
     )
 
@@ -407,15 +380,6 @@ def test_heading_inside_a_code_fence_is_not_a_section_boundary():
 
     assert [s.heading for s in sections] == ["Architecture", "Testing"]
     assert "More prose in the same section." in sections[0].body
-
-
-def test_tilde_fences_suppress_headings_too():
-    body = (
-        "## Architecture\n\nProse.\n\n~~~\n## still inside the fence\n~~~\n\n"
-        "Tail prose.\n"
-    )
-
-    assert [s.heading for s in split_sections(body)] == ["Architecture"]
 
 
 def test_unclosed_fence_does_not_swallow_the_headings_after_it():
@@ -440,18 +404,22 @@ def test_bare_alias_does_not_displace_an_observed_heading():
     assert [s.canonical for s in split_sections(body)] == ["decisions", "decisions"]
 
 
-def test_closed_atx_heading_does_not_keep_its_trailing_hashes():
+@pytest.mark.parametrize(
+    "heading_line,expected_heading,expected_canonical",
+    [
+        pytest.param("## Architecture ##", "Architecture", "architecture", id="space-separated-run"),
+        pytest.param("## Migrating to C#", "Migrating to C#", None, id="attached-hash"),
+    ],
+)
+def test_only_a_space_separated_run_of_trailing_hashes_closes_a_heading(
+    heading_line, expected_heading, expected_canonical
+):
     """`## Architecture ##` is one heading; the stray hashes survived and the canonical lookup
-    missed."""
-    sections = split_sections("## Architecture ##\n\nBody.\n")
+    missed. `C#` carries no space before its hash, so the hash is heading text."""
+    section = split_sections(f"{heading_line}\n\nBody.\n")[0]
 
-    assert sections[0].heading == "Architecture"
-    assert sections[0].canonical == "architecture"
-
-
-def test_hash_that_is_part_of_the_heading_text_is_kept():
-    """Only a space-separated run of trailing hashes closes a heading — `C#` is text."""
-    assert split_sections("## Migrating to C#\n\nBody.\n")[0].heading == "Migrating to C#"
+    assert section.heading == expected_heading
+    assert section.canonical == expected_canonical
 
 
 def test_atx_heading_indented_up_to_three_spaces_is_still_a_boundary():
@@ -497,17 +465,18 @@ def test_indented_setext_heading_still_folds_to_h2():
     assert sections[0].canonical == "architecture"
 
 
-def test_thematic_break_after_a_blank_line_is_not_a_heading():
-    """`---` after a blank line is a horizontal rule, and reading it as a heading would invent
-    sections nobody wrote."""
-    body = "## Architecture\n\nProse.\n\n---\n\nMore prose.\n"
-
-    assert [s.heading for s in split_sections(body)] == ["Architecture"]
-
-
-def test_list_item_above_a_dashed_line_is_not_a_heading():
-    body = "## Architecture\n\n- an item\n---\n\ntail\n"
-
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            "## Architecture\n\nProse.\n\n---\n\nMore prose.\n", id="blank-line-above"
+        ),
+        pytest.param("## Architecture\n\n- an item\n---\n\ntail\n", id="list-item-above"),
+    ],
+)
+def test_a_dashed_line_that_is_not_a_setext_underline_invents_no_section(body):
+    """`---` under a blank line is a horizontal rule and under a list item a thematic break;
+    reading either as an underline would invent sections nobody wrote."""
     assert [s.heading for s in split_sections(body)] == ["Architecture"]
 
 
@@ -606,9 +575,3 @@ def test_a_section_that_names_the_role_outranks_an_inherited_one_earlier_in_the_
     assert [s.heading for s in sections_for_role(sections, "context")] == [
         "Actors", "Flows", "Glossary",
     ]
-
-
-def test_an_inherited_role_still_answers_when_nothing_else_claims_it():
-    sections = split_sections(_oversized("Search Keywords"))
-
-    assert sections_by_locator(sections)["keywords"].heading == "Classes"

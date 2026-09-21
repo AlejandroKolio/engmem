@@ -215,9 +215,13 @@ Idempotent (re-running = upgrade, nothing breaks):
    `.claude/commands/` with `--local`); copilot → `.github/prompts/`.
 3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v<package version> -->`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` if not
-   already present: "Before proposing a plan, run `engmem search "<key terms for the task>"`". Presence is detected by the substring `` `engmem search ``, so a
+   already present: "Before proposing a plan, run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
    rule the user reworded is recognised and never duplicated; a skip for this reason
-   is reported on stdout, not left silent. The appended line is written after an
+   is reported on stdout, not left silent. A line that is exactly an earlier wording engmem
+   itself wrote (with or without the sentinel below) is not skipped but updated in place to
+   the current wording and reported as updated — otherwise the marker check would freeze
+   the first wording ever installed. *(2026-09-18: `--session` joined the rule; every CLI
+   search on the record until then was unattributed.)* The appended line is written after an
    `<!-- engmem-trigger-rule -->` sentinel comment so `uninstall` removes precisely
    the line engmem wrote, not any line that merely contains the same substring — an
    earlier version deleted a user's own unrelated sentence that happened to mention
@@ -323,6 +327,13 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    correct and complete, and the command still exits 0 — but is reported with its own
    `note: telemetry not recorded (<reason>)` line on stdout, since a silently-stopped
    measurement instrument is a data-integrity problem worth surfacing.
+   A search run without `--session` (absent, blank or whitespace-only) ends with one more
+   trailing line, `note: unattributed search — pass --session <draft-id>`, after the
+   scoreboard and after any telemetry note; the MCP tools append the same line with
+   `session_id` in place of the flag. Both are outside the rendered result, so
+   `context_bytes` (6a) is unchanged by them. *(Added 2026-09-18: two measurements a week
+   apart found 0 of 33 and 2 of 44 searches attributed; the template's instruction alone did
+   not hold.)*
 
 6a. Two more fields ride the same line, both English additions not covered above:
     `channel` (`"cli"` or `"mcp"` — which surface ran the search, set by the caller,
@@ -566,6 +577,27 @@ The author explicitly asked for it — `engmem mcp` and `install/uninstall --age
 claude-desktop`, milestone M3 — see §5. The rest of this list is unchanged and still
 in force.
 
+**Amendment, recorded 2026-09-19: the measurement layer is frozen until the tenth counted
+story.** The apparatus has outgrown what it measures — about 5 900 lines of Python under
+`src/`, 18 000 of tests and 6 200 of contracts, spec, templates and the anatomy page, against a
+live store of 10 documents, 27 telemetry rows and no distant reuse event since the first
+document on 2026-07-29. §11 already reads this state: "Fewer than 10 counted stories, no
+distant event" is undecided and expires at story 10, past which "The measurement superstructure
+measures zero. That is a result". Until story 10 no new measurement surface enters the
+repository: no new tool under `tools/`, no new audit figure or telemetry field, and no contract
+section other than the "why" of a fix. Parked by name: excluding `dsa`-tagged documents from
+the endpoint population in code, and a distance census or any change to `gate1._distance`.
+Still allowed: fixes to defects that stop a story being collected or counted (the two just
+landed: `engmem_complete_draft` refusing a Reuse Log row with no quote or an unreadable
+classification, and the `--session` trigger rule with its `note: unattributed search` line) and
+the clean-up of existing text, tests and unused surface. A story, so that the freeze has an
+end, is §11's cross-repository work story: a session document, status `active` and not
+`backfilled`, about work in a repository; one tagged `dsa`, `dsa-mentor` or `algorithms-course`
+is practice, not counted. The count is read by hand from the "completed (status: active)"
+figure on the "ritual:" line of `tools/gate1_report.py`'s audit block, minus such documents and
+minus any whose `repos` names `engmem` (§11, dogfooding); no code encodes this, which is the
+point. The freeze lifts at count 10, when §11's table is read, or earlier if a §11 row is met.
+
 ## 10. Principles
 
 ### Product stance
@@ -723,7 +755,7 @@ than read into the endpoint quietly, per this section's own rule.
   for the alternatives considered and why `repos` was chosen over `covers_files` or a
   deny-list.
 - **A story still in draft, or superseded.** Search itself excludes `draft` and `superseded`
-  documents from its results (§5.2); the count now excludes a Reuse Log row whose *citing*
+  documents from its results (§5, search step 2); the count now excludes a Reuse Log row whose *citing*
   document carries either status, so the counted population matches what the retrieval layer
   actually serves.
 - **Divergence between the pre-registered plan and the final one.** It is a secondary

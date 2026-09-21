@@ -32,7 +32,9 @@ confirmation.
    case).
 2. Write `## Reuse Log` as exactly `Prior docs used: none.` unless prior docs obviously
    influenced the work, in which case list them as rows (with quotes, same validity rule
-   as `/engmem.save`) — but do not interrogate the user about it.
+   as `/engmem.save`: a quoted span in `taken`, classification exactly `reuse` /
+   `anti-reuse` / `harmful`; `engmem_complete_draft` refuses a row that breaks either and
+   returns it) — but do not interrogate the user about it.
 3. Write `## Search Trace` with the `shell` / `paste` / `miss` value recorded by
    `/engmem`.
 4. Carry `## Pre-reg` over unedited from the draft. Skip

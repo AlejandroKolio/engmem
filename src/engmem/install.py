@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import enum
 import json
 import os
 import subprocess
@@ -63,8 +64,25 @@ _AGENT_TEMPLATE_MAPS = {
 
 
 TRIGGER_RULE = (
-    'Before proposing a plan, run `engmem search "<key terms for the task>"`'
+    'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
+    "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)"
 )
+LEGACY_TRIGGER_RULES = (
+    'Before proposing a plan, run `engmem search "<key terms for the task>"`',
+)
+_EVERY_TRIGGER_RULE = frozenset((TRIGGER_RULE, *LEGACY_TRIGGER_RULES))
+
+
+class TriggerRuleOutcome(enum.StrEnum):
+    ADDED = "added"
+    UPDATED = "updated"
+    PRESENT = "present"
+
+
+_TRIGGER_RULE_NOTES = {
+    TriggerRuleOutcome.PRESENT: " (trigger rule already present — not added)",
+    TriggerRuleOutcome.UPDATED: " (trigger rule updated to the current wording)",
+}
 
 # install's permissive skip-check: matches even a user's own unrelated sentence, safe only because
 # it decides "leave alone", never "delete" — uninstall must never key removal off this
@@ -217,11 +235,29 @@ def _install_skill_templates(skills_root: Path) -> None:
         )
 
 
-def _append_trigger_rule(instructions_file: Path) -> bool:
-    """Adds the sentinel-anchored rule, or returns False if `TRIGGER_MARKER` is already present."""
+def _with_current_trigger_rule(text: str) -> tuple[str, bool]:
+    lines = text.splitlines(keepends=True)
+    updated = False
+    for i, line in enumerate(lines):
+        if line.strip() not in LEGACY_TRIGGER_RULES:
+            continue
+        body = line.rstrip("\r\n")
+        indent = body[: len(body) - len(body.lstrip())]
+        lines[i] = indent + TRIGGER_RULE + line[len(body):]
+        updated = True
+    return "".join(lines), updated
+
+
+def _append_trigger_rule(instructions_file: Path) -> TriggerRuleOutcome:
+    """Updates a wording engmem itself wrote, adds the sentinel-anchored rule, or leaves a file
+    already carrying `TRIGGER_MARKER` alone — see contracts/install.md."""
     existing, bom = _read_user_file(instructions_file) if instructions_file.exists() else ("", b"")
+    migrated, updated = _with_current_trigger_rule(existing)
+    if updated:
+        _replace_user_file(instructions_file, migrated, bom)
+        return TriggerRuleOutcome.UPDATED
     if TRIGGER_MARKER in existing:
-        return False
+        return TriggerRuleOutcome.PRESENT
     _ensure_directory(instructions_file.parent, "instructions directory")
     # the file's own line ending, not this platform's: LF appended to a CRLF file leaves it
     # with both, and the whole file then reads as changed under `core.autocrlf`
@@ -232,7 +268,7 @@ def _append_trigger_rule(instructions_file: Path) -> bool:
         prefix + TRIGGER_SENTINEL + newline + TRIGGER_RULE + newline,
         bom,
     )
-    return True
+    return TriggerRuleOutcome.ADDED
 
 
 def _unlink_reporting_failure(path: Path) -> bool:
@@ -292,11 +328,11 @@ def _remove_trigger_rule(instructions_file: Path) -> int:
         if stripped == TRIGGER_SENTINEL:
             dropped += 1
             i += 1
-            if i < len(lines) and lines[i].strip() == TRIGGER_RULE:
+            if i < len(lines) and lines[i].strip() in _EVERY_TRIGGER_RULE:
                 dropped += 1
                 i += 1
             continue
-        if stripped == TRIGGER_RULE:
+        if stripped in _EVERY_TRIGGER_RULE:
             dropped += 1
             i += 1
             continue
@@ -561,12 +597,12 @@ def _run_install(args: argparse.Namespace) -> int:
     store = resolve_store(args.store)
     _ensure_store(store)
 
-    trigger_added: bool | None = None
+    trigger_outcome: TriggerRuleOutcome | None = None
     if args.agent in ("claude", "copilot-ide"):
         _install_templates(
             _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent]
         )
-        trigger_added = _append_trigger_rule(
+        trigger_outcome = _append_trigger_rule(
             _agent_instructions_file(args.agent, args.local)
         )
     elif args.agent == "claude-desktop":
@@ -576,6 +612,6 @@ def _run_install(args: argparse.Namespace) -> int:
         # copilot-cli: skills are self-invoked, no global-instructions file to append to
         _install_skill_templates(_agent_command_dir("copilot-cli", args.local))
 
-    trigger_note = " (trigger rule already present — not added)" if trigger_added is False else ""
+    trigger_note = _TRIGGER_RULE_NOTES.get(trigger_outcome, "")
     print(f"engmem installed: store={store}, agent={args.agent}{trigger_note}")
     return 0

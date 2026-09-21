@@ -1,6 +1,7 @@
 """`engmem uninstall` — removal was otherwise manual across four places, one of them the shared
 instructions file."""
 
+import json
 import os
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from conftest import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
+    LEGACY_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
     requires_permission_enforcement,
@@ -17,6 +19,7 @@ from conftest import (
 )
 
 from engmem.cli import main
+from engmem.install import TRIGGER_SENTINEL
 
 COPILOT_CLI_SKILLS = ("engmem", "engmem-save", "engmem-save-quick")
 
@@ -123,18 +126,25 @@ def test_uninstall_never_touches_the_store(env, tmp_path, capsys):
     assert str(store) in out, "uninstall must print the store path it left behind"
 
 
-def test_uninstall_is_idempotent(env, tmp_path, capsys):
+SECOND_UNINSTALL_CASES = [
+    pytest.param("claude", "0 template file(s) removed", id="claude"),
+    pytest.param("claude-desktop", "0 config entry(ies) removed", id="claude-desktop"),
+]
+
+
+@pytest.mark.parametrize(("agent", "expected_summary"), SECOND_UNINSTALL_CASES)
+def test_a_second_uninstall_changes_nothing(env, tmp_path, capsys, agent, expected_summary):
     home, project = env
     store = tmp_path / "store"
-    _install("--agent", "claude", "--store", str(store))
-    _uninstall("--agent", "claude", "--store", str(store))
+    _install("--agent", agent, "--store", str(store))
+    _uninstall("--agent", agent, "--store", str(store))
     capsys.readouterr()
 
-    exit_code = _uninstall("--agent", "claude", "--store", str(store))
+    exit_code = _uninstall("--agent", agent, "--store", str(store))
     out = capsys.readouterr().out
 
     assert exit_code == 0, "a second uninstall must succeed, not fail"
-    assert "0 template file(s) removed" in out
+    assert expected_summary in out
 
 
 NEVER_INSTALLED_CASES = [
@@ -230,8 +240,8 @@ def test_uninstall_repo_scoped_without_git_repo_fails_loudly(env, tmp_path, caps
 
 
 def test_uninstall_bare_copilot_agent_value_is_rejected(env, capsys):
-    # D14, same reasoning as install's identical test: an unrecognized --agent
-    # must fail via `_fail()` (both streams, exit 2), never argparse `choices=`
+    # same reasoning as install's identical test: an unrecognized --agent must fail
+    # via `runtime.fail` (both streams, exit 2), never argparse `choices=`
     # (stderr-only, SystemExit) — the stdout-only reader must see why it failed.
     exit_code = _uninstall("--agent", "copilot")
 
@@ -351,7 +361,7 @@ def test_uninstall_survives_a_failed_config_write_without_losing_the_config(
 
 
 def test_uninstall_does_not_delete_unrelated_line_containing_trigger_substring(env, tmp_path):
-    """D12 data loss: deleting every line containing the bare substring destroyed a user's own
+    """Data loss: deleting every line containing the bare substring destroyed a user's own
     unrelated sentence."""
     home, project = env
     store = tmp_path / "store"
@@ -373,54 +383,108 @@ def test_uninstall_does_not_delete_unrelated_line_containing_trigger_substring(e
     )
 
 
-def test_uninstall_removes_pre_sentinel_bare_trigger_rule_line(env, tmp_path):
-    """D12 migration: installs already in the wild wrote the bare rule line with no sentinel and
-    would be orphaned forever."""
+TRIGGER_RULE_REMOVAL_CASES = [
+    pytest.param(LEGACY_TRIGGER_RULE, True, id="legacy-rule-with-sentinel"),
+    # installs already in the wild wrote the rule line with no sentinel at all and would
+    # otherwise be orphaned forever — for the legacy wording and the current one alike
+    pytest.param(LEGACY_TRIGGER_RULE, False, id="legacy-rule-bare"),
+    pytest.param(TRIGGER_RULE, False, id="current-rule-bare"),
+]
+
+
+@pytest.mark.parametrize(("rule", "with_sentinel"), TRIGGER_RULE_REMOVAL_CASES)
+def test_uninstall_removes_a_trigger_rule_line_engmem_wrote(env, tmp_path, rule, with_sentinel):
     home, project = env
     store = tmp_path / "store"
     claude_md = home / ".claude" / "CLAUDE.md"
     claude_md.parent.mkdir(parents=True)
+    sentinel = TRIGGER_SENTINEL + "\n" if with_sentinel else ""
     claude_md.write_text(
-        "# My rules\n\n- Prefer small commits.\n" + TRIGGER_RULE + "\n",
+        "# My rules\n\n- Prefer small commits.\n" + sentinel + rule + "\n",
         encoding="utf-8",
     )
 
     exit_code = _uninstall("--agent", "claude", "--store", str(store))
 
-    content = claude_md.read_text(encoding="utf-8")
     assert exit_code == 0
-    assert TRIGGER_RULE not in content
-    assert "Prefer small commits." in content
+    assert claude_md.read_text(encoding="utf-8") == "# My rules\n\n- Prefer small commits.\n"
 
 
-def test_uninstall_notes_when_a_different_agents_files_are_present(env, tmp_path, capsys):
-    """D19: uninstalling the wrong agent printed `0 removed`, exit 0, with no hint the operator
-    meant a different one."""
-    home, project = env
-    (project / ".git").mkdir()
-    store = tmp_path / "store"
-    _install("--agent", "claude", "--store", str(store))
-    capsys.readouterr()
-
-    exit_code = _uninstall("--agent", "copilot-cli", "--store", str(store))
-    out = capsys.readouterr().out
-
-    assert exit_code == 0
-    assert "0 template file(s) removed" in out
-
+def _claude_templates_are_intact(home):
     commands_dir = home / ".claude" / "commands"
     for name in INSTALLED_NAMES:
         assert (commands_dir / name).is_file(), (
             "uninstalling the wrong agent must never touch another agent's files"
         )
-    assert "claude" in out.lower(), (
-        "0 removed while another agent's files exist must be called out, not silent"
+
+
+def _claude_desktop_entry_is_intact(home):
+    config = json.loads(claude_desktop_config_path(home).read_text(encoding="utf-8"))
+    assert "engmem" in config["mcpServers"], (
+        "uninstalling a different --agent must never touch claude-desktop's entry"
     )
 
 
-# --- claude-desktop: uninstall removes only the mcpServers.engmem key -------------
+def _both_are_intact(home):
+    _claude_templates_are_intact(home)
+    _claude_desktop_entry_is_intact(home)
 
-import json
+
+OTHER_AGENT_PRESENT_CASES = [
+    pytest.param(
+        ("claude",), "copilot-cli", "claude", _claude_templates_are_intact, id="claude"
+    ),
+    pytest.param(
+        ("claude-desktop",),
+        "claude",
+        "claude-desktop",
+        _claude_desktop_entry_is_intact,
+        id="claude-desktop",
+    ),
+    # two agents present at once. With one installed per row the nudge is pinned only on its
+    # non-emptiness: a lookup that answers a fixed agent, or one that stops filtering by
+    # presence and names every agent that is not the one being uninstalled, produces exactly
+    # one name either way and passes the rows above
+    pytest.param(
+        ("claude", "claude-desktop"),
+        "copilot-cli",
+        "claude, claude-desktop",
+        _both_are_intact,
+        id="claude-and-claude-desktop",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("installed_agents", "uninstalled_agent", "expected_note", "assert_intact"),
+    OTHER_AGENT_PRESENT_CASES,
+)
+def test_uninstalling_the_wrong_agent_names_the_one_that_is_installed(
+    env, tmp_path, capsys, installed_agents, uninstalled_agent, expected_note, assert_intact
+):
+    """Uninstalling the wrong agent printed `0 removed`, exit 0, with no hint the operator meant
+    a different one. The nudge exists to tell that apart from "never installed", so it has to
+    name the agents that are actually present: one naming an agent the user never installed
+    sends them to re-run and collect another 0."""
+    home, project = env
+    (project / ".git").mkdir()
+    store = tmp_path / "store"
+    for agent in installed_agents:
+        _install("--agent", agent, "--store", str(store))
+    capsys.readouterr()
+
+    exit_code = _uninstall("--agent", uninstalled_agent, "--store", str(store))
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "0 template file(s) removed" in out
+    assert f"files for {expected_note} are present" in out, (
+        "the nudge must name exactly the agents whose artifacts are on this machine"
+    )
+    assert_intact(home)
+
+
+# --- claude-desktop: uninstall removes only the mcpServers.engmem key -------------
 
 
 def test_uninstall_claude_desktop_removes_only_the_engmem_entry(env, tmp_path, capsys):
@@ -453,50 +517,10 @@ def test_uninstall_claude_desktop_removes_only_the_engmem_entry(env, tmp_path, c
     assert "1 config entry(ies) removed" in out
 
 
-def test_uninstall_claude_desktop_is_idempotent(env, tmp_path, capsys):
-    home, project = env
-    store = tmp_path / "store"
-    _install("--agent", "claude-desktop", "--store", str(store))
-    _uninstall("--agent", "claude-desktop", "--store", str(store))
-    capsys.readouterr()
-
-    exit_code = _uninstall("--agent", "claude-desktop", "--store", str(store))
-    out = capsys.readouterr().out
-
-    assert exit_code == 0
-    assert "0 config entry(ies) removed" in out
-
-
-def test_uninstall_claude_desktop_does_not_reject_missing_git_repo(env, tmp_path, capsys):
-    # not repo-scoped: it writes under $HOME, so no --local, no .git guard
-    home, project = env
-    store = tmp_path / "store"
-
-    exit_code = _uninstall("--agent", "claude-desktop", "--store", str(store))
-
-    assert exit_code == 0
-
-
-def test_uninstall_claude_desktop_rejects_malformed_config_without_discarding_it(env, tmp_path, capsys):
-    home, project = env
-    store = tmp_path / "store"
-    config_path = claude_desktop_config_path(home)
-    config_path.parent.mkdir(parents=True)
-    original = "{not valid json"
-    config_path.write_text(original, encoding="utf-8")
-
-    exit_code = _uninstall("--agent", "claude-desktop", "--store", str(store))
-
-    assert exit_code == 2
-    assert config_path.read_text(encoding="utf-8") == original, (
-        "a malformed config must never be silently discarded or overwritten"
-    )
-
-
 def test_uninstall_claude_desktop_malformed_config_removal_failure_is_fully_diagnosed(
     env, tmp_path, capsys
 ):
-    """D12: on this exact failure, uninstall once hardcoded the wrong noun ("file(s)" instead of
+    """On this exact failure, uninstall once hardcoded the wrong noun ("file(s)" instead of
     "config entry(ies)"), printed a leading `0 ... removed` line that reads as success to a
     reader who stops at the first line, and wrote its JSON diagnosis to stderr only, invisible
     to the stdout-only consumer."""
@@ -504,7 +528,8 @@ def test_uninstall_claude_desktop_malformed_config_removal_failure_is_fully_diag
     store = tmp_path / "store"
     config_path = claude_desktop_config_path(home)
     config_path.parent.mkdir(parents=True)
-    config_path.write_text('{"mcpServers": {"otherServer": ', encoding="utf-8")
+    original = '{"mcpServers": {"otherServer": '
+    config_path.write_text(original, encoding="utf-8")
 
     exit_code = _uninstall("--agent", "claude-desktop", "--store", str(store))
     out = capsys.readouterr().out
@@ -515,6 +540,9 @@ def test_uninstall_claude_desktop_malformed_config_removal_failure_is_fully_diag
     assert "engmem uninstalled:" not in out
     assert "engmem uninstall incomplete:" in out
     assert "is not valid JSON" in out
+    assert config_path.read_text(encoding="utf-8") == original, (
+        "a malformed config must never be silently discarded or overwritten"
+    )
 
 
 UNINSTALL_REJECTS_LOCAL_CASES = [
@@ -539,25 +567,3 @@ def test_uninstall_rejects_local_flag_for_home_scoped_agents(
     assert exit_code == 2
     assert "--local" in err
     assert agent in err
-
-
-def test_uninstall_notes_claude_desktop_when_its_entry_is_present_and_a_different_agent_uninstalled(
-    env, tmp_path, capsys
-):
-    home, project = env
-    (project / ".git").mkdir()
-    store = tmp_path / "store"
-    _install("--agent", "claude-desktop", "--store", str(store))
-    capsys.readouterr()
-
-    exit_code = _uninstall("--agent", "claude", "--store", str(store))
-    out = capsys.readouterr().out
-
-    assert exit_code == 0
-    assert "0 template file(s) removed" in out
-    assert "claude-desktop" in out.lower()
-    config_path = claude_desktop_config_path(home)
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    assert "engmem" in config["mcpServers"], (
-        "uninstalling a different --agent must never touch claude-desktop's entry"
-    )

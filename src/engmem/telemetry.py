@@ -34,6 +34,10 @@ def estimate_tokens(byte_count: int) -> int:
     return math.ceil(byte_count / BYTES_PER_TOKEN_ESTIMATE)
 
 
+UNATTRIBUTED_CLI_NOTE = "note: unattributed search — pass --session <draft-id>"
+UNATTRIBUTED_MCP_NOTE = "note: unattributed search — pass session_id <draft-id>"
+
+
 def log_search(
     jsonl_path: Path,
     *,
@@ -135,8 +139,8 @@ class _Row:
 
 def _load_json_object(line: str) -> dict | None:
     """One line, decoded and shape-checked — shared by `_read_row` and `read_session_rows`,
-    the two readers over the same file (contracts/gate1.md, "a second reader, not a second
-    file"). `None` covers both a decode failure and valid JSON that is not an object."""
+    the two readers over the same file (contracts/gate1.md, "A second reader, not a wider
+    `_Row`"). `None` covers both a decode failure and valid JSON that is not an object."""
     try:
         record = json.loads(line)
     except (ValueError, RecursionError):

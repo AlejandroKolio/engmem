@@ -1,75 +1,74 @@
 # Contract: rendering search results, the scoreboard, telemetry and backfill previews
 
-Source: `src/engmem/output.py`. Everything an agent or a human reads from engmem is
-built here. Every value it renders — a path, an id, a heading, a body snippet, a
-proposed field value — comes out of a markdown file that engmem did not write and did
-not validate beyond its spine. The renderer is the last place that can be true about
-it.
+Source: `src/engmem/output.py`. Everything an agent or a human reads from engmem is built
+here, and every value it renders — a path, an id, a heading, a body snippet, a proposed field
+value — comes out of a markdown file engmem did not write and validated only as far as its
+spine. The renderer is the last place that can be true about it.
 
 ## Nothing untrusted may forge a line
 
-The output has structure a reader acts on: `### <id> (score: N)` opens a hit block,
-`path:` names the file to open, `  <- ` names the evidence behind a field about to be
-written. A value carrying a line break splits its own line and the fragment after the
-break becomes a line of that structure — a second hit block naming a document that
-does not exist, or an extra field on a backfill preview a human is about to approve.
+The output has structure a reader acts on: `### <id> (score: N)` opens a hit block, `path:`
+names the file to open, `  <- ` names the evidence behind a field about to be written. A
+value carrying a line break would make the fragment after the break a line of that structure
+— a second hit block naming a document that does not exist, or an extra field on a backfill
+preview a human is about to approve.
 
-`_escape_controls` is the single answer, applied to every untrusted value on its way
-into a rendered line. It escapes, never strips: the tampering stays visible to whoever
-reads the output, and a document with a stray control character still renders.
+`_escape_controls` is applied to every untrusted value on its way into a rendered line. It
+escapes, never strips, so the tampering stays visible and a document with a stray control
+character still renders. The escaped set (`_CONTROL_RE`) is every C0 and C1 control
+character, DEL, and `U+2028`/`U+2029`; `\n` and `\r` alone were too narrow twice over.
+`str.splitlines()` and most renderers also break on `\v`, `\f`, `\x1c`–`\x1e`, `U+0085`,
+`U+2028` and `U+2029`, so each of those forged a line just as well. `ESC` forges nothing, but
+`engmem search` writes to a terminal, where `\x1b]0;…\x07` in a filename retitles the window
+and `\x1b[2J` clears it. A control character has no legitimate place in an id, a path, a
+locator or a one-line excerpt, so all of them are escaped rather than enumerated by effect.
 
-The escaped set (`_CONTROL_RE`) is every C0 and C1 control character, DEL, and
-`U+2028`/`U+2029`. It started as `\n` and `\r` alone, which was too narrow twice over:
-
-- `str.splitlines()` and most renderers also break on `\v`, `\f`, `\x1c`–`\x1e`,
-  `U+0085`, `U+2028` and `U+2029`, so each of those forged a line just as well as `\n`.
-- `ESC` forges nothing, but `engmem search` writes to a terminal. A filename or a
-  document body carrying `\x1b]0;…\x07` retitles the user's window; `\x1b[2J` clears
-  it. A control character has no legitimate place in an id, a path, a locator or a
-  one-line excerpt, so all of them are escaped rather than enumerated by effect.
-
-The backfill preview is escaped for a stronger reason than the search output: it is
-the only thing shown before the `[y/N]` write prompt, so a forged line there is a
-field a human approves without ever having seen what will be written.
+The backfill preview has the stronger reason: it is the only thing shown before the `[y/N]`
+write prompt, so a forged line there is a field a human approves without ever having seen
+what will be written.
 
 ## One parser decides which heading is the primer
 
-`_primer_section` asks `sections.split_sections` and takes the first section whose
-canonical role is `primer`, falling back to `_PRIMER_PHRASE_RE` for spellings the
-alias table does not carry (the unhyphenated "Cold Start Primer").
+`_primer_section` takes the first section `sections.split_sections` returns whose canonical
+role is `primer` or whose heading matches `_PRIMER_PHRASE_RE` (a spelling the alias table does
+not carry, such as the unhyphenated "Cold Start Primer"). The rejected alternative, a regex of
+its own over the raw body, disagreed with the alias table in both directions: `## Future LLM
+Context` is a primer to `--role primer` and was not one here, and a `## Cold-start primer`
+quoted inside a fenced code block — which a document *about* the session format contains —
+was read as that document's own primer. `split_sections` already handles fences, setext
+headings and ordinal prefixes; a second opinion on the same question is a second set of
+defects.
 
-It used to run its own regex over the raw body instead, which disagreed with the alias
-table in both directions: `## Future LLM Context` is a primer to `--role primer` and
-was not one here, and a `## Cold-start primer` heading quoted inside a fenced code
-block — which a document *about* the session format contains — was read as that
-document's own primer. `split_sections` already handles fences, setext headings and
-ordinal prefixes; a second opinion on the same question is a second set of defects.
-
-The excerpt stops at the first line starting with `#`. That is the section's lead-in
-either way, but it is also load-bearing: the excerpt is appended as its own line, and
-a body line starting with `### ` would be indistinguishable from a real hit header.
+The excerpt stops at the first line starting with `#`. That is the section's lead-in either
+way, and it is load-bearing: the excerpt is appended as its own line, and a body line starting
+with `### ` would be indistinguishable from a real hit header.
 
 ## The line explaining a trim must survive the trim
 
-`_trim_to_bytes` cuts from the end. The withheld-count line ("N more document(s)
-matched below the top 3") is the one line whose whole purpose is to be read when the
-output was cut, so appending it to the block list put it first in line to be cut.
+`_trim_to_bytes` cuts from the end, and the withheld-count line ("N more document(s) matched
+below the top 3") is the one line whose whole purpose is to be read when the output was cut,
+so appending it to the block list put it first in line to be cut. `_rendered` reserves its
+bytes before trimming and appends it afterwards; both renderers go through it, so the search
+and `--role` paths cannot drift apart on a rule that only shows up under a full store.
 
-`_rendered` reserves its bytes before trimming and appends it afterwards. Both
-renderers go through it, so the search and `--role` paths cannot drift apart on a rule
-that only shows up under a full store.
-
-The budget is `MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE`: the scoreboard footer is printed
-by the caller, not by these functions, and still counts against what the reader pays.
+The budget is `MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE`: the scoreboard footer is printed by the
+caller, not by these functions, and still counts against what the reader pays. The two
+trailing notes the caller may add after it — `note: telemetry not recorded (...)` and
+`note: unattributed search — pass --session <draft-id>` (`ENGMEM-SPEC.md` §5, search step 6)
+— draw on the same reserve and are not trimmed. The reserve does not always hold them: the
+unattributed note is 55 bytes, and a scoreboard carrying both of its count notes (`partial
+spine`, `failed to load`) plus that line already exceeds the 128 before any telemetry note, so
+stdout can pass `MAX_OUTPUT_BYTES` on a fully trimmed body. Accepted: both notes are
+diagnostics about the instrument, and truncating them would hide the one thing they say.
 
 ## Known limits
 
-`surfaced_ids` reports what the renderer *selected*, not what survived the trim, so a
-trimmed run can log an id the reader never saw. Telemetry reads it as "prior context
-surfaced", which over-counts in exactly the runs where the output was too long.
+`surfaced_ids` reports what the renderer *selected*, not what survived the trim, so a trimmed
+run can log an id the reader never saw. Telemetry reads it as "prior context surfaced", which
+over-counts in exactly the runs where the output was too long.
 
-`_selected` admits a redirect only when its score is strictly greater than the
-last shown hit's. A superseded document tied with the third hit would have taken that
-place on the `(-score, -date, id)` order `scoring` actually sorts by, and its redirect
-is dropped. The failure is silence about a stale document, never handing one over, and
-closing it would mean restating `scoring`'s sort key in the renderer.
+`_selected` admits a redirect only when its score is strictly greater than the last shown
+hit's. A superseded document tied with the third hit would have taken that place on the
+`(-score, -date, id)` order `scoring` actually sorts by, and its redirect is dropped. The
+failure is silence about a stale document, never handing one over, and closing it would mean
+restating `scoring`'s sort key in the renderer.

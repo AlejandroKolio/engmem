@@ -100,8 +100,8 @@ def _missing_line(label: str, ids: list[str]) -> str:
 
 
 def _telemetry_line(label: str, audit: gate1_audit.AuditReport, measured: str) -> str:
-    """`measured` is the normal-path text; when telemetry.jsonl could not be read or decoded
-    (ARCH-101), every telemetry-derived line says so explicitly instead of printing a false
+    """`measured` is the normal-path text; when telemetry.jsonl could not be read or decoded,
+    every telemetry-derived line says so explicitly instead of printing a false
     zero -- `gate1_report.py` still exits 0 either way (contracts/gate1.md)."""
     if audit.telemetry_error is None:
         return f"{label}: {measured}"
@@ -193,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     store = Path(args.store).expanduser()
     lines, verdicts = report(store)
 
-    # printed in full BEFORE the audit block is computed (ARCH-101): the per-row table and the
+    # printed in full BEFORE the audit block is computed: the per-row table and the
     # §11 endpoint figure must reach stdout even if telemetry.jsonl -- read only by the audit
     # block below -- turns out to be unreadable or undecodable.
     print("| " + " | ".join(HEADER) + " |")

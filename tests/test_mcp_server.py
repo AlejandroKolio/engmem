@@ -11,11 +11,30 @@ from pathlib import Path
 import pytest
 
 from conftest import requires_permission_enforcement
+from mcp_harness import (
+    PROTOCOL_VERSION,
+    _initialize_msg,
+    _prompts_get_msg,
+    _result_text,
+    _role_tools_call_msg,
+    _run,
+    _stdin_of,
+    _stdin_of_messages,
+    _telemetry_lines,
+    _tools_call_msg,
+)
 
 from engmem import __version__, mcp_server
 from engmem.mcp_server import serve
-
-PROTOCOL_VERSION = "2025-06-18"
+from engmem.output import (
+    render_no_match,
+    render_role_search_results,
+    render_search_results,
+)
+from engmem.scoring import search as run_search, search_with_role_sections
+from engmem.sections import CANONICAL_ROLES
+from engmem.spine import load_store
+from engmem.telemetry import estimate_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -36,54 +55,9 @@ def _real_stdout_must_stay_empty(capsys):
 
 
 # ---------------------------------------------------------------------------
-# helpers
+# helpers — the JSON-RPC plumbing itself lives in mcp_harness.py, shared with
+# test_mcp_write_tools.py
 # ---------------------------------------------------------------------------
-
-
-def _stdin_of(*lines: str) -> io.StringIO:
-    text = "".join(line if line.endswith("\n") else line + "\n" for line in lines)
-    return io.StringIO(text)
-
-
-def _stdin_of_messages(*messages: dict) -> io.StringIO:
-    return _stdin_of(*(json.dumps(m) for m in messages))
-
-
-def _run(store: Path, *messages: dict) -> tuple[int, list[dict], str]:
-    """`(exit_code, parsed_responses, raw_stdout)`; every non-empty stdout line must be valid
-    JSON, checked here unconditionally."""
-    stdin = _stdin_of_messages(*messages)
-    stdout = io.StringIO()
-    exit_code = serve(store, stdin=stdin, stdout=stdout)
-    raw = stdout.getvalue()
-    responses = []
-    for line in raw.splitlines():
-        assert line.strip(), "blank stdout line — must never be written"
-        responses.append(json.loads(line))  # raises loudly if a frame is not JSON
-    return exit_code, responses, raw
-
-
-def _initialize_msg(msg_id=1, protocol_version=PROTOCOL_VERSION) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": msg_id,
-        "method": "initialize",
-        "params": {"protocolVersion": protocol_version},
-    }
-
-
-def _tools_call_msg(msg_id, *, name="engmem_search", arguments=None) -> dict:
-    params = {"name": name}
-    if arguments is not None:
-        params["arguments"] = arguments
-    return {"jsonrpc": "2.0", "id": msg_id, "method": "tools/call", "params": params}
-
-
-def _prompts_get_msg(msg_id, *, name, arguments=None) -> dict:
-    params = {"name": name}
-    if arguments is not None:
-        params["arguments"] = arguments
-    return {"jsonrpc": "2.0", "id": msg_id, "method": "prompts/get", "params": params}
 
 
 def _engmem_arg_name(store) -> str:
@@ -93,6 +67,25 @@ def _engmem_arg_name(store) -> str:
     _, responses, _ = _run(store, list_msg)
     prompt = next(p for p in responses[0]["result"]["prompts"] if p["name"] == "engmem")
     return prompt["arguments"][0]["name"]
+
+
+def _search_call(session_id=None) -> dict:
+    arguments = {"query": "WidgetCache"}
+    if session_id is not None:
+        arguments["session_id"] = session_id
+    return _tools_call_msg(3, arguments=arguments)
+
+
+def _role_search_call(session_id=None) -> dict:
+    return _role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id=session_id)
+
+
+# The two read tools answer the same contract questions; each row names the store fixture its
+# call needs and the builder for the call itself.
+_BOTH_READ_TOOLS = [
+    pytest.param("store", _search_call, id="search"),
+    pytest.param("role_store", _role_search_call, id="role_search"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +168,21 @@ def test_ping_returns_an_empty_result(store):
 
 
 # ---------------------------------------------------------------------------
-# notifications/initialized — no id, no response, ever
+# a message with no id is a notification — no response, ever, whatever else is wrong with it
 # ---------------------------------------------------------------------------
 
 
-def test_notifications_initialized_gets_no_response(store):
-    notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+@pytest.mark.parametrize(
+    "notification",
+    [
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        # no "method", no "id" — unanswerable either way
+        {"jsonrpc": "2.0", "params": {}},
+        {"jsonrpc": "1.0", "method": "notifications/initialized"},
+    ],
+    ids=["valid_notification", "no_method", "wrong_jsonrpc_version"],
+)
+def test_a_notification_shaped_message_gets_no_response(store, notification):
     exit_code, responses, raw = _run(store, notification)
 
     assert exit_code == 0
@@ -213,20 +215,10 @@ def test_tools_list_exposes_engmem_search_first(store):
     assert "search" in tool["description"].lower()
 
 
-def test_tools_list_exposes_exactly_two_read_tools(store):
-    """Role-addressed retrieval is a second named tool, not a parameter bolted onto the first."""
-    msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-    _, responses, _ = _run(store, msg)
-
-    tools = responses[0]["result"]["tools"]
-    names = {tool["name"] for tool in tools}
-    read_tool_names = {n for n in names if n in ("engmem_search", "engmem_search_by_role")}
-    assert read_tool_names == {"engmem_search", "engmem_search_by_role"}
-
-
 def test_tools_list_exposes_exactly_the_five_documented_tools(store):
     """A closed inventory, so a stray sixth tool or a silently dropped one fails loudly rather
-    than passing by omission."""
+    than passing by omission. Role-addressed retrieval is a second named tool of its own, not a
+    parameter bolted onto the first."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
@@ -242,8 +234,6 @@ def test_tools_list_exposes_exactly_the_five_documented_tools(store):
 
 
 def test_tools_list_role_tool_schema_declares_role_enum_and_requires_it(store):
-    from engmem.sections import CANONICAL_ROLES
-
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
@@ -262,14 +252,15 @@ def test_tools_list_role_tool_schema_declares_role_enum_and_requires_it(store):
     assert "structure" in description or "section" in description
 
 
-def test_tools_list_input_schema_requires_string_query(store):
+def test_tools_list_input_schema_requires_string_query_and_leaves_session_id_optional(store):
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
     _, responses, _ = _run(store, msg)
 
     schema = responses[0]["result"]["tools"][0]["inputSchema"]
     assert schema["type"] == "object"
     assert schema["properties"]["query"]["type"] == "string"
-    assert schema["required"] == ["query"]
+    assert schema["properties"]["session_id"]["type"] == "string"
+    assert schema["required"] == ["query"], "session_id must stay optional"
 
 
 # ---------------------------------------------------------------------------
@@ -300,10 +291,13 @@ def test_tools_call_no_match_returns_the_cli_no_match_sentence(store):
     assert "docs:" in text
 
 
-def test_tools_call_result_is_a_single_stdout_line_even_with_multiline_content(store):
-    # WidgetCache's rendered result embeds a Cold-start primer line; the JSON
-    # encoding must escape that as \n, not a raw newline, or the frame breaks.
-    _, _, raw = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+@pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
+def test_a_tool_result_is_a_single_stdout_line_even_with_multiline_content(
+    request, store_fixture, build_call
+):
+    # a rendered result embeds whole section lines; the JSON encoding must escape those as \n,
+    # not raw newlines, or the frame breaks
+    _, _, raw = _run(request.getfixturevalue(store_fixture), build_call())
 
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert len(lines) == 1
@@ -314,10 +308,11 @@ def test_tools_call_result_is_a_single_stdout_line_even_with_multiline_content(s
 # ---------------------------------------------------------------------------
 
 
-def test_tools_call_missing_store_reports_in_result_without_dying(empty_store):
-    exit_code, responses, _ = _run(
-        empty_store, _tools_call_msg(3, arguments={"query": "WidgetCache"})
-    )
+@pytest.mark.parametrize(
+    "message", [_search_call(), _role_search_call()], ids=["search", "role_search"]
+)
+def test_a_missing_store_is_reported_in_the_result_without_dying(empty_store, message):
+    exit_code, responses, _ = _run(empty_store, message)
 
     assert exit_code == 0
     result = responses[0]["result"]
@@ -328,40 +323,36 @@ def test_tools_call_missing_store_reports_in_result_without_dying(empty_store):
 
 
 @pytest.mark.parametrize(
-    "arguments",
-    [{}, {"query": "   "}],
-    ids=["missing", "blank"],
+    "message",
+    [
+        _tools_call_msg(3, arguments={}),
+        _tools_call_msg(3, arguments={"query": "   "}),
+        _tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"}),
+        _prompts_get_msg(5, name="not-a-real-prompt"),
+    ],
+    ids=["missing_query", "blank_query", "unknown_tool", "unknown_prompt"],
 )
-def test_tools_call_missing_or_blank_query_is_invalid_params(store, arguments):
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments=arguments))
+def test_a_request_the_schema_does_not_admit_is_invalid_params(store, message):
+    _, responses, _ = _run(store, message)
 
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-
-
-def test_tools_call_unknown_tool_name_is_invalid_params(store):
-    _, responses, _ = _run(
-        store, _tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"})
-    )
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
+    assert responses[0]["error"]["code"] == -32602
 
 
-# --- a `name` that is missing entirely (no params, null params, or params of
-# the wrong JSON type) must not be reported as "unknown tool: None" — that
-# tells a client author they asked for a real tool literally called None.
+# --- a `name` that is missing entirely (no params, null params, or params of the wrong JSON
+# type) must not be reported as "unknown tool: None" or "unknown prompt: 'engmem'" — either
+# tells a client author they asked for something that exists under another name.
 
 _NO_PARAMS_KEY = object()  # sentinel: omit the "params" key entirely, vs. explicit params=None
 
 
+@pytest.mark.parametrize("method", ["tools/call", "prompts/get"])
 @pytest.mark.parametrize(
     "params",
-    [_NO_PARAMS_KEY, None, [1, 2]],
-    ids=["omitted", "null", "array"],
+    [_NO_PARAMS_KEY, None, [1, 2], "engmem"],
+    ids=["omitted", "null", "array", "string"],
 )
-def test_tools_call_with_malformed_params_names_the_missing_field(store, params):
-    msg = {"jsonrpc": "2.0", "id": 3, "method": "tools/call"}
+def test_malformed_params_name_the_missing_field(store, method, params):
+    msg = {"jsonrpc": "2.0", "id": 3, "method": method}
     if params is not _NO_PARAMS_KEY:
         msg["params"] = params
     _, responses, _ = _run(store, msg)
@@ -369,7 +360,10 @@ def test_tools_call_with_malformed_params_names_the_missing_field(store, params)
     error = responses[0]["error"]
     assert error["code"] == -32602
     assert "name" in error["message"].lower()
+    # never "unknown tool: None" or "unknown prompt: 'engmem'" — `name` is missing, not
+    # present-but-wrong
     assert "none" not in error["message"].lower()
+    assert "unknown" not in error["message"].lower()
 
 
 # --- a permission failure scanning the store root for stray markdown must surface as a tool-level
@@ -383,8 +377,7 @@ def test_tools_call_unreadable_store_root_scan_is_a_tool_error_not_a_protocol_fa
     def _boom(*_args, **_kwargs):
         raise PermissionError(13, "Permission denied")
 
-    # the module no longer keeps a private copy of the scan — it calls spine's
-    # `stray_documents`, which is the seam this test drives
+    # spine's `stray_documents` is the seam the scan runs through, and the one this test drives
     monkeypatch.setattr("engmem.mcp_server.stray_documents", _boom)
 
     exit_code, responses, _ = _run(
@@ -399,8 +392,8 @@ def test_tools_call_unreadable_store_root_scan_is_a_tool_error_not_a_protocol_fa
 
 
 def test_tools_call_prints_load_store_warnings_to_stderr(store, capsys):
-    """Mirrors the errors loop right above it in `_load_store_for_tool` — warnings take the same
-    path to stderr and were previously untested."""
+    """Mirrors the errors loop right above it in `_load_store_for_tool`: warnings take the same
+    path to stderr."""
     (store / "sessions" / "20260103-no-entities.md").write_text(
         """---
 id: 20260103-no-entities
@@ -484,9 +477,8 @@ WidgetCache serves cached widgets.
     )
 
     assert exit_code == 0
-    # `_run` already asserts every stdout line parses as JSON; a second explicit
-    # check here pins the exact hazard called out in the task: no raw print()
-    # leaking from the CLI's error-reporting paths.
+    # `_run` already asserts every stdout line parses as JSON; the explicit check here pins the
+    # hazard this store shape creates — a raw print() leaking from an error-reporting path.
     for line in raw.splitlines():
         json.loads(line)
     text = responses[0]["result"]["content"][0]["text"]
@@ -497,13 +489,6 @@ WidgetCache serves cached widgets.
 # ---------------------------------------------------------------------------
 # tools/call — engmem_search_by_role (role-addressed retrieval)
 # ---------------------------------------------------------------------------
-
-
-def _role_tools_call_msg(msg_id, *, query, role, session_id=None) -> dict:
-    arguments = {"query": query, "role": role}
-    if session_id is not None:
-        arguments["session_id"] = session_id
-    return _tools_call_msg(msg_id, name="engmem_search_by_role", arguments=arguments)
 
 
 @pytest.fixture
@@ -600,60 +585,16 @@ def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, ex
     assert expected_substring in error["message"].lower()
 
 
-def test_role_tool_missing_store_reports_in_result_without_dying(empty_store):
-    exit_code, responses, _ = _run(
-        empty_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions")
-    )
-
-    assert exit_code == 0
-    result = responses[0]["result"]
-    assert result.get("isError") is True
-    assert "store not found" in result["content"][0]["text"]
-
-
-def test_role_tool_result_is_a_single_stdout_line(role_store):
-    _, _, raw = _run(
-        role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions")
-    )
-
-    lines = [ln for ln in raw.splitlines() if ln.strip()]
-    assert len(lines) == 1
-    for line in lines:
-        json.loads(line)
-
-
 def test_role_tool_writes_its_own_telemetry_line_with_role_and_session(role_store):
     _run(
         role_store,
         _role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id="s-1"),
     )
 
-    telemetry = json.loads(
-        (role_store / "telemetry.jsonl").read_text().strip().splitlines()[-1]
-    )
+    telemetry = _telemetry_lines(role_store)[-1]
     assert telemetry["role"] == "decisions"
     assert telemetry["session_id"] == "s-1"
     assert telemetry["surfaced"] == ["20260101-widget-cache"]
-
-
-def test_role_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
-    """Role-addressed counterpart to `test_tool_result_reports_an_unreadable_subdirectory`."""
-    store = tmp_path / "store"
-    (store / "sessions").mkdir(parents=True)
-    (store / "sessions" / "widget-cache.md").write_text(
-        "---\nid: widget-cache\ntitle: Widget Cache\ndate: 2026-05-04\n"
-        "entities: [WidgetCache]\n---\n\n## Decision Log\n\nBody.\n",
-        encoding="utf-8",
-    )
-
-    def boom(_store):
-        return [], [f"{_store}/sessions/archive: cannot list directory for stray documents"]
-
-    monkeypatch.setattr("engmem.mcp_server.stray_documents", boom)
-
-    text, is_error = mcp_server._run_role_search_for_tool(store, "WidgetCache", "decisions")
-
-    assert "cannot list directory" in text
 
 
 def test_role_tool_notes_stray_files_when_no_role_hits(role_store):
@@ -665,20 +606,6 @@ def test_role_tool_notes_stray_files_when_no_role_hits(role_store):
 
     text = responses[0]["result"]["content"][0]["text"]
     assert "sit outside the searched set" in text
-
-
-def test_role_tool_telemetry_failure_note_reaches_the_agent_without_breaking_the_protocol(
-    role_store,
-):
-    (role_store / "telemetry.jsonl").mkdir()
-
-    _, responses, _ = _run(
-        role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions")
-    )
-
-    text = responses[0]["result"]["content"][0]["text"]
-    assert "note: telemetry not recorded" in text
-    assert "isError" not in responses[0]["result"]
 
 
 # ---------------------------------------------------------------------------
@@ -699,12 +626,20 @@ def test_prompts_list_exposes_all_three_prompts(store):
         assert "arguments" in prompt
 
 
-def test_prompts_list_descriptions_come_from_front_matter_not_body(store):
-    msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
-    _, responses, _ = _run(store, msg)
+@pytest.mark.parametrize(
+    "prompt_name, expected_phrase",
+    [("engmem", "recover prior context"), ("engmem-save", "save what was learned")],
+)
+def test_prompt_descriptions_come_from_front_matter_not_body(store, prompt_name, expected_phrase):
+    """Both listings read the same front matter, so neither may fall back to the body's first
+    line."""
+    list_msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
+    _, list_responses, _ = _run(store, list_msg)
+    _, get_responses, _ = _run(store, _prompts_get_msg(5, name=prompt_name))
 
-    by_name = {p["name"]: p for p in responses[0]["result"]["prompts"]}
-    assert "recover prior context" in by_name["engmem"]["description"].lower()
+    listed = {p["name"]: p for p in list_responses[0]["result"]["prompts"]}[prompt_name]
+    assert expected_phrase in listed["description"].lower()
+    assert expected_phrase in get_responses[0]["result"]["description"].lower()
 
 
 def test_prompts_list_engmem_declares_one_argument_the_others_declare_none(store):
@@ -733,13 +668,6 @@ def test_prompts_get_strips_yaml_front_matter_from_the_body(store):
     assert "description:" not in text.splitlines()[0]
 
 
-def test_prompts_get_uses_front_matter_description_as_prompt_description(store):
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem-save"))
-
-    result = responses[0]["result"]
-    assert "save what was learned" in result["description"].lower()
-
-
 def test_prompts_get_message_shape_is_a_single_user_text_message(store):
     _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem-save-quick"))
 
@@ -751,15 +679,10 @@ def test_prompts_get_message_shape_is_a_single_user_text_message(store):
 
 
 def test_prompts_get_engmem_substitutes_supplied_argument_into_arguments_placeholder(store):
-    msg = _prompts_get_msg(5, name="engmem")
-    # discover the declared argument name the same way a real client would
-    list_msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
-    _, list_responses, _ = _run(store, list_msg)
-    arg_name = next(
-        p for p in list_responses[0]["result"]["prompts"] if p["name"] == "engmem"
-    )["arguments"][0]["name"]
-
-    msg["params"]["arguments"] = {arg_name: "roll out WidgetCache eviction"}
+    arg_name = _engmem_arg_name(store)
+    msg = _prompts_get_msg(
+        5, name="engmem", arguments={arg_name: "roll out WidgetCache eviction"}
+    )
     _, responses, _ = _run(store, msg)
 
     text = responses[0]["result"]["messages"][0]["content"]["text"]
@@ -767,23 +690,17 @@ def test_prompts_get_engmem_substitutes_supplied_argument_into_arguments_placeho
     assert "$ARGUMENTS" not in text
 
 
-def test_prompts_get_engmem_missing_argument_substitutes_empty_not_literal(store):
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem"))
-
-    text = responses[0]["result"]["messages"][0]["content"]["text"]
-    assert "$ARGUMENTS" not in text
-    assert 'Task description: ""' in text
-
-
 # --- the argument substitution once used a truthiness check (`if value else ""`) where an
 # emptiness check belongs, and fell back to Python's `str()`/ `repr()` for non-string JSON values
 # — leaking `{'a': 1}`-style text into a prompt body.
 
 
-def test_prompts_get_explicit_empty_string_argument_substitutes_to_empty(store):
-    arg_name = _engmem_arg_name(store)
-    msg = _prompts_get_msg(5, name="engmem", arguments={arg_name: ""})
-    _, responses, _ = _run(store, msg)
+@pytest.mark.parametrize("supplied", [None, ""], ids=["absent", "explicit_empty_string"])
+def test_prompts_get_an_absent_or_empty_argument_substitutes_to_empty_not_the_literal(
+    store, supplied
+):
+    arguments = None if supplied is None else {_engmem_arg_name(store): supplied}
+    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem", arguments=arguments))
 
     text = responses[0]["result"]["messages"][0]["content"]["text"]
     assert "$ARGUMENTS" not in text
@@ -848,13 +765,6 @@ def test_load_template_falls_back_on_a_malformed_template_file(
     assert body == expected_body
 
 
-def test_prompts_get_unknown_prompt_name_is_invalid_params(store):
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="not-a-real-prompt"))
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-
-
 @pytest.mark.parametrize(
     "bad_name",
     [{"engmem": 1}, ["engmem"], 7, None],
@@ -871,25 +781,24 @@ def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(sto
     assert "unknown prompt" in error["message"]
 
 
-def test_prompts_get_with_string_params_names_the_missing_field(store):
-    # `"params": "engmem"` is not a JSON object at all — `name` is missing, not present-but-wrong,
-    # so the message must say so rather than claiming "engmem" is an unknown prompt.
-    msg = {"jsonrpc": "2.0", "id": 5, "method": "prompts/get", "params": "engmem"}
-    _, responses, _ = _run(store, msg)
-
-    error = responses[0]["error"]
-    assert error["code"] == -32602
-    assert "name" in error["message"].lower()
-    assert "none" not in error["message"].lower()
-
-
 # ---------------------------------------------------------------------------
 # transport-level robustness
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_json_line_returns_parse_error_and_the_loop_keeps_running(store):
-    stdin = _stdin_of("{not valid json", json.dumps(_initialize_msg(msg_id=9)))
+@pytest.mark.parametrize(
+    "unparseable_line",
+    [
+        "{not valid json",
+        # a pathologically nested array raises RecursionError past json.JSONDecodeError
+        "[" * 100_000 + "]" * 100_000,
+    ],
+    ids=["syntax_error", "deeply_nested"],
+)
+def test_an_unparseable_line_returns_parse_error_and_the_loop_keeps_running(
+    store, unparseable_line
+):
+    stdin = _stdin_of(unparseable_line, json.dumps(_initialize_msg(msg_id=9)))
     stdout = io.StringIO()
 
     exit_code = serve(store, stdin=stdin, stdout=stdout)
@@ -931,24 +840,6 @@ def test_stdin_closing_makes_serve_return_cleanly(store):
 
     assert exit_code == 0
     assert stdout.getvalue() == ""
-
-
-def test_a_deeply_nested_json_line_does_not_crash_the_loop(store):
-    """A pathologically nested array raises RecursionError past json.JSONDecodeError; it must read
-    as an ordinary parse error."""
-    deeply_nested = "[" * 100_000 + "]" * 100_000
-    stdin = _stdin_of(deeply_nested, json.dumps(_initialize_msg(msg_id=13)))
-    stdout = io.StringIO()
-
-    exit_code = serve(store, stdin=stdin, stdout=stdout)
-
-    lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
-    assert len(lines) == 2
-    first = json.loads(lines[0])
-    assert first["error"]["code"] == -32700
-    second = json.loads(lines[1])
-    assert second["id"] == 13
-    assert exit_code == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1033,9 +924,8 @@ def test_invalid_jsonrpc_field_is_invalid_request(store, message):
     assert responses[0]["error"]["code"] == -32600
 
 
-# --- a request-shaped message with no usable `method` at all: previously untested, so the
-# `_dispatch` branch that answers it (or, for a notification, deliberately does not) had no
-# coverage.
+# --- a request-shaped message with no usable `method` at all is answered, where the same
+# message without an id is not (see the notification table above).
 
 
 @pytest.mark.parametrize(
@@ -1053,24 +943,6 @@ def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method
     assert "method" in responses[0]["error"]["message"].lower()
 
 
-def test_missing_method_notification_shaped_produces_no_response(store):
-    msg = {"jsonrpc": "2.0", "params": {}}  # no "method", no "id" — unanswerable either way
-    exit_code, responses, raw = _run(store, msg)
-
-    assert exit_code == 0
-    assert responses == []
-    assert raw == ""
-
-
-def test_jsonrpc_wrong_version_notification_produces_no_response(store):
-    msg = {"jsonrpc": "1.0", "method": "notifications/initialized"}
-    exit_code, responses, raw = _run(store, msg)
-
-    assert exit_code == 0
-    assert responses == []
-    assert raw == ""
-
-
 # ---------------------------------------------------------------------------
 # `id` type validation: JSON-RPC 2.0 restricts `id` to string, number, or null.
 # ---------------------------------------------------------------------------
@@ -1078,25 +950,17 @@ def test_jsonrpc_wrong_version_notification_produces_no_response(store):
 
 @pytest.mark.parametrize(
     "bad_id",
-    [{"a": 1}, [1, 2]],
-    ids=["object_id", "array_id"],
+    # `isinstance(True, int)` is True, so a plain `(str, int, float)` check waves `id: true`
+    # through and echoes it back as an id JSON-RPC 2.0 does not allow
+    [{"a": 1}, [1, 2], True],
+    ids=["object_id", "array_id", "boolean_id"],
 )
-def test_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store, bad_id):
+def test_a_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store, bad_id):
     msg = {"jsonrpc": "2.0", "id": bad_id, "method": "initialize", "params": {}}
     _, responses, _ = _run(store, msg)
 
     assert responses[0]["error"]["code"] == -32600
     # the error's own id is null, never an echo of an id that could not be trusted in the first place
-    assert responses[0]["id"] is None
-
-
-def test_a_boolean_id_is_invalid_request_despite_bool_being_an_int_subclass(store):
-    # `isinstance(True, int)` is True, so a plain `(str, int, float)` check waves `id: true`
-    # through and echoes it back as an id JSON-RPC 2.0 does not allow
-    msg = {"jsonrpc": "2.0", "id": True, "method": "initialize", "params": {}}
-    _, responses, _ = _run(store, msg)
-
-    assert responses[0]["error"]["code"] == -32600
     assert responses[0]["id"] is None
 
 
@@ -1162,14 +1026,26 @@ def test_broken_pipe_teardown_leaves_the_stdout_fd_pointing_somewhere_harmless(s
         os.close(write_fd)
 
 
-def test_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
-    """The MCP tool asked the same question through its own copy of the scan and silently answered
-    "none"."""
+@pytest.mark.parametrize(
+    "run_for_tool",
+    [
+        pytest.param(
+            lambda store: mcp_server._run_search_for_tool(store, "WidgetCache"), id="search"
+        ),
+        pytest.param(
+            lambda store: mcp_server._run_role_search_for_tool(store, "WidgetCache", "decisions"),
+            id="role_search",
+        ),
+    ],
+)
+def test_a_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch, run_for_tool):
+    """A subdirectory the scan could not list must be said out loud: "could not check" and "found
+    nothing" are different answers."""
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     (store / "sessions" / "widget-cache.md").write_text(
         "---\nid: widget-cache\ntitle: Widget Cache\ndate: 2026-05-04\n"
-        "entities: [WidgetCache]\n---\n\n## Pre-reg\n\nBody.\n",
+        "entities: [WidgetCache]\n---\n\n## Decision Log\n\nBody.\n",
         encoding="utf-8",
     )
 
@@ -1178,7 +1054,7 @@ def test_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
 
     monkeypatch.setattr("engmem.mcp_server.stray_documents", boom)
 
-    text, is_error = mcp_server._run_search_for_tool(store, "WidgetCache")
+    text, _is_error = run_for_tool(store)
 
     assert "cannot list directory" in text
 
@@ -1187,13 +1063,6 @@ def test_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch):
 # telemetry — the MCP path is inside the experiment (ENGMEM-SPEC.md §1): a search
 # that leaves no row makes the session invisible to the Gate 1 analysis
 # ---------------------------------------------------------------------------
-
-
-def _telemetry_lines(store: Path) -> list[dict]:
-    path = store / "telemetry.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
 def test_tools_call_writes_a_telemetry_line(store):
@@ -1206,40 +1075,75 @@ def test_tools_call_writes_a_telemetry_line(store):
     assert rows[0]["surfaced"] == ["20260101-widget-cache"]
 
 
-def test_tools_call_records_the_session_id_argument(store):
-    _run(
-        store,
-        _tools_call_msg(
-            3, arguments={"query": "WidgetCache", "session_id": "20260823-draft"}
-        ),
-    )
-
-    assert _telemetry_lines(store)[0]["session_id"] == "20260823-draft"
-
-
-def test_tools_call_without_session_id_logs_an_explicit_null(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+@pytest.mark.parametrize(
+    "session_id, logged",
+    [
+        pytest.param(None, None, id="absent"),
+        pytest.param("", None, id="empty"),
+        pytest.param("   ", None, id="blank"),
+        pytest.param("  20260823-draft  ", "20260823-draft", id="padded"),
+        pytest.param("20260823-draft", "20260823-draft", id="plain"),
+    ],
+)
+def test_the_session_id_argument_is_logged_the_same_way_the_cli_logs_it(store, session_id, logged):
+    """Blank is absent, not an unknown session, and the value is stripped — both mirroring
+    cli.py's `_session_id`. The key is always present, so an unattributed row is explicit."""
+    _run(store, _search_call(session_id))
 
     row = _telemetry_lines(store)[0]
-    assert "session_id" in row and row["session_id"] is None
+    assert "session_id" in row
+    assert row["session_id"] == logged
 
 
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_blank_session_id_is_absent_not_an_unknown_session(store, blank):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": blank}))
-
-    assert _telemetry_lines(store)[0]["session_id"] is None
+UNATTRIBUTED_NOTE = "note: unattributed search — pass session_id <draft-id>"
 
 
-def test_session_id_is_stripped_the_same_way_the_cli_strips_it(store):
+@pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
+@pytest.mark.parametrize(
+    "session_id, note_expected",
+    [
+        pytest.param(None, True, id="absent"),
+        pytest.param("", True, id="empty"),
+        pytest.param("   ", True, id="blank"),
+        pytest.param("20260823-draft", False, id="present"),
+    ],
+)
+def test_the_unattributed_note_ends_exactly_the_searches_with_no_session_id(
+    request, store_fixture, build_call, session_id, note_expected
+):
+    _, responses, _ = _run(request.getfixturevalue(store_fixture), build_call(session_id))
+
+    text = _result_text(responses)
+    lines = text.rstrip("\n").splitlines()
+    if note_expected:
+        assert lines[-1] == UNATTRIBUTED_NOTE
+        assert lines[-2].startswith("docs: ")
+    else:
+        assert UNATTRIBUTED_NOTE not in text
+    assert "isError" not in responses[0]["result"]
+
+
+def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store):
+    (store / "telemetry.jsonl").mkdir()
+
+    _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+
+    tail = _result_text(responses).rstrip("\n").splitlines()[-3:]
+    assert tail[0].startswith("docs: ")
+    assert tail[1].startswith("note: telemetry not recorded")
+    assert tail[2] == UNATTRIBUTED_NOTE
+    assert "isError" not in responses[0]["result"]
+
+
+def test_the_unattributed_note_does_not_inflate_context_bytes(store):
+    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
     _run(
         store,
-        _tools_call_msg(
-            3, arguments={"query": "WidgetCache", "session_id": "  20260823-draft  "}
-        ),
+        _tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": "20260823-draft"}),
     )
 
-    assert _telemetry_lines(store)[0]["session_id"] == "20260823-draft"
+    rows = _telemetry_lines(store)
+    assert rows[0]["context_bytes"] == rows[1]["context_bytes"]
 
 
 @pytest.mark.parametrize(
@@ -1275,24 +1179,20 @@ def test_missing_store_is_not_logged_as_a_search(empty_store):
     assert _telemetry_lines(empty_store) == []
 
 
-def test_telemetry_failure_note_reaches_the_agent_without_breaking_the_protocol(store):
+@pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
+def test_a_telemetry_failure_note_reaches_the_agent_without_breaking_the_protocol(
+    request, store_fixture, build_call
+):
     """Here stdout carries frames only, so the note must travel inside the tool result text."""
+    store = request.getfixturevalue(store_fixture)
     (store / "telemetry.jsonl").mkdir()
 
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    _, responses, _ = _run(store, build_call())
 
-    text = responses[0]["result"]["content"][0]["text"]
+    text = _result_text(responses)
     assert "note: telemetry not recorded" in text
     assert "20260101-widget-cache" in text, "the search result itself must still be complete"
     assert "isError" not in responses[0]["result"], "the search succeeded; only the log failed"
-
-
-def test_tools_list_declares_session_id_as_an_optional_string(store):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-
-    schema = responses[0]["result"]["tools"][0]["inputSchema"]
-    assert schema["properties"]["session_id"]["type"] == "string"
-    assert schema["required"] == ["query"], "session_id must stay optional"
 
 
 def _search_tools(store) -> dict:
@@ -1330,26 +1230,17 @@ def test_each_search_tool_description_asks_for_the_session_id(store, tool_name):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_call_records_mcp_as_the_channel(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+@pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
+def test_a_read_tool_records_mcp_as_the_channel(request, store_fixture, build_call):
+    """A Desktop search and a terminal search stay distinguishable in telemetry.jsonl."""
+    store = request.getfixturevalue(store_fixture)
 
-    assert _telemetry_lines(store)[0]["channel"] == "mcp"
+    _run(store, build_call())
 
-
-def test_role_tool_records_mcp_as_the_channel(role_store):
-    _run(role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions"))
-
-    telemetry = json.loads(
-        (role_store / "telemetry.jsonl").read_text().strip().splitlines()[-1]
-    )
-    assert telemetry["channel"] == "mcp"
+    assert _telemetry_lines(store)[-1]["channel"] == "mcp"
 
 
 def test_tools_call_context_bytes_matches_the_rendered_result_for_a_hit(store):
-    from engmem.output import render_search_results
-    from engmem.scoring import search as run_search
-    from engmem.spine import load_store
-
     _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     docs = load_store(store / "sessions").docs
@@ -1360,8 +1251,6 @@ def test_tools_call_context_bytes_matches_the_rendered_result_for_a_hit(store):
 
 
 def test_tools_call_context_bytes_is_near_zero_for_a_miss(store):
-    from engmem.output import render_no_match
-
     _run(store, _tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"}))
 
     row = _telemetry_lines(store)[0]
@@ -1372,8 +1261,6 @@ def test_tools_call_context_bytes_is_near_zero_for_a_miss(store):
 
 def test_tools_call_context_bytes_excludes_the_stray_files_note(store):
     """Stray-file housekeeping is not prior-document content and must not inflate `context_bytes`."""
-    from engmem.output import render_no_match
-
     (store / "some-stray-notes.md").write_text("not in sessions/", encoding="utf-8")
 
     _, responses, _ = _run(
@@ -1387,25 +1274,18 @@ def test_tools_call_context_bytes_excludes_the_stray_files_note(store):
 
 
 def test_role_tool_context_bytes_matches_the_rendered_role_result(role_store):
-    from engmem.output import render_role_search_results
-    from engmem.scoring import search_with_role_sections
-    from engmem.spine import load_store
-
     _run(role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions"))
 
     docs = load_store(role_store / "sessions").docs
     outcome, role_map = search_with_role_sections(docs, "WidgetCache")
     expected_text = render_role_search_results(outcome, role_map, "decisions")
 
-    telemetry = json.loads(
-        (role_store / "telemetry.jsonl").read_text().strip().splitlines()[-1]
+    assert _telemetry_lines(role_store)[-1]["context_bytes"] == len(
+        expected_text.encode("utf-8")
     )
-    assert telemetry["context_bytes"] == len(expected_text.encode("utf-8"))
 
 
 def test_tools_call_records_a_token_estimate_derived_from_context_bytes(store):
-    from engmem.telemetry import estimate_tokens
-
     _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     row = _telemetry_lines(store)[0]

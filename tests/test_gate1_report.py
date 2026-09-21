@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from conftest import requires_permission_enforcement, run_tool
 
 from engmem import gate1
@@ -73,16 +74,46 @@ def test_every_valid_reuse_row_appears_with_an_empty_verdict_column(tmp_path):
     assert cells[VERDICT] == "", "the verdict column is left for the human"
 
 
-def test_a_cited_doc_sharing_a_tag_is_adjacent(tmp_path):
+@pytest.mark.parametrize(
+    "cited_kwargs, citing_kwargs",
+    [
+        pytest.param(
+            dict(tags="[platform]", repos="[platform-core]"),
+            dict(tags="[platform]", repos="[sweeper-svc]"),
+            id="shared-tag",
+        ),
+        pytest.param(
+            dict(tags="[platform]", repos="[platform-core]"),
+            dict(tags="[sweeper]", repos="[sweeper-svc]", related="widget-cache-v1"),
+            id="related-edge",
+        ),
+        pytest.param(
+            dict(tags="[platform]", repos="[platform-core]", related="sweeper-job"),
+            dict(tags="[sweeper]", repos="[sweeper-svc]"),
+            id="related-edge-declared-only-by-the-cited-document",
+        ),
+        pytest.param(
+            dict(tags="[unrelated]", repos="platform-core"),
+            dict(tags="[sweeper]", repos="platform-core"),
+            id="shared-repo-from-a-scalar-repos-value",
+        ),
+    ],
+)
+def test_a_shared_edge_makes_the_cited_document_adjacent(tmp_path, cited_kwargs, citing_kwargs):
     """Adjacent means the author would plausibly have found it anyway, which is not what the
-    retrieval layer claims."""
+    retrieval layer claims. A bare scalar `repos:` value degrades to a one-element set, so it
+    still shares a repo. The related edge is symmetric: whichever of the two documents happens
+    to name the other, the pair is adjacent -- one author writing the link is the whole fact,
+    and which side wrote it says nothing about how findable the cited document was."""
     sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", tags="[platform]",
-         body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "widget-cache-v2", tags="[platform]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
+    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.",
+         **cited_kwargs)
+    _doc(sessions, "sweeper-job", body=_reuse("widget-cache-v1", "Eviction runs on boot."),
+         **citing_kwargs)
 
-    assert "adjacent" in _run(tmp_path).stdout
+    cells = _row_for(_run(tmp_path).stdout, "widget-cache-v1")
+
+    assert cells[DISTANCE] == "adjacent"
 
 
 def test_a_cited_doc_sharing_no_tag_repo_or_related_edge_is_distant(tmp_path):
@@ -101,16 +132,6 @@ def test_a_cited_doc_sharing_no_tag_repo_or_related_edge_is_distant(tmp_path):
     assert "documents reporting no reuse: 0" in out
 
 
-def test_a_related_edge_makes_it_adjacent(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", tags="[platform]", repos="[platform-core]",
-         body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
-         related="widget-cache-v1", body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    assert "adjacent" in _run(tmp_path).stdout
-
-
 def test_prior_docs_used_none_produces_no_row_but_is_counted(tmp_path):
     """A store that honestly reports no reuse must be visible as zero, not as an empty screen."""
     sessions = tmp_path / "sessions"
@@ -125,62 +146,92 @@ def test_prior_docs_used_none_produces_no_row_but_is_counted(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# requirement 1 -- the citation-integrity checks now decide the count, not just print a placeholder
+# a terminally excluded row states its reason in the verdict cell the tool fills in itself, and
+# the summary counts it on the axis that excluded it -- integrity, the citing document's status,
+# dogfooding, classification (contracts/gate1.md, "Who fills the last column")
 # ---------------------------------------------------------------------------
 
 
-def test_a_quoteless_row_is_named_no_quote_and_excluded_not_counted_distant(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", tags="[sweeper]", repos="[sweeper-svc]",
-         body="## 8. Decision Log\n\nBody.")
-    _doc(sessions, "sweeper-job", tags="[different]", repos="[different-svc]",
-         body="## 16. Reuse Log\n\n| prior-doc | taken | impact | classification |\n"
-              "|---|---|---|---|\n| widget-cache-v1 | reused the flush shape | saved a round | "
-              "reuse |\n")
+QUOTELESS_REUSE = (
+    "## 16. Reuse Log\n\n| prior-doc | taken | impact | classification |\n"
+    "|---|---|---|---|\n| widget-cache-v1 | reused the flush shape | saved a round | "
+    "reuse |\n"
+)
 
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[INTEGRITY] == "no_quote"
-    assert cells[DISTANCE] == "n/a", "axis A owns the integrity fact; axis C is not computed for it"
-    assert cells[VERDICT] == "excluded: no quote in the `taken` cell"
-    assert "0 valid (the last column above is theirs to fill), of which 0 distant" in out
+DISTANT_CITING = dict(tags="[sweeper]", repos="[sweeper-svc]")
 
 
-def test_a_citation_of_a_document_not_in_the_store_is_excluded_not_counted_distant(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "sweeper-job", body=_reuse("nowhere", "Eviction runs on boot here."))
-
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "nowhere")
-    assert cells[INTEGRITY] == "cited_missing"
-    assert cells[VERDICT] == "excluded: cited document not in store"
-    assert "0 distant" in out
-
-
-# ---------------------------------------------------------------------------
-# requirement 2 -- classification (cells[3] of the Reuse Log row) is read
-# ---------------------------------------------------------------------------
-
-
-def test_a_harmful_row_is_verified_but_excluded_by_classification(tmp_path):
+@pytest.mark.parametrize(
+    "citing_kwargs, citing_body, cited_id, expected_cells, summary_line",
+    [
+        pytest.param(
+            DISTANT_CITING, QUOTELESS_REUSE, "widget-cache-v1",
+            {INTEGRITY: "no_quote", DISTANCE: "n/a",
+             VERDICT: "excluded: no quote in the `taken` cell"},
+            "0 valid (the last column above is theirs to fill), of which 0 distant",
+            id="no-quote-in-the-taken-cell",
+        ),
+        pytest.param(
+            DISTANT_CITING, _reuse("nowhere", "Eviction runs on boot here."), "nowhere",
+            {INTEGRITY: "cited_missing", DISTANCE: "n/a",
+             VERDICT: "excluded: cited document not in store"},
+            "0 valid (the last column above is theirs to fill), of which 0 distant",
+            id="cited-document-not-in-store",
+        ),
+        pytest.param(
+            DISTANT_CITING,
+            _reuse("widget-cache-v1", "Eviction runs on boot.", classification="harmful"),
+            "widget-cache-v1",
+            {INTEGRITY: "verified", CLASSIFICATION: "harmful",
+             VERDICT: "excluded: classification harmful"},
+            "0 valid (the last column above is theirs to fill), of which 0 distant",
+            id="classification-harmful",
+        ),
+        pytest.param(
+            dict(tags="[sweeper]", repos="[engmem]"),
+            _reuse("widget-cache-v1", "Eviction runs on boot."), "widget-cache-v1",
+            {VERDICT: "excluded: dogfooding (story about this repository)"},
+            "1 dogfooding (story about this repository)",
+            id="dogfooding",
+        ),
+        pytest.param(
+            dict(tags="[sweeper]", repos="engmem"),
+            _reuse("widget-cache-v1", "Eviction runs on boot."), "widget-cache-v1",
+            {VERDICT: "excluded: dogfooding (story about this repository)"},
+            "1 dogfooding (story about this repository)",
+            id="dogfooding-from-a-scalar-repos-value",
+        ),
+        pytest.param(
+            dict(status="draft", tags="[sweeper]", repos="[sweeper-svc]"),
+            _reuse("widget-cache-v1", "Eviction runs on boot."), "widget-cache-v1",
+            {VERDICT: "excluded: citing document status is draft"},
+            "1 citing document not active (draft/superseded)",
+            id="citing-document-is-a-draft",
+        ),
+    ],
+)
+def test_an_excluded_row_names_its_reason_in_the_verdict_cell_and_on_the_summary(
+    tmp_path, citing_kwargs, citing_body, cited_id, expected_cells, summary_line,
+):
+    """An excluded row stays visible in the table -- the exclusion is printed, never a silent
+    drop. `distance` is `n/a` wherever integrity already decided the row: axis A owns the
+    integrity fact, and axis C is not computed for it."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification="harmful"))
+    _doc(sessions, "sweeper-job", body=citing_body, **citing_kwargs)
 
     out = _run(tmp_path).stdout
 
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[INTEGRITY] == "verified"
-    assert cells[CLASSIFICATION] == "harmful"
-    assert cells[VERDICT] == "excluded: classification harmful"
-    assert "0 valid (the last column above is theirs to fill), of which 0 distant" in out
+    cells = _row_for(out, cited_id)
+    for column, value in expected_cells.items():
+        assert cells[column] == value
+    assert summary_line in out
 
 
 # ---------------------------------------------------------------------------
-# requirement 3 -- supersession is surfaced, not silently discarded or auto-excluding
+# supersession is surfaced, not silently discarded or auto-excluding; the summary also names
+# how many of the counted distant events cite a superseded document, so the staleness backstop
+# does not depend on reading every row
 # ---------------------------------------------------------------------------
 
 
@@ -198,24 +249,6 @@ def test_a_superseded_citation_is_flagged_stale_and_still_counts(tmp_path):
     assert cells[STALENESS] == "cited_superseded"
     assert cells[DISTANCE] == "distant"
     assert cells[VERDICT] == "", "staleness is a flag for the human, not an automatic exclusion"
-
-
-# ---------------------------------------------------------------------------
-# ARCH-002 -- the summary must name how many of the counted distant events cite a
-# superseded document, so the staleness backstop does not depend on reading every row
-# ---------------------------------------------------------------------------
-
-
-def test_the_summary_names_how_many_distant_rows_cite_a_superseded_document(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", status="superseded", superseded_by="widget-cache-v2",
-         body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "widget-cache-v2", body="## 8. Decision Log\n\nEviction is lazy now.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    out = _run(tmp_path).stdout
-
     assert "of the 1 distant, 1 cite a superseded document" in out
 
 
@@ -233,7 +266,7 @@ def test_the_summary_reports_zero_stale_distant_rows_when_none_are_stale(tmp_pat
 def test_a_stale_citation_excluded_from_the_count_does_not_inflate_the_stale_distant_figure(
     tmp_path,
 ):
-    """ARCH-007: a row can be verified, cite a superseded document, and still not be a valid
+    """A row can be verified, cite a superseded document, and still not be a valid
     reuse candidate (here: classification harmful). The stale-distant figure must be scoped to
     the counted `distant` population, not to every row that happens to carry a staleness flag --
     otherwise the summary can print M > N against the very endpoint figure it exists to qualify."""
@@ -253,30 +286,12 @@ def test_a_stale_citation_excluded_from_the_count_does_not_inflate_the_stale_dis
 
 
 # ---------------------------------------------------------------------------
-# requirement 4 -- dogfooding (a story about this repository) is excluded
-# ---------------------------------------------------------------------------
-
-
-def test_a_story_about_this_repository_is_excluded_as_dogfooding(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[engmem]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[VERDICT] == "excluded: dogfooding (story about this repository)"
-    assert "1 dogfooding (story about this repository)" in out
-
-
-# ---------------------------------------------------------------------------
-# requirement 5 -- unparseable front matter is undecidable, never distant
+# unparseable front matter is undecidable, never distant
 # ---------------------------------------------------------------------------
 
 
 def test_the_flow_sequence_edge_case_no_longer_diverges_from_spine(tmp_path):
-    """ARCH-004 regression: this document's front matter has always loaded fine via spine; a
+    """Regression: this document's front matter has always loaded fine via spine; a
     weaker private boundary search in `_repos` used to score it undecidable anyway."""
     sessions = tmp_path / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
@@ -296,8 +311,8 @@ def test_the_flow_sequence_edge_case_no_longer_diverges_from_spine(tmp_path):
 
 
 def test_unparseable_front_matter_is_undecidable_never_distant(tmp_path):
-    """The only genuinely unreadable `repos` value left after ARCH-004: a mapping, neither a
-    list nor a string, which `spine._coerce_list_field` also cannot read (ARCH-001)."""
+    """The only genuinely unreadable `repos` value left after the boundary-search fix above: a
+    mapping, neither a list nor a string, which `spine._coerce_list_field` also cannot read."""
     sessions = tmp_path / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
     (sessions / "widget-cache-v1.md").write_text(
@@ -315,57 +330,6 @@ def test_unparseable_front_matter_is_undecidable_never_distant(tmp_path):
     assert cells[DISTANCE] == "undecidable"
     assert cells[VERDICT] == "", "undecidable stays open for the human, like adjacent"
     assert "of which 0 distant" in out
-
-
-# ---------------------------------------------------------------------------
-# ARCH-001 -- a bare scalar `repos` value must degrade to a one-element set, pinned at the
-# printed table since the distant figure is what section 11 counts
-# ---------------------------------------------------------------------------
-
-
-def test_a_scalar_repos_value_makes_dogfooding_reachable_in_the_report(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", repos="engmem",
-         body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="engmem",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[VERDICT] == "excluded: dogfooding (story about this repository)"
-    assert "1 dogfooding (story about this repository)" in out
-
-
-def test_a_scalar_repos_value_still_makes_a_shared_repo_adjacent_in_the_report(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", tags="[unrelated]", repos="platform-core",
-         body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="platform-core",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[DISTANCE] == "adjacent"
-
-
-# ---------------------------------------------------------------------------
-# draft/superseded citing documents' own Reuse Log rows are excluded from the count
-# ---------------------------------------------------------------------------
-
-
-def test_a_drafts_own_reuse_row_is_visible_but_excluded(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", status="draft", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-
-    out = _run(tmp_path).stdout
-
-    cells = _row_for(out, "widget-cache-v1")
-    assert cells[VERDICT] == "excluded: citing document status is draft"
-    assert "1 citing document not active (draft/superseded)" in out
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +356,7 @@ def test_a_conflicting_reuse_log_is_reported_and_its_rows_still_appear(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# ARCH-003 -- the printed distant figure must be sourced from gate1.is_primary_candidate,
+# the printed distant figure must be sourced from gate1.is_primary_candidate,
 # not a second, independently-maintained definition of the same rule
 # ---------------------------------------------------------------------------
 
@@ -416,7 +380,7 @@ def test_the_printed_distant_figure_equals_sum_of_is_primary_candidate(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# ARCH-006 -- the excluded-rows total is a true count; the per-axis breakdown may overlap
+# the excluded-rows total is a true count; the per-axis breakdown may overlap
 # ---------------------------------------------------------------------------
 
 
@@ -451,6 +415,7 @@ def _telemetry_row(store: Path, *, session_id, ts: str = "2026-08-15T12:00:00+00
 
 
 def _run_since(store: Path, since: str) -> "subprocess.CompletedProcess[str]":
+    """`conftest.run_tool` without the one flag this block needs."""
     return subprocess.run(
         [sys.executable, str(TOOL), "--store", str(store), "--since", since],
         capture_output=True, text=True, timeout=30,
@@ -458,6 +423,10 @@ def _run_since(store: Path, since: str) -> "subprocess.CompletedProcess[str]":
 
 
 def test_the_audit_block_header_and_default_window_are_printed(tmp_path):
+    """This store has no telemetry and one document with no Search Trace, so both id-suffixed
+    lines render their empty case here -- each a bare count built inline rather than through
+    `_missing_line`, so the trailing ` -- ids` suffix must be absent, not merely correct when
+    there are ids."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nBody.")
 
@@ -465,24 +434,28 @@ def test_the_audit_block_header_and_default_window_are_printed(tmp_path):
 
     assert "=== Audit coverage" in out
     assert "window: all-time" in out
-
-
-def test_the_audit_block_names_both_started_and_completed_the_ritual(tmp_path):
-    """Defect (a): the denominator is draft + active, not active alone -- an abandoned session
-    leaves exactly a draft, which is the population this block exists to notice."""
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## Pre-reg\n\nBaseline.")
-    _doc(sessions, "abandoned-draft", status="draft", body="## Pre-reg\n\nBaseline.")
-
-    out = _run(tmp_path).stdout
-
-    assert "ritual: 2 started (draft: 1 + active: 1) -> 1 completed (status: active)" in out
+    provenance_line = next(
+        l for l in out.splitlines() if "retrieval provenance cannot be reconstructed" in l
+    )
+    assert provenance_line == (
+        "documents whose Search Trace says shell/paste but carry zero matching telemetry "
+        "rows (retrieval provenance cannot be reconstructed): 0"
+    ), "nothing trails the zero -- no dangling separator"
+    orphan_line = next(
+        l for l in out.splitlines() if "matches no document in this store" in l
+    )
+    assert orphan_line == (
+        "telemetry rows whose session_id matches no document in this store: 0 row(s) across "
+        "0 session_id(s)"
+    ), "the orphan line builds its id suffix inline too -- same empty case, same rule"
 
 
 def test_the_audit_block_excludes_superseded_from_both_ritual_figures(tmp_path):
-    """A superseded document did complete the ritual once, but this counter answers "is the
-    ritual currently incomplete" -- a fixture with all three statuses present is the only one
-    that can catch a regression that quietly folds `superseded` into `started`."""
+    """Defect (a): the started denominator is draft + active, not active alone -- an abandoned
+    session leaves exactly a draft, which is the population this block exists to notice. A
+    superseded document did complete the ritual once, but this counter answers "is the ritual
+    currently incomplete" -- a fixture with all three statuses present is the only one that can
+    catch a regression that quietly folds `superseded` into `started`."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", status="superseded", superseded_by="widget-cache-v2",
          body="## Pre-reg\n\nBaseline.")
@@ -497,7 +470,7 @@ def test_the_audit_block_excludes_superseded_from_both_ritual_figures(tmp_path):
 
 def test_the_audit_block_names_telemetry_rows_and_distinct_sessions_as_two_numbers(tmp_path):
     """Defect (b): a row count and a session count are two different signals -- collapsing them
-    would report 40 "sessions" for 8."""
+    would report one number where the reader needs both."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nBody.")
     _telemetry_row(tmp_path, session_id="widget-cache-v1")
@@ -519,8 +492,8 @@ def test_the_audit_block_lists_active_documents_missing_sections_by_id(tmp_path)
 
 
 def test_the_audit_block_names_documents_with_no_prereg_section_by_id(tmp_path):
-    """The live defect: a document written before the Pre-reg section existed was counted as a
-    ritual start. It is excluded now, and named on its own figure rather than dropped."""
+    """A document written before the Pre-reg section existed was counted as a ritual start. It
+    is excluded now, and named on its own figure rather than dropped."""
     sessions = tmp_path / "sessions"
     _doc(sessions, "20260101-widget-cache",
          body="## Pre-reg\n\nBaseline.\n\n## 8. Decision Log\n\nBody.")
@@ -607,22 +580,41 @@ def test_an_unparseable_since_value_does_not_fail_the_run(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ARCH-101 -- a torn append or a permissions problem on telemetry.jsonl must not take down the
+# a torn append or a permissions problem on telemetry.jsonl must not take down the
 # per-row table or the §11 endpoint figure it is printed alongside. gate1_report.py still exits
 # 0; telemetry-derived audit figures are named UNMEASURED, never printed as a false zero.
 # ---------------------------------------------------------------------------
 
 
-def test_invalid_utf8_in_telemetry_does_not_fail_the_run_and_the_table_survives(tmp_path):
+def _write_undecodable_bytes(jsonl: Path) -> None:
+    with open(jsonl, "wb") as f:
+        f.write(b"\xff\xfe not valid utf-8\n")
+
+
+def _deny_read_permission(jsonl: Path) -> None:
+    jsonl.write_text('{"session_id": "sweeper-job"}\n', encoding="utf-8")
+    os.chmod(jsonl, 0o000)
+
+
+@pytest.mark.parametrize(
+    "break_telemetry",
+    [
+        pytest.param(_write_undecodable_bytes, id="undecodable-bytes"),
+        pytest.param(_deny_read_permission, id="unreadable-file",
+                     marks=requires_permission_enforcement),
+    ],
+)
+def test_broken_telemetry_does_not_fail_the_run_and_the_table_survives(tmp_path, break_telemetry):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
     _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
          body=_reuse("widget-cache-v1", "Eviction runs on boot."))
     jsonl = tmp_path / "telemetry.jsonl"
-    with open(jsonl, "wb") as f:
-        f.write(b"\xff\xfe not valid utf-8\n")
-
-    result = _run(tmp_path)
+    break_telemetry(jsonl)
+    try:
+        result = _run(tmp_path)
+    finally:
+        os.chmod(jsonl, 0o644)
 
     assert result.returncode == 0
     assert "| sweeper-job | widget-cache-v1 |" in result.stdout, "the per-row table must survive"
@@ -634,30 +626,9 @@ def test_invalid_utf8_in_telemetry_does_not_fail_the_run_and_the_table_survives(
     )
 
 
-@requires_permission_enforcement
-def test_an_unreadable_telemetry_file_does_not_fail_the_run_and_the_table_survives(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "sweeper-job", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot."))
-    jsonl = tmp_path / "telemetry.jsonl"
-    jsonl.write_text('{"session_id": "sweeper-job"}\n', encoding="utf-8")
-    os.chmod(jsonl, 0o000)
-    try:
-        result = _run(tmp_path)
-    finally:
-        os.chmod(jsonl, 0o644)
-
-    assert result.returncode == 0
-    assert "| sweeper-job | widget-cache-v1 |" in result.stdout
-    assert "of which 1 distant" in result.stdout
-    assert "telemetry.jsonl: UNREADABLE" in result.stdout
-    assert "UNMEASURED -- telemetry.jsonl unreadable" in result.stdout
-
-
 # ---------------------------------------------------------------------------
-# ARCH-102 -- a `## Reuse Log` holding only the template's own header row + separator
-# (templates/engmem.save.md:162-163) is PRESENT, not missing.
+# a `## Reuse Log` holding only the template's own header row + separator
+# (templates/engmem.save.md, "### Reuse Log rules") is PRESENT, not missing.
 # ---------------------------------------------------------------------------
 
 
@@ -673,7 +644,7 @@ def test_a_header_only_reuse_log_is_present_not_missing_in_the_report(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ARCH-103 -- a `backfilled: true` document never ran the ritual and must not inflate the
+# a `backfilled: true` document never ran the ritual and must not inflate the
 # ritual-started/completed figures or appear in the missing-section lists.
 # ---------------------------------------------------------------------------
 
@@ -705,78 +676,4 @@ def test_a_backfilled_document_does_not_inflate_the_ritual_figures(tmp_path):
     assert "backfilled-note" not in audit_block, (
         "a backfilled document was never asked to run the ritual, so it must not appear on "
         "any missing-section line"
-    )
-
-
-# ---------------------------------------------------------------------------
-# ARCH-107 -- end-to-end: `_trace_value` must never read a provenance claim out of ordinary
-# prose in the printed "retrieval provenance cannot be reconstructed" line.
-# ---------------------------------------------------------------------------
-
-
-def test_a_document_that_genuinely_reports_miss_never_appears_on_the_provenance_line(tmp_path):
-    """False positive direction: a document whose Search Trace says `miss`, even alongside a
-    sentence that happens to use the word `shell`, must not be counted as an unreconstructable
-    shell/paste claim."""
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "honest-miss", body=(
-        "## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nNo shell was available in this environment, so the search never "
-        "ran.\nmiss\n"
-    ))
-
-    out = _run(tmp_path).stdout
-
-    provenance_line = next(
-        l for l in out.splitlines() if "retrieval provenance cannot be reconstructed" in l
-    )
-    assert provenance_line.endswith(": 0")
-    assert "honest-miss" not in provenance_line
-
-
-def test_a_document_that_genuinely_ran_shell_still_appears_despite_a_nearby_miss_mention(tmp_path):
-    """False negative direction: a document whose Search Trace really is `shell`, with zero
-    matching telemetry rows, must still be flagged even when an earlier line mentions `miss`."""
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "real-shell",
-         body="## Pre-reg\n\nBaseline.\n\n## Search Trace\n\n(A miss would mean no search ran.)\nshell\n")
-
-    out = _run(tmp_path).stdout
-
-    audit_block = out.split("=== Audit coverage")[1]
-    assert (
-        "retrieval provenance cannot be reconstructed): 1 -- real-shell" in audit_block
-    )
-
-
-def test_a_line_naming_two_vocabulary_words_at_once_does_not_resolve_to_either(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "mixed-story", body=(
-        "## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nConsidered paste via the user, ended up miss -- shell was "
-        "blocked.\n"
-    ))
-
-    out = _run(tmp_path).stdout
-
-    provenance_line = next(
-        l for l in out.splitlines() if "retrieval provenance cannot be reconstructed" in l
-    )
-    assert provenance_line.endswith(": 0")
-    assert "mixed-story" not in provenance_line
-
-
-
-def test_a_backfilled_document_with_a_shell_trace_still_appears_on_the_provenance_line(tmp_path):
-    """ARCH-001: the ritual exclusions do not reach this figure. A document claiming a search ran,
-    with no telemetry row naming it, is named here whoever wrote it and whenever."""
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "20250101-pre-ritual-note", backfilled=True,
-         body="## Pre-reg\n\nBaseline.\n\n## Search Trace\n\nshell\n")
-
-    out = _run(tmp_path).stdout
-
-    audit_block = out.split("=== Audit coverage")[1]
-    assert "ritual: 0 started (draft: 0 + active: 0) -> 0 completed (status: active)" in audit_block
-    assert (
-        "retrieval provenance cannot be reconstructed): 1 -- 20250101-pre-ritual-note"
-        in audit_block
     )

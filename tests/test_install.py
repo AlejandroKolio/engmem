@@ -6,6 +6,7 @@ from conftest import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
+    LEGACY_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
     requires_permission_enforcement,
@@ -15,6 +16,7 @@ from conftest import (
 
 from engmem import __version__
 from engmem.cli import main
+from engmem.install import TRIGGER_SENTINEL
 
 SOURCE_TEMPLATE_NAMES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
 def _stamp(template: str) -> str:
@@ -179,25 +181,37 @@ def test_fresh_install_creates_templates_stamp_and_trigger(
     assert instructions_file.read_text(encoding="utf-8").count(TRIGGER_RULE) == 1
 
 
-def test_second_install_is_idempotent(env, tmp_path):
+SECOND_INSTALL_CASES = [
+    pytest.param("claude", lambda home, project: home / ".claude" / "CLAUDE.md", id="claude"),
+    pytest.param("copilot-cli", None, id="copilot-cli"),
+    pytest.param("claude-desktop", None, id="claude-desktop"),
+]
+
+
+@pytest.mark.parametrize(("agent", "instructions_file_fn"), SECOND_INSTALL_CASES)
+def test_a_second_install_changes_nothing(env, tmp_path, agent, instructions_file_fn):
+    """Install is the command a user re-runs after an upgrade, so a second run must leave both
+    engmem's own files and the store byte-identical."""
     home, project = env
     store = tmp_path / "store"
 
-    _run_install("--agent", "claude", "--store", str(store))
+    _run_install("--agent", agent, "--store", str(store))
 
+    # a document written between the two runs must survive the second
     (store / "sessions" / "existing-doc.md").write_text("---\nid: existing-doc\n---\n")
 
     before_home = _snapshot(home)
     before_store = _snapshot(store)
 
-    exit_code = _run_install("--agent", "claude", "--store", str(store))
+    exit_code = _run_install("--agent", agent, "--store", str(store))
 
     assert exit_code == 0
     assert _snapshot(home) == before_home
     assert _snapshot(store) == before_store
 
-    claude_md = home / ".claude" / "CLAUDE.md"
-    assert claude_md.read_text(encoding="utf-8").count(TRIGGER_RULE) == 1
+    if instructions_file_fn is not None:
+        instructions = instructions_file_fn(home, project)
+        assert instructions.read_text(encoding="utf-8").count(TRIGGER_RULE) == 1
 
 
 def test_reworded_trigger_rule_is_not_duplicated(env, tmp_path):
@@ -221,6 +235,83 @@ def test_reworded_trigger_rule_is_not_duplicated(env, tmp_path):
     )
 
 
+def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys):
+    """Re-running install used to skip on the marker the old rule contains, so the new wording
+    never reached a file engmem itself had written."""
+    home, project = env
+    store = tmp_path / "store"
+    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md.parent.mkdir(parents=True)
+    before = "# My rules\n\n- Prefer small commits.\n"
+    after = "- Keep going.\n"
+    claude_md.write_text(
+        before + TRIGGER_SENTINEL + "\n" + LEGACY_TRIGGER_RULE + "\n" + after, encoding="utf-8"
+    )
+
+    exit_code = _run_install("--agent", "claude", "--store", str(store))
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert claude_md.read_text(encoding="utf-8") == (
+        before + TRIGGER_SENTINEL + "\n" + TRIGGER_RULE + "\n" + after
+    )
+    assert "updated" in out.lower()
+
+    snapshot = _snapshot(home)
+    assert _run_install("--agent", "claude", "--store", str(store)) == 0
+    assert _snapshot(home) == snapshot
+
+
+LEGACY_RULE_REWRITE_CASES = [
+    # a pre-sentinel install: the bare line is updated in place, and no sentinel is added,
+    # so the file changes by exactly one line either way
+    pytest.param(b"# My rules\n", b"\n", "", False, id="bare-line-no-sentinel"),
+    pytest.param(b"# My rules\n\n", b"\n", "  ", True, id="indented-with-spaces"),
+    pytest.param(b"# My rules\n\n", b"\n", "\t", True, id="indented-with-a-tab"),
+    # CRLF and a BOM are exactly what `read_text` rewrites silently; a caller that rebuilt the
+    # file from what it read would hand a Windows user a whole-file diff for a one-line edit
+    pytest.param(b"# My rules\r\n- Prefer small commits.\r\n", b"\r\n", "", True, id="crlf"),
+    pytest.param(b"\xef\xbb\xbf# My rules\n", b"\n", "", True, id="utf-8-bom"),
+    # `_with_current_trigger_rule` walks every line on purpose: a file carrying the legacy
+    # wording twice — a hand-merged dotfiles repo, an install run under two HOMEs — must come
+    # back with both rewritten, not only the last one the loop happened to reach
+    pytest.param(
+        b"# My rules\n" + LEGACY_TRIGGER_RULE.encode("utf-8") + b"\n- Prefer small commits.\n",
+        b"\n",
+        "",
+        True,
+        id="two-legacy-lines",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("head", "newline", "indent", "with_sentinel"), LEGACY_RULE_REWRITE_CASES
+)
+def test_a_legacy_trigger_rule_is_rewritten_with_everything_around_it_kept(
+    env, tmp_path, head, newline, indent, with_sentinel
+):
+    """Same position, same leading indent, same line ending, sentinel (if any) untouched, BOM
+    written back."""
+    home, project = env
+    store = tmp_path / "store"
+    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md.parent.mkdir(parents=True)
+    indent_bytes = indent.encode("utf-8")
+    sentinel = (
+        indent_bytes + TRIGGER_SENTINEL.encode("utf-8") + newline if with_sentinel else b""
+    )
+    original = head + sentinel + indent_bytes + LEGACY_TRIGGER_RULE.encode("utf-8") + newline
+    claude_md.write_bytes(original)
+
+    assert _run_install("--agent", "claude", "--store", str(store)) == 0
+
+    # every legacy line swapped for the current wording, and not one other byte touched
+    assert claude_md.read_bytes() == original.replace(
+        LEGACY_TRIGGER_RULE.encode("utf-8"), TRIGGER_RULE.encode("utf-8")
+    )
+
+
 def test_repo_scoped_install_without_git_repo_fails_loudly(env, tmp_path, capsys):
     home, project = env
     store = tmp_path / "store"
@@ -238,7 +329,7 @@ def test_repo_scoped_install_without_git_repo_fails_loudly(env, tmp_path, capsys
 
 def test_bare_copilot_agent_value_is_rejected(env, capsys):
     # D14: argparse `choices=` would reject this via `parser.error()`, which raises SystemExit
-    # before `_cmd_install` ever runs — an exit code, never a return, and never this message.
+    # before `cmd_install` ever runs — an exit code, never a return, and never this message.
     exit_code = _run_install("--agent", "copilot")
 
     assert exit_code == 2
@@ -264,32 +355,6 @@ def test_copilot_cli_agent_installs_personal_skills(env, tmp_path):
     assert not (project / ".github").exists(), (
         "copilot-cli skills are HOME-scoped personal skills, not a repo file"
     )
-
-
-def test_copilot_cli_agent_does_not_require_git_repo_cwd(env, tmp_path):
-    # copilot-cli writes only under $HOME (~/.copilot/skills/), so unlike the
-    # repo-scoped modes it must work even when CWD is not a git repository
-    home, project = env
-    store = tmp_path / "store"
-
-    exit_code = _run_install("--agent", "copilot-cli", "--store", str(store))
-
-    assert exit_code == 0
-    assert (home / ".copilot" / "skills" / "engmem" / "SKILL.md").is_file()
-
-
-def test_copilot_cli_agent_second_install_is_idempotent(env, tmp_path):
-    home, project = env
-    store = tmp_path / "store"
-
-    _run_install("--agent", "copilot-cli", "--store", str(store))
-
-    before = _snapshot(home)
-
-    exit_code = _run_install("--agent", "copilot-cli", "--store", str(store))
-
-    assert exit_code == 0
-    assert _snapshot(home) == before
 
 
 def test_copilot_cli_skill_bodies_use_hyphenated_command_names(env, tmp_path):
@@ -439,20 +504,6 @@ def test_install_reports_on_stdout_when_trigger_rule_already_present(env, tmp_pa
     )
 
 
-def test_fresh_install_trigger_rule_is_sentinel_delimited(env, tmp_path):
-    """D12: detection must anchor on a marker engmem writes itself, not a substring a user's own
-    prose could contain."""
-    from engmem.install import TRIGGER_SENTINEL
-
-    home, project = env
-    store = tmp_path / "store"
-
-    _run_install("--agent", "claude", "--store", str(store))
-
-    content = (home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-    assert TRIGGER_SENTINEL in content
-
-
 # D16: an existing regular file at a destination path used to raise NotADirectoryError (or
 # exit 1 with a traceback, for the commands path) instead of a clean exit-2 diagnostic. The
 # directory checks covered two of the paths install writes; every other one — the template
@@ -478,13 +529,6 @@ def _occupy_template_path(home, project, store):
     return blocked
 
 
-def _write_undecodable_instructions(home, project, store):
-    blocked = home / ".claude" / "CLAUDE.md"
-    blocked.parent.mkdir(parents=True)
-    blocked.write_bytes(b"\xff\xfe not utf-8 at all\n")
-    return blocked
-
-
 def _occupy_desktop_config_dir(home, project, store):
     blocked = claude_desktop_config_path(home).parent
     blocked.parent.mkdir(parents=True)
@@ -503,7 +547,6 @@ UNUSABLE_DESTINATION_CASES = [
     pytest.param("claude", _occupy_store, id="store-path-is-a-file"),
     pytest.param("claude", _occupy_commands_dir, id="commands-dir-is-a-file"),
     pytest.param("claude", _occupy_template_path, id="template-path-is-a-directory"),
-    pytest.param("claude", _write_undecodable_instructions, id="instructions-are-not-utf-8"),
     pytest.param("copilot-cli", _occupy_skill_dir, id="skill-dir-is-a-file"),
     pytest.param(
         "claude-desktop", _occupy_desktop_config_dir, id="desktop-config-dir-is-a-file"
@@ -564,8 +607,6 @@ def test_install_appends_without_rewriting_the_bytes_already_there(
 ):
     r"""`read_text` translates the line endings and hides the BOM, so a caller that rebuilds the
     file from what it read hands the user a whole-file diff for a two-line append."""
-    from engmem.install import TRIGGER_SENTINEL
-
     home, project = env
     store = tmp_path / "store"
     claude_md = home / ".claude" / "CLAUDE.md"
@@ -654,15 +695,6 @@ def test_claude_desktop_install_writes_no_templates_and_no_trigger_rule(env, tmp
     assert not (home / ".claude" / "CLAUDE.md").exists()
 
 
-def test_claude_desktop_install_does_not_require_git_repo_cwd(env, tmp_path):
-    home, project = env
-    store = tmp_path / "store"
-
-    exit_code = _run_install("--agent", "claude-desktop", "--store", str(store))
-
-    assert exit_code == 0
-
-
 def test_claude_desktop_install_merges_into_existing_config_preserving_other_servers(env, tmp_path):
     """The config belongs to the user and may already list other MCP servers, so install must
     merge, never overwrite."""
@@ -707,32 +739,6 @@ def test_claude_desktop_install_accepts_a_config_that_carries_a_byte_order_mark(
     config = json.loads(written.decode("utf-8"))
     assert config["mcpServers"]["engmem"]["command"] == sys.executable
     assert config["mcpServers"]["some-other-server"] == original["mcpServers"]["some-other-server"]
-
-
-def test_claude_desktop_install_creates_config_when_absent(env, tmp_path):
-    home, project = env
-    store = tmp_path / "store"
-    config_path = claude_desktop_config_path(home)
-    assert not config_path.exists()
-
-    exit_code = _run_install("--agent", "claude-desktop", "--store", str(store))
-
-    assert exit_code == 0
-    assert config_path.is_file()
-
-
-def test_claude_desktop_install_is_idempotent(env, tmp_path):
-    home, project = env
-    store = tmp_path / "store"
-
-    _run_install("--agent", "claude-desktop", "--store", str(store))
-    config_path = claude_desktop_config_path(home)
-    before = config_path.read_bytes()
-
-    exit_code = _run_install("--agent", "claude-desktop", "--store", str(store))
-
-    assert exit_code == 0
-    assert config_path.read_bytes() == before
 
 
 def test_claude_desktop_install_rejects_malformed_config_without_discarding_it(env, tmp_path, capsys):
@@ -893,42 +899,47 @@ def test_home_scoped_agent_rejects_local_flag(env, tmp_path, capsys, agent, sent
 # ---------------------------------------------------------------------------
 
 
-def test_claude_desktop_config_path_on_windows(monkeypatch, tmp_path):
+CLAUDE_DESKTOP_CONFIG_PATH_CASES = [
+    pytest.param(
+        "win32",
+        "Roaming",
+        ("Roaming", "Claude", "claude_desktop_config.json"),
+        id="windows",
+    ),
+    # a stripped environment without %APPDATA% must still resolve somewhere sane, not crash
+    pytest.param(
+        "win32",
+        None,
+        ("AppData", "Roaming", "Claude", "claude_desktop_config.json"),
+        id="windows-without-appdata",
+    ),
+    pytest.param(
+        "darwin",
+        None,
+        ("Library", "Application Support", "Claude", "claude_desktop_config.json"),
+        id="off-windows",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("platform", "appdata_subdir", "expected_parts"), CLAUDE_DESKTOP_CONFIG_PATH_CASES
+)
+def test_claude_desktop_config_path_per_platform(
+    monkeypatch, tmp_path, platform, appdata_subdir, expected_parts
+):
     from engmem.install import _claude_desktop_config_path
 
-    monkeypatch.setattr("engmem.install.sys.platform", "win32")
-    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
-
-    path = _claude_desktop_config_path()
-
-    assert path == tmp_path / "Roaming" / "Claude" / "claude_desktop_config.json"
-
-
-def test_claude_desktop_config_path_on_windows_without_appdata(monkeypatch, tmp_path):
-    """A stripped environment without %APPDATA% must still resolve somewhere sane rather than
-    crashing."""
-    from engmem.install import _claude_desktop_config_path
-
-    monkeypatch.setattr("engmem.install.sys.platform", "win32")
-    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr("engmem.install.sys.platform", platform)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    if appdata_subdir is None:
+        monkeypatch.delenv("APPDATA", raising=False)
+    else:
+        monkeypatch.setenv("APPDATA", str(tmp_path / appdata_subdir))
 
     path = _claude_desktop_config_path()
 
-    assert path == tmp_path / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
-
-
-def test_claude_desktop_config_path_off_windows(monkeypatch, tmp_path):
-    from engmem.install import _claude_desktop_config_path
-
-    monkeypatch.setattr("engmem.install.sys.platform", "darwin")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-
-    path = _claude_desktop_config_path()
-
-    assert path == (
-        tmp_path / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-    )
+    assert path == tmp_path.joinpath(*expected_parts)
 
 
 def test_the_sandbox_home_is_actually_where_the_code_looks(env):

@@ -36,7 +36,7 @@ from engmem.spine import (
     validate_doc_id,
 )
 from engmem.staging import commit, discard, newline_of, read_document, stage
-from engmem.telemetry import log_role_search, log_search
+from engmem.telemetry import UNATTRIBUTED_MCP_NOTE, log_role_search, log_search
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -108,7 +108,10 @@ COMPLETE_DRAFT_TOOL_DESCRIPTION = (
     "unless its front matter `status` is `active` and its `id` equals the `id` "
     "argument. It will never touch a document that is already `active` or "
     "`superseded` — a confused or repeated call cannot destroy work outside a "
-    "document still in draft. To mark a DIFFERENT, already-finished document as "
+    "document still in draft. It also refuses `content` whose Reuse Log holds a "
+    "row without a quoted span or with a classification other than `reuse` / "
+    "`anti-reuse` / `harmful`, returning each offending row so it can be fixed "
+    "in the same turn. To mark a DIFFERENT, already-finished document as "
     "superseded by this one, call `engmem_mark_superseded` instead — never pass "
     "that document's id here."
 )
@@ -281,6 +284,8 @@ def _run_search_for_tool(
         # stdout here is JSON-RPC only, so the note rides in the tool result
         # text instead of print() — never isError, since the search succeeded
         text += f"\nnote: telemetry not recorded ({telemetry_error})"
+    if session_id is None:
+        text += f"\n{UNATTRIBUTED_MCP_NOTE}"
 
     return text, False
 
@@ -326,6 +331,8 @@ def _run_role_search_for_tool(
     )
     if telemetry_error is not None:
         text += f"\nnote: telemetry not recorded ({telemetry_error})"
+    if session_id is None:
+        text += f"\n{UNATTRIBUTED_MCP_NOTE}"
 
     return text, False
 
@@ -484,6 +491,18 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
                     "'draft' and simply call this tool again later if the "
                     "document is not actually ready to finish yet."
                 )
+            rejections = _reuse_log_rejections(doc)
+            if rejections:
+                raise _ToolError(
+                    "\n".join(
+                        [
+                            f"refusing to complete sessions/{doc_id}.md: its Reuse Log "
+                            "fails the mechanical rules Gate 1 counts by — fix the rows "
+                            "below in the content and call this tool again.",
+                            *rejections,
+                        ]
+                    )
+                )
             commit(tmp_path, target)
         # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
         # OSError of its own, and the staged file must go either way
@@ -499,9 +518,42 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     return message, False
 
 
+_CLASSIFICATION_CHOICES = " / ".join(
+    c for c in gate1.Classification if c in gate1.VALID_CLASSIFICATIONS
+)
+
+
+def _reuse_log_rejections(doc: Doc) -> list[str]:
+    """Row-shape defects decidable from the content alone, checked before the commit; see
+    contracts/mcp-server.md, "Reuse Log rows — refuse, then warn"."""
+    rejections: list[str] = []
+    for section in split_sections(doc.body):
+        if section.canonical != "reuse":
+            continue
+        for row in gate1.reuse_log_rows(section.body):
+            line = row.line.strip()
+            if not gate1.quotes_in(row.cells[1]):
+                rejections.append(
+                    "Reuse Log row rejected — no quoted span of four or more characters: "
+                    f"{line}"
+                )
+            raw, classification = gate1.classification_of(row.cells)
+            if classification is gate1.Classification.MISSING:
+                rejections.append(
+                    "Reuse Log row rejected — no classification cell, or an empty one "
+                    f"(expected one of {_CLASSIFICATION_CHOICES}): {line}"
+                )
+            elif classification is gate1.Classification.UNRECOGNIZED:
+                rejections.append(
+                    f'Reuse Log row rejected — classification "{raw}" is not one of '
+                    f"{_CLASSIFICATION_CHOICES}: {line}"
+                )
+    return rejections
+
+
 def _citation_notes(store: Path, doc: Doc) -> list[str]:
     """Non-fatal diagnostics on the document just completed to active — never demotes a
-    successful commit; see contracts/mcp-server.md, "citation-integrity warning"."""
+    successful commit; see contracts/mcp-server.md, "Reuse Log rows — refuse, then warn"."""
     notes: list[str] = []
     if not any(s.canonical == "reuse" for s in split_sections(doc.body)):
         notes.append(
@@ -520,9 +572,7 @@ def _citation_notes(store: Path, doc: Doc) -> list[str]:
     for row in verdicts.rows:
         if row.citing.id != doc.id:
             continue
-        if row.integrity == gate1.Integrity.NO_QUOTE:
-            problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
-        elif row.integrity == gate1.Integrity.CITED_MISSING:
+        if row.integrity == gate1.Integrity.CITED_MISSING:
             problems.append(
                 f"{row.source}: cited document {row.cited_id} is not in the store — "
                 "prior-doc takes the document's id, not its filename"

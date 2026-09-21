@@ -148,7 +148,7 @@ def test_a_parent_reference_is_not_normalised_away(home, monkeypatch, tmp_path):
     assert resolve_store("a/../b") == tmp_path / "a" / ".." / "b"
 
 
-# --- an unresolvable `~`/`~user` must not crash (ARCH-001) ----------------------------------
+# --- an unresolvable `~`/`~user` must not crash ---------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -175,8 +175,9 @@ def test_an_unresolvable_user_tilde_does_not_raise(home, monkeypatch, tmp_path, 
 
 def test_default_store_does_not_raise_when_home_cannot_be_determined(monkeypatch):
     """The container-with-an-arbitrary-uid case: no `HOME`, and the uid has no passwd entry.
-    `posixpath.expanduser` already returns `~` unchanged for exactly this reason; `Path.home()`
-    (used by `default_store`) is what turns that into a RuntimeError instead of honouring it."""
+    `posixpath.expanduser` already returns `~` unchanged for exactly this reason; `Path.expanduser()`
+    (which `default_store` reaches through `_expand_home(Path("~"))`) raises RuntimeError
+    instead, and `_expand_home` is what hands the `~` back unexpanded."""
     monkeypatch.delenv("HOME", raising=False)
     monkeypatch.delenv("ENGMEM_HOME", raising=False)
 
@@ -212,7 +213,7 @@ def test_an_unresolvable_tilde_is_named_on_stdout_not_only_a_traceback(tmp_path,
     assert "nosuchuser12345" in captured.err
 
 
-# --- the answer is absolute on every interpreter, not only 3.13+ (ARCH-002) -----------------
+# --- the answer is absolute on every interpreter, not only 3.13+ ----------------------------
 
 
 def test_a_drive_relative_windows_path_is_made_absolute(monkeypatch):

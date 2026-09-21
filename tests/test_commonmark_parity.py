@@ -63,3 +63,15 @@ def test_blockquoted_heading_diverges_on_purpose():
 
     assert _our_h2(text) == ["Architecture"]
     assert _parser_h2(text) == ["Architecture", "quoted from elsewhere"]
+
+
+def test_tab_indented_heading_diverges_on_purpose():
+    """`[ \\t]{0,3}` counts a tab as one character where CommonMark counts a 4-column indent, so a
+    tab-indented ATX or setext heading opens a section here and indented code there."""
+    atx = "## Architecture\n\np\n\n\t## Testing\n\nc\n"
+    setext = "## Architecture\n\np\n\n\tTesting\n---\n\nc\n"
+
+    assert _our_h2(atx) == ["Architecture", "Testing"]
+    assert _parser_h2(atx) == ["Architecture"]
+    assert _our_h2(setext) == ["Architecture", "Testing"]
+    assert _parser_h2(setext) == ["Architecture"]

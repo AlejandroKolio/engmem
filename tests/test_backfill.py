@@ -6,7 +6,6 @@ import os
 import re
 from pathlib import Path
 import stat
-import hashlib
 import datetime
 
 import pytest
@@ -131,6 +130,21 @@ SUPERSEDED_WIDGET_CACHE = LEGACY_WIDGET_CACHE.replace(
             # an unclosed paren must not turn the rest of the line into one term that
             # then passes the shape test on some capital further along
             id="unbalanced-open-paren-protects-nothing",
+        ),
+        pytest.param(
+            "- **Endpoints:** OrderAPI (v1, v2), PaymentAPI (see ticket #42",
+            ["OrderAPI", "PaymentAPI (see ticket #42"],
+            # the fallback that discarded the whole line brought the bug back for its
+            # balanced part: one unterminated aside further along resurrected `OrderAPI (v1`
+            # and `v2)`. The unterminated aside itself rides along on its own term, which is
+            # the residual — never a second phantom one
+            id="a-later-unclosed-paren-does-not-cost-the-balanced-one-before-it",
+        ),
+        pytest.param(
+            "- **Classes:** `WidgetCache` (thread-safe, LRU), CacheWarmer (TODO",
+            ["WidgetCache", "CacheWarmer (TODO"],
+            # and the author's explicit backtick signal survives the same shape
+            id="a-backticked-term-survives-an-unclosed-paren-later-on",
         ),
     ],
 )
@@ -601,7 +615,7 @@ def test_fields_are_proposed_in_the_order_the_contract_states(tmp_path):
 
 
 def test_related_is_pinned_at_the_public_boundary_too(tmp_path):
-    """29 cases sit on the private `_extract_related_ids`; this is the one at
+    """`_RELATED_CASES` sits on the private `_extract_related_ids`; this is the one case at
     `propose_backfill` itself, over a body mixing a real sibling link with a fenced-off
     and a block-quoted one that must not count, asserting both the derived value and
     both of the field's evidence strings (found / not found)."""
@@ -657,22 +671,40 @@ def test_propose_backfill_on_legacy_document_derives_every_field(tmp_path):
     assert proposal.notes == []
 
 
-def test_propose_backfill_reports_note_when_no_keywords_section(tmp_path):
+@pytest.mark.parametrize(
+    "section, expected_note_fragment",
+    [
+        pytest.param(
+            "## Notes\n\nPlain prose only, no keyword list.\n",
+            "Search Keywords",
+            id="no-keywords-section-at-all",
+        ),
+        pytest.param(
+            "## Search Keywords\n\ncache invalidation, cold start, warmup\n",
+            "yielded no term",
+            # a section that names no identifier is the same epistemic state as no section at
+            # all — entities were never determined, so the field stays unset and says so
+            id="a-keywords-section-that-yields-nothing",
+        ),
+    ],
+)
+def test_propose_backfill_leaves_entities_unset_and_reports_a_note(
+    tmp_path, section, expected_note_fragment
+):
     """`entities` is left unset, not written empty: `spine.stated` counts `[]` as answered, so
     writing it would take the document spine-complete and make the note's "re-run" impossible."""
     write_file(
         tmp_path,
         "cache-invalidation-notes.md",
-        "# Cache Invalidation Notes\n\n- Date: 2026-04-01\n\n## Notes\n\nPlain prose only, no keyword list.\n",
+        "# Cache Invalidation Notes\n\n- Date: 2026-04-01\n\n" + section,
     )
     doc = load_store(tmp_path).docs[0]
 
     proposal = propose_backfill(doc)
 
-    by_name = {f.name: f for f in proposal.fields}
-    assert "entities" not in by_name
+    assert "entities" not in {f.name for f in proposal.fields}
     assert len(proposal.notes) == 1
-    assert "Search Keywords" in proposal.notes[0]
+    assert expected_note_fragment in proposal.notes[0]
 
 
 def test_no_entities_note_when_the_author_already_stated_entities(tmp_path):
@@ -715,24 +747,6 @@ def test_a_rejected_repos_line_is_not_reported_as_a_missing_one(tmp_path):
     assert by_name["tags"].source == (
         "'- Repos:' preamble line found, but no entry parsed as a repo name"
     )
-
-
-def test_propose_backfill_leaves_entities_unset_when_the_section_yields_nothing(tmp_path):
-    """A section that names no identifier is the same epistemic state as no section at all —
-    entities were never determined, so the field stays unset and says so."""
-    write_file(
-        tmp_path,
-        "cache-invalidation-notes.md",
-        "# Cache Invalidation Notes\n\n- Date: 2026-04-01\n\n"
-        "## Search Keywords\n\ncache invalidation, cold start, warmup\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    proposal = propose_backfill(doc)
-
-    assert "entities" not in {f.name for f in proposal.fields}
-    assert len(proposal.notes) == 1
-    assert "yielded no term" in proposal.notes[0]
 
 
 def test_adding_a_keywords_section_after_a_backfill_still_fills_entities(tmp_path):
@@ -830,43 +844,7 @@ date: 2026-06-01
 # ---------------------------------------------------------------------------
 
 
-def _body_hash(path):
-    text = path.read_text(encoding="utf-8-sig")
-    if text.splitlines()[:1] and text.splitlines()[0].strip() == "---":
-        lines = text.splitlines(keepends=True)
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                body = "".join(lines[i + 1:])
-                break
-        else:
-            body = text
-    else:
-        body = text
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
-def test_apply_backfill_preserves_body_byte_for_byte_on_a_headerless_document(tmp_path):
-    path = write_file(tmp_path, "widget-cache-warmup.md", LEGACY_WIDGET_CACHE)
-    before_hash = hashlib.sha256(LEGACY_WIDGET_CACHE.encode("utf-8")).hexdigest()
-
-    doc = load_store(tmp_path).docs[0]
-    proposal = propose_backfill(doc)
-    apply_backfill(doc, proposal)
-
-    after_text = path.read_text(encoding="utf-8")
-    assert after_text.startswith("---\n")
-    # the body is everything after the newly-written front matter's closing
-    # '---' line, and must equal the ENTIRE original file content verbatim —
-    # there was no front matter to strip out of it before
-    lines = after_text.splitlines(keepends=True)
-    closing = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
-    body_after = "".join(lines[closing + 1:])
-    assert body_after == LEGACY_WIDGET_CACHE
-    assert hashlib.sha256(body_after.encode("utf-8")).hexdigest() == before_hash
-
-
-def test_apply_backfill_preserves_body_on_a_partial_front_matter_document(tmp_path):
-    original = """---
+PARTIAL_FRONT_MATTER_DOC = """---
 id: ttl-revalidation
 title: TTL / ETag Revalidation
 date: 2026-06-01
@@ -880,20 +858,42 @@ date: 2026-06-01
 
 Some prose the human wrote, with   irregular   spacing preserved.
 """
-    path = write_file(tmp_path, "ttl-revalidation.md", original)
+
+
+@pytest.mark.parametrize(
+    "name, original, front_matter_lines_that_survive",
+    [
+        pytest.param(
+            "widget-cache-warmup.md", LEGACY_WIDGET_CACHE, (),
+            # there was no front matter to strip out of it, so the body after the newly
+            # written block must equal the ENTIRE original file content
+            id="a-headerless-document",
+        ),
+        pytest.param(
+            "ttl-revalidation.md", PARTIAL_FRONT_MATTER_DOC,
+            ("id: ttl-revalidation\n", "title: TTL / ETag Revalidation\n", "date: 2026-06-01\n"),
+            # everything the human wrote in the original front matter block survives
+            # untouched, character for character — and so does the body's irregular spacing
+            id="a-partial-front-matter-document",
+        ),
+    ],
+)
+def test_apply_backfill_preserves_the_body_byte_for_byte(
+    tmp_path, name, original, front_matter_lines_that_survive
+):
+    path = write_file(tmp_path, name, original)
+    _, original_body = split_front_matter(original)
+
     doc = load_store(tmp_path).docs[0]
     proposal = propose_backfill(doc)
-
     apply_backfill(doc, proposal)
 
     after = path.read_text(encoding="utf-8")
-    # everything the human wrote in the original front matter block survives
-    # untouched, character for character
-    assert "id: ttl-revalidation\n" in after
-    assert "title: TTL / ETag Revalidation\n" in after
-    assert "date: 2026-06-01\n" in after
-    # and the body — including the irregular spacing — is untouched
-    assert "Some prose the human wrote, with   irregular   spacing preserved.\n" in after
+    assert after.startswith("---\n")
+    front_matter_after, body_after = split_front_matter(after)
+    assert body_after == original_body
+    for line in front_matter_lines_that_survive:
+        assert line in front_matter_after
 
 
 def test_apply_backfill_result_reparses_with_spine_complete_true(tmp_path):
@@ -945,33 +945,6 @@ def test_a_write_that_states_none_of_its_fields_is_refused_not_reported_as_writt
     assert [p for p in tmp_path.iterdir() if p.name != "widget-cache-warmup.md"] == []
 
 
-def test_apply_backfill_on_already_complete_proposal_is_a_noop(tmp_path):
-    path = write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        """---
-id: widget-cache-warmup
-title: Widget Cache Warmup
-date: 2026-05-04
-task_date: 2026-05-04
-status: active
-tags: [platform]
-entities: [WidgetCache]
----
-
-Body.
-""",
-    )
-    before = path.read_bytes()
-    doc = load_store(tmp_path).docs[0]
-    proposal = propose_backfill(doc)
-
-    message = apply_backfill(doc, proposal)
-
-    assert message == "nothing to backfill"
-    assert path.read_bytes() == before
-
-
 def test_reapplying_backfill_after_a_successful_write_is_a_noop(tmp_path):
     path = write_file(tmp_path, "widget-cache-warmup.md", LEGACY_WIDGET_CACHE)
     doc = load_store(tmp_path).docs[0]
@@ -1008,38 +981,66 @@ def test_backfill_proposes_repos_as_its_own_field(tmp_path):
     assert by_name["repos"].value, "the fixture declares repositories — they must appear"
 
 
-def test_a_bold_label_without_a_bullet_keeps_both_asterisks():
-    """`*` is also a list marker, so stripping bullets ate the first asterisk and proposed
-    `*Classes:**` as an entity."""
-    assert _strip_bullet("**Classes:** WidgetCache") == "**Classes:** WidgetCache"
-    assert _extract_label_and_rest("**Classes:** WidgetCache") == ("Classes", "WidgetCache")
+@pytest.mark.parametrize(
+    "line",
+    [
+        # `*` is also a list marker, so stripping bullets ate the first asterisk and
+        # proposed `*Classes:**` as an entity
+        pytest.param(
+            "**Classes:** WidgetCache", id="a-bold-label-without-a-bullet-keeps-both-asterisks",
+        ),
+        pytest.param("- **Classes:** WidgetCache", id="a-dash-bullet"),
+        pytest.param("* **Classes:** WidgetCache", id="an-asterisk-bullet"),
+        pytest.param("  - **Classes:** WidgetCache", id="an-indented-dash-bullet"),
+        pytest.param("+ **Classes:** WidgetCache", id="a-plus-bullet"),
+    ],
+)
+def test_a_real_bullet_is_stripped_and_a_bold_label_is_not(line):
+    assert _strip_bullet(line) == "**Classes:** WidgetCache"
+    assert _extract_label_and_rest(_strip_bullet(line)) == ("Classes", "WidgetCache")
 
 
 @pytest.mark.parametrize(
-    "line",
-    ["- **Classes:** X", "* **Classes:** X", "  - **Classes:** X", "+ **Classes:** X"],
+    "document, newline",
+    [
+        pytest.param(
+            "# Widget Cache Warmup\r\n\r\n- Status: Delivered\r\n- Repos: widget-cache\r\n"
+            "\r\n## Search Keywords\r\n\r\n**Classes:** WidgetCache\r\n\r\nProse line.\r\n",
+            b"\r\n",
+            # both `read_text` and `write_text` translate line endings, invisibly to the
+            # body check
+            id="a-crlf-document-with-no-front-matter",
+        ),
+        pytest.param(
+            "---\r\ntitle: Widget Cache Warmup\r\n---\r\n"
+            "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n",
+            b"\r\n",
+            id="a-crlf-document-with-front-matter",
+        ),
+        pytest.param(
+            "---\ntitle: Widget Cache Warmup\n---\n\n"
+            "# Widget Cache Warmup\n\n- Repos: widget-cache\n",
+            b"\n",
+            id="an-lf-document",
+        ),
+    ],
 )
-def test_real_bullets_are_still_stripped(line):
-    assert _strip_bullet(line) == "**Classes:** X"
-
-
-def test_apply_backfill_preserves_crlf_line_endings_byte_for_byte(tmp_path):
-    """Both `read_text` and `write_text` translate line endings, invisibly to the body check."""
-    body = (
-        "# Widget Cache Warmup\r\n\r\n- Status: Delivered\r\n- Repos: widget-cache\r\n"
-        "\r\n## Search Keywords\r\n\r\n**Classes:** WidgetCache\r\n\r\nProse line.\r\n"
-    )
-    path = tmp_path / "widget-cache-warmup.md"
-    path.write_bytes(body.encode("utf-8"))
+def test_appended_front_matter_takes_the_documents_own_line_ending(tmp_path, document, newline):
+    """The body is preserved byte-for-byte either way, but emitting LF into a CRLF document
+    left it with both — exactly the whole-file diff this command exists to avoid."""
+    path = write_file(tmp_path, "widget-cache-warmup.md", document)
+    _, original_body = split_front_matter(document)
 
     doc = load_store(tmp_path).docs[0]
     apply_backfill(doc, propose_backfill(doc))
 
     after = path.read_bytes()
-    assert body.encode("utf-8") in after, "the original body bytes must survive verbatim"
+    assert original_body.encode("utf-8") in after, "the original body bytes must survive verbatim"
+    assert after.startswith(b"---" + newline)
     # every line ending in the file, the created front matter's included — a document with
     # both is a whole-file diff under `core.autocrlf` or a `.gitattributes` eol
-    assert after.count(b"\n") == after.count(b"\r\n")
+    assert set(re.findall(rb"\r\n|\r|\n", after)) == {newline}
+    assert parse_document(path).tags == ["widget-cache"]
 
 
 def test_apply_backfill_preserves_a_byte_order_mark(tmp_path):
@@ -1085,7 +1086,12 @@ def test_entities_are_extracted_from_every_piece_of_an_oversized_keywords_sectio
 
 @pytest.mark.parametrize(
     "spelling",
-    ["tags:", "tags: ", "tags: null", "tags: ~", "tags: !!null", "tags:  # tbd"],
+    [
+        "tags:", "tags: ", "tags: null", "tags: ~", "tags: !!null", "tags:  # tbd",
+        # PyYAML accepts a quoted key, so the document engmem reads has `tags` — a line test
+        # that only matched bare keys would leave exactly the duplicate this rule prevents
+        '"tags":', "'tags':",
+    ],
 )
 def test_an_empty_key_is_replaced_not_duplicated(tmp_path, spelling):
     """New fields are appended to the author's own front matter rather than re-dumped over it,
@@ -1110,24 +1116,25 @@ title: Widget Cache Warmup
     apply_backfill(doc, propose_backfill(doc))
 
     front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert [ln for ln in front_matter.splitlines() if ln.startswith("tags")] == ["tags: [widget-cache]"]
+    assert [ln for ln in front_matter.splitlines() if "tags" in ln] == ["tags: [widget-cache]"]
     assert yaml.safe_load(front_matter)["tags"] == ["widget-cache"]
     assert parse_document(path).tags == ["widget-cache"]
 
 
 def test_an_empty_key_is_dropped_on_a_crlf_document(tmp_path):
     """`splitlines(keepends=True)` hands back the `\r`, which a `$`-anchored test would miss."""
-    path = tmp_path / "widget-cache-warmup.md"
-    path.write_bytes(
+    path = write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
         "---\r\ntitle: Widget Cache Warmup\r\ntags:\r\n---\r\n"
-        "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n".encode("utf-8")
+        "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n",
     )
     doc = load_store(tmp_path).docs[0]
 
     apply_backfill(doc, propose_backfill(doc))
 
     front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert [ln for ln in front_matter.splitlines() if ln.startswith("tags")] == ["tags: [widget-cache]"]
+    assert [ln for ln in front_matter.splitlines() if "tags" in ln] == ["tags: [widget-cache]"]
 
 
 def test_the_authors_other_front_matter_lines_and_comments_survive(tmp_path):
@@ -1189,32 +1196,53 @@ entities:
     assert parse_document(path).entities == ["WidgetCache"]
 
 
-def test_an_indented_line_that_looks_like_a_key_is_left_alone(tmp_path):
-    """Only a top-level key can collide; a `tags:` inside a block scalar is the author's text."""
+@pytest.mark.parametrize(
+    "declarations, surviving_line, owner, owner_value, filled, filled_value",
+    [
+        pytest.param(
+            "superseded_by: |\n  tags:\ntags:\n",
+            "  tags:", "superseded_by", "tags:\n", "tags", ["widget-cache"],
+            # only a top-level key can collide; a `tags:` inside a block scalar is the
+            # author's own text
+            id="an-indented-line-inside-a-block-scalar",
+        ),
+        pytest.param(
+            "navigation_miss: {\nstatus: missed,\nquery: cache}\n",
+            "status: missed,", "navigation_miss", {"status": "missed", "query": "cache"},
+            "status", "active",
+            # a column-0 `status:` can belong to the value above it; removing it destroys
+            # the author's data
+            id="a-zero-indented-line-inside-a-flow-collection",
+        ),
+        pytest.param(
+            "navigation_miss: {\nstatus: null\n}\n",
+            "status: null", "navigation_miss", {"status": None}, "status", "active",
+            # the line-shape half of the rule, not just the value half
+            id="a-flow-collection-entry-with-a-null-value",
+        ),
+    ],
+)
+def test_a_look_alike_line_is_not_a_top_level_declaration(
+    tmp_path, declarations, surviving_line, owner, owner_value, filled, filled_value
+):
+    """A whole line is removed per declaration, so a line that merely looks like one has to be
+    left where it is — with the field it impersonates still written."""
     write_file(
         tmp_path,
         "widget-cache-warmup.md",
-        """---
-title: Widget Cache Warmup
-superseded_by: |
-  tags:
-tags:
----
-
-# Widget Cache Warmup
-
-- Repos: widget-cache
-""",
+        f"---\ntitle: Widget Cache Warmup\n{declarations}---\n\n"
+        "# Widget Cache Warmup\n\n- Repos: widget-cache\n",
     )
     path = tmp_path / "widget-cache-warmup.md"
     doc = load_store(tmp_path).docs[0]
+    assert filled in {f.name for f in propose_backfill(doc).fields}
 
     apply_backfill(doc, propose_backfill(doc))
 
     front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert "  tags:" in front_matter
-    assert yaml.safe_load(front_matter)["superseded_by"].strip() == "tags:"
-    assert yaml.safe_load(front_matter)["tags"] == ["widget-cache"]
+    assert surviving_line in front_matter
+    assert yaml.safe_load(front_matter)[owner] == owner_value
+    assert getattr(parse_document(path), filled) == filled_value
 
 
 def test_an_already_duplicated_key_keeps_the_authors_valued_line(tmp_path):
@@ -1245,39 +1273,12 @@ tags:
     assert parse_document(path).tags == ["widget-cache"]
 
 
-@pytest.mark.parametrize("spelling", ['"tags":', "'tags':"])
-def test_a_quoted_empty_key_is_replaced_not_duplicated(tmp_path, spelling):
-    """PyYAML accepts a quoted key, so the document engmem reads has `tags` — a line test that
-    only matched bare keys would leave exactly the duplicate this rule exists to prevent."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        f"""---
-title: Widget Cache Warmup
-{spelling}
----
-
-# Widget Cache Warmup
-
-- Repos: widget-cache
-""",
-    )
-    path = tmp_path / "widget-cache-warmup.md"
-    doc = load_store(tmp_path).docs[0]
-
-    apply_backfill(doc, propose_backfill(doc))
-
-    front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert [ln for ln in front_matter.splitlines() if "tags" in ln] == ["tags: [widget-cache]"]
-    assert parse_document(path).tags == ["widget-cache"]
-
-
 def test_a_cr_only_document_round_trips(tmp_path):
     """CR is a YAML line break too, so no fixup is needed — but the fields must still land."""
-    path = tmp_path / "widget-cache-warmup.md"
-    path.write_bytes(
-        "---\rtitle: Widget Cache Warmup\r---\r# Widget Cache Warmup\r\r- Repos: widget-cache\r"
-        .encode("utf-8")
+    path = write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
+        "---\rtitle: Widget Cache Warmup\r---\r# Widget Cache Warmup\r\r- Repos: widget-cache\r",
     )
     doc = load_store(tmp_path).docs[0]
 
@@ -1288,45 +1289,14 @@ def test_a_cr_only_document_round_trips(tmp_path):
     assert reloaded.tags == ["widget-cache"]
 
 
-def test_appended_front_matter_takes_the_documents_own_line_ending(tmp_path):
-    """The body is preserved byte-for-byte either way, but emitting LF into a CRLF document
-    left it with both — exactly the whole-file diff this command exists to avoid."""
-    path = tmp_path / "widget-cache-warmup.md"
-    path.write_bytes(
-        "---\r\ntitle: Widget Cache Warmup\r\n---\r\n"
-        "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n".encode("utf-8")
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    apply_backfill(doc, propose_backfill(doc))
-
-    after = path.read_bytes()
-    assert after.count(b"\n") == after.count(b"\r\n")
-    assert after.startswith(b"---\r\n")
-    assert parse_document(path).tags == ["widget-cache"]
-
-
-def test_an_lf_document_is_untouched_by_the_line_ending_rule(tmp_path):
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "---\ntitle: Widget Cache Warmup\n---\n\n# Widget Cache Warmup\n\n- Repos: widget-cache\n",
-    )
-    path = tmp_path / "widget-cache-warmup.md"
-    doc = load_store(tmp_path).docs[0]
-
-    apply_backfill(doc, propose_backfill(doc))
-
-    assert b"\r" not in path.read_bytes()
-
-
 def test_the_front_matters_own_line_ending_wins_over_the_bodys(tmp_path):
     """The block being extended is the front matter; a body that disagrees is not this
     command's to normalise, in either direction."""
-    path = tmp_path / "widget-cache-warmup.md"
-    path.write_bytes(
+    path = write_file(
+        tmp_path,
+        "widget-cache-warmup.md",
         "---\ntitle: Widget Cache Warmup\n---\n"
-        "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n".encode("utf-8")
+        "# Widget Cache Warmup\r\n\r\n- Repos: widget-cache\r\n",
     )
     doc = load_store(tmp_path).docs[0]
 
@@ -1337,36 +1307,6 @@ def test_the_front_matters_own_line_ending_wins_over_the_bodys(tmp_path):
     assert b"\r" not in front_matter
     # the body keeps its own, untouched
     assert after.endswith(b"- Repos: widget-cache\r\n")
-
-
-def test_a_zero_indented_line_inside_a_flow_collection_is_not_a_declaration(tmp_path):
-    """A column-0 `status:` can belong to the value above it; removing it destroys the author's
-    data."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        """---
-title: Widget Cache Warmup
-navigation_miss: {
-status: missed,
-query: cache}
----
-
-# Widget Cache Warmup
-
-- Repos: widget-cache
-""",
-    )
-    path = tmp_path / "widget-cache-warmup.md"
-    doc = load_store(tmp_path).docs[0]
-    assert "status" in {f.name for f in propose_backfill(doc).fields}
-
-    apply_backfill(doc, propose_backfill(doc))
-
-    front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert "status: missed," in front_matter
-    assert yaml.safe_load(front_matter)["navigation_miss"] == {"status": "missed", "query": "cache"}
-    assert parse_document(path).status == "active"
 
 
 def test_a_proposal_of_only_scalar_fields_writes(tmp_path):
@@ -1441,6 +1381,12 @@ def test_a_full_proposal_still_renders_lists_inline(tmp_path):
             # otherwise one unclosed `(` turns the rest of the line into a single term
             id="an-unbalanced-open-paren-protects-nothing",
         ),
+        pytest.param(
+            "A (x, y), B (see #42", ["A (x, y)", "B (see #42"],
+            # ... and an unclosed `(` later on must not un-protect the balanced pair
+            # before it, which would split `A (x, y)` back into two non-terms
+            id="a-later-unclosed-paren-does-not-unprotect-an-earlier-balanced-one",
+        ),
     ],
 )
 def test_split_terms_paren_tracking(text, expected):
@@ -1448,48 +1394,6 @@ def test_split_terms_paren_tracking(text, expected):
     incidental (`_clean_candidate` strips it immediately downstream), and pinning it exactly
     would redden every case the day someone adds a behaviour-neutral `.strip()` here."""
     assert [part.strip() for part in _split_terms(text)] == expected
-
-
-def test_a_flow_collection_entry_with_a_null_value_is_not_a_declaration(tmp_path):
-    """The line-shape half of the rule, not just the value half."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        """---
-title: Widget Cache Warmup
-navigation_miss: {
-status: null
-}
----
-
-# Widget Cache Warmup
-
-- Repos: widget-cache
-""",
-    )
-    path = tmp_path / "widget-cache-warmup.md"
-    doc = load_store(tmp_path).docs[0]
-    assert "status" in {f.name for f in propose_backfill(doc).fields}
-
-    apply_backfill(doc, propose_backfill(doc))
-
-    front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    assert yaml.safe_load(front_matter)["navigation_miss"] == {"status": None}
-    assert parse_document(path).status == "active"
-
-
-def test_an_unclosed_paren_does_not_cost_the_balanced_one_before_it():
-    """The fallback that discarded the whole line brought the bug back for its balanced part:
-    one unterminated aside further along resurrected `OrderAPI (v1` and `v2)`."""
-    line = "- **Endpoints:** OrderAPI (v1, v2), PaymentAPI (see ticket #42"
-    assert _split_terms(line)[0].endswith("OrderAPI (v1, v2)")
-    assert "OrderAPI" in _extract_entities(line)
-    assert "v2)" not in _extract_entities(line)
-
-
-def test_a_backticked_term_survives_an_unclosed_paren_later_on():
-    entities = _extract_entities("- **Classes:** `WidgetCache` (thread-safe, LRU), CacheWarmer (TODO")
-    assert "WidgetCache" in entities
 
 
 @pytest.mark.parametrize("declaration", ["tags:\n  null", "? tags\n: null"])
@@ -1563,41 +1467,45 @@ def test_the_staged_file_is_never_wider_than_the_document(tmp_path, monkeypatch)
 
 
 @requires_symlinks
-def test_a_symlink_out_of_the_store_is_refused(tmp_path):
-    """Writing through would make this the only path here that writes outside the store."""
-    sessions = tmp_path / "sessions"
-    sessions.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    outside = elsewhere / "shellrc"
-    outside.write_text("# Widget Cache Warmup\n\nexport PATH=/usr/bin\n", encoding="utf-8")
-    (sessions / "widget-cache-warmup.md").symlink_to(outside)
-    before = outside.read_bytes()
+@pytest.mark.parametrize(
+    "target_relpath, target_text, link_name",
+    [
+        pytest.param(
+            "elsewhere/shellrc",
+            "# Widget Cache Warmup\n\nexport PATH=/usr/bin\n",
+            "widget-cache-warmup.md",
+            # writing through would make this the only path here that writes outside the store
+            id="a-link-out-of-the-store",
+        ),
+        pytest.param(
+            "sessions/widget-cache-real.md",
+            "# Widget Cache Warmup\n\n- Repos: widget-cache\n",
+            "widget-cache-alias.md",
+            # the two names share an inode, so the alias's `id` lands in the real document too
+            id="a-link-to-another-document-in-the-store",
+        ),
+    ],
+)
+def test_a_symlinked_document_is_refused(tmp_path, target_relpath, target_text, link_name):
+    store = tmp_path / "sessions"
+    store.mkdir()
+    target = tmp_path / target_relpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(target_text, encoding="utf-8")
+    link = store / link_name
+    link.symlink_to(target)
+    before = target.read_bytes()
 
-    doc = load_store(sessions).docs[0]
+    doc = next(d for d in load_store(store).docs if d.path == link)
     with pytest.raises(BackfillWriteError, match="is a symlink"):
         apply_backfill(doc, propose_backfill(doc))
 
-    assert outside.read_bytes() == before
-    assert not [p for p in elsewhere.iterdir() if p.name.endswith(".tmp")]
-
-
-@requires_symlinks
-def test_a_symlink_inside_the_store_is_refused_too(tmp_path):
-    """The two names share an inode, so the alias's `id` lands in the real document too."""
-    real = tmp_path / "widget-cache-real.md"
-    real.write_text("# Widget Cache Warmup\n\n- Repos: widget-cache\n", encoding="utf-8")
-    link = tmp_path / "widget-cache-alias.md"
-    link.symlink_to(real)
-    before = real.read_bytes()
-
-    doc = next(d for d in load_store(tmp_path).docs if d.path == link)
-    with pytest.raises(BackfillWriteError, match="is a symlink"):
-        apply_backfill(doc, propose_backfill(doc))
-
-    assert real.read_bytes() == before
+    assert target.read_bytes() == before
     assert link.is_symlink()
-    assert load_store(tmp_path).errors == []
+    assert load_store(store).errors == []
+    assert not [
+        p for d in {store, target.parent} for p in d.iterdir() if p.name.endswith(".tmp")
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1734,141 +1642,76 @@ def test_a_proposal_for_another_document_is_not_written(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_successor_named_on_the_status_line_becomes_superseded_by(tmp_path):
+@pytest.mark.parametrize(
+    "stated_status, status_line, expected_status, expected_successor, expected_related",
+    [
+        pytest.param(
+            None, "- Status: Superseded by [Widget Cache v2](widget-cache-v2.md)\n",
+            "superseded", "widget-cache-v2", ["widget-cache-v2"],
+            id="the-successor-named-on-the-status-line-becomes-superseded-by",
+        ),
+        pytest.param(
+            None, "- Status: Delivered — see [v2](widget-cache-v2.md)\n",
+            "active", None, ["widget-cache-v2"],
+            # the link is still an edge, just not a successor
+            id="an-active-document-never-gets-a-superseded-by",
+        ),
+        pytest.param(
+            None, "- Status: Active — supersedes [Widget Cache](widget-cache-v1.md)\n",
+            "active", None, ["widget-cache-v1"],
+            # the worst shape of the stem test: the live document was written
+            # `status: superseded` and pointed at the document it had itself replaced, so
+            # the reader was sent backwards
+            id="a-document-that-supersedes-another-is-not-marked-as-the-superseded-one",
+        ),
+        pytest.param(
+            None, "- Status: superseded, replaced by the new cache\n",
+            "superseded", None, [],
+            # nothing is guessed from prose: the line names no document, and an invented id
+            # would render as `(not in store)` forever
+            id="a-superseded-line-naming-no-sibling-proposes-no-successor",
+        ),
+        pytest.param(
+            "active", "- Status: Active — this superseded [the old flow](widget-cache-v1.md)\n",
+            None, None, ["widget-cache-v1"],
+            # the author declared this document active; `superseded_by` would then be a
+            # replaced-by claim written onto the live document, aimed at the one it replaced
+            # — and `status` is not proposed at all, so nothing else on the write would say so
+            id="a-stated-status-the-line-contradicts-gets-no-successor",
+        ),
+        pytest.param(
+            "superseded", "- Status: Superseded by [v2](widget-cache-v2.md)\n",
+            None, "widget-cache-v2", ["widget-cache-v2"],
+            id="a-stated-superseded-status-still-takes-the-successor-from-the-line",
+        ),
+    ],
+)
+def test_superseded_by_is_proposed_from_the_status_line(
+    tmp_path, stated_status, status_line, expected_status, expected_successor, expected_related
+):
     """A superseded document with no successor is a dead end for both the renderer and the
-    search."""
+    search. The word on the line decides direction; the author's own `status:` gates it."""
+    front_matter = f"---\nstatus: {stated_status}\n---\n" if stated_status else ""
     write_file(
         tmp_path,
         "widget-cache-warmup.md",
-        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n"
-        "- Status: Superseded by [Widget Cache v2](widget-cache-v2.md)\n",
+        front_matter + "# Widget Cache Warmup\n\n- Date: 2026-05-04\n" + status_line,
     )
     doc = load_store(tmp_path).docs[0]
 
     by_name = {f.name: f for f in propose_backfill(doc).fields}
 
-    assert by_name["status"].value == "superseded"
-    assert by_name["superseded_by"].value == "widget-cache-v2"
-    assert "Status:" in by_name["superseded_by"].source
-
-
-def test_an_active_document_never_gets_a_superseded_by(tmp_path):
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "# Widget Cache Warmup\n\n- Status: Delivered — see [v2](widget-cache-v2.md)\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    assert "superseded_by" not in {f.name for f in propose_backfill(doc).fields}
-
-
-def test_a_document_that_supersedes_another_is_not_marked_as_the_superseded_one(tmp_path):
-    """The worst shape of the stem test: the live document was written `status: superseded` and
-    pointed at the document it had itself replaced, so the reader was sent backwards."""
-    write_file(
-        tmp_path,
-        "widget-cache-v2.md",
-        "# Widget Cache v2\n\n- Date: 2026-05-04\n"
-        "- Status: Active — supersedes [Widget Cache](widget-cache-v1.md)\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-
-    assert by_name["status"].value == "active"
-    assert "superseded_by" not in by_name
-    # the link is still an edge, just not a successor
-    assert by_name["related"].value == ["widget-cache-v1"]
-
-
-def test_a_superseded_line_naming_no_sibling_proposes_no_successor(tmp_path):
-    """Nothing is guessed from prose: `- Status: superseded` alone names no document, and an
-    invented id would render as `(not in store)` forever."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "# Widget Cache Warmup\n\n- Status: superseded, replaced by the new cache\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-    assert by_name["status"].value == "superseded"
-    assert "superseded_by" not in by_name
-
-
-def test_a_stated_status_the_line_contradicts_gets_no_successor(tmp_path):
-    """The author declared this document active; `superseded_by` would then be a
-    replaced-by claim written onto the live document, aimed at the one it replaced —
-    and `status` is not proposed at all, so nothing else on the write would say so."""
-    write_file(
-        tmp_path,
-        "widget-cache-v2.md",
-        "---\nstatus: active\n---\n# Widget Cache v2\n\n- Date: 2026-05-04\n"
-        "- Status: Active — this superseded [the old flow](widget-cache-v1.md)\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-
-    assert "status" not in by_name
-    assert "superseded_by" not in by_name
-    # the link is still an edge, just not a successor
-    assert by_name["related"].value == ["widget-cache-v1"]
-
-
-def test_a_stated_superseded_status_still_takes_the_successor_from_the_line(tmp_path):
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "---\nstatus: superseded\n---\n# Widget Cache Warmup\n\n- Date: 2026-05-04\n"
-        "- Status: Superseded by [v2](widget-cache-v2.md)\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-
-    assert "status" not in by_name
-    assert by_name["superseded_by"].value == "widget-cache-v2"
-
-
-def test_an_empty_status_line_never_supersedes_the_document(tmp_path):
-    """End to end: the preamble line below the empty one is another field entirely, so the
-    document is active and has no successor."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n- Status:\n"
-        "- Notes: superseded by [the old flow](widget-cache-v1.md)\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-
-    assert by_name["status"].value == "active"
-    assert "superseded_by" not in by_name
-
-
-def test_unfilled_labels_do_not_shadow_the_real_ones_below_them(tmp_path):
-    """The permanent dead end: a blank `- Repos:` above the real one proposed `tags: []`,
-    which counts as answered, so `--all` would never offer the document again and both repo
-    names would be lost for good — while the blank `- Status:` above the real one dropped
-    the successor and left a replaced document rankable with nothing to redirect to."""
-    write_file(
-        tmp_path,
-        "widget-cache-warmup.md",
-        "# Widget Cache Warmup\n\n- Date: 2026-05-04\n- Status: \n"
-        "- Status: Superseded by [v2](widget-cache-v2.md)\n- Repos: \n"
-        "- Repos: widget-cache, platform-core\n",
-    )
-    doc = load_store(tmp_path).docs[0]
-
-    by_name = {f.name: f for f in propose_backfill(doc).fields}
-
-    assert by_name["status"].value == "superseded"
-    assert by_name["superseded_by"].value == "widget-cache-v2"
-    assert by_name["tags"].value == ["widget-cache", "platform-core"]
-    assert by_name["repos"].value == ["widget-cache", "platform-core"]
+    # presence first, then the value: a field proposed with `None` is written as
+    # `superseded_by: null`, which `spine.stated` counts as answered — the same dead end the
+    # `entities` tests above exist to prevent, and a value comparison alone cannot see it
+    assert ("status" in by_name) is (expected_status is not None)
+    assert ("superseded_by" in by_name) is (expected_successor is not None)
+    if expected_status is not None:
+        assert by_name["status"].value == expected_status
+    if expected_successor is not None:
+        assert by_name["superseded_by"].value == expected_successor
+        assert "Status:" in by_name["superseded_by"].source
+    assert by_name["related"].value == expected_related
 
 
 def test_a_blank_label_line_is_not_reported_as_a_value(tmp_path):

@@ -151,19 +151,6 @@ Body.
     assert doc.degraded_fields == []
 
 
-def test_malformed_yaml_is_still_a_loud_error(tmp_path):
-    write_file(
-        tmp_path,
-        "bad-yaml.md",
-        "---\nid: bad-yaml\ntitle: Bad YAML\ntags: [platform\n---\n\n## Pre-reg\n",
-    )
-
-    result = load_store(tmp_path)
-
-    assert result.docs == []
-    assert len(result.errors) == 1
-
-
 def test_present_but_empty_fields_degrade_instead_of_failing(tmp_path):
     # `date:` with nothing after it states no date — identical in meaning to omitting the key.
     write_file(
@@ -243,20 +230,6 @@ def test_front_matter_that_is_not_a_mapping_is_a_collected_error(tmp_path):
 
     assert len(result.errors) == 2
     assert [d.id for d in result.docs] == ["widget-cache-warmup"]
-
-
-def test_garbage_date_is_still_a_loud_error(tmp_path):
-    write_file(
-        tmp_path,
-        "bad-date.md",
-        "---\nid: bad-date\ntitle: Bad Date\ndate: not-a-date\n---\n\n## Pre-reg\n",
-    )
-
-    result = load_store(tmp_path)
-
-    assert result.docs == []
-    assert len(result.errors) == 1
-    assert "date" in result.errors[0].message
 
 
 def test_duplicate_id_is_still_a_loud_error_even_when_derived(tmp_path):

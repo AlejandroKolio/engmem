@@ -153,8 +153,10 @@ INSTALLED_NAMES_COPILOT_IDE = (
     "engmem.save.quick.prompt.md",
 )
 TRIGGER_RULE = (
-    'Before proposing a plan, run `engmem search "<key terms for the task>"`'
+    'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
+    "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)"
 )
+LEGACY_TRIGGER_RULE = 'Before proposing a plan, run `engmem search "<key terms for the task>"`'
 
 # a Windows-authored instructions file, as `(original bytes, its line ending)`: CRLF and a BOM
 # are exactly what `read_text` rewrites silently, and install and uninstall must both hand the

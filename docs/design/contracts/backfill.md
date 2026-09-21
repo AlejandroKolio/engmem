@@ -1,541 +1,380 @@
 # Contract: `engmem backfill`
 
-Source: `ENGMEM-SPEC.md` §4, data-model.md's "No field is a load gate". Implementation:
-`src/engmem/backfill.py` (`propose_backfill` / `apply_backfill`); CLI surface (the
-confirmation prompt, `--id`/`--all`/`--dry-run`/`--yes`) is `cli.py`'s `_cmd_backfill`.
+Source: `ENGMEM-SPEC.md` §4 and data-model.md's "No field is a load gate". Implementation:
+`src/engmem/backfill.py` (`propose_backfill` / `apply_backfill`), the write path shared with
+the MCP tools in `src/engmem/staging.py`, and `cli.py`'s `_cmd_backfill`. A document written
+before engmem existed loads with a partial spine; this command derives the missing front
+matter from the document's own prose, shows it, and writes it only once a human agrees.
 
-Nothing in `backfill.py` writes without a proposal being shown first — that gate lives in
-`_cmd_backfill`, not in this module. `propose_backfill` only computes what would be written;
-`apply_backfill` writes it, once the caller has decided to, atomically.
+## Invariants
 
-Neither way of not answering the prompt writes anything, but they exit differently, because
-they mean different things. End-of-input (`--all` behind a pipe, a cron job with no terminal)
-is an unanswered `[y/N]`, which is a "no": it prints `cancelled` and exits 0, exactly as
-typing `n` does. An interrupt is not a decline — exit 0 would let
-`engmem backfill --all && deploy.sh` run `deploy.sh` because the user pressed Ctrl-C — so it
-is named on both streams and exits 130, the shell's own code for a run stopped by SIGINT.
-Neither leaves a traceback, which reads as a crash partway through a write, the one outcome
-this command's staging exists to make impossible.
+- Only front matter is written. The body is preserved byte-for-byte, and a staged file whose
+  body differs from the original is refused before it is committed.
+- A field the document already states (`spine.stated`) is never proposed, so a value a human
+  or an earlier run set is never overwritten. New keys are appended to the author's own block,
+  never re-dumped over it.
+- `propose_backfill` computes; `apply_backfill` writes; nothing writes until `_cmd_backfill`
+  has shown the proposal. The evidence string under each proposed value is the whole basis on
+  which the human says yes, so it has to be true of the document: "no `- Repos:` preamble line
+  with a value found" may not be printed over a line that carries one.
+- `backfilled: true` is always proposed. It marks a document engmem did not author:
+  `gate1_audit` keeps such documents out of the ritual population (`contracts/gate1.md`,
+  "What "a session document" is"), and `ENGMEM-SPEC.md` §11 ("Amendment, recorded 2026-09-12")
+  counts a document that is both backfilled and Pre-reg-less once, under this flag.
+- `backfill` depends on `spine`, never the reverse. The preamble rules live in `spine.py`
+  (`preamble`, `preamble_label_value`) because `spine`'s own `date` derivation obeys them.
+
+## The CLI gate: propose, confirm, apply
+
+`--id` names one document; `--all` selects every document `load_store` returned with
+`spine_complete` false. Re-running on a document already completed is a no-op:
+`spine_complete` is read from a fresh `load_store`, not from an earlier proposal. Every
+proposal is printed (`output.render_backfill_proposal`) before any question is asked.
+`--dry-run` stops there and `--yes` skips the prompt: they are the two halves of one
+confirmation, preview then write, so a run with no terminal can still be gated on a preview
+a human has read.
+
+Not answering is a decline; an interrupt is not. End-of-input (`--all` behind a pipe, a cron
+job with no terminal) is an unanswered `[y/N]`: it prints `cancelled` and exits as typing `n`
+does. Ctrl-C exits 130 and is named on both streams, because exit 0 would let
+`engmem backfill --all && deploy.sh` run `deploy.sh` on an interrupt. Neither leaves a
+traceback, which reads as a crash partway through a write.
+
+Exit codes: 2 when `sessions/` is missing or cannot be examined, when `sessions/` does not
+resolve inside the store (`cli._sessions_is_contained`, checked before anything is read), when
+`--id` names nothing, and whenever a target could not be read or written — under `--dry-run`
+and after a decline too, because the preview is what a `--dry-run && --yes` script gates on.
+Otherwise 0, including "nothing to backfill", which is printed rather than left silent so an
+empty result is not mistaken for a crash. A target that vanishes or fails to read between
+`load_store` and its own proposal is one document's failure, not the batch's.
+
+Known gap: a `sessions/` that exists but cannot be listed is reported by `_load_sessions` on
+both streams; under `--all` the run then continues over zero documents and exits 0 saying
+every document has a complete spine. Stray `.md` files outside `sessions/` are not reported
+here; `backfill` writes only where `load_store` found a document (`contracts/mcp-server.md`,
+"Write tools: security contract").
 
 ## What is derived, and from what
 
 | field | source |
 |---|---|
-| `id` | filename stem (`doc.id`, already how `spine.parse_document` derives it) |
-| `title` | first `# H1`, `Knowledge Base — ` prefix stripped (`doc.title`, ditto) |
-| `date` | a `- Date:` / `- Updated:` preamble line that carries the date on that same line, else file mtime (`doc.date`, ditto) |
+| `id` | filename stem (`doc.id`, as `spine.parse_document` derives it) |
+| `title` | first `# H1`, `Knowledge Base — ` prefix stripped (`doc.title`) |
+| `date` | a `- Date:` / `- Updated:` preamble line carrying the date on that same line, else file mtime (`doc.date`) |
 | `task_date` | = `date` |
-| `status` | a `- Status:` preamble line — `superseded` if it says so, `active` otherwise (matches every observed spelling: "Delivered", "In progress", and the common case of no line at all). "Says so" is the past participle `superseded`, not the stem: `supersedes` and `superseding` state the *opposite* relationship, and reading them as this one wrote `status: superseded` onto the live document and pointed `superseded_by` at the document it had itself replaced |
-| `superseded_by` | the sibling `.md` link on the `- Status:` line, when that line says the document is superseded *and* the document's own front matter does not say otherwise. Proposed only then, and only when the line actually names a document |
-| `backfilled` | always `true` — that is what the field is for |
-| `tags` | repo names from a `- Repos:` preamble line. Facet labels ("Classes", "Endpoints") are deliberately *not* tags: nearly every document in this genre has them, so a weight-1 tag built from one distinguishes nothing and only dilutes |
-| `repos` | the same repo names, on their own. Not a redundant copy: `tags` is a scored spine field, so a repo name has to be there to be findable, while `repos` is the declared answer to "which code is this about" and is never ranked on |
-| `entities` | the document's `Search Keywords` section — every `Section` resolving to `canonical == "keywords"`, since an oversized section is split across its `###` subsections and the terms live in all of them (`sections.sections_for_role`) — except a subsection whose own heading names a *different* role (`### Status`, `### Flow`), which leaves the parent's role for its own and is not read. See the extraction rule below. Proposed only when at least one term was derived |
-| `related` | markdown links to sibling `.md` files found in the body, as CommonMark sees them (`markdown_it`). A link quoted inside a code fence, an inline code span, or behind escaped brackets is text being shown, not an edge; a link inside a block quote is another document's edge, matching the call `sections.py` makes for a quoted heading; a reference-style `[label][ref]` link *is* an edge |
+| `status` | `superseded` when a `- Status:` preamble line contains the past participle `superseded`, else `active` — every other observed spelling ("Delivered", "In progress", no line at all) is a live document |
+| `superseded_by` | the sibling `.md` link on that `- Status:` line, only when the line passes the word test and the effective status is `superseded` |
+| `backfilled` | always `true` |
+| `tags` | repo names from a `- Repos:` preamble line. Facet labels ("Classes", "Endpoints") are not tags: nearly every document in this genre has them, so a tag built from one distinguishes nothing |
+| `repos` | the same names. `tags` is a scored spine field, so a repo name has to be there to be findable; `repos` is the declared answer to "which code is this about" and is never ranked on |
+| `entities` | the `Search Keywords` section — every `Section` whose `canonical == "keywords"` (`sections.sections_for_role`), since an oversized section is split across its `###` subsections and a subsection whose own heading names a different role is not read. Proposed only when at least one term was derived |
+| `related` | links to sibling `.md` files in the body, as CommonMark sees them (`markdown_it`): a link inside a code fence, an inline code span or escaped brackets is text being shown; a link inside a block quote is another document's edge, the policy `sections.py` applies to a quoted heading; a reference-style `[label][ref]` link is an edge |
 
-Fields are proposed in the order above. Each is proposed only if it is not already
-present in the document's own front matter (`spine.stated`) — a field a human, or an
-earlier `backfill` run, already set is never proposed for overwriting.
+Fields are proposed in this order, and only when not already stated in the document's own
+front matter (`spine.stated`).
 
 ### A preamble line's value is on the line, and a blank label carries none
 
-The rule below governs every preamble label this project reads, so it lives in `spine.py`
-(`preamble`, `preamble_label_value`) and `backfill.py` imports it — `backfill` depends on
-`spine`, never the reverse, and `spine`'s own `date` derivation obeys the same rule.
+The `- Status:` and `- Repos:` patterns match the label only, every gap in them is
+`[^\S\r\n]` and never `\s`, everything after the colon on that same line is the value, and
+`preamble_label_value` walks the label lines in order until one carries a value that is not
+blank. Both halves were got wrong once, each with a write behind it:
 
-The `- Status:` and `- Repos:` patterns match the *label* only — bullet, optional bold, the
-word, the colon. Everything after the colon on that same line is the value, and the label
-lines are walked in order until one carries a value that is not blank (`preamble_label_value`).
+- `\s` spans the line break, so an unfilled `- Status:` read the next preamble line as its
+  value: over `- Notes: superseded by [old](old-flow.md)` it derived `superseded` and aimed
+  `superseded_by` at the document this one had replaced.
+- A label with only whitespace after its colon must count as blank, not as a value of `" "`;
+  a trailing space after an unfilled label is the ordinary way it is typed. Otherwise
+  `- Status: ` shadowed a real `- Status: Superseded by [v2](v2.md)` below it, and on
+  `- Repos:` the shadow was permanent: `tags: []` was written, the document went
+  `spine_complete`, and two real repo names were never offered again (see "Why `tags` does not
+  follow the same rule"). The evidence string at the prompt then said no such line was found
+  while two sat in the document.
 
-Both halves of that rule are load-bearing, and each was got wrong once:
+Blank means empty, whitespace-only, or nothing but emphasis markers. When no label line
+carries a value the evidence says that ("no `- Status:` preamble line with a value found"),
+not that no line exists.
 
-  - the value must not run past the line. The patterns used `\s` around the colon, and `\s`
-    spans the line break, so a label the author left empty reached over it and read the
-    *next* preamble line as its own value: `- Status:` above
-    `- Notes: superseded by [old](old-flow.md)` derived `superseded`, and the successor rule
-    then aimed `superseded_by` at the document this one replaced — a field taken from a line
-    about something else entirely;
-  - a label with nothing but whitespace after its colon must count as blank, not as a value
-    of `" "`. Narrowing the gaps alone did not do that: the capture simply took the space.
-    `- Status: ` above `- Status: Superseded by [v2](v2.md)` still matched the blank line
-    first and *shadowed the real one below it* — and a trailing space after an unfilled
-    label is the ordinary way it is typed (two of them is CommonMark's own hard line break).
+Rejected: the ASCII `[ \t]` as the gap. The rule is "not across the line break", and `[ \t]`
+also drops the non-breaking space and the en, thin, narrow and ideographic spaces, all of
+which sit on the label's own line; `- Date:\xa02026-05-04` is what a Confluence/Notion/Google
+Docs export writes, imported documents are the only corpus these derivations run on, and a
+dropped line falls through to the same default as no line at all, so it never announces
+itself. `str.strip()` strips Unicode whitespace too, so a value of one non-breaking space still
+reads as blank. `\r` is excluded beside `\n` for honesty only: `preamble()` has already
+normalised every line break to `\n` with `str.splitlines()`.
 
-Shadowing is the worse of the two, because on `- Repos:` it is permanent: the blank line
-matched, no name parsed out of it, and `tags: []` was written — the dead end described under
-"Why `tags` does not follow the same rule", after which the document is spine-complete and
-never offered again. Two real repo names, gone. It also made the evidence string at the
-confirmation prompt a false statement: the proposal said no such line was found while two
-sat in the document, and that string is the whole basis on which the human says yes.
-
-So: a label line whose value is empty, whitespace-only, or nothing but emphasis markers
-matches no value, the walk moves on, and a real label further down is found. When no label
-line carries a value at all, the derivation reports *that* — "no `- Status:` preamble line
-with a value found" — rather than claiming no line exists.
-
-The gap every one of these patterns allows is `[^\S\r\n]`: everything `\s` accepts *except*
-the line break. The rule is "not across the line break", not "an ASCII space", and the ASCII
-`[ \t]` the first attempt reached for expressed the second one — it also dropped the
-non-breaking space, the en/thin/narrow spaces and the ideographic space, all of which `\s`
-accepted and all of which sit on the label's own line. That matters because a
-Confluence/Notion/Google-Docs export writes `- Date:\xa02026-05-04`, and imported documents
-are the only corpus these derivations ever run on — engmem's own templates put the value in
-front matter, where nothing is derived. A dropped line does not announce itself either: it
-falls through to the same default as no line at all. Excluding `\r` alongside `\n` is honesty
-rather than need: `preamble()` rebuilds the window with `str.splitlines()`, which has already
-turned every other separator it recognises (`\r`, `\v`, `\f`, `\x1c`, `\x1d`, `\x1e`,
-`\x85`, `\u2028`, `\u2029`) into a plain `\n` before any of these patterns runs. `\x1f` is the
-one the two classes disagree on: `[^\S\r\n]` accepts it, `str.splitlines()` does not break on
-it, so it stays inside the line as an ordinary gap.
-
-Blank detection survives the wider class, and has to. `str.strip()` strips Unicode
-whitespace, so a value of nothing but a non-breaking space still strips to `""`, still counts
-as blank, and still does not shadow the real line below it; and an entry separated from its
-comma by one (`- Repos: widget-cache,\xa0platform-core`) still parses as a repo name.
-
-The cost is that a value written on the line *below* its label (`- Repos:` over an indented
-`widget-cache`) does not contribute. That shape was never handled properly anyway, since
-only its first continuation line was ever read.
+Known gap: a value written on the line below its label (`- Repos:` over an indented
+`widget-cache`) does not contribute; only its first continuation line was ever read.
 
 ### `date` obeys the line rule, but not the value walk
 
-`spine._derive_date` feeds `Doc.date` for every document in the store, not just the one being
-backfilled: recency in the ranking (`scoring._date_ordinal`), the `last doc: Nd ago` footer, and
-the `date:`/`task_date:` this command writes into the front matter — where a wrong value stops
-being a reading and becomes the document's stated answer. Its pattern had the same `\s` around
-the colon and the same reach across the line break, and there the adopted value is not merely
-wrong, it is *someone else's date*: an unfilled `- Date:` skipped the blank lines under it and
-took the first date-shaped token of whatever came next — a sentence in the body, a bullet, a bold
-run, or the `2024-01-15` at the front of a sibling filename, which is another document's id.
-Because the earliest match in the window wins, that stolen date then shadowed a real `- Date:`
-line further down. Every gap in the pattern is `[^\S\r\n]`, never `\s`: whitespace on the
-label's own line, never across the break that ends it.
+`spine._derive_date` feeds `Doc.date` for every document in the store — recency in the
+ranking (`scoring._date_ordinal`), the `last doc: Nd ago` footer, and the `date:`/`task_date:`
+this command writes, where a wrong reading becomes the document's stated answer. Its pattern
+had the same `\s` reach, and there the adopted value was someone else's date: an unfilled
+`- Date:` took the first date-shaped token of whatever came next, including the `2024-01-15`
+at the front of a sibling filename, and because the earliest match in the window wins it
+shadowed a real `- Date:` further down.
 
-What `date` does *not* share is the walk. `preamble_label_value` stops at the first value that is
-not blank, which is the right answer when any value is the answer (`- Status:`, `- Repos:`), and
-the wrong one for a value that still has to parse: `- Date: TBD` above `- Updated: 2024-01-15`
-would stop at `TBD`, find no date in it, and drop the store's date to mtime — a document that
-states its date losing it to a placeholder. So the date pattern keeps the date *in* the pattern,
-which lets the regex itself walk past label lines that carry none. Keeping it in the pattern
-also refuses a widening the free-form walk would have handed over for free: `- Date: see
-2024-01-15-old-flow.md` is a pointer at another document, and "find a date somewhere in the
-value" would have read it as this document's date. Uniformity was not worth either.
+It does not use `preamble_label_value`, because that walk stops at the first non-blank value,
+which is wrong for a value that still has to parse: `- Date: TBD` above
+`- Updated: 2024-01-15` would stop at `TBD` and drop the date to mtime. The date stays inside
+the pattern, so the regex itself walks past label lines that carry none. Rejected with the
+walk: "find a date anywhere in the value", which would read `- Date: see
+2024-01-15-old-flow.md`, a pointer at another document, as this document's date.
 
 ## The successor of a superseded document
 
 A `superseded` document with no `superseded_by` is a dead end: `output.py` prints a bare
-`(superseded)` and `scoring.py` has nothing to redirect the reader to. The line that says
-the document is superseded almost always names the one to read instead — "Superseded by
-[Widget Cache v2](widget-cache-v2.md)" — so that link, read by the same sibling rule
-`related` uses, becomes `superseded_by`.
+`(superseded)` and `scoring.py` has nothing to redirect the reader to. The line that says the
+document is superseded almost always names its successor, so that link, read by the sibling
+rule `related` uses, becomes `superseded_by`. Only a link counts: an id guessed from prose
+would render as `(not in store)` forever.
 
-Only a link counts. `- Status: superseded, replaced by the new cache` names no document, and
-an id guessed from that prose would render as `(not in store)` forever.
+Two gates, both required. The word: `supersedes` and `superseding` name the document this one
+*replaced*, and a stem test turned `- Status: Active — supersedes [v1](widget-cache-v1.md)`
+into `status: superseded` plus a `superseded_by` aimed backwards — the live document hidden
+and its reader sent to the dead one, silently. The link still reaches `related`; only `status`
+and `superseded_by` are decided by the word. The effective status: `status` is never proposed
+over a stated one, so without this gate the author's `status: active` stood while a
+replaced-by claim was appended beside it. `superseded_by` is therefore proposed only when the
+line passes the word test *and* the effective status — the derived one when none is stated,
+the author's own when one is — is `superseded`. A stated `status: superseded` still takes its
+successor from the line, the only place one is ever named, but unlocks nothing on its own:
+over `- Status: Replaced by [v2](v2.md)` nothing is proposed.
 
-The direction has to be read from the word, because both directions are written on the same
-line: `- Status: Active — supersedes [Widget Cache](widget-cache-v1.md)` names the document
-this one *replaced*. Under a stem test it became `status: superseded` plus a `superseded_by`
-aimed backwards, so the live document was hidden and its reader redirected to the dead one —
-the worst outcome available here, and silent. The link is still an edge, so it reaches
-`related` either way; it is only `superseded_by` and `status` that the word decides — and
-only on a line that asserts *one* direction.
-
-A stated `status:` decides the direction, and the line only names the successor. `status`
-itself is never proposed for a document that already states one, so without this the author's
-`status: active` stood while a `superseded_by` was appended beside it: a replaced-by claim
-written onto the live document, with nothing else in the write to contradict it, and — under
-residual 1 below — aimed at the document this one had itself replaced. So the effective status
-is an *additional* gate, on top of the word test above, not a replacement for it:
-`superseded_by` is proposed only when the line passes the word test **and** the effective
-status is `superseded` — the derived one when the author stated no `status:`, the author's own
-when they did. A document whose front matter says `status: superseded` therefore still gets its
-successor from the line, since the line is the only place a successor is ever named; but the
-front matter alone unlocks nothing, so `status: superseded` over
-`- Status: Replaced by [v2](v2.md)` — no past participle — proposes no `superseded_by`.
-
-Three residuals are known and left:
-
-  - genuine English ambiguity: "this superseded the old flow" on an active document's
-    status line reads as `superseded`, and no word test settles it;
-  - a line asserting *both* directions — `- Status: Supersedes [v1](v1.md); superseded by
-    [v3](v3.md)` — gets the right `status`, but `superseded_by` is then decided by link
-    order, not by the word, so the first spelling above aims it at `v1`, the document this
-    one replaced. The word appears twice with opposite subjects; nothing on the line marks
-    which link belongs to which, so this is a limit of the evidence, not of the test. The
-    document is at least no longer hidden, which is what the stem test got wrong;
-  - the bare stem: `- Status: Supersede by [v2](v2.md)` reads as `active`. Accepting it
-    would mean matching `supersede`, which also prefixes `supersedes` and `superseding` —
-    the exact false positive above. The past participle is the only spelling that names
-    this document as the replaced one unambiguously.
+Known gaps, left: "this superseded the old flow" on an active document's status line reads as
+`superseded`, and no word test settles English; a line asserting both directions
+(`Supersedes [v1](v1.md); superseded by [v3](v3.md)`) gets the right `status` but a
+`superseded_by` decided by link order, since nothing on the line marks which link belongs to
+which word; the bare stem (`- Status: Supersede by [v2](v2.md)`) reads as `active`, because
+matching `supersede` also matches the two spellings above.
 
 ## The entity-extraction rule, and what it gets wrong on purpose
 
-A `Search Keywords` section is hand-written prose, not a list to parse mechanically:
-bulleted, grouped by facet (`**Classes:** WidgetCache, CacheWarmer`), separated by `,` `;`
-`·` or `|`, sometimes with backtick-quoted terms, sometimes with a plain (non-bold)
-`Label:` instead of a bold one.
+A `Search Keywords` section is hand-written prose grouped by facet (`**Classes:** WidgetCache,
+CacheWarmer`), so the rule looks for identifier shape rather than parsing a list; the facet
+label is scaffolding and is dropped. A candidate qualifies when it is backticked in the source
+(the author's own "this is a literal identifier", accepted whatever its shape), or contains a
+digit or one of `/ _ . -`, or has an uppercase letter after its first character (CamelCase, an
+acronym, a Title Case phrase). A term over 4 words or 60 characters is prose.
+`_ENTITY_DENYLIST` (`n/a`, `tbd`, `todo`, …) is applied before all three tests, so it also
+overrides the backtick: several of its members pass the shape test on their own punctuation,
+and a backticked `` `TBD` `` is still a placeholder.
 
-Per candidate term (after label-stripping and delimiter-splitting), a term qualifies as an
-entity if:
-  - it is wrapped in backticks in the source (`` `WidgetCache` ``) — the author's own
-    explicit "this is a literal identifier" signal, accepted whatever its shape; or
-  - it contains a digit, or one of `/ _ . -` (endpoint paths, file names, hyphenated
-    identifiers); or
-  - it has an uppercase letter anywhere after its first character — CamelCase
-    (`CacheWarmer`), an ALLCAPS acronym (`TTL`), or a multi-word Title Case phrase
-    (`Response Cache`).
+Terms split on `,` `;` `·` `|`, but not inside a matched pair of parentheses: a parenthetical
+is an aside about the term before it, and splitting through one turned `OrderAPI (v1, v2)`
+into two digit-bearing fragments and stripped the backticks off
+`` `WidgetCache` (thread-safe, LRU) ``, losing the author's explicit signal. Only a pair that
+closes protects anything, so neither a stray `)` nor an unclosed `(` can swallow the rest of
+the line. Rejected: "give up on the whole line" at the first unbalanced parenthesis, which
+brought the bug back for the balanced part of any line ending in an unterminated aside.
 
-A small denylist of tokens that are never entities (`n/a`, `tbd`, `todo`, …) is applied
-*before* all three tests, so it also overrides the backtick signal: several of them pass the
-shape test on their own punctuation ("n/a" on its `/`), and a backticked `` `TBD` `` is still
-a placeholder, not an identifier. Backticks say "read this literally"; they do not say the
-literal is a name.
-
-A term longer than 4 words or 60 characters is never accepted — that is prose, not a
-keyword.
-
-**Known false positives**: a generic capitalized phrase the author happened to
-title-case for emphasis, not because it names a system entity (e.g. "Read Path" as a
-facet body, not a label), and any deliberately backtick-quoted non-identifier the author
-quoted for a different reason (rare in practice — backticks are a strong, deliberate
-signal in this genre of document).
-
-**Known false negatives**: a lowercase, single- or two-word term with no digit or
-punctuation (`sweeper`, `cache warmup`) — the rule requires *some* identifier-shaped
-signal, and plain English prose describing a concept has none. This is deliberate: the
-alternative (accepting every lowercase noun phrase) would flood `entities` with the
-section's connective prose and defeat its purpose. A "one term per bullet, with an
-em-dash description" layout (`- **WidgetCache** — the request-scoped cache class`) is
-also not handled: the leading term is read as a facet *label*, not a candidate, so it is
-dropped rather than promoted to `entities`. Recognising that shape needs a different rule
-(distinguishing "this bold span names the row" from "this bold span groups the row") that
-starts to look like judgement rather than parsing an already-structured list, and is left
-for a future revision rather than guessed at here.
+Known false positive: a generic phrase title-cased for emphasis ("Read Path" as a facet body).
+Known false negatives, deliberate: a lowercase term with no digit or punctuation (`sweeper`,
+`cache warmup`) — accepting every lowercase noun phrase would flood `entities` with the
+section's connective prose; a "one term per bullet" layout (`- **WidgetCache** — the
+request-scoped cache class`), whose leading term reads as a facet label — telling "this bold
+span names the row" from "this bold span groups the row" is judgement, not parsing, and is
+left for a later revision; and a fully parenthesised list
+(`**Classes:** (WidgetCache, CacheWarmer)`), which is one term that the trailing-parenthetical
+strip then erases whole.
 
 ## The document with no derivable entities
 
-Every other field above is still proposed — `entities` is the only field this section
-feeds. Rather than guess entities from free-form body prose (which is exactly the
-"close to judgement" line `ENGMEM-SPEC.md` §2.4 draws around the CLI), `entities` is
-**left unset** and a note is attached telling the human so, in both cases:
+When no section resolves to the `keywords` role, or none of its terms passes the test,
+`entities` is left unset and a note tells the author to add or fix the section and re-run.
+Guessing entities from body prose is the judgement the CLI does not make (`ENGMEM-SPEC.md`
+§2, "The CLI is thin and dumb"; §10, "The agent writes facts; a human judges value").
 
-  - there is no `Search Keywords` section at all; or
-  - there is one, but no term in it passes the shape test above.
+Unset, not `entities: []`. An empty list is indistinguishable from a human's own "checked,
+found none", and `spine.stated` counts it as answered: the document would go
+`spine_complete`, `--all` would never offer it again, `--id` would answer "spine already
+complete", and the note's advice could not be followed. The exit the note names is the author
+writing `entities: []` themselves — the answer `backfill` will not give on their behalf.
+Until then the document stays in `degraded_fields`, is listed by every `--all` run, and is
+counted in the search footer's `N partial spine`; the `entities is empty` warning `load_store`
+prints is on emptiness, not statedness, and is paid either way.
 
-Unset, not `entities: []`. An empty list is indistinguishable from a human's own
-"checked, found none", and `spine.stated` counts it as answered: writing it would make
-the document `spine_complete`, so `backfill --all` would never offer it again and
-`backfill --id` would answer "spine already complete". The note tells the author to add
-the section and re-run — writing `[]` would make that advice impossible to follow, and
-the document's entities would stay empty permanently.
-
-The author's way to close it out is to write `entities: []` themselves — that *is* the
-answer "checked, there are none", and it is a judgement `backfill` will not make on their
-behalf. Both notes say so, so the to-do never becomes a nag with no stated exit.
-
-The cost, until they do, is that the document stays degraded (`entities` in
-`degraded_fields`): every `backfill --all` run lists it with its note and writes nothing,
-and the scoreboard footer every `engmem search` prints keeps counting it in
-`N partial spine`. Both end the moment the author writes `entities: []`. The third cost
-does not: `load_store` warns `entities is empty` on stderr whenever the list is empty
-(`spine.py`, `if not doc.entities`), which is emptiness, not statedness — that warning is
-paid the same either way, and is not something this rule adds or the exit removes. The
-steady state is intended — "degraded" is the truthful description of a document whose
-entities were never determined — but it is paid on the search surface, not only by
-whoever runs `backfill`.
-
-### Documents the earlier behaviour already stranded
-
-Before this rule, `entities: []` was written. Those documents are `spine_complete`, so
-neither `--all` (which selects on `not spine_complete`) nor `--id` (which answers "spine
-already complete") will ever offer them again. The fix stops new ones being created; it
-repairs none. To find them, read the `entities is empty` warnings any store load prints on
-stderr — that check is on emptiness, so it names exactly this set (plus any document whose
-author wrote `entities: []` deliberately, which is indistinguishable and is the whole
-reason this rule exists). The manual remedy is to delete the `entities:` line and re-run
-`backfill`. Recognising `entities: []` on a `backfilled: true`
-document as unset would automate that, but it would also overrule a human who wrote `[]`
-deliberately, so it is left as a knowing gap rather than decided here.
+Known gap: documents written `entities: []` before this rule are `spine_complete` and are
+never offered again. The `entities is empty` warnings name exactly that set, plus every
+document whose author wrote `[]` deliberately — indistinguishable, which is the reason for the
+rule — so the remedy is manual: delete the `entities:` line and re-run. Treating `[]` on a
+`backfilled: true` document as unset would overrule the deliberate author, so it is not done.
 
 ### Why `tags` does not follow the same rule
 
-`tags` is proposed even when the derived list is empty. A missing `- Repos:` line is the
-common, terminal case for this genre of document (not every session is about a repository)
-and no note asks the author to go add one, so leaving `tags` unset would strand nearly
-every backfilled document in `degraded` with nothing actionable to say about it.
+`tags` is proposed even when the derived list is empty: a missing `- Repos:` line is the common
+terminal case (not every session is about a repository), no note asks for one, and leaving it
+unset would strand nearly every backfilled document in `degraded` with nothing actionable to
+say.
 
-That argument covers the missing-line case only. A `- Repos:` line that *is* present and
-yields no tag (the parser rejected every entry) has exactly H1's shape: `tags: []` is
-written, the document goes `spine_complete`, and fixing the line later changes nothing.
-That dead end is known and knowingly left — the evidence string distinguishes the two
-cases ("no `- Repos:` preamble line with a value found" vs "`- Repos:` preamble line
-found, but no entry parsed as a repo name") so a proposal at least does not read as the
-wrong one.
+That covers the missing-line case only. A `- Repos:` line that is present and yields no tag
+writes `tags: []`, the document goes `spine_complete`, and fixing the line later changes
+nothing — known and left; the evidence string distinguishes the two cases ("no `- Repos:`
+preamble line with a value found" vs "`- Repos:` preamble line found, but no entry parsed as a
+repo name"). Because that dead end is permanent, `` ` ``, `*` and `_` — CommonMark's code span
+and both emphasis delimiters, the complete set, not the start of a punctuation strip — are
+stripped from each entry before the slug test: a repo name contains none of them, and an
+emphasised `- **Repos:** **widget-cache, platform-core**` otherwise wrote the `[]` that closes
+the door. `_` cannot be left out because a mixed line (`*widget-cache*, _platform-core_`) then
+loses one entry while the proposal looks right.
 
-Because that dead end is permanent, an entry is read through the author's emphasis rather
-than around it: `` ` ``, `*` and `_` — CommonMark's code span and *both* of its emphasis
-delimiters — are stripped from each entry before the slug test, so
-`- **Repos:** **widget-cache, platform-core**` and `- Repos: _widget-cache_` contribute
-their names. A repo name contains none of the three, so nothing is lost by stripping them,
-while leaving them in made an emphasised `- Repos:` line contribute nothing and then wrote
-the `tags: []` that closes the door. The set is bounded to those three deliberately: it is
-the complete list of characters CommonMark can wrap an entry in, not the start of a general
-punctuation strip. A mixed line (`*widget-cache*, _platform-core_`) is the reason `_` cannot
-be left out — one entry survives, so the proposal *looks* right while the other is gone.
-
-Stripping is shape-blind, so a placeholder that happens to be slug-shaped still becomes a
-tag: `- Repos: TBD` yields `['tbd']`, as it did before emphasis was stripped, and now so
-does `- Repos: *TBD*`. Reusing the entity denylist here would fix it; the alternative that
-happens today (`tags: []`, then `spine_complete`) is not obviously better, so it is left
-for the next time this derivation is touched.
+Known gap: stripping is shape-blind, so `- Repos: TBD` and `- Repos: *TBD*` both yield
+`['tbd']`. The entity denylist would fix it; the alternative (`tags: []`, then
+`spine_complete`) is not obviously better, so it waits for the next change to this derivation.
 
 ## What counts as a sibling, for `related`
 
-`related` holds ids of documents in `sessions/`, so only a link naming a file in the
-document's own directory can contribute one. The destination is read with `urlsplit`, then:
+`related` holds ids of documents in `sessions/`, so only a link naming a file in the document's
+own directory contributes. The destination goes through `urlsplit`: a scheme or authority
+means it is not a path (`https://…`, and `mailto:a@b.md`, which ends in `.md`); the path is
+percent-decoded after the fragment was cut, never before, because a `#` that survived encoding
+belongs to the filename; it is normalised so `./sibling.md` and `a/../sibling.md` count; and
+anything still carrying `/`, or any `\` (a separator on the platform the link was written
+for), points out of the directory. Without this
+`[the spec](../../docs/design/contracts/backfill.md)` contributed the id `backfill`, rendered
+forever as `backfill (not in store)` or colliding with a real document of that name.
 
-  - anything carrying a scheme or authority is not a path — `https://…`, and also
-    `mailto:a@b.md`, which ends in `.md` and would otherwise contribute `mailto:a@b`;
-  - the remaining path is percent-decoded (after the fragment was cut, never before: an
-    anchor is written literally, so a `#` that survived encoding belongs to the filename)
-    and normalised, so `./sibling.md` and `a/../sibling.md` are recognised as siblings;
-  - anything still carrying `/` after that — or any `\`, which is not a separator here but
-    is one on the platform the link was written for — points out of the directory and is
-    dropped.
+`spine.validate_doc_id` is split here. Its shape test (`DOC_ID_RE`) is not applied: a document
+whose filename does not match the canonical shape still loads (`load_store` warns), this
+command exists for exactly those documents, and validating would silently drop real edges
+between them; an id naming nothing is already rendered `(not in store)`. Its safety tests do
+apply: a stem that is empty, starts with `.`, or carries a NUL is not an id, and without them a
+typo'd `[see](..md)` wrote `related: ['.']`, which no author would recognise as their own.
 
-Without this, `[the spec](../../docs/design/contracts/backfill.md)` contributed the id
-`backfill`: an edge to a document that does not exist, rendered forever as
-`backfill (not in store)`, or worse, colliding with a real document of that name.
+## The proposal has to still describe the document
 
-`spine.validate_doc_id` bundles two independent tests, and only one of them is declined
-here. Its *shape* test (`DOC_ID_RE`) is not applied: a document whose filename does not match
-the canonical id shape still loads (`load_store` warns, it does not reject), and this command
-exists for exactly those legacy documents — validating here would silently drop real edges
-between them. An id naming nothing in the store is already reported by `output.py` as
-`(not in store)`, which is the honest answer.
+`propose_backfill` derives every value from `doc.body`, built during `load_store`, and
+`_cmd_backfill` puts a human's prompt between that and the write — a prompt whose note asks
+the author to go and edit the document. `apply_backfill` re-reads the body at write time, so
+the edit survives and the byte-for-byte check passes; what goes stale, silently, is the derived
+values. So the proposal carries the file's `(mtime_ns, size)` (`cache.identity_for`, the
+section cache's staleness key; `contracts/cache.md`, "Identity, not invalidation") and a
+write against anything else is refused with a `BackfillWriteError` telling the caller to
+re-run.
 
-Its *safety* tests have nothing to do with legacy id shapes and do still apply: a stem that
-is empty, starts with `.`, or carries a NUL is not a document id. Without them `.md`, `..md`
-and `...md` contributed the ids `.md`, `.` and `..` — a typo'd `[see](..md)` wrote
-`related: ['.']`, which every later render shows as `. (not in store)` and which no author
-would recognise as their own typo.
+Three orderings hold it up. The stamp is taken by `spine.parse_document` immediately before the
+read it describes, not by `propose_backfill`, which runs later — for `--all`, a whole directory
+scan later — and would stamp the already-edited file, certifying the staleness. The comparison
+is made after `apply_backfill`'s own re-read, so one stat covers both reads; taken before it,
+an edit landing in between produced a write of stale values that had just passed the check
+(`mcp_server`'s `mark_superseded` orders it the same way). And `None` is not a match:
+`None != None` is False, so a proposal with no stamp against a file that cannot be `stat`ed
+passed on no evidence; "unverifiable" is refused like "changed".
+
+The window closed is a human's; the residual is a size-preserving edit inside one filesystem
+timestamp tick, which `contracts/cache.md` bounds for the same key.
+
+`apply_backfill` also refuses a proposal whose `doc_id` or `path` is not the document it was
+handed. Rejected: pairing the two positionally with a `zip`, which a dropped proposal silently
+misaligned; the CLI loop carries each `doc` beside its own proposal, and the check is what
+stops a foreign `id` landing in a document's front matter, which `load_store` would then
+report as a duplicate id.
 
 ## Writing into front matter the author already started
 
-New fields are appended to the document's own front matter, not re-dumped over it: a
-re-dump would reformat and reorder the author's lines and drop their comments, and this
-command exists to touch as little of a hand-written document as possible.
+New keys are appended to the author's own block, never re-dumped over it: a re-dump reformats
+and reorders their lines and drops their comments. Appending has two collisions.
 
-Appending has two collisions.
-
-**A key the author declared and left empty.** `spine.stated` reads `tags:`, `tags: null`,
-`tags: ~` (and every other spelling) as unset, so the field is proposed — and appending it
-would leave the key in the document twice. PyYAML takes the last, so engmem itself would
-still read the right value, but the file is invalid to a strict parser and a human editing
-the first occurrence would see no effect. So the author's own line for each field being
-written is removed first (`_drop_declared_keys`).
+**A key the author declared and left empty.** `spine.stated` reads `tags:`, `tags: null` and
+`tags: ~` as unset, so the field is proposed, and appending it leaves the key in the document
+twice — PyYAML takes the last, so engmem still reads the right value, but the file is invalid
+to a strict parser and a human editing the first occurrence sees no effect. So the author's
+own empty line for each field being written is removed first (`_drop_declared_keys`).
 
 Which lines those are is asked of the parser (`yaml.compose`), not of a line regex, because
 both halves of "declares this key, with no value" are things only the parser knows. Column 0
-is not a declaration test: PyYAML accepts an unindented continuation inside a flow
-collection, so `status: null` on its own line can belong to the value of a
-`navigation_miss: {` above it, and removing it would destroy the author's data while leaving
-a file that still parses. And emptiness has too many spellings to enumerate — `null`,
-`Null`, `~`, `!!null`, a lone comment, nothing at all — where one missed spelling silently
-reintroduces the duplicate.
+is not a declaration test: PyYAML accepts an unindented continuation inside a flow collection,
+so `status: null` on its own line can belong to a `navigation_miss: {` above it, and removing
+it destroys the author's data while leaving a file that still parses. And emptiness has too
+many spellings (`null`, `Null`, `~`, `!!null`, a lone comment, nothing at all) for one missed
+spelling not to reintroduce the duplicate. A removable declaration is therefore a top-level
+key in the set being written whose value node is tagged null and ends on the key's own line —
+the last term because a whole line is removed per declaration. A quoted `"tags":` is the same
+key, because PyYAML reads it as one.
 
-A removable declaration is therefore a *top-level* key, in `names`, whose value node is
-tagged null and *ends on the key's own line*. The last term is because a whole line is
-removed per declaration, which needs one declaration per line — and for the same reason a
-flow-style root (`{title: T, tags: null}`) is left entirely alone, since every pair there
-shares one line and removing it would take the author's other keys with it. Nothing is then
-written for such a document at all: the block-style addition makes the front matter
-unparseable, the staged parse fails, and the write is refused with a `BackfillWriteError`
-leaving the file byte-identical.
+A flow-style root (`{title: T, tags: null}`) is left alone, since every pair shares one line
+and removing it would take the author's other keys; the block-style append then fails the
+staged parse and the write is refused with a `BackfillWriteError`, the file byte-identical.
+Two shapes keep the duplicate: a null written below its key (`tags:` over an indented `null`)
+and the explicit-key form (`? tags` / `: null`). Removing those means removing a span, and a
+span swallows whatever sits between its lines — a comment, for one — to buy the rarest
+spellings in the format; PyYAML's last-wins keeps engmem reading correctly, as it did before
+the rule. Because only an empty declaration is ever removed, no value the author wrote can be
+lost, including on a document that already declares the key twice.
 
-Two shapes are therefore left carrying the duplicate this section exists to prevent: a null
-written below its key (`tags:` over an indented `null`) and the explicit-key form (`? tags`
-/ `: null`). Removing those means removing a *span* rather than a line, and a span swallows
-whatever sits between the two lines — a comment the author wrote there, for one — to buy the
-rarest spellings in the format. The append lands beside them and PyYAML's last-wins keeps
-engmem reading correctly, exactly as it did before this rule existed.
-
-**A mapping with no collection in it.** `yaml.dump(..., default_flow_style=None)` renders a
-mapping whose values are all scalars in flow style — `{status: active, backfilled: true}` —
-and a flow mapping appended into a block front matter is a syntax error. Every document
-missing only scalar spine fields therefore failed to write at all, with a `BackfillWriteError`
-naming a line the author never typed. `_NoAliasDumper` forces block style for mappings;
-sequences keep the heuristic, so `tags: [widget-cache]` renders as it always did.
-
-A quoted spelling (`"tags":`) counts as the same key, because PyYAML reads it as one.
-
-Because only an empty declaration is ever removed, no value the author wrote can be lost —
-including on a document that already declares the key twice, where the valued line stays
-and the append lands beside it. Reading is unaffected either way (PyYAML takes the last),
-and nothing is destroyed. Where a *line-removable* declaration cannot be removed safely it
-is left and the duplicate stands, rather than anything being guessed at; a flow-style root
-is the one shape where that is not possible and the write is refused instead.
+**A mapping with no collection in it.** `yaml.dump(..., default_flow_style=None)` renders an
+all-scalar mapping in flow style (`{status: active, backfilled: true}`), and a flow mapping
+appended into block front matter is a syntax error, so every document missing only scalar
+fields failed to write, with an error naming a line the author never typed. `_NoAliasDumper`
+forces block style for mappings; sequences keep the heuristic, so `tags: [widget-cache]`
+renders as it always did.
 
 ### Line endings
 
-The lines added, and the two `---` delimiters, take the document's own line ending. The
-body is preserved byte-for-byte regardless, but emitting LF into a CRLF document left the
-file with both — a whole-file diff under `core.autocrlf` or a `.gitattributes` `eol`, on
-exactly the legacy documents this command exists for.
-
-The front matter's own lines answer first (that is the block being extended); a document
-with no front matter is having one created above its body, so the body answers. A document
-whose front matter and body already disagree keeps both as they are — normalising either
-is not this command's call.
-
-## Splitting a keywords line into terms
-
-Terms are separated by `,` `;` `·` or `|`, but not inside parentheses: a parenthetical is
-an aside about the term before it. Splitting through one produced fragments that are not
-terms — `OrderAPI (v1, v2)` became `OrderAPI (v1` and `v2)`, both of which pass the shape
-test on their digits — and did it to `` `WidgetCache` (thread-safe, LRU) `` too, where the
-fragment no longer matches the backtick test and the author's own explicit "this is an
-identifier" signal was lost entirely.
-
-Only a pair that actually closes protects anything: the matched spans are marked in one
-pass, and a separator splits unless it falls inside one. So neither a stray `)` nor an
-unclosed `(` can swallow the rest of the line, and an unclosed one later on does not cost
-the balanced parenthetical before it — a line-level "give up on the whole line" rule brought
-the bug straight back for the balanced part of any line ending in an unterminated aside.
-
-One consequence worth naming with the other false negatives: a fully parenthesised list
-(`**Classes:** (WidgetCache, CacheWarmer)`) is one term, which the trailing-parenthetical
-rule then erases whole, so it contributes nothing at all.
-
-### The proposal has to still describe the document
-
-`propose_backfill` derives every value from the document as it was when it read it, and
-`_cmd_backfill` prints a confirmation prompt between that and the write. An author is free
-to edit while the prompt waits — and the note this command prints for a document with no
-`Search Keywords` section asks them to do exactly that.
-
-Nothing else would notice. `apply_backfill` re-reads the body at write time, so the edit
-survives and the byte-for-byte check still passes; what goes stale is the derived values,
-silently. So the proposal carries the file's `(mtime_ns, size)` (`cache.identity_for`, the
-same staleness key the section cache uses), and a write against anything else is refused
-with a `BackfillWriteError` telling the caller to re-run.
-
-The comparison is made *after* that re-read, not before it, so one stat covers both reads —
-the `load_store` read every proposed value came from, and `apply_backfill`'s own. Taken
-before the read, it certified the file up to the moment it ran and left the read that
-followed uncovered: an edit landing in between produced a write of stale values that had
-just passed a staleness check. That window is microseconds where the prompt's is a human's,
-but it is closed by ordering rather than by argument, and `mcp_server`'s
-`mark_superseded` — which took the rule from here — already orders it this way. A document
-deleted in that window now fails in the read rather than in the check, as an `OSError` the
-CLI reports per document; nothing is written either way.
-
-An identity that cannot be taken at all is not a match. `None != None` is False, so a
-proposal carrying no stamp, applied to a file that cannot be `stat`ed, passed the check on
-no evidence — "unverifiable" is refused like "changed", since the whole point is that the
-values are only known to describe a file whose identity was proven.
-
-The stamp is taken by `spine.parse_document`, immediately before the read it describes — not by
-`propose_backfill`, which runs later. Every proposed value comes from `doc.body`, and `doc`
-was built during `load_store`; for `--all` that is one whole directory scan earlier. A stamp
-taken at proposal time would already be describing the edited file, and would certify the
-staleness rather than catch it.
-
-The window this closes is a human's: for `--id`, the parse of every document sorted after the
-target; for either flag, however long the confirmation prompt waits. A `(mtime_ns, size)` key
-is enough for that — the residual needs a size-preserving edit inside one filesystem timestamp
-tick.
-
-`apply_backfill` also checks the proposal is for the document it was handed. The pair is
-only ever assembled together in the CLI's proposal loop — it used to be aligned positionally
-by a `zip`, which a dropped proposal would silently misalign, which is why that loop now
-carries each `doc` alongside its own proposal. Writing one document's values into another
-would put a foreign `id` in its front matter, and `load_store` would then report a duplicate
-id across the two.
-
-### What the replaced file inherits
-
-`os.replace` puts a *new* file where the document was, so everything the old file carried
-has to be put back deliberately.
-
-The temp file is created at `0600`, and the document's own mode is read and restored at
-commit time, immediately before the replace.
-
-Both halves matter. Left to the umask, a `0600` private note came back `0644` — a silent
-grant, and one that does not appear in the diff engmem shows before writing. But narrowing
-only at the end would be too late for the staged file itself: it holds the whole body, and
-the read-back, the split and a full parse all happen before the commit. Creating it at `0600`
-covers that window; the restore covers the other direction, since without it a shared `0644`
-document would come back `0600`.
-
-One window this leaves: if the document is *deleted* between the stage and the commit, there
-is no mode to read and the replace recreates it at `0600`. The staleness check runs before
-staging and does not cover it. Restoring a mode nobody can read is not better than that.
-
-**Ownership** is restored on a best-effort basis (only root can give a file away, and only
-root can end up owning someone else's document). After `sudo engmem backfill`, a root-owned
-`0600` document would otherwise be unreadable to the author who wrote it — the mode fix is
-what turns that from a nuisance into a lockout.
-
-A **symlinked** document is refused, not written — the same rule `mcp-server.md` states as
-point 3 for the MCP write tools, and for stronger reasons here. `sessions/` itself being a
-link out of the store is refused too, by `cli._sessions_is_contained`, mirroring that
-contract's point 2: a git checkout carries a symlinked directory as readily as a symlinked
-file, and following one aims every write of `--all --yes` at a directory the store does not
-own.
-
-`os.replace` over the link silently turned it into a regular file, leaving the original
-untouched and the two copies diverging from the next edit onward. Writing *through* it is
-worse in both directions. A link out of the directory would make `apply_backfill` the only
-path in this codebase that writes outside the store, and the store is relocatable with
-`--store`/`ENGMEM_HOME`: `load_store` accepts a link named `*.md` in `sessions/` whatever it
-points at, so a link committed to a shared store would aim `backfill --all --yes` at any file
-on the machine. A link *inside* the directory is no better — the two names share an inode, so
-the alias's `id` lands in the real document too, and `load_store` then reports a duplicate id
-across the pair, the real document having lost its own identity.
-
-A **hard link** is not preserved: `os.replace` leaves the second name holding the
-pre-backfill content, to diverge from the next edit onward. Keeping it would mean writing in
-place, which forfeits the atomic replace and the guarantee that a crash can never leave a
-half-written document. That trade is not worth it, so the limitation stands rather than being
-fixed — it cannot be detected as cheaply as a symlink, and unlike one it does not aim the
-write anywhere new.
-
-## Where the write itself lives
-
-The staging is `engmem/staging.py` — `stage` / `commit` / `discard` — shared with
-`mcp_server`'s write tools rather than written twice. It had been written twice, and the two
-copies had already diverged: the MCP side wrote with `write_text` (which translates line
-endings, the very thing `staging.read_document` reads bytes to avoid), without an `fsync`, and
-without restoring the mode of the file it replaced. Sharing fixed all three at once.
-
-One rule the shared version had to decide: a document that did not exist before keeps the
-staged `0600` rather than the umask default. There is no previous mode to restore, and a
-session document is the user's own notes.
+The lines added, and the two `---` delimiters, take the document's own line ending
+(`staging.newline_of`): the body is preserved byte-for-byte regardless, but emitting LF into a
+CRLF document left the file with both — a whole-file diff under `core.autocrlf` or a
+`.gitattributes` `eol`, on exactly the legacy documents this command exists for. The front
+matter's own lines answer first; a document with no front matter is having one created above
+its body, so the body answers. A document whose front matter and body disagree keeps both;
+normalising either is not this command's call. `staging.read_document` reads bytes, never
+`read_text`, which translates line endings invisibly to a caller rebuilding the file; the BOM
+it splits off is re-prefixed at write time.
 
 ## Atomic, body-preserving writes
 
-The staged file is `fsync`ed before the replace: the rename is atomic, but only over
-content that reached the disk, and without the sync a crash just after it can leave the new
-name pointing at unwritten blocks. The directory entry is deliberately *not* synced — losing
-the rename gives back the untouched document, which is a safe outcome, while losing the
-content would not be.
+The staging is `engmem/staging.py` — `stage` / `commit` / `discard` — shared with
+`mcp_server`'s write tools (`contracts/mcp-server.md`, "Write tools: security contract")
+rather than written twice. It had been written twice, and the copies had diverged: the MCP
+side wrote with `write_text`, without an `fsync`, and without restoring the replaced file's
+mode. Sharing fixed all three at once.
 
-`apply_backfill` stages the new content to a sibling temp file, re-splits it, and
-confirms the body is byte-identical to the original, that the staged file re-parses, and
-that its front matter actually *states* every field being reported as written, before
-`os.replace` commits it over the original — matching `mcp_server.py`'s write-tool
-staging pattern, for the same reason: a crash between staging and committing must never
-leave a half-written document, and a bug in this function must never be the thing that
-corrupts a human's own hand-written document. Re-running `backfill` on a document it has
-already completed is a no-op (`doc.spine_complete` is checked again from the file on
-disk, not from a proposal computed a moment earlier).
+`apply_backfill` stages the new content to a uuid-named sibling `.tmp` and, before
+`os.replace` commits it, confirms three things against the staged file: the body is
+byte-identical to the original; the file re-parses (`spine.parse_document`); and its front
+matter actually states every field about to be reported as written. The third keeps the
+returned message from becoming a lie: the first two pass over a staged document that appended
+nothing, while `_drop_declared_keys` has by then removed the author's own empty declarations
+for exactly those fields. No input reaches it today; it is there so a future change to the
+append or the drop cannot turn a silent no-op into "backfilled 8 field(s)" with the author's
+lines gone. On any failure, Ctrl-C included (`BaseException`, not `Exception`), the staged
+file is discarded and the document is untouched.
 
-The last of those three checks is what keeps the returned message from becoming a lie. The
-body check and the parse both pass over a staged document that appended *nothing* — it is a
-valid document, and its body is untouched — while `_drop_declared_keys` has by then removed
-the author's own empty declarations for exactly those fields. So "backfilled 8 field(s)" is
-asserted against the staged file before it is committed, the same way `mark_superseded`
-re-reads its own patch instead of trusting that it landed. No input reaches it today; it is
-there so that a future change to the append or the drop cannot turn a silent no-op into a
-reported success, with the author's own lines gone.
+The staged file is `fsync`ed before the replace: the rename is atomic only over content that
+reached the disk. The directory entry is deliberately not synced — losing the rename gives
+back the untouched document, a safe outcome, while losing the content would not be.
+
+### What the replaced file inherits
+
+`os.replace` puts a new file where the document was, so everything the old file carried is
+put back deliberately. The temp file is created at `0600` and the document's own mode is
+restored at commit time, immediately before the replace. Both halves matter: left to the
+umask, a `0600` private note came back `0644`, a grant that does not appear in the diff shown
+before writing; and narrowing only at the end would leave the staged file — the whole body,
+read back, split and parsed before the commit — open in that window. A document that did not
+exist before keeps `0600`: there is no mode to restore, and a session document is the user's
+own notes. Ownership is restored best-effort (only root can give a file away), so
+`sudo engmem backfill` does not leave a root-owned `0600` document its author cannot read.
+
+Known gap: a document deleted between stage and commit is recreated at `0600`; the staleness
+check runs before staging and does not cover it.
+
+A symlinked document is refused, not written — `contracts/mcp-server.md`'s point 3 for the MCP
+write tools — and `sessions/` itself being a link out of the store is refused by
+`cli._sessions_is_contained`, its point 2, because a git checkout carries a symlinked
+directory as readily as a file and following one aims every write of `--all --yes` outside the
+store. `os.replace` over the link turned it into a regular file and left the original to
+diverge; writing through it is worse in both directions. Out of the directory, it would make
+`apply_backfill` the only path in this codebase that writes outside a store that is
+relocatable with `--store`/`ENGMEM_HOME`, and `load_store` accepts any `*.md` link in
+`sessions/` whatever it points at. Inside the directory, the link shares an inode with the
+real document, so the alias's `id` lands in it and `load_store` reports a duplicate id across
+the pair.
+
+Not closed by this: a hard link. `os.replace` leaves the second name holding the pre-backfill
+content. Keeping it would mean writing in place, forfeiting the atomic replace and the
+guarantee that a crash never leaves a half-written document; it cannot be detected as cheaply
+as a symlink, and unlike one it aims the write nowhere new.

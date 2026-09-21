@@ -1,12 +1,21 @@
 import json
+import os
+from datetime import timezone
 
 import pytest
 
 from conftest import fixture_docs, requires_permission_enforcement
 
-from engmem.scoring import search
+from engmem.output import RoleHit
+from engmem.scoring import search, search_with_role_sections
 from engmem.spine import load_store
-from engmem.telemetry import log_search
+from engmem.telemetry import (
+    estimate_tokens,
+    log_role_search,
+    log_search,
+    read_session_rows,
+    summarize,
+)
 
 
 def test_log_search_appends_one_json_line_with_expected_schema(tmp_path):
@@ -14,8 +23,9 @@ def test_log_search_appends_one_json_line_with_expected_schema(tmp_path):
     docs = fixture_docs()
     outcome = search(docs, "1000001")
 
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome)
+    error = log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome)
 
+    assert error is None, "a successful write reports no failure reason"
     lines = jsonl_path.read_text().strip().splitlines()
     assert len(lines) == 1
 
@@ -50,7 +60,7 @@ def test_log_search_records_the_result_label(tmp_path, query, expected_result, e
 
 
 def test_log_search_counts_superseded_redirect_as_hit(tmp_path):
-    """M4: a surfaced redirect did return prior context, so logging it as a miss would understate
+    """A surfaced redirect did return prior context, so logging it as a miss would understate
     hit rate at Gate 1."""
     doc_dir = tmp_path / "sessions"
     doc_dir.mkdir()
@@ -100,7 +110,7 @@ def test_log_search_appends_without_truncating_prior_lines(tmp_path):
 
 
 def test_log_search_reports_failure_instead_of_raising_when_path_is_a_directory(tmp_path):
-    """D6: a write failure must come back as a value, not abort a search that already printed a
+    """A write failure must come back as a value, not abort a search that already printed a
     correct answer."""
     jsonl_path = tmp_path / "telemetry.jsonl"
     jsonl_path.mkdir()
@@ -112,40 +122,46 @@ def test_log_search_reports_failure_instead_of_raising_when_path_is_a_directory(
     assert isinstance(error, str) and error, "must return a non-empty reason, not None"
 
 
-def test_log_search_returns_none_on_success(tmp_path):
+# ---------------------------------------------------------------------------
+# session_id + surfaced — the Gate 1 join key and its scope
+# ---------------------------------------------------------------------------
+
+
+LOG_SEARCH_PASSTHROUGH_CASES = [
+    # session_id: an unattributed row and a row written before the field existed must stay
+    # distinguishable at review time, so absence is an explicit null, not an omitted key
+    pytest.param(
+        {"session_id": "20260823-cache-ttl"},
+        "session_id",
+        "20260823-cache-ttl",
+        id="session-id-given",
+    ),
+    pytest.param({}, "session_id", None, id="session-id-defaults-to-explicit-null"),
+    # channel: which surface ran the search (CLI process vs MCP tool call)
+    pytest.param({"channel": "mcp"}, "channel", "mcp", id="channel-given"),
+    pytest.param({}, "channel", "cli", id="channel-defaults-to-cli"),
+    # context_bytes: the exact UTF-8 byte count of the document-derived render the caller
+    # actually receives (`render_search_results`/`render_role_search_results`/`render_no_match`'s
+    # own return value), NOT the scoreboard bookkeeping line, NOT the stray-markdown-files
+    # discoverability note, and NOT the telemetry failure note itself
+    pytest.param({"context_bytes": 321}, "context_bytes", 321, id="context-bytes-given"),
+    pytest.param({}, "context_bytes", 0, id="context-bytes-defaults-to-zero"),
+]
+
+
+@pytest.mark.parametrize(("kwargs", "field", "expected"), LOG_SEARCH_PASSTHROUGH_CASES)
+def test_log_search_records_the_field_it_was_given(tmp_path, kwargs, field, expected):
+    """Each of these is written on every row, present even when it defaults — a backward-compatible
+    caller that passes none of them must still produce a row the reader can total."""
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     outcome = search(docs, "1000001")
 
-    error = log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome)
-
-    assert error is None
-
-
-# ---------------------------------------------------------------------------
-# session_id + surfaced — the Gate 1 join key and its scope (P0)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "session_kwargs, expected_session_id",
-    [
-        pytest.param({"session_id": "20260823-cache-ttl"}, "20260823-cache-ttl", id="given"),
-        pytest.param({}, None, id="defaults-to-explicit-null"),
-    ],
-)
-def test_log_search_records_the_session_id(tmp_path, session_kwargs, expected_session_id):
-    """An unattributed row and a row written before the field existed must stay distinguishable at
-    review time, so absence is an explicit null, not an omitted key."""
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    outcome = search(docs, "1000001")
-
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, **session_kwargs)
+    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, **kwargs)
 
     record = json.loads(jsonl_path.read_text().strip())
-    assert "session_id" in record
-    assert record["session_id"] == expected_session_id
+    assert field in record, "the field is written even when absent, never omitted"
+    assert record[field] == expected
 
 
 def test_surfaced_lists_the_documents_the_reader_was_actually_shown(tmp_path):
@@ -184,16 +200,10 @@ def test_surfaced_includes_a_superseded_redirect_and_its_successor(tmp_path):
 
 
 def test_log_role_search_records_the_role_and_the_role_filtered_surfaced_set(tmp_path):
-    from engmem.output import RoleHit
-    from engmem.scoring import search_with_role_sections
-    from engmem.telemetry import log_role_search
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     outcome, role_map = search_with_role_sections(docs, "1000001")
     section = role_map["1000001-response-cache"]["decisions"]
-    role_hits = [RoleHit(doc=docs[0], score=9.9, section=section)]
-    # pick the actual doc object matching the id used above
     doc = next(d for d in docs if d.id == "1000001-response-cache")
     role_hits = [RoleHit(doc=doc, score=9.9, section=section)]
 
@@ -216,8 +226,6 @@ def test_log_role_search_records_the_role_and_the_role_filtered_surfaced_set(tmp
 
 
 def test_log_role_search_records_miss_when_no_document_carried_the_role(tmp_path):
-    from engmem.telemetry import log_role_search
-
     jsonl_path = tmp_path / "telemetry.jsonl"
 
     error = log_role_search(
@@ -230,27 +238,37 @@ def test_log_role_search_records_miss_when_no_document_carried_the_role(tmp_path
     assert record["surfaced"] == []
 
 
-def test_log_role_search_records_the_session_id_it_was_given(tmp_path):
-    from engmem.telemetry import log_role_search
+LOG_ROLE_SEARCH_PASSTHROUGH_CASES = [
+    pytest.param(
+        {"session_id": "20260823-cache-ttl"},
+        "session_id",
+        "20260823-cache-ttl",
+        id="session-id",
+    ),
+    pytest.param({"channel": "mcp"}, "channel", "mcp", id="channel"),
+    pytest.param({}, "channel", "cli", id="channel-defaults-to-cli"),
+    pytest.param({"context_bytes": 55}, "context_bytes", 55, id="context-bytes"),
+    pytest.param({}, "context_bytes", 0, id="context-bytes-defaults-to-zero"),
+]
 
+
+@pytest.mark.parametrize(("kwargs", "field", "expected"), LOG_ROLE_SEARCH_PASSTHROUGH_CASES)
+def test_log_role_search_records_the_field_it_was_given(tmp_path, kwargs, field, expected):
+    """The role reader joins on the same fields the word-ranking one does, so a role search must
+    carry them too, defaults included — the table is deliberately symmetrical with
+    `LOG_SEARCH_PASSTHROUGH_CASES`, so the two writers cannot drift apart."""
     jsonl_path = tmp_path / "telemetry.jsonl"
 
     log_role_search(
-        jsonl_path,
-        query="1000001",
-        role="decisions",
-        n_docs=9,
-        role_hits=[],
-        session_id="20260823-cache-ttl",
+        jsonl_path, query="1000001", role="decisions", n_docs=9, role_hits=[], **kwargs
     )
 
     record = json.loads(jsonl_path.read_text().strip())
-    assert record["session_id"] == "20260823-cache-ttl"
+    assert field in record, "the field is written even when absent, never omitted"
+    assert record[field] == expected
 
 
 def test_log_role_search_reports_failure_instead_of_raising(tmp_path):
-    from engmem.telemetry import log_role_search
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     jsonl_path.mkdir()
 
@@ -262,127 +280,54 @@ def test_log_role_search_reports_failure_instead_of_raising(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# `channel` — distinguishes automatically which surface ran the search (CLI process vs MCP tool
-# call).
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "channel_kwargs, expected_channel",
-    [
-        pytest.param({}, "cli", id="defaults-to-cli-for-backward-compatible-callers"),
-        pytest.param({"channel": "mcp"}, "mcp", id="explicit-channel-is-recorded"),
-    ],
-)
-def test_log_search_records_the_channel(tmp_path, channel_kwargs, expected_channel):
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    outcome = search(docs, "1000001")
-
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, **channel_kwargs)
-
-    record = json.loads(jsonl_path.read_text().strip())
-    assert record["channel"] == expected_channel
-
-
-def test_log_role_search_records_the_channel_it_was_given(tmp_path):
-    from engmem.telemetry import log_role_search
-
-    jsonl_path = tmp_path / "telemetry.jsonl"
-
-    log_role_search(
-        jsonl_path, query="1000001", role="decisions", n_docs=9, role_hits=[], channel="mcp"
-    )
-
-    record = json.loads(jsonl_path.read_text().strip())
-    assert record["channel"] == "mcp"
-
-
-# ---------------------------------------------------------------------------
-# `context_bytes` — exact UTF-8 byte count of the document-derived render the caller actually
-# receives (`render_search_results`/`render_role_search_results`/ `render_no_match`'s own return
-# value), NOT the scoreboard bookkeeping line, NOT the stray-markdown-files discoverability note,
-# and NOT the telemetry failure note itself.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "context_bytes_kwargs, expected_context_bytes",
-    [
-        pytest.param({"context_bytes": 321}, 321, id="given"),
-        pytest.param({}, 0, id="defaults-to-zero-for-backward-compatible-callers"),
-    ],
-)
-def test_log_search_records_context_bytes(tmp_path, context_bytes_kwargs, expected_context_bytes):
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    outcome = search(docs, "1000001")
-
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, **context_bytes_kwargs)
-
-    record = json.loads(jsonl_path.read_text().strip())
-    assert record["context_bytes"] == expected_context_bytes
-
-
-def test_log_role_search_records_context_bytes_when_given(tmp_path):
-    from engmem.telemetry import log_role_search
-
-    jsonl_path = tmp_path / "telemetry.jsonl"
-
-    log_role_search(
-        jsonl_path, query="1000001", role="decisions", n_docs=9, role_hits=[], context_bytes=55
-    )
-
-    record = json.loads(jsonl_path.read_text().strip())
-    assert record["context_bytes"] == 55
-
-
-# ---------------------------------------------------------------------------
 # `context_tokens_estimate` — an ESTIMATE, not a measurement (exact tokenisation needs the calling
 # model's own tokeniser, which would be a network call this codebase never makes).
 # ---------------------------------------------------------------------------
 
 
-def test_log_search_records_a_token_estimate_derived_from_context_bytes(tmp_path):
-    from engmem.telemetry import estimate_tokens
+TOKEN_ESTIMATE_CASES = [
+    pytest.param({"context_bytes": 700}, 700, id="given"),
+    pytest.param({}, 0, id="defaults-to-zero-bytes"),
+]
 
+
+@pytest.mark.parametrize(("context_bytes_kwargs", "expected_bytes"), TOKEN_ESTIMATE_CASES)
+def test_log_search_records_a_token_estimate_derived_from_context_bytes(
+    tmp_path, context_bytes_kwargs, expected_bytes
+):
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     outcome = search(docs, "1000001")
 
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, context_bytes=700)
+    log_search(
+        jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome, **context_bytes_kwargs
+    )
 
     record = json.loads(jsonl_path.read_text().strip())
-    assert record["context_tokens_estimate"] == estimate_tokens(700)
-    assert record["context_tokens_estimate"] > 0
+    assert record["context_tokens_estimate"] == estimate_tokens(expected_bytes)
+    assert (record["context_tokens_estimate"] > 0) == (expected_bytes > 0), (
+        "a nonzero render must estimate at least one token, and an empty one exactly zero"
+    )
 
 
-def test_zero_context_bytes_estimates_zero_tokens(tmp_path):
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    outcome = search(docs, "1000001")
-
-    log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome)
-
-    record = json.loads(jsonl_path.read_text().strip())
-    assert record["context_tokens_estimate"] == 0
-
-
-def test_estimate_tokens_rounds_up_so_any_nonzero_bytes_estimate_at_least_one_token():
-    from engmem.telemetry import estimate_tokens
-
-    assert estimate_tokens(0) == 0
-    assert estimate_tokens(1) == 1
-    assert estimate_tokens(-5) == 0, "a negative byte count is nonsensical, never negative tokens"
+ESTIMATE_TOKENS_CASES = [
+    pytest.param(0, lambda tokens: tokens == 0, id="zero-bytes-is-zero-tokens"),
+    # ceil, not floor: any nonzero byte count estimates at least one token
+    pytest.param(1, lambda tokens: tokens == 1, id="one-byte-rounds-up"),
+    pytest.param(
+        -5, lambda tokens: tokens == 0, id="a-negative-byte-count-is-never-negative-tokens"
+    ),
+    # this corpus tokenises denser than the ~4-characters-per-token prose rule, so the ratio
+    # must estimate more, not fewer
+    pytest.param(1000, lambda tokens: tokens > 1000 // 4, id="denser-than-the-prose-rule"),
+]
 
 
-def test_estimate_tokens_uses_a_ratio_denser_than_the_plain_english_prose_rule_of_thumb():
-    """This corpus tokenises denser than the ~4-characters-per-token prose rule, so the ratio must
-    estimate more, not fewer."""
-    from engmem.telemetry import estimate_tokens
+@pytest.mark.parametrize(("byte_count", "holds"), ESTIMATE_TOKENS_CASES)
+def test_estimate_tokens(byte_count, holds):
+    tokens = estimate_tokens(byte_count)
 
-    prose_rule_of_thumb = 1000 // 4
-    assert estimate_tokens(1000) > prose_rule_of_thumb
+    assert holds(tokens), f"estimate_tokens({byte_count}) == {tokens}"
 
 
 # ---------------------------------------------------------------------------
@@ -392,8 +337,6 @@ def test_estimate_tokens_uses_a_ratio_denser_than_the_plain_english_prose_rule_o
 
 
 def test_summarize_missing_file_reports_zero_rows(tmp_path):
-    from engmem.telemetry import summarize
-
     result = summarize(tmp_path / "telemetry.jsonl")
 
     assert result.total == 0
@@ -401,8 +344,6 @@ def test_summarize_missing_file_reports_zero_rows(tmp_path):
 
 
 def test_summarize_splits_totals_by_channel(tmp_path):
-    from engmem.telemetry import summarize
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     log_search(
@@ -435,25 +376,9 @@ def test_summarize_splits_totals_by_channel(tmp_path):
     assert result.overall.context_bytes == 310
 
 
-def test_summarize_counts_unreadable_lines_separately_without_raising(tmp_path):
-    from engmem.telemetry import summarize
-
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    log_search(
-        jsonl_path, query="1000001", n_docs=len(docs), outcome=search(docs, "1000001"),
-        channel="cli", context_bytes=100,
-    )
-    with open(jsonl_path, "a", encoding="utf-8") as f:
-        f.write("not valid json at all\n")
-
-    result = summarize(jsonl_path)
-
-    assert result.total == 1
-    assert result.unreadable == 1
-
-
 MALFORMED_ROW_CASES = [
+    # not JSON at all: a half-written append, or a line another tool put there
+    pytest.param("not valid json at all", id="not-json"),
     # a field of the wrong type: `int()` raised out of `summarize` and the CLI reported the
     # whole *file* as unreadable, on the strength of one row
     pytest.param('{"result": "hit", "channel": "cli", "context_bytes": "oops"}', id="text-count"),
@@ -472,10 +397,8 @@ MALFORMED_ROW_CASES = [
 def test_summarize_counts_a_malformed_row_as_unreadable_and_keeps_the_rest(
     tmp_path, malformed_line
 ):
-    """One truncated or half-written append must not cost the reader the whole history — the
-    same rule an unparseable line already followed."""
-    from engmem.telemetry import summarize
-
+    """One truncated or half-written append must not cost the reader the whole history, and must
+    never raise out of the reader."""
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     log_search(
@@ -496,8 +419,6 @@ def test_summarize_counts_a_malformed_row_as_unreadable_and_keeps_the_rest(
 def test_summarize_treats_a_missing_channel_field_as_unknown(tmp_path):
     """A row written before this field existed must stay visible rather than vanish or crash the
     reader."""
-    from engmem.telemetry import summarize
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     with open(jsonl_path, "w", encoding="utf-8") as f:
         f.write(json.dumps({"query": "x", "result": "hit"}) + "\n")
@@ -517,14 +438,10 @@ def test_summarize_treats_a_missing_channel_field_as_unknown(tmp_path):
 
 
 def test_read_session_rows_missing_file_reads_as_zero_rows(tmp_path):
-    from engmem.telemetry import read_session_rows
-
     assert read_session_rows(tmp_path / "telemetry.jsonl") == []
 
 
 def test_read_session_rows_reads_a_row_with_a_session_id(tmp_path):
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     log_search(
@@ -539,45 +456,29 @@ def test_read_session_rows_reads_a_row_with_a_session_id(tmp_path):
     assert rows[0].ts is not None
 
 
-@pytest.mark.parametrize(
-    "session_id",
-    [
-        pytest.param(None, id="explicit-null"),
-        pytest.param("", id="blank"),
-        pytest.param("   ", id="whitespace-only"),
-    ],
-)
+UNUSABLE_SESSION_ID_CASES = [
+    pytest.param(None, id="explicit-null"),
+    pytest.param("", id="blank"),
+    pytest.param("   ", id="whitespace-only"),
+    # a wrong JSON type must not crash the reader -- one row's defect, not the file's
+    pytest.param(12345, id="non-string"),
+]
+
+
+@pytest.mark.parametrize("session_id", UNUSABLE_SESSION_ID_CASES)
 def test_read_session_rows_skips_a_row_with_no_usable_session_id(tmp_path, session_id):
     """Blank/whitespace-only mirrors `log_search`'s own write-side rule: absent, not a value."""
-    from engmem.telemetry import read_session_rows
-
-    jsonl_path = tmp_path / "telemetry.jsonl"
-    docs = fixture_docs()
-    log_search(
-        jsonl_path, query="1000001", n_docs=len(docs), outcome=search(docs, "1000001"),
-        session_id=session_id,
-    )
-
-    assert read_session_rows(jsonl_path) == []
-
-
-def test_read_session_rows_skips_a_non_string_session_id(tmp_path):
-    """A wrong JSON type must not crash the reader -- one row's defect, not the file's."""
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     with open(jsonl_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps({"session_id": 12345, "ts": "2026-08-15T12:00:00+00:00"}) + "\n")
+        f.write(
+            json.dumps({"session_id": session_id, "ts": "2026-08-15T12:00:00+00:00"}) + "\n"
+        )
 
     assert read_session_rows(jsonl_path) == []
 
 
-@pytest.mark.parametrize("malformed_line", MALFORMED_ROW_CASES + [
-    pytest.param('not valid json at all', id="not-json"),
-])
+@pytest.mark.parametrize("malformed_line", MALFORMED_ROW_CASES)
 def test_read_session_rows_skips_malformed_lines_without_raising(tmp_path, malformed_line):
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     docs = fixture_docs()
     log_search(
@@ -594,8 +495,6 @@ def test_read_session_rows_skips_malformed_lines_without_raising(tmp_path, malfo
 
 
 def test_read_session_rows_ts_is_none_when_missing_or_unparseable(tmp_path):
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     with open(jsonl_path, "w", encoding="utf-8") as f:
         f.write(json.dumps({"session_id": "a"}) + "\n")
@@ -610,10 +509,6 @@ def test_read_session_rows_normalizes_a_naive_ts_to_utc(tmp_path):
     """Every row this project writes calls `datetime.now(timezone.utc).isoformat()`; a naive
     value predates that convention and is read as UTC rather than left incomparable against an
     aware `--since` bound."""
-    from datetime import timezone
-
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     with open(jsonl_path, "w", encoding="utf-8") as f:
         f.write(json.dumps({"session_id": "a", "ts": "2026-08-15T12:00:00"}) + "\n")
@@ -628,10 +523,6 @@ def test_read_session_rows_normalizes_a_naive_ts_to_utc(tmp_path):
 @requires_permission_enforcement
 def test_read_session_rows_raises_on_a_file_that_cannot_be_read(tmp_path):
     """Matches `summarize()`'s own distinction: missing is zero rows, unreadable is not."""
-    import os
-
-    from engmem.telemetry import read_session_rows
-
     jsonl_path = tmp_path / "telemetry.jsonl"
     jsonl_path.write_text('{"session_id": "a"}\n', encoding="utf-8")
     os.chmod(jsonl_path, 0o000)

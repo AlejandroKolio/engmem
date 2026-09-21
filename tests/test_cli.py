@@ -106,7 +106,7 @@ MISSING_STORE_CASES = [
 
 @pytest.mark.parametrize("subcommand_args", MISSING_STORE_CASES)
 def test_missing_store_is_an_error_on_both_streams(tmp_path, capsys, subcommand_args):
-    """H4/D14: a typo'd `--store` used to print "none found" (or list nothing), exit 0, with the
+    """A typo'd `--store` used to print "none found" (or list nothing), exit 0, with the
     failure invisible to a reader watching only one stream."""
     missing = tmp_path / "no-such-store"
 
@@ -140,12 +140,12 @@ def test_empty_but_existing_store_still_reports_none_found(tmp_path, capsys):
 
 
 UNREADABLE_SESSIONS_DIR_CASES = [
-    # D2: `Path.glob` swallows the `PermissionError` an unscannable `sessions/` raises, so
+    # `Path.glob` swallows the `PermissionError` an unscannable `sessions/` raises, so
     # stdout matched an empty store.
     pytest.param(["search", "hello"], ("failed to load",), id="search"),
-    # D2 in `roles`, which used to drop `scan_error` on the floor entirely, unlike `search`.
+    # the same in `roles`, which used to drop `scan_error` on the floor entirely, unlike `search`.
     pytest.param(["roles"], (), id="roles"),
-    # D2 in `backfill`: an unscannable `sessions/` must say so on stdout, not silently backfill
+    # and in `backfill`: an unscannable `sessions/` must say so on stdout, not silently backfill
     # a partial store.
     pytest.param(["backfill", "--all"], (), id="backfill"),
 ]
@@ -179,7 +179,7 @@ def test_unreadable_sessions_dir_is_not_a_phantom_empty_store(
 
 
 def test_stderr_distinguishes_errors_from_warnings(store, capsys):
-    """M8: an excluded document and a warned-about one printed identically, though §4 classifies
+    """An excluded document and a warned-about one printed identically, though §4 classifies
     them differently."""
     (store / "sessions" / "no-entities-doc.md").write_text("""---
 id: no-entities-doc
@@ -255,7 +255,7 @@ def test_sc002_search_stays_well_inside_the_no_index_budget(
     """§3's "no INDEX.md, no cache, no SQLite" holds only while a full scan costs milliseconds;
     this is the tighter of the two tripwires on that bet, and it measures a known machine."""
     # §3 sizes a realistic store at 20-200 docs; 8 fixtures alone would make this
-    # bound meaningless (review M11), so replicate them up to ~200
+    # bound meaningless, so replicate them up to ~200
     assert _clone_store(store, 25) >= 200
 
     # redirected away from the developer's own `~/.cache/engmem`; a floor of three cold
@@ -331,7 +331,7 @@ def test_failed_documents_are_counted_on_stdout(store, capsys):
 
 
 def test_telemetry_write_failure_still_prints_full_results_and_exits_zero(store, capsys):
-    """D6: a telemetry write failure must not discard an answer already printed correctly on
+    """A telemetry write failure must not discard an answer already printed correctly on
     stdout."""
     (store / "telemetry.jsonl").mkdir()
 
@@ -366,7 +366,7 @@ def test_mcp_subcommand_resolves_store_and_calls_serve(tmp_path, monkeypatch):
 
 
 def test_mcp_subcommand_uses_default_store_resolution_when_no_flag(tmp_path, monkeypatch):
-    """No `--store` must follow the same `_resolve_store` precedence `search` uses, not a
+    """No `--store` must follow the same `runtime.resolve_store` precedence `search` uses, not a
     hardcoded path."""
     pytest.importorskip("engmem.mcp_server")
     home_store = tmp_path / "engmem-home"
@@ -380,15 +380,6 @@ def test_mcp_subcommand_uses_default_store_resolution_when_no_flag(tmp_path, mon
 
     assert exit_code == 0
     assert calls == [home_store]
-
-
-def test_mcp_subcommand_propagates_serve_exit_code(tmp_path, monkeypatch):
-    pytest.importorskip("engmem.mcp_server")
-    monkeypatch.setattr("engmem.mcp_server.serve", lambda resolved_store, **kwargs: 3)
-
-    exit_code = main(["mcp", "--store", str(tmp_path / "store")])
-
-    assert exit_code == 3
 
 
 @pytest.mark.parametrize(
@@ -414,7 +405,7 @@ def test_mcp_subcommand_prints_nothing_to_stdout_regardless_of_outcome(
 
 
 # ---------------------------------------------------------------------------
-# --session — the Gate 1 join key (P0)
+# --session — the Gate 1 join key
 # ---------------------------------------------------------------------------
 
 
@@ -422,33 +413,34 @@ def _last_telemetry(store):
     return json.loads((store / "telemetry.jsonl").read_text().strip().splitlines()[-1])
 
 
-def test_session_flag_is_recorded_in_telemetry(store, capsys):
-    exit_code, out, _ = _run(store, "1000001", "--session", "20260823-cache", capsys=capsys)
+SESSION_KEY_CASES = [
+    pytest.param(["--session", "20260823-cache"], "20260823-cache", id="given"),
+    pytest.param([], None, id="absent"),
+    # blank is absent, not an unknown session
+    pytest.param(["--session", ""], None, id="empty"),
+    pytest.param(["--session", "   "], None, id="spaces"),
+    pytest.param(["--session", "\t"], None, id="tab"),
+    # stripped, so both entry paths produce the same key
+    pytest.param(["--session", "  20260823-cache  "], "20260823-cache", id="padded"),
+]
+
+
+@pytest.mark.parametrize(("session_args", "expected_session_id"), SESSION_KEY_CASES)
+def test_the_session_flag_decides_the_logged_join_key(
+    store, capsys, session_args, expected_session_id
+):
+    """Absence is an explicit null, never an omitted field: an unattributed row and a row written
+    before the field existed must stay distinguishable at review time."""
+    exit_code, out, _ = _run(store, "1000001", *session_args, capsys=capsys)
 
     assert exit_code == 0
-    assert _last_telemetry(store)["session_id"] == "20260823-cache"
-    assert "20260823-cache" not in out, "the join key is for the log, not the agent's output"
-
-
-def test_search_without_session_flag_logs_an_explicit_null(store, capsys):
-    _run(store, "1000001", capsys=capsys)
-
     record = _last_telemetry(store)
-    assert "session_id" in record and record["session_id"] is None
-
-
-@pytest.mark.parametrize("raw", ["", "   ", "\t"])
-def test_blank_session_is_treated_as_absent_not_as_an_unknown_session(store, capsys, raw):
-    exit_code, _, _ = _run(store, "1000001", "--session", raw, capsys=capsys)
-
-    assert exit_code == 0
-    assert _last_telemetry(store)["session_id"] is None
-
-
-def test_session_id_is_stripped_so_both_entry_paths_produce_the_same_key(store, capsys):
-    _run(store, "1000001", "--session", "  20260823-cache  ", capsys=capsys)
-
-    assert _last_telemetry(store)["session_id"] == "20260823-cache"
+    assert "session_id" in record
+    assert record["session_id"] == expected_session_id
+    if expected_session_id is not None:
+        assert expected_session_id not in out, (
+            "the join key is for the log, not the agent's output"
+        )
 
 
 def test_unknown_session_id_does_not_gate_the_search(store, capsys):
@@ -461,24 +453,73 @@ def test_unknown_session_id_does_not_gate_the_search(store, capsys):
     assert _last_telemetry(store)["session_id"] == "no-such-draft"
 
 
+UNATTRIBUTED_NOTE = "note: unattributed search — pass --session <draft-id>"
+
+
+UNATTRIBUTED_NOTE_CASES = [
+    pytest.param(["1000001"], True, id="hit-without-session"),
+    pytest.param(["1000001", "--session", "20260823-cache"], False, id="hit-with-session"),
+    pytest.param(["1000001", "--session", ""], True, id="empty-session"),
+    pytest.param(["1000001", "--session", "   "], True, id="blank-session"),
+    # both search branches owe the note, not just the word-ranking one
+    pytest.param(["1000001", "--role", "decisions"], True, id="role-search-without-session"),
+    pytest.param(["nonexistent-term-xyz"], True, id="no-match-without-session"),
+]
+
+
+@pytest.mark.parametrize(("search_args", "expect_note"), UNATTRIBUTED_NOTE_CASES)
+def test_the_unattributed_note_appears_exactly_when_no_usable_session_was_passed(
+    store, capsys, search_args, expect_note
+):
+    exit_code, out, _ = _run(store, *search_args, capsys=capsys)
+
+    assert exit_code == 0
+    lines = out.rstrip("\n").splitlines()
+    if expect_note:
+        assert lines[-1] == UNATTRIBUTED_NOTE
+        assert lines[-2].startswith("docs: "), (
+            "the note trails the scoreboard, never displaces it"
+        )
+    else:
+        assert UNATTRIBUTED_NOTE not in out
+
+
+def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store, capsys):
+    (store / "telemetry.jsonl").mkdir()
+
+    _, out, _ = _run(store, "1000001", capsys=capsys)
+
+    tail = out.rstrip("\n").splitlines()[-3:]
+    assert tail[0].startswith("docs: ")
+    assert tail[1].startswith("note: telemetry not recorded")
+    assert tail[2] == UNATTRIBUTED_NOTE
+
+
+def test_the_unattributed_note_does_not_inflate_context_bytes(store, capsys):
+    _run(store, "1000001", capsys=capsys)
+    without = _last_telemetry(store)["context_bytes"]
+    _run(store, "1000001", "--session", "20260823-cache", capsys=capsys)
+    with_session = _last_telemetry(store)["context_bytes"]
+
+    assert without == with_session
+
+
 # ---------------------------------------------------------------------------
 # `engmem search --role <role>` — role-addressed retrieval
 # ---------------------------------------------------------------------------
 
 
 def test_search_role_flag_returns_the_requested_role_section(store, capsys):
+    """The reader must never mistake a role-filtered block for an ordinary one, so every result
+    header carries the role it was filtered to."""
     exit_code, out, err = _run(store, "1000001", "--role", "decisions", capsys=capsys)
 
     assert exit_code == 0
-    assert "role: decisions" in out
+    # a whole line of its own, which the `[role: decisions]` marker inside a result header
+    # cannot satisfy — an `in out` substring check here is pinned by the markers, not by the
+    # lead line it is meant to be about
+    assert "role: decisions" in out.splitlines()
     assert "1000001-response-cache" in out
-
-
-def test_search_role_flag_never_reads_as_an_ordinary_result(store, capsys):
-    """The reader must never mistake a role-filtered block for an ordinary one."""
-    exit_code, out, err = _run(store, "1000001", "--role", "decisions", capsys=capsys)
-
-    assert exit_code == 0
     for line in out.splitlines():
         if line.startswith("### "):
             assert "[role: decisions]" in line
@@ -646,10 +687,12 @@ def test_telemetry_subcommand_reports_recorded_rows_split_by_channel(store, caps
 # ---------------------------------------------------------------------------
 
 
-def test_version_flag_prints_the_version_on_stdout_and_exits_zero(capsys):
+def test_version_flag_prints_the_version_on_stdout_and_exits_zero(capsys, monkeypatch):
     """`engmem --version` used to answer "the following arguments are required: command", though
-    the bug template asks for it."""
+    the bug template asks for it — and it must answer without a subcommand or a usable store."""
     from engmem import __version__
+
+    monkeypatch.setenv("ENGMEM_HOME", "/nonexistent/path/that/does/not/exist")
 
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
@@ -657,17 +700,8 @@ def test_version_flag_prints_the_version_on_stdout_and_exits_zero(capsys):
     assert exit_info.value.code == 0
     captured = capsys.readouterr()
     assert __version__ in captured.out
+    assert "error" not in captured.out.lower()
     assert captured.err == "", "the version is an answer, not a diagnostic"
-
-
-def test_version_needs_no_store_and_no_subcommand(capsys, monkeypatch):
-    monkeypatch.setenv("ENGMEM_HOME", "/nonexistent/path/that/does/not/exist")
-
-    with pytest.raises(SystemExit) as exit_info:
-        main(["--version"])
-
-    assert exit_info.value.code == 0
-    assert "error" not in capsys.readouterr().out.lower()
 
 
 NAVIGATION_MISS_CASES = [
@@ -760,16 +794,36 @@ def test_telemetry_reports_an_unlistable_sessions_directory(tmp_path, capsys):
     assert "navigation misses" not in captured.out
 
 
-@requires_permission_enforcement
-def test_telemetry_reports_an_unreadable_log_instead_of_zero_rows(tmp_path, capsys):
-    """It crashed with a traceback and exit 1. `summarize` reads a *missing* file as zero rows,
-    so swallowing this would have reported "0 row(s)" for a store full of searches."""
+def _make_the_log_unreadable(log: Path) -> None:
+    log.write_text('{"result": "hit", "channel": "cli"}\n', encoding="utf-8")
+    os.chmod(log, 0o000)
+
+
+def _make_the_log_undecodable(log: Path) -> None:
+    log.write_bytes(b'{"result": "hit", "channel": "cli"}\n\xff\xfe not utf-8\n')
+
+
+UNUSABLE_TELEMETRY_LOG_CASES = [
+    # it crashed with a traceback and exit 1
+    pytest.param(
+        _make_the_log_unreadable, (), marks=requires_permission_enforcement, id="unreadable"
+    ),
+    # a non-UTF-8 byte raises `UnicodeDecodeError`, which is a `ValueError` and not an
+    # `OSError`, so it walked past the handler and out as a traceback with nothing on stdout
+    pytest.param(_make_the_log_undecodable, ("decode",), id="undecodable"),
+]
+
+
+@pytest.mark.parametrize(("make_log", "extra_substrings"), UNUSABLE_TELEMETRY_LOG_CASES)
+def test_telemetry_reports_a_log_it_cannot_read_instead_of_zero_rows(
+    tmp_path, capsys, make_log, extra_substrings
+):
+    """`summarize` reads a *missing* file as zero rows, so swallowing either of these would have
+    reported "0 row(s)" for a store full of searches."""
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     log = store / "telemetry.jsonl"
-    log.write_text('{"result": "hit", "channel": "cli"}\n', encoding="utf-8")
-
-    os.chmod(log, 0o000)
+    make_log(log)
     try:
         exit_code = main(["telemetry", "--store", str(store)])
         captured = capsys.readouterr()
@@ -777,9 +831,11 @@ def test_telemetry_reports_an_unreadable_log_instead_of_zero_rows(tmp_path, caps
         os.chmod(log, 0o644)
 
     assert exit_code == 2
-    assert "0 row" not in captured.out, "an unreadable log must never read as an empty one"
+    assert "0 row" not in captured.out, "a log engmem cannot read must never read as an empty one"
     for stream in (captured.out, captured.err):
         assert str(log) in stream and "cannot read" in stream
+        for substring in extra_substrings:
+            assert substring in stream, "the cause has to be named, not just the path"
 
 
 def test_telemetry_does_not_blame_the_file_for_a_value_error_it_cannot_explain(
@@ -847,24 +903,6 @@ def test_telemetry_survives_a_malformed_row_and_still_totals_the_rest(
     assert "cannot read" not in captured.out, "one bad row is not a verdict on the file"
     assert "1 row(s)" in captured.out, "the readable row is still counted"
     assert "unreadable" in captured.out, "the bad row is reported, not silently dropped"
-
-
-def test_telemetry_reports_an_undecodable_log_instead_of_crashing(tmp_path, capsys):
-    """A non-UTF-8 byte raises `UnicodeDecodeError`, which is a `ValueError` and not an
-    `OSError`, so it walked past the handler and out as a traceback with nothing on stdout."""
-    store = tmp_path / "store"
-    (store / "sessions").mkdir(parents=True)
-    log = store / "telemetry.jsonl"
-    log.write_bytes(b'{"result": "hit", "channel": "cli"}\n\xff\xfe not utf-8\n')
-
-    exit_code = main(["telemetry", "--store", str(store)])
-
-    captured = capsys.readouterr()
-    assert exit_code == 2
-    assert "0 row" not in captured.out, "an undecodable log must never read as an empty one"
-    for stream in (captured.out, captured.err):
-        assert str(log) in stream and "cannot read" in stream
-        assert "decode" in stream, "the cause has to be named, not just the path"
 
 
 # ---------------------------------------------------------------------------

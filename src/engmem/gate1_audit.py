@@ -32,18 +32,18 @@ class AuditReport:
     superseded_count: int
     backfilled_count: int  # ENGMEM-SPEC.md §4: "docs written after the fact" never ran the
     # ritual -- excluded from draft/active/superseded and from the missing-section lists below,
-    # counted here on its own (ARCH-103). Its sibling exclusion is `no_prereg_docs` below;
+    # counted here on its own. Its sibling exclusion is `no_prereg_docs` below;
     # a document matching both is counted here only.
 
     telemetry_error: str | None  # None when telemetry.jsonl was read cleanly; otherwise every
     # telemetry-derived field below is at its empty/zero default and must be rendered as
-    # UNMEASURED, never as a true zero (ARCH-101) -- gate1_report.py still exits 0
+    # UNMEASURED, never as a true zero -- gate1_report.py still exits 0
 
     telemetry_rows_with_session: int
     telemetry_distinct_sessions: int
 
     reuse_log_count: int  # any status, by section PRESENCE (`_has_role`) -- the same rule
-    # `active_missing_trace` uses (ARCH-102)
+    # `active_missing_trace` uses
     none_report_count: int  # gate1.Verdicts.none_reports, reused rather than re-derived
 
     no_prereg_docs: list[str] = field(default_factory=list)  # any status, not backfilled, no
@@ -81,11 +81,11 @@ def _in_window(row: SessionRow, since: datetime | None) -> bool:
 
 def _trace_value(doc: Doc) -> str | None:
     """The document's `## Search Trace` value, or `None` when the section is absent or no line
-    in it is EXACTLY `shell`/`paste`/`miss` (ARCH-107: an earlier, looser word-by-word reader
+    in it is EXACTLY `shell`/`paste`/`miss` (an earlier, looser word-by-word reader
     read a provenance claim out of ordinary prose in both directions -- a `miss` document
     scanned as `shell`, and a genuine `shell` document scanned as `miss`, whenever the section
     also carried a sentence mentioning the other words. Reverted to the exact whole-line match;
-    see contracts/gate1.md, "The audit coverage block," ARCH-107)."""
+    see contracts/gate1.md, "The telemetry figures," "Recorded reversal, the reader.")."""
     for section in split_sections(doc.body):
         if section.canonical != "trace":
             continue
@@ -100,7 +100,8 @@ def _has_role(doc: Doc, role: str) -> bool:
     """Section PRESENCE only -- a `## Reuse Log` holding only the template's own header row and
     separator (`templates/engmem.save.md`) still counts as present; content is a different
     question (`none_report_count`, or `gate1.py`'s row verdicts) -- see contracts/gate1.md,
-    "The audit coverage block," ARCH-102."""
+    "A separate module, and exactly one figure from `verdicts`," its "Recorded reversal."
+    paragraph."""
     return any(s.canonical == role for s in split_sections(doc.body))
 
 
@@ -120,7 +121,7 @@ def evaluate(
     # ENGMEM-SPEC.md §4: a `backfilled: true` document was "written after the fact" -- it never
     # started the ritual, never ran a search, never had a Pre-reg baseline. Excluded from the
     # ritual population (draft/active/superseded) and from the missing-section lists below;
-    # counted on its own rather than silently folded into either side (ARCH-103).
+    # counted on its own rather than silently folded into either side.
     backfilled_count = sum(1 for d in docs.values() if d.backfilled)
     # A missing `## Pre-reg` section is the evidence a `backfilled: true` flag nobody stamped
     # would have carried: the document never ran the ritual either. Counted once, under
@@ -151,7 +152,7 @@ def evaluate(
         # unreadable telemetry.jsonl (concurrent writers: cli.py and mcp_server.py) must not take
         # down the per-row table or the §11 endpoint figure it is printed alongside. Every
         # telemetry-derived field below stays at its empty/zero default; the renderer names them
-        # UNMEASURED rather than printing a false zero (ARCH-101).
+        # UNMEASURED rather than printing a false zero.
         all_session_rows = []
         telemetry_error = str(exc)
 
@@ -166,7 +167,7 @@ def evaluate(
     if telemetry_error is None:
         orphan_ids = sorted(sid for sid in sessions_by_id if sid not in docs)
         orphan_row_count = sum(len(sessions_by_id[sid]) for sid in orphan_ids)
-        # every document, ritual or not (ARCH-001): this figure fires on an affirmative claim a
+        # every document, ritual or not: this figure fires on an affirmative claim a
         # document makes about itself, and a claim is owed evidence whoever made it
         unreconstructable = sorted(
             d.id for d in docs.values()

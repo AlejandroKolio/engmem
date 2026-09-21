@@ -27,6 +27,7 @@ from engmem.scoring import role_coverage, search as run_search, search_with_role
 from engmem.sections import CANONICAL_ROLES
 from engmem.spine import Doc, LoadResult, load_store, sessions_dir_unreadable, stray_documents
 from engmem.telemetry import (
+    UNATTRIBUTED_CLI_NOTE,
     log_role_search,
     log_search,
     summarize as summarize_telemetry,
@@ -109,6 +110,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return failure
 
     strays = _report_strays(store)
+    session_id = _session_id(args.session)
 
     if args.role is not None:
         role_outcome, role_map = search_with_role_sections(result.docs, args.query)
@@ -129,12 +131,14 @@ def _cmd_search(args: argparse.Namespace) -> int:
             role=args.role,
             n_docs=len(result.docs),
             role_hits=role_hits,
-            session_id=_session_id(args.session),
+            session_id=session_id,
             channel="cli",
             context_bytes=len(role_result_text.encode("utf-8")),
         )
         if telemetry_error is not None:
             print(f"note: telemetry not recorded ({telemetry_error})")
+        if session_id is None:
+            print(UNATTRIBUTED_CLI_NOTE)
 
         return 0
 
@@ -157,7 +161,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         query=args.query,
         n_docs=len(result.docs),
         outcome=outcome,
-        session_id=_session_id(args.session),
+        session_id=session_id,
         channel="cli",
         context_bytes=len(result_text.encode("utf-8")),
     )
@@ -165,6 +169,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
         # search already succeeded; report the telemetry gap on stdout rather
         # than crash (discarding good results) or stay silent (agent misses it)
         print(f"note: telemetry not recorded ({telemetry_error})")
+    if session_id is None:
+        print(UNATTRIBUTED_CLI_NOTE)
 
     return 0
 

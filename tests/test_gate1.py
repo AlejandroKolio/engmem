@@ -99,58 +99,48 @@ def test_a_matching_quote_is_verified(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_harmful_classification_is_read_and_excludes_the_row(tmp_path):
+@pytest.mark.parametrize("classification, expected_reason", [
+    pytest.param("harmful", "excluded: classification harmful", id="harmful"),
+    pytest.param("anti-reuse", "excluded: classification anti-reuse", id="anti-reuse"),
+])
+def test_a_written_classification_other_than_reuse_is_read_and_excludes_the_row(
+    tmp_path, classification, expected_reason
+):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
     _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification="harmful"))
+         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification=classification))
 
     row = _one_row(tmp_path)
 
-    assert row.classification == "harmful"
-    assert row.integrity == "verified", "harmful is a classification fact, not a citation defect"
-    assert gate1.exclusion_reason(row) == "excluded: classification harmful"
-    assert not gate1.is_valid(row)
-
-
-def test_anti_reuse_classification_is_read_and_excludes_the_row(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification="anti-reuse"))
-
-    row = _one_row(tmp_path)
-
-    assert row.classification == "anti-reuse"
-    assert row.integrity == "verified", "anti-reuse is a classification fact, not a citation defect"
+    assert row.classification == classification
+    assert row.integrity == "verified", "the cell is a classification fact, not a citation defect"
     assert row.distance == "distant", "the exclusion must hold even where the row would otherwise count"
-    assert gate1.exclusion_reason(row) == "excluded: classification anti-reuse"
+    assert gate1.exclusion_reason(row) == expected_reason
     assert not gate1.is_valid(row)
     assert not gate1.is_primary_candidate(row), "a genuine influence event still isn't a reuse event"
 
 
-def test_a_three_column_row_has_a_missing_classification_not_an_indexerror(tmp_path):
+@pytest.mark.parametrize("body", [
+    pytest.param(
+        "## 16. Reuse Log\n\n| prior-doc | taken | impact |\n|---|---|---|\n"
+        "| widget-cache-v1 | `x` -- \"Eviction runs on boot.\" | reused it |\n",
+        id="column-absent",
+    ),
+    pytest.param(
+        _reuse("widget-cache-v1", "Eviction runs on boot.", classification=""),
+        id="cell-blank",
+    ),
+])
+def test_a_classification_the_row_never_states_is_missing_not_an_indexerror(tmp_path, body):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body="## 16. Reuse Log\n\n| prior-doc | taken | impact |\n|---|---|---|\n"
-              "| widget-cache-v1 | `x` -- \"Eviction runs on boot.\" | reused it |\n")
+    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]", body=body)
 
     row = _one_row(tmp_path)
 
     assert row.classification == "missing"
     assert gate1.exclusion_reason(row) == "excluded: classification cell missing"
-
-
-def test_a_blank_classification_cell_is_missing_not_reuse(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
-    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Eviction runs on boot.", classification=""))
-
-    row = _one_row(tmp_path)
-
-    assert row.classification == "missing"
 
 
 @pytest.mark.parametrize("written", ["resue", "missing", "unrecognized"])
@@ -200,12 +190,12 @@ def test_an_active_cited_document_is_cited_active(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# axis C -- distance, including the undecidable case (requirement 5)
+# axis C -- distance, including the undecidable case
 # ---------------------------------------------------------------------------
 
 
 def test_the_flow_sequence_edge_case_no_longer_diverges_from_spine(tmp_path):
-    """ARCH-004 regression: `_repos` used to find the front-matter boundary with its own
+    """Regression: `_repos` used to find the front-matter boundary with its own
     substring search, which stopped early on a line beginning `---` inside a legitimately
     continued flow sequence, while `spine.split_front_matter`'s whole-line search correctly
     skipped past it. `_repos` now reuses `spine.split_front_matter` directly, so this
@@ -229,7 +219,7 @@ def test_the_flow_sequence_edge_case_no_longer_diverges_from_spine(tmp_path):
 
 
 def test_unparseable_front_matter_is_undecidable_never_distant(tmp_path):
-    """ARCH-001/ARCH-004: after the flow-sequence divergence above was removed at its source,
+    """After the flow-sequence divergence above was removed at its source,
     the only genuinely unreadable `repos` value left is one `spine._coerce_list_field` also
     cannot read -- a mapping here, neither a list nor a string. The document still loads fine
     (`repos` is not a spine field), so this is not a load failure."""
@@ -253,22 +243,9 @@ def test_unparseable_front_matter_is_undecidable_never_distant(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ARCH-001 -- a bare scalar `repos` value must degrade to a one-element set, like every other
+# a bare scalar `repos` value must degrade to a one-element set, like every other
 # list field (spine._coerce_list_field), not silently read as "no repos"
 # ---------------------------------------------------------------------------
-
-
-def test_a_scalar_repos_value_makes_dogfooding_reachable(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", repos="engmem",
-         body="## 8. Decision Log\n\nWidget flush runs eagerly.")
-    _doc(sessions, "story", tags="[sweeper]", repos="engmem",
-         body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
-
-    row = _one_row(tmp_path)
-
-    assert row.dogfooding
-    assert gate1.exclusion_reason(row) == "excluded: dogfooding (story about this repository)"
 
 
 def test_a_scalar_repos_value_still_makes_a_shared_repo_adjacent(tmp_path):
@@ -297,29 +274,26 @@ def test_an_adjacent_row_stays_open_for_the_human_not_auto_excluded(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# requirement 4 -- dogfooding
+# dogfooding -- read from the CITING document's own `repos`, whichever way it is spelled
 # ---------------------------------------------------------------------------
 
 
-def test_a_story_about_this_repo_is_excluded_as_dogfooding(tmp_path):
+@pytest.mark.parametrize("repos", [
+    pytest.param("[engmem]", id="list"),
+    pytest.param("engmem", id="scalar"),
+])
+def test_a_story_about_this_repo_is_excluded_as_dogfooding(tmp_path, repos):
+    # the cited document stays on the default `[platform-core]`, so a reading that
+    # consulted it instead of the citing document would miss on both spellings
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nWidget flush runs eagerly.")
-    _doc(sessions, "story", tags="[sweeper]", repos="[engmem]",
+    _doc(sessions, "story", tags="[sweeper]", repos=repos,
          body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
 
     row = _one_row(tmp_path)
 
     assert row.dogfooding
     assert gate1.exclusion_reason(row) == "excluded: dogfooding (story about this repository)"
-
-
-def test_repos_naming_a_different_repo_is_not_dogfooding(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nWidget flush runs eagerly.")
-    _doc(sessions, "story", tags="[sweeper]", repos="[sweeper-svc]",
-         body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
-
-    assert not _one_row(tmp_path).dogfooding
 
 
 def test_repos_on_a_document_with_no_front_matter_at_all_is_an_empty_set(tmp_path):
@@ -337,27 +311,24 @@ def test_repos_on_a_document_with_no_front_matter_at_all_is_an_empty_set(tmp_pat
 # ---------------------------------------------------------------------------
 
 
-def test_a_draft_documents_own_reuse_row_is_excluded_from_the_count(tmp_path):
+@pytest.mark.parametrize("status, superseded_by, expected_reason", [
+    pytest.param("draft", "", "excluded: citing document status is draft", id="draft"),
+    pytest.param("superseded", "story-v2",
+                 "excluded: citing document status is superseded", id="superseded"),
+])
+def test_a_citing_documents_own_reuse_row_is_excluded_when_it_is_not_active(
+    tmp_path, status, superseded_by, expected_reason
+):
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nWidget flush runs eagerly.")
-    _doc(sessions, "story", status="draft", tags="[sweeper]", repos="[sweeper-svc]",
+    _doc(sessions, "story-v2", tags="[sweeper]", repos="[sweeper-svc]")
+    _doc(sessions, "story", status=status, superseded_by=superseded_by,
+         tags="[sweeper]", repos="[sweeper-svc]",
          body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
 
     row = _one_row(tmp_path)
 
-    assert gate1.exclusion_reason(row) == "excluded: citing document status is draft"
-
-
-def test_a_superseded_documents_own_reuse_row_is_excluded_from_the_count(tmp_path):
-    sessions = tmp_path / "sessions"
-    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nWidget flush runs eagerly.")
-    _doc(sessions, "story", status="superseded", superseded_by="story-v2",
-         tags="[sweeper]", repos="[sweeper-svc]", body=_reuse("widget-cache-v1", "Widget flush runs eagerly."))
-    _doc(sessions, "story-v2", tags="[sweeper]", repos="[sweeper-svc]")
-
-    row = _one_row(tmp_path)
-
-    assert gate1.exclusion_reason(row) == "excluded: citing document status is superseded"
+    assert gate1.exclusion_reason(row) == expected_reason
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +450,8 @@ def test_the_report_table_joins_axes_as_bare_values(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# exclusion_reason's axis order (contracts/gate1.md, ARCH-005) -- first applicable wins
+# exclusion_reason's axis order (contracts/gate1.md, "Who fills the last column") -- first
+# applicable wins
 # ---------------------------------------------------------------------------
 
 

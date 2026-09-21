@@ -1,123 +1,110 @@
 # Contract: section splitting and role resolution
 
-Source: `src/engmem/sections.py`. Splits a document body into `Section`s on `##`
-headings (sub-splitting oversized ones on `###`) and resolves each heading to a
-stable canonical role.
+Source: `src/engmem/sections.py`. Splits a document body into `Section`s on `##` headings,
+sub-splitting oversized ones on `###`, and resolves each heading to a stable canonical role;
+`scoring` ranks over the pieces and `--role` addresses them.
+
+## Invariants
+
+- `split_sections` tokenises nothing and is not cached: it measures well under a millisecond
+  per document at an 800-document corpus. The expensive step is the tokenisation downstream,
+  which `scoring` caches on disk (`contracts/cache.md`).
+- A change here that alters what a cached payload holds for a document whose bytes did not
+  change — the `canonical` a heading resolves to, or the section boundaries themselves — needs
+  a `cache.CACHE_FORMAT_VERSION` bump, because `cache.identity_for` cannot see it. Role
+  inheritance took the bump to 2; tolerating 0-3 leading spaces before a heading took it to
+  3, without which a document that had been losing a section to that defect would keep losing
+  it until it happened to be edited.
+- The anchor is the heading's slug with any ordinal prefix stripped (`_ORDINAL_PREFIX_RE`),
+  so it survives renumbering that touches no content; `index` is a display convenience only.
+  Slugs go through NFKD and drop combining marks, so `Müller` slugs to `muller`, not `m-ller`;
+  a heading with no sluggable characters gets `section`.
 
 ## `MAX_SECTION_BYTES`
 
-Measured on a real 9-document corpus: splitting only on `##` leaves 10 sections
-over the 4096-byte cap (max 13.53 KB). Sub-splitting those on `###` drops the
-over-cap count to 2 (max 4.29 KB) — a couple of dense reference sections with no
-`###` boundary at all. See task brief B2 for the full measurement table.
+Measured on a 9-document corpus: splitting only on `##` leaves 10 sections over the 4096-byte
+cap (max 13.53 KB); sub-splitting those on `###` drops the over-cap count to 2 (max 4.29 KB),
+both dense reference sections with no `###` boundary. A section with no `###` is returned
+whole rather than chunked at invented boundaries; text before the first `###` keeps the parent
+heading, since it is lead-in, not a subsection.
 
-A subsection produced by that sub-split inherits the parent section's canonical role
-unless its own heading names one. Splitting is a size decision, not a semantic one: without
-inheritance the role survived only on the text before the first `###`, so a section that
-opened straight onto its first subheading lost its role entirely — `sections_for_role`
-returned nothing and `sections_by_locator` had no entry for it. Because the role's content
-is then spread over several `Section`s, a consumer that needs the whole of it (`backfill`
-reading `Search Keywords`) must use `sections_for_role`, which returns every piece in
-document order; `sections_by_locator` and `scoring._role_index_from_entries` keep returning
-one section, which is the right answer for a reader being pointed at a place to look.
+## Role inheritance across a sub-split
 
-Which one is not simply "the first". An inherited role loses to a section whose own heading
-names that role, wherever each sits in the document: `CANONICAL_ALIASES` maps several
-headings onto one role (`architecture`/`system architecture`, `business context`/`glossary`),
-so a document can hold two sections answering for one role, and without this rule an
-oversized `## Business Context` splitting into `### Actors` would take `context` away from
-the `## Glossary` below it — pointing a `--role` reader at a subheading that does not name
-the role at all. `role_is_inherited` is that test, and both indexes make two passes with it.
+A `###` piece inherits the parent's role unless its own heading names one. Splitting is a size
+decision, not a semantic one: without inheritance the role survived only on the lead-in, so a
+section opening straight onto its first `###` lost its role entirely. The role's content is
+then spread over several `Section`s, so a consumer that needs all of it (`backfill` reading
+`keywords`) uses `sections_for_role`, which returns every piece in document order;
+`sections_by_locator` and `scoring._role_index_from_entries` return one section, the right
+answer for a reader being pointed at a place to look.
 
-Changing this changed the `canonical` values written into the section cache, so
-`cache.CACHE_FORMAT_VERSION` was bumped to 2 — entries written before it are ignored rather
-than served with stale roles for files whose mtime and size never changed.
-
-The same applies to section *boundaries*, not just role values: widening the ATX/setext
-heading regexes to tolerate 0-3 leading spaces (see "Heading regexes" and "Setext headings"
-below) changes which text lands in which section for a document whose bytes — and therefore
-`cache.identity_for` — never change. `CACHE_FORMAT_VERSION` was bumped to 3 for this reason;
-without the bump, a document that was silently losing a section to this exact bug would keep
-losing it after the fix shipped, until the document happened to be edited again.
-
-`split_sections` deliberately does no tokenisation and is not cached — it measures
-well under a millisecond per document even at an 800-document corpus. The expensive
-step downstream is BM25 tokenisation, which `engmem.scoring` caches on disk keyed
-on file identity (see `cache.py`).
+Which one is not simply the first. `CANONICAL_ALIASES` maps several headings onto one role, so
+a document can hold two sections answering for it, and an inherited role loses to a section
+whose own heading names the role wherever each sits in the document: otherwise an oversized
+`## Business Context` splitting into `### Actors` takes `context` away from the `## Glossary`
+below it and points a `--role` reader at a subheading that does not name the role.
+`role_is_inherited` is that test, and both indexes make two passes with it; an inherited role
+still answers when nothing else claims it.
 
 ## Heading regexes
 
-`^[ \t]{0,3}` before the hash run mirrors CommonMark's own allowance: an ATX heading
-may carry up to 3 leading spaces (or tabs, counted as characters here, not columns —
-see the caveat below) before the `#`s; 4+ is an indented code block, not a heading.
-`_H2_RE`/`_H3_RE` diverged from this for a stretch, so a heading indented by 1-3
-spaces — an easy accident from an editor's auto-indent or an LLM-authored document —
-silently lost its own section and its content was folded into whichever section
-came before it. `_FENCE_RE` already carried the same `[ \t]{0,3}` allowance, so
-this brings headings in line with fences rather than introducing new leniency.
+`_H2_RE`/`_H3_RE` allow up to 3 leading spaces or tabs before the hashes — CommonMark's own
+ATX allowance (4+ is an indented code block), and the same `[ \t]{0,3}` `_FENCE_RE` already
+carried. Without it a heading indented by an editor's auto-indent or an LLM silently folded
+its content into the section before it. `(?:[ \t]+#+)?` eats the optional closing hashes of
+`## X ##` so they do not break canonical lookup; the run must be space-separated, so `C#` in
+heading text is untouched.
 
-`(?:[ \t]+#+)?` matches ATX's optional closing sequence (`## X ##`) so the trailing
-hashes don't survive into the heading text and break canonical lookup. The run must
-be space-separated so `C#` in heading text is untouched.
-
-Caveat: CommonMark measures indentation in columns, where a tab advances to the next
-4-column stop (so a single leading tab is already "4 spaces" and should read as
-indented code). `[ \t]{0,3}` counts characters, not columns, so a tab-indented
-heading is recognised here where a strict CommonMark parser would not. This mirrors
-`_FENCE_RE`'s pre-existing behaviour and is deliberately not fixed for the same
-reason `_FENCE_RE` never was: a leading tab in a markdown heading is not a pattern
-this project's documents produce.
+Headings inside a matched fence pair are sample output, not structure, and are skipped. A
+pair is backtick or tilde, and its closer is the same character, no shorter, with no info
+string.
 
 ## Setext headings
 
-`_rewrite_setext` folds `Title\n-----` to `## Title` so underline-style headings
-don't collapse into one anonymous section. Only `---` folds, never `===` (document
-title, not a section); the text line's first character may not be a list, table,
-quote, or heading marker, and the underline must be 3+ dashes, so horizontal rules
-are left alone. The text line also rejects an ordered-list marker (`\d{1,9}[.)]`
-followed by whitespace) — CommonMark reads "2. Chose Z" over "---" as a list item
-followed by a thematic break, never a heading, and folding it anyway silently
-truncated the roled section above it at its last numbered item.
+`_rewrite_setext` folds `Title\n---` to `## Title` before `##` is looked for, so
+underline-style headings do not collapse into one anonymous section. Only `---` folds, never
+`===` (the document's own title); the underline is 3+ dashes; and the text line cannot start
+with a list, table, quote or heading marker, nor be an ordered-list marker (`\d{1,9}[.)]` then
+whitespace) — CommonMark reads "2. Chose Z" over "---" as a list item followed by a thematic
+break, and folding it truncated the roled section above at its last numbered item — so this
+project's horizontal rules stay rules. Both lines tolerate the same 0-3 leading spaces as the
+ATX regexes, for the same reason.
 
-Both the text line and the underline line tolerate the same 0-3 leading spaces as
-the ATX regexes, for the same reason — an indented setext heading used to drop out
-of a document's section structure entirely, since setext folding runs before `##`
-is ever looked for. In a document whose headings are all setext, this collapsed the
-whole document into one anonymous `body` section; in a document that mixes setext
-with ATX `##` headings, only the indented setext heading's own section was lost, not
-the rest of the document.
+## Where the splitter diverges from CommonMark on purpose
 
-The tab-vs-column caveat above (`_H2_RE`/`_H3_RE`) applies here too, and in the
-opposite direction: a tab-indented underline (`A\n\t---`) or a tab-indented text line
-(`\tA\n---`) is read as a heading here where CommonMark reads none, since `[ \t]{0,3}`
-counts the tab as one character, not a 4-column indent. Where the ATX caveat is the
-section-missing direction (a genuine heading not recognised), this one is
-section-inventing — text that is not a heading gets folded into one. Unlike the ATX
-caveat above, which mirrors `_FENCE_RE`'s pre-existing behaviour, this divergence is
-introduced by the `[ \t]{0,3}` allowance itself: the previous pattern required the
-dash run to follow the newline immediately, so a tab blocked the fold, and the
-previous text-line class rejected a leading tab outright as whitespace. Accepted
-knowingly, for the same reason: not a pattern this project's documents produce.
+`tests/test_commonmark_parity.py` keeps the regexes beside a real parser. The agreements it
+pins are the rules above; three divergences are deliberate, and each has its own test there,
+named `diverges_on_purpose`, asserting both halves — a section from `split_sections`, no `h2`
+from the parser:
+
+- An unclosed fence does not run to end of document: only matched pairs count, or one stray
+  fence hides every heading after it.
+- A blockquoted heading (`> ## ...`) opens no section: a quoted heading is another document's,
+  and opening a section there files our prose under someone else's title.
+- Tabs count as characters, not 4-column stops. A tab-indented ATX heading is recognised where
+  CommonMark reads indented code (mirroring `_FENCE_RE`); a tab-indented setext text line or
+  underline is folded where CommonMark reads no heading (introduced by the `[ \t]{0,3}`
+  allowance itself). Both accepted because a leading tab in a heading is not a pattern this
+  project's documents produce.
 
 ## `_fold_trailing_parenthetical`
 
-Strips exactly one outermost trailing `(...)` clause and retries the alias table —
-e.g. "architecture (the read path)" -> "architecture". Bounded to "prefix + one
-trailing bracket", not general prefix matching: an unbounded prefix match would
-wrongly fold "Testing Knowledge Gaps" onto "testing knowledge" (a distinct
-open-questions section) and "Decision Log Review Notes" onto "decision log" (an
-index of *other* documents' logs) — neither has a trailing bracket, so neither
-folds.
+Strips exactly one outermost trailing `(...)` and retries the alias table — "architecture (the
+read path)" -> "architecture". Rejected: general prefix matching, which would fold "Testing
+Knowledge Gaps" onto "testing knowledge" (a distinct open-questions section) and "Decision Log
+Review Notes" onto "decision log" (an index of *other* documents' logs); neither has a trailing
+bracket, so neither folds.
 
 ## `CANONICAL_ALIASES`
 
-A flat, hand-authored literal-match table, not a fuzzy matcher — real documents
-spell the same section role differently across authors and revisions, and the
-spelling set is small enough to enumerate. Extend it as new spellings turn up.
+A flat, hand-authored literal-match table, not a fuzzy matcher: real documents spell one role
+differently across authors and revisions, and the set is small enough to enumerate. Extend it
+as new spellings turn up. Lookup runs on the heading with its ordinal stripped,
+NFKC-normalised, whitespace-collapsed and casefolded.
 
-Measured on the 9-document corpus; each role below is carried by 2+ documents
-under 2+ spellings, or is one of engmem's own operational roles (`prereg`/`reuse`/
-`trace`, one spelling each, named for stable `--role` addressing).
+Measured on the 9-document corpus; each role below is carried by 2+ documents under 2+
+spellings, or is one of engmem's own operational roles (`prereg`/`reuse`/`trace`, one spelling
+each, named for stable `--role` addressing).
 
 | canonical | observed spellings | coverage |
 |---|---|---|
@@ -141,21 +128,19 @@ under 2+ spellings, or is one of engmem's own operational roles (`prereg`/`reuse
 | `reuse` | Reuse Log | 2/9 |
 | `trace` | Search Trace | 2/9 |
 
-Notes on entries that are not simple 1:1 folds:
-- `landmines` merges into `lessons` — both name the pitfalls-surfaced role, split
-  only by document era, not by meaning; splitting would fragment recall for the
-  same failure a Production Considerations section might also answer.
-- `context`, `architecture`, `primer`, `acceptance` each list a bracket-free "base"
-  spelling even where it was not independently observed, so `_fold_trailing_parenthetical`
-  has something to resolve to. `domain & technical glossary` and bare `glossary` are
-  separate spellings, not bracket variants of each other, so each has its own entry.
-  `architecture (the read path)` drops "System" entirely, so bare `architecture` is
-  its own entry, not just a fold target of `system architecture`.
+Entries that are not simple 1:1 folds:
+- `landmines` merges into `lessons`: both name the pitfalls-surfaced role, split by document
+  era, not by meaning, and splitting them would fragment recall.
+- `context`, `architecture`, `primer`, `acceptance` each list a bracket-free base spelling
+  even where it was not independently observed, so `_fold_trailing_parenthetical` has
+  something to resolve to. `domain & technical glossary` and bare `glossary` are separate
+  spellings, not bracket variants of each other; `architecture (the read path)` drops
+  "System" entirely, so bare `architecture` is its own entry.
 
 ## `CANONICAL_ROLES`
 
-Derived from `CANONICAL_ALIASES`'s own values, not hand-listed, so the CLI
-`--role` validation, the MCP role tool's schema enum, and `engmem roles` share one
-source of truth and a role added later cannot be forgotten in a second place. Every
-role also resolves to its own bare name (`self.value: value`), since templates and
-other agents write the short form directly (e.g. plain `## Testing`).
+Derived from `CANONICAL_ALIASES`'s own values, not hand-listed, so CLI `--role` validation, the
+MCP role tool's schema enum and `engmem roles` share one source of truth and a role added
+later cannot be forgotten in a second place. Every role also resolves to its own bare name,
+derived the same way, since templates and other agents write the short form directly (plain
+`## Testing`).

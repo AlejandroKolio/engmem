@@ -3,8 +3,6 @@ workflow."""
 
 from __future__ import annotations
 
-import io
-import json
 import os
 import stat
 from pathlib import Path
@@ -18,57 +16,14 @@ from conftest import (
     requires_posix_modes,
     requires_symlinks,
 )
+from mcp_harness import _call, _run, _text, _tools_call_msg
 
 from engmem import mcp_server
-from engmem.mcp_server import serve
 from engmem.spine import load_store, split_front_matter
 
 CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
 COMPLETE_TOOL = mcp_server.COMPLETE_DRAFT_TOOL_NAME
 SUPERSEDE_TOOL = mcp_server.MARK_SUPERSEDED_TOOL_NAME
-
-
-# ---------------------------------------------------------------------------
-# helpers — deliberately self-contained rather than imported from
-# test_mcp_server.py, so this file has no coupling to that one's fixtures.
-# ---------------------------------------------------------------------------
-
-
-def _stdin_of_messages(*messages: dict) -> io.StringIO:
-    text = "".join(json.dumps(m) + "\n" for m in messages)
-    return io.StringIO(text)
-
-
-def _run(store: Path, *messages: dict) -> tuple[int, list[dict], str]:
-    stdin = _stdin_of_messages(*messages)
-    stdout = io.StringIO()
-    exit_code = serve(store, stdin=stdin, stdout=stdout)
-    raw = stdout.getvalue()
-    responses = []
-    for line in raw.splitlines():
-        assert line.strip(), "blank stdout line — must never be written"
-        responses.append(json.loads(line))  # raises loudly if a frame is not JSON
-    return exit_code, responses, raw
-
-
-def _call_msg(msg_id: int, *, name: str, arguments: dict) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": msg_id,
-        "method": "tools/call",
-        "params": {"name": name, "arguments": arguments},
-    }
-
-
-def _call(store: Path, *, name: str, arguments: dict) -> tuple[dict, bool]:
-    """Runs a single tools/call and returns (result, is_error)."""
-    _, responses, _ = _run(store, _call_msg(1, name=name, arguments=arguments))
-    result = responses[0]["result"]
-    return result, bool(result.get("isError"))
-
-
-def _text(result: dict) -> str:
-    return result["content"][0]["text"]
 
 
 @pytest.fixture
@@ -79,6 +34,18 @@ def store(tmp_path) -> Path:
 
 def _sessions_files(store: Path) -> list[str]:
     return sorted(p.name for p in (store / "sessions").iterdir())
+
+
+def _sessions_snapshot(store: Path) -> dict[str, str]:
+    """Name -> content for everything under `sessions/`: what a refused write must leave
+    untouched, whether or not the document it names exists yet."""
+    return {p.name: p.read_text(encoding="utf-8") for p in (store / "sessions").iterdir()}
+
+
+def _write_raw(store: Path, doc_id: str, content: str) -> Path:
+    path = store / "sessions" / f"{doc_id}.md"
+    path.write_text(content, encoding="utf-8")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -144,27 +111,65 @@ def test_create_draft_rejects_status_other_than_draft(store):
     assert _sessions_files(store) == []
 
 
-def test_create_draft_rejects_id_mismatch_between_argument_and_front_matter(store):
-    result, is_error = _call(
-        store, name=CREATE_TOOL, arguments={"id": "20260101-something-else", "content": DRAFT_CONTENT}
-    )
+# --- the two content-writing tools share the same front-matter checks; each row differs only
+# in which leg of the draft -> active transition is being asked for.
+
+_MISMATCHED_ACTIVE = ACTIVE_CONTENT.replace(
+    "id: 20260101-widget-cache", "id: 20260101-something-else"
+)
+
+
+@pytest.mark.parametrize(
+    "tool, existing, doc_id, content",
+    [
+        pytest.param(CREATE_TOOL, None, "20260101-something-else", DRAFT_CONTENT, id="create"),
+        pytest.param(
+            COMPLETE_TOOL,
+            DRAFT_CONTENT,
+            "20260101-widget-cache",
+            _MISMATCHED_ACTIVE,
+            id="complete",
+        ),
+    ],
+)
+def test_a_write_tool_rejects_an_id_that_does_not_match_the_front_matter(
+    store, tool, existing, doc_id, content
+):
+    if existing is not None:
+        _write_raw(store, "20260101-widget-cache", existing)
+    before = _sessions_snapshot(store)
+
+    result, is_error = _call(store, name=tool, arguments={"id": doc_id, "content": content})
 
     assert is_error
     assert "20260101-something-else" in _text(result)
     assert "20260101-widget-cache" in _text(result)
-    assert _sessions_files(store) == []
+    assert _sessions_snapshot(store) == before
 
 
-def test_create_draft_rejects_unparseable_content_no_traceback(store):
-    broken = "---\nid: 20260101-widget-cache\nstatus: draft\n"  # unclosed front matter
+@pytest.mark.parametrize(
+    "tool, existing, status",
+    [
+        pytest.param(CREATE_TOOL, None, "draft", id="create"),
+        pytest.param(COMPLETE_TOOL, DRAFT_CONTENT, "active", id="complete"),
+    ],
+)
+def test_a_write_tool_rejects_unparseable_content_without_a_traceback(
+    store, tool, existing, status
+):
+    if existing is not None:
+        _write_raw(store, "20260101-widget-cache", existing)
+    before = _sessions_snapshot(store)
+    broken = f"---\nid: 20260101-widget-cache\nstatus: {status}\n"  # unclosed front matter
 
     result, is_error = _call(
-        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": broken}
+        store, name=tool, arguments={"id": "20260101-widget-cache", "content": broken}
     )
 
     assert is_error
+    assert "does not parse" in _text(result)
     assert "Traceback" not in _text(result)
-    assert _sessions_files(store) == []
+    assert _sessions_snapshot(store) == before
 
 
 @pytest.mark.parametrize(
@@ -172,13 +177,18 @@ def test_create_draft_rejects_unparseable_content_no_traceback(store):
     [
         (CREATE_TOOL, {"content": DRAFT_CONTENT}, "id"),
         (CREATE_TOOL, {"id": "20260101-widget-cache"}, "content"),
+        (COMPLETE_TOOL, {"id": "20260101-widget-cache"}, "content"),
+        (SUPERSEDE_TOOL, {"id": "20260101-widget-cache"}, "superseded_by"),
     ],
-    ids=["create_missing_id", "create_missing_content"],
+    ids=["create_missing_id", "create_missing_content", "complete_missing_content",
+         "supersede_missing_superseded_by"],
 )
-def test_create_draft_missing_required_argument_is_invalid_params(
+def test_a_write_tool_missing_a_required_argument_is_invalid_params(
     store, name, arguments, missing_field
 ):
-    _, responses, _ = _run(store, _call_msg(1, name=name, arguments=arguments))
+    """The schema check runs in `_handle_tools_call` before the handler reads anything, so no
+    document has to exist on disk for any of these."""
+    _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
 
     assert responses[0]["error"]["code"] == -32602
     assert missing_field in responses[0]["error"]["message"]
@@ -280,7 +290,7 @@ def test_create_draft_with_empty_id_is_invalid_params(store):
     """An empty `id` fails the schema check at protocol level, before `_ToolError` is even in
     play."""
     _, responses, _ = _run(
-        store, _call_msg(1, name=CREATE_TOOL, arguments={"id": "", "content": DRAFT_CONTENT})
+        store, _tools_call_msg(1, name=CREATE_TOOL, arguments={"id": "", "content": DRAFT_CONTENT})
     )
 
     assert responses[0]["error"]["code"] == -32602
@@ -311,12 +321,6 @@ def test_create_draft_rejects_a_sessions_dir_that_is_a_symlink_out_of_the_store(
 # ---------------------------------------------------------------------------
 
 
-def _write_raw(store: Path, doc_id: str, content: str) -> Path:
-    path = store / "sessions" / f"{doc_id}.md"
-    path.write_text(content, encoding="utf-8")
-    return path
-
-
 def test_complete_draft_transitions_status_from_draft_to_active(store):
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
 
@@ -344,16 +348,47 @@ def test_complete_draft_transitions_status_from_draft_to_active(store):
     assert "## Search Trace" in doc.body
 
 
-def test_complete_draft_warns_but_still_succeeds_on_an_unverifiable_citation(store):
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace(
+# a sentence that really is in the cited document, so only the defect under test is left
+_QUOTE = '"Chose CacheWarmer over a lazy cache fill"'
+
+
+def _with_reuse_rows(*rows: str) -> str:
+    return ACTIVE_CONTENT.replace(
         "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
         "## Reuse Log\n\n"
         "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        '| some-prior-doc.md | "a quote that cannot be checked" | helped | reuse |\n\n'
+        "|---|---|---|---|\n" + "".join(f"{row}\n" for row in rows) + "\n"
         "## Search Trace",
     )
+
+
+def _write_cited_doc(store: Path) -> None:
+    _write_raw(
+        store,
+        "20260101-other-doc",
+        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "cited, quote",
+    [
+        pytest.param("some-prior-doc.md", "a quote that cannot be checked", id="no_such_document"),
+        pytest.param(
+            "20260101-other-doc.md",
+            "Chose CacheWarmer over a lazy cache fill",
+            id="md_suffix_on_a_real_id",
+        ),
+    ],
+)
+def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
+    store, cited, quote
+):
+    """A document's id is its front-matter `id`, else the filename stem — never the filename, so
+    a `.md` suffix never resolves and the warning must still name the row."""
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = _with_reuse_rows(f'| {cited} | "{quote}" | helped | reuse |')
 
     result, is_error = _call(
         store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
@@ -363,57 +398,19 @@ def test_complete_draft_warns_but_still_succeeds_on_an_unverifiable_citation(sto
     text = _text(result)
     assert "draft" in text and "active" in text
     assert "warning" in text.lower()
-    assert "some-prior-doc.md" in text
+    assert cited in text
+    assert "not in the store" in text
+    assert "20260101-widget-cache.md:" in text
+    assert "prior-doc takes the document's id" in text
     assert "tools/verify_citations.py --store" in text
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == content
 
 
-def test_complete_draft_cited_id_with_md_suffix_is_reported_as_a_citation_problem(store):
-    """A document's id is its front-matter `id`, else the filename stem — never the filename,
-    so a `.md` suffix never resolves and the warning must still name the row."""
-    _write_raw(
-        store,
-        "20260101-other-doc",
-        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
-    )
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace(
-        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
-        "## Reuse Log\n\n"
-        "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        '| 20260101-other-doc.md | "Chose CacheWarmer over a lazy cache fill" | helped | reuse |\n\n'
-        "## Search Trace",
-    )
-
-    result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
-    )
-
-    assert not is_error
-    text = _text(result)
-    assert "20260101-other-doc.md" in text
-    assert "not in the store" in text
-    assert "20260101-widget-cache.md:" in text
-    assert "prior-doc takes the document's id" in text
-
-
 def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
-    _write_raw(
-        store,
-        "20260101-other-doc",
-        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
-    )
+    _write_cited_doc(store)
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace(
-        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
-        "## Reuse Log\n\n"
-        "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        '| 20260101-other-doc | "Chose CacheWarmer over a lazy cache fill" | helped | reuse |\n\n'
-        "## Search Trace",
-    )
+    content = _with_reuse_rows(f"| 20260101-other-doc | {_QUOTE} | helped | reuse |")
 
     result, is_error = _call(
         store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
@@ -425,40 +422,114 @@ def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
     assert "warning" not in text.lower()
 
 
-def test_complete_draft_warns_on_a_row_with_no_quote(store):
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace(
-        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
-        "## Reuse Log\n\n"
-        "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        "| some-prior-doc | used it without a direct quote | helped | reuse |\n\n"
-        "## Search Trace",
-    )
-
+def _refused(store: Path, content: str) -> str:
+    """Runs `engmem_complete_draft` and asserts the whole store survived the refusal intact."""
+    before = _sessions_snapshot(store)
     result, is_error = _call(
         store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+    )
+    assert is_error
+    assert _sessions_snapshot(store) == before
+    text = _text(result)
+    assert "draft -> active" not in text
+    return text
+
+
+@pytest.mark.parametrize(
+    "row, expected_rejection",
+    [
+        pytest.param(
+            "| 20260101-other-doc | used it without a direct quote | helped | reuse |",
+            "no quoted span of four or more characters",
+            id="no_quote",
+        ),
+        pytest.param(
+            f"| 20260101-other-doc | {_QUOTE} | helped | helpful |",
+            'classification "helpful" is not one of reuse / anti-reuse / harmful',
+            id="unrecognized_classification",
+        ),
+        pytest.param(
+            f"| 20260101-other-doc | {_QUOTE} | helped |",
+            "no classification cell, or an empty one (expected one of "
+            "reuse / anti-reuse / harmful)",
+            id="no_classification_cell",
+        ),
+    ],
+)
+def test_complete_draft_refuses_a_bad_reuse_log_row_and_echoes_it(store, row, expected_rejection):
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+
+    text = _refused(store, _with_reuse_rows(row))
+
+    assert f"Reuse Log row rejected — {expected_rejection}: {row}" in text
+
+
+def test_complete_draft_reports_every_defect_of_every_bad_row(store):
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    good = f"| 20260101-other-doc | {_QUOTE} | helped | reuse |"
+    unquoted = "| 20260101-other-doc | paraphrased from memory | helped | Reused |"
+    misspelt = '| 20260101-other-doc | "CacheWarmer must run before WidgetCache" | hurt | harmfull |'
+
+    text = _refused(store, _with_reuse_rows(good, unquoted, misspelt))
+
+    assert text.count("Reuse Log row rejected") == 3
+    assert f"no quoted span of four or more characters: {unquoted}" in text
+    assert f'classification "Reused" is not one of reuse / anti-reuse / harmful: {unquoted}' in text
+    assert f'classification "harmfull" is not one of reuse / anti-reuse / harmful: {misspelt}' in text
+    assert good not in text
+
+
+def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypatch):
+    """The row check is decidable from the content alone, so it must not depend on a store the
+    citation check may not even be able to read."""
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+
+    def _boom(_store):
+        raise OSError("sessions/ unreadable")
+
+    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+    row = "| some-prior-doc | used it without a direct quote | helped | reuse |"
+
+    text = _refused(store, _with_reuse_rows(row))
+
+    assert f"Reuse Log row rejected — no quoted span of four or more characters: {row}" in text
+    assert "citation check did not run" not in text
+
+
+@pytest.mark.parametrize(
+    "quoted",
+    [
+        '"Chose CacheWarmer over a lazy cache fill"',
+        "“Chose CacheWarmer over a lazy cache fill”",
+        "«Chose CacheWarmer over a lazy cache fill»",
+    ],
+    ids=["straight", "curly", "guillemets"],
+)
+def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted):
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    row = f"| 20260101-other-doc | {quoted} | helped | anti-reuse |"
+
+    result, is_error = _call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments={"id": "20260101-widget-cache", "content": _with_reuse_rows(row)},
     )
 
     assert not is_error
     text = _text(result)
-    assert "no quote in the" in text
+    assert "rejected" not in text
+    assert "warning" not in text.lower()
 
 
 def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
-    _write_raw(
-        store,
-        "20260101-other-doc",
-        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
-    )
+    _write_cited_doc(store)
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace(
-        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
-        "## Reuse Log\n\n"
-        "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        '| 20260101-other-doc | "this exact sentence is not in the cited document" | helped | reuse |\n\n'
-        "## Search Trace",
+    content = _with_reuse_rows(
+        '| 20260101-other-doc | "this exact sentence is not in the cited document" '
+        "| helped | reuse |"
     )
 
     result, is_error = _call(
@@ -472,16 +543,9 @@ def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
 
 
 def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
-    other_content = ACTIVE_CONTENT.replace(
-        "id: 20260101-widget-cache", "id: 20260101-other-doc"
-    ).replace(
-        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
-        "## Reuse Log\n\n"
-        "| prior-doc | taken | impact | classification |\n"
-        "|---|---|---|---|\n"
-        '| leaked-sentinel-doc.md | "a quote that cannot be checked" | helped | reuse |\n\n'
-        "## Search Trace",
-    )
+    other_content = _with_reuse_rows(
+        '| leaked-sentinel-doc.md | "a quote that cannot be checked" | helped | reuse |'
+    ).replace("id: 20260101-widget-cache", "id: 20260101-other-doc")
     _write_raw(store, "20260101-other-doc", other_content)
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
 
@@ -495,21 +559,6 @@ def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
     text = _text(result)
     assert "leaked-sentinel-doc.md" not in text
     assert "warning" not in text.lower()
-
-
-def test_complete_draft_warns_when_the_document_has_no_reuse_log_section_at_all(store):
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
-
-    result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
-    )
-
-    assert not is_error
-    text = _text(result)
-    assert "no Reuse Log section" in text
-    assert "it is now active" in text
-    assert 'active documents missing a Reuse Log section' in text
 
 
 def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises(
@@ -536,7 +585,11 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
     assert written == ACTIVE_CONTENT
 
 
-def test_complete_draft_skips_the_citation_check_when_there_is_no_reuse_log(store, monkeypatch):
+def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_check(
+    store, monkeypatch
+):
+    """Nothing to check means nothing to scan the store for, so the warning stands alone — the
+    patched `evaluate` would report itself if it ran."""
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
 
     def _boom(_store):
@@ -552,6 +605,8 @@ def test_complete_draft_skips_the_citation_check_when_there_is_no_reuse_log(stor
     assert not is_error
     text = _text(result)
     assert "no Reuse Log section" in text
+    assert "it is now active" in text
+    assert "active documents missing a Reuse Log section" in text
     assert "citation check did not run" not in text
 
 
@@ -603,24 +658,6 @@ def test_complete_draft_rejects_new_content_that_does_not_move_to_active(store):
     ) == original
 
 
-def test_complete_draft_rejects_id_mismatch(store):
-    original = _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT).read_text(
-        encoding="utf-8"
-    )
-
-    mismatched = ACTIVE_CONTENT.replace(
-        "id: 20260101-widget-cache", "id: 20260101-something-else"
-    )
-    result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": mismatched}
-    )
-
-    assert is_error
-    assert (store / "sessions" / "20260101-widget-cache.md").read_text(
-        encoding="utf-8"
-    ) == original
-
-
 @requires_symlinks
 def test_complete_draft_refuses_to_write_through_a_symlinked_target(tmp_path):
     store_dir = tmp_path / "store"
@@ -640,45 +677,34 @@ def test_complete_draft_refuses_to_write_through_a_symlinked_target(tmp_path):
     assert outside_target.read_text(encoding="utf-8") == "not engmem's to touch"
 
 
-def test_complete_draft_missing_content_argument_is_invalid_params(store):
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+@pytest.mark.parametrize(
+    "tool, arguments",
+    [
+        pytest.param(
+            COMPLETE_TOOL,
+            {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+            id="complete",
+        ),
+        pytest.param(
+            SUPERSEDE_TOOL,
+            {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+            id="supersede",
+        ),
+    ],
+)
+def test_a_write_tool_refuses_a_document_on_disk_that_does_not_parse(store, tool, arguments):
+    """A document `_stage_content` never wrote — hand-edited or corrupted on disk — must be
+    refused, not trusted enough to modify blindly."""
+    unparseable = "---\nid: 20260101-widget-cache\nstatus: active\n"  # unclosed front matter
+    _write_raw(store, "20260101-widget-cache", unparseable)
 
-    _, responses, _ = _run(
-        store, _call_msg(1, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache"})
-    )
-
-    assert responses[0]["error"]["code"] == -32602
-    assert "content" in responses[0]["error"]["message"]
-
-
-def test_complete_draft_refuses_when_existing_draft_does_not_parse(store):
-    """A draft `_stage_content` never wrote — hand-edited or corrupted on disk — must be refused,
-    not trusted enough to overwrite blindly."""
-    _write_raw(store, "20260101-widget-cache", "---\nid: 20260101-widget-cache\nstatus: draft\n")
-
-    result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}
-    )
-
-    assert is_error
-    assert "does not parse" in _text(result)
-
-
-def test_complete_draft_rejects_unparseable_new_content(store):
-    """Counterpart to `test_create_draft_rejects_unparseable_content_no_traceback` for the
-    draft-to-active leg: the existing draft is fine, the replacement content is not."""
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
-    broken = "---\nid: 20260101-widget-cache\nstatus: active\n"  # unclosed front matter
-
-    result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": broken}
-    )
+    result, is_error = _call(store, name=tool, arguments=arguments)
 
     assert is_error
     assert "does not parse" in _text(result)
     assert (store / "sessions" / "20260101-widget-cache.md").read_text(
         encoding="utf-8"
-    ) == DRAFT_CONTENT
+    ) == unparseable
 
 
 # ---------------------------------------------------------------------------
@@ -767,46 +793,22 @@ def test_mark_superseded_rejects_bad_superseded_by_shape(store):
     ) == original
 
 
-def test_mark_superseded_missing_superseded_by_argument_is_invalid_params(store):
-    _write_raw(store, "20260101-widget-cache", ACTIVE_CONTENT)
-
-    _, responses, _ = _run(
-        store, _call_msg(1, name=SUPERSEDE_TOOL, arguments={"id": "20260101-widget-cache"})
-    )
-
-    assert responses[0]["error"]["code"] == -32602
-    assert "superseded_by" in responses[0]["error"]["message"]
-
-
-def test_mark_superseded_refuses_when_existing_document_does_not_parse(store):
-    _write_raw(store, "20260101-widget-cache", "---\nid: 20260101-widget-cache\nstatus: active\n")
-
-    result, is_error = _call(
-        store,
-        name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
-    )
-
-    assert is_error
-    assert "does not parse" in _text(result)
-
-
 # ---------------------------------------------------------------------------
 # a document written by these tools is findable by engmem_search in the same
-# session — the create-then-search half of the flywheel this task exists to fix
+# session — the create-then-search half of the workflow
 # ---------------------------------------------------------------------------
 
 
 def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
-    create_msg = _call_msg(
+    create_msg = _tools_call_msg(
         1, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
-    complete_msg = _call_msg(
+    complete_msg = _tools_call_msg(
         2,
         name=COMPLETE_TOOL,
         arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
     )
-    search_msg = _call_msg(3, name="engmem_search", arguments={"query": "WidgetCache"})
+    search_msg = _tools_call_msg(3, name="engmem_search", arguments={"query": "WidgetCache"})
 
     _, responses, _ = _run(store, create_msg, complete_msg, search_msg)
 
@@ -817,18 +819,12 @@ def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
 
 
 # ---------------------------------------------------------------------------
-# tools/list — the three new tools are discoverable and correctly scoped
+# tools/list — the write tools are correctly scoped (the inventory itself is
+# pinned by test_mcp_server.py's closed five-tool list)
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_declares_all_three_write_tools(store):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-
-    names = {t["name"] for t in responses[0]["result"]["tools"]}
-    assert {CREATE_TOOL, COMPLETE_TOOL, SUPERSEDE_TOOL} <= names
-
-
-def test_tools_list_create_and_complete_require_id_and_content(store):
+def test_tools_list_write_tool_schemas_require_the_arguments_each_handler_reads(store):
     _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     by_name = {t["name"]: t for t in responses[0]["result"]["tools"]}
@@ -985,7 +981,7 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
 
     _, responses, _ = _run(
         store,
-        _call_msg(
+        _tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
             arguments={
@@ -1064,7 +1060,7 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
 
     _, responses, _ = _run(
         store,
-        _call_msg(
+        _tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
             arguments={
@@ -1093,7 +1089,7 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
 
     result, is_error = _call(
         store,
-        name=mcp_server.CREATE_DRAFT_TOOL_NAME,
+        name=CREATE_TOOL,
         arguments={"id": "20260101-widget-cache", "content": content},
     )
 
@@ -1115,7 +1111,7 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
 def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, arguments):
     """`content.encode("utf-8")` raises on an unpaired surrogate. Refused at the envelope, so it
     never reaches the write path — and never as a -32603 blamed on the server."""
-    _, responses, _ = _run(store, _call_msg(1, name=CREATE_TOOL, arguments=arguments))
+    _, responses, _ = _run(store, _tools_call_msg(1, name=CREATE_TOOL, arguments=arguments))
 
     assert responses[0]["error"]["code"] == -32600
     assert _sessions_files(store) == [], "nothing written, and no staged file left behind"
@@ -1124,12 +1120,12 @@ def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, argu
 @requires_posix_modes
 def test_completing_a_draft_keeps_the_documents_file_mode(store):
     """The MCP write path replaces the file too, so it inherits the same rule `backfill` does."""
-    _call(store, name="engmem_create_draft",
+    _call(store, name=CREATE_TOOL,
           arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT})
     path = store / "sessions" / "20260101-widget-cache.md"
     os.chmod(path, 0o640)
 
-    _call(store, name="engmem_complete_draft",
+    _call(store, name=COMPLETE_TOOL,
           arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT})
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o640
@@ -1141,7 +1137,7 @@ def test_a_documents_line_endings_survive_the_mcp_write(store):
     `os.linesep` is `\n`, so this passes either way; `test_staging.py` pins the rest."""
     content = DRAFT_CONTENT.replace("\n", "\r\n")
 
-    _call(store, name="engmem_create_draft",
+    _call(store, name=CREATE_TOOL,
           arguments={"id": "20260101-widget-cache", "content": content})
 
     written = (store / "sessions" / "20260101-widget-cache.md").read_bytes()
@@ -1179,7 +1175,7 @@ def test_a_failing_commit_still_discards_the_staged_file(store, monkeypatch, set
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(mcp_server, "commit", failing_commit)
-    _, responses, _ = _run(store, _call_msg(1, name=name, arguments=arguments))
+    _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
 
     # the code and the message together, so a renamed argument or tool cannot leave this green
     # while failing before anything is staged — where "no .tmp survived" is trivially true
@@ -1278,7 +1274,7 @@ def test_supersede_refuses_a_key_that_is_not_a_line_of_its_own(store, front_matt
     path.write_text(f"---\n{front_matter}\n---\n\n# Title\n\nbody\n", encoding="utf-8")
     before = path.read_bytes()
 
-    _, responses, _ = _run(store, _call_msg(1, name=SUPERSEDE_TOOL, arguments={
+    _, responses, _ = _run(store, _tools_call_msg(1, name=SUPERSEDE_TOOL, arguments={
         "id": "doc-a", "superseded_by": "20260201-widget-cache-v2",
     }))
 

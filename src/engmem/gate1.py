@@ -98,12 +98,12 @@ def _normalized(text: str) -> str:
 
 
 @dataclass
-class _TableRow:
+class TableRow:
     line: str
     cells: list[str]
 
 
-def _iter_rows(section_body: str) -> list[_TableRow]:
+def reuse_log_rows(section_body: str) -> list[TableRow]:
     rows = []
     for line in section_body.splitlines():
         stripped = line.strip()
@@ -111,7 +111,7 @@ def _iter_rows(section_body: str) -> list[_TableRow]:
             continue
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) >= 2 and cells[0].casefold() not in ("prior-doc", ""):
-            rows.append(_TableRow(line=line, cells=cells))
+            rows.append(TableRow(line=line, cells=cells))
     return rows
 
 
@@ -164,7 +164,11 @@ def _distance(citing: Doc, cited: Doc, repos: dict[str, set[str] | None]) -> Dis
     return Distance.DISTANT
 
 
-def _classification(cells: list[str]) -> tuple[str, Classification]:
+def quotes_in(taken_cell: str) -> tuple[str, ...]:
+    return tuple(next(g for g in m.groups() if g) for m in QUOTE_RE.finditer(taken_cell))
+
+
+def classification_of(cells: list[str]) -> tuple[str, Classification]:
     if len(cells) < 4:
         return "", Classification.MISSING
     raw = cells[3].strip()
@@ -178,7 +182,7 @@ def _classification(cells: list[str]) -> tuple[str, Classification]:
 
 def _row_verdict(
     citing: Doc,
-    table_row: _TableRow,
+    table_row: TableRow,
     docs: dict[str, Doc],
     bodies: dict[str, str],
     repos: dict[str, set[str] | None],
@@ -188,7 +192,7 @@ def _row_verdict(
     cited = docs.get(cited_id)
     source = f"{Path(citing.path).name}:{_line_number(Path(citing.path), table_row.line)}"
 
-    quotes = tuple(next(g for g in m.groups() if g) for m in QUOTE_RE.finditer(cells[1]))
+    quotes = quotes_in(cells[1])
 
     # exactly the check order verify_citations.py already used: each step needs the
     # data the step before it established -- see contracts/gate1.md
@@ -208,7 +212,7 @@ def _row_verdict(
 
     distance = _distance(citing, cited, repos) if integrity == Integrity.VERIFIED else None
 
-    classification_raw, classification = _classification(cells)
+    classification_raw, classification = classification_of(cells)
 
     citing_repos = repos.get(citing.id) or set()
     dogfooding = bool({r.casefold() for r in citing_repos} & DOGFOODING_REPOS)
@@ -236,7 +240,7 @@ def evaluate(store: Path) -> Verdicts:
         if reuse is None:
             continue
 
-        table_rows = _iter_rows(reuse.body)
+        table_rows = reuse_log_rows(reuse.body)
         has_none_line = NONE_LINE in reuse.body.casefold()
 
         if has_none_line and table_rows:
@@ -273,8 +277,8 @@ CLASSIFICATION_EXCLUSIONS = {
 def exclusion_reason(row: RowVerdict) -> str | None:
     """`None` means the row is eligible: verified, classified reuse, in scope, not dogfooding --
     axis E (the verdict column) is then left for the human, whatever axis C (distance) says."""
-    # the four axes in the order contracts/gate1.md fixes (ARCH-005): integrity, then the
-    # citing document's status, then dogfooding, then classification -- first one wins
+    # the four axes in the order contracts/gate1.md ("Who fills the last column") fixes: integrity,
+    # then the citing document's status, then dogfooding, then classification -- first one wins
     integrity_reason = INTEGRITY_EXCLUSIONS.get(row.integrity)
     if integrity_reason is not None:
         return integrity_reason

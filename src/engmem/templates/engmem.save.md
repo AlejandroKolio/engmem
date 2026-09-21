@@ -177,7 +177,17 @@ One row per prior document that **actually influenced** this work:
   wrapped in double quotes so it can be found. `tools/verify_citations.py --store <store>`
   checks every quote against the cited file; run it before finalising. An approximate
   quote reads as a fabricated one.
-- `classification` is one of `reuse`, `anti-reuse`, `harmful`.
+- `classification` is one of `reuse`, `anti-reuse`, `harmful` — exactly that spelling,
+  lower case, nothing else in the cell.
+- `engmem_complete_draft` refuses the whole document when any row has no quoted span or a
+  classification outside those three, and returns each offending row; fix the row and call
+  it again. A shell save has no such gate, so check the two rules yourself before writing
+  the file — `tools/gate1_report.py --store <store>` shows what the count will do with it.
+- A row that passes both rules, cited by id, quote copied out of the prior document:
+
+  | prior-doc | taken | impact | classification |
+  |---|---|---|---|
+  | 20260101-widget-cache | `CacheWarmer` ordering: "CacheWarmer must run before WidgetCache accepts traffic" | kept the warm-up step in the rollout plan | reuse |
 - Classify a row `anti-reuse` if the prior document was opened and quoted, and the
   decision it caused was to deliberately go the other way — the new work departs from
   what the document records, and that document is the reason the departure was a

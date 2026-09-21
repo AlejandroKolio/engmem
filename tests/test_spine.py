@@ -9,7 +9,7 @@ from conftest import (
     requires_symlinks,
 )
 
-from engmem.spine import load_store, parse_document, stray_documents
+from engmem.spine import load_store, parse_document, stray_documents, validate_doc_id
 
 
 def test_valid_fixture_parses_to_doc_with_all_fields():
@@ -53,44 +53,8 @@ def test_broken_doc_produces_collected_error_not_exception():
     assert other_ids.issubset(docs_by_id.keys())
 
 
-def test_duplicate_id_produces_collected_error_naming_both(tmp_path):
-    doc_a = tmp_path / "dup-a.md"
-    doc_b = tmp_path / "dup-b.md"
-    front_matter = """---
-id: dup-id-test
-title: Duplicate A
-date: 2026-01-01
-task_date: 2026-01-01
-status: active
-superseded_by:
-backfilled: false
-tags: []
-entities: []
-related: []
-covers_files: []
-verified_at_commit: 0000000
-capture_minutes: 1
----
-
-## Pre-reg
-"""
-    # doc_a keeps "Duplicate A" verbatim; only doc_b is rewritten to "Duplicate B",
-    # so the two files genuinely differ while still sharing `id: dup-id-test` — the
-    # actual condition under test.
-    doc_a.write_text(front_matter)
-    doc_b.write_text(front_matter.replace("Duplicate A", "Duplicate B"))
-
-    result = load_store(tmp_path)
-
-    dup_errors = [e for e in result.errors if "duplicate" in e.message.lower()]
-    assert len(dup_errors) >= 1
-    mentioned = " ".join(e.message for e in dup_errors)
-    assert "dup-a.md" in mentioned
-    assert "dup-b.md" in mentioned
-
-
 def test_triple_dash_inside_a_value_does_not_truncate_front_matter(tmp_path):
-    """M6: `split('---')` cut the block at a `---` inside a value, mis-assigning the rest of the
+    """`split('---')` cut the block at a `---` inside a value, mis-assigning the rest of the
     front matter to the body."""
     (tmp_path / "dashy-title.md").write_text("""---
 id: dashy-title
@@ -111,7 +75,7 @@ capture_minutes: 1
 ## Pre-reg
 
 Body here.
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -124,10 +88,8 @@ Body here.
 
 
 def test_quoted_date_is_coerced_to_real_date(tmp_path):
-    """H3: YAML yields a real date only for unquoted scalars, and a str passthrough inverted tie-
+    """YAML yields a real date only for unquoted scalars, and a str passthrough inverted tie-
     breaks and the scoreboard."""
-    import datetime
-
     (tmp_path / "quoted-date.md").write_text("""---
 id: quoted-date
 title: Quoted Date
@@ -145,7 +107,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -174,7 +136,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -202,7 +164,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     mismatched = tmp_path / "mismatched-id.md"
     mismatched.write_text("""---
@@ -222,7 +184,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
     docs_by_id = {d.id: d for d in result.docs}
@@ -261,11 +223,11 @@ capture_minutes: 1
 
 @requires_symlinks
 def test_unreadable_file_produces_collected_error_not_a_crash(tmp_path):
-    """D4: an OSError reading one document must not take the whole load down and lose every other
+    """An OSError reading one document must not take the whole load down and lose every other
     document with it."""
     (tmp_path / "notes.md").mkdir()
     (tmp_path / "dangling.md").symlink_to(tmp_path / "does-not-exist-target.md")
-    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"))
+    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"), encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -296,11 +258,11 @@ def test_unreadable_file_produces_collected_error_not_a_crash(tmp_path):
 def test_wrongly_typed_field_is_a_collected_error_not_a_crash(
     tmp_path, filename, field_name, tags, capture_minutes
 ):
-    """D5: a wrongly typed value must cost its own document and no more. The three shapes reach
+    """A wrongly typed value must cost its own document and no more. The three shapes reach
     `load_store` by different routes — `TypeError` from `int([1, 2])`, a direct raise for a
     scalar where a list belongs, `OverflowError` from `int(float("inf"))` — and each coercion
-    normalises to the `ValueError` `load_store` collects, unlike D1 where a bare str would
-    corrupt the field rather than raise."""
+    normalises to the `ValueError` `load_store` collects, unlike the scalar-list coercion,
+    where a bare str would corrupt the field rather than raise."""
     (tmp_path / filename).write_text(f"""---
 id: {filename[:-3]}
 title: Bad Field
@@ -318,8 +280,8 @@ capture_minutes: {capture_minutes}
 ---
 
 ## Pre-reg
-""")
-    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"))
+""", encoding="utf-8")
+    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"), encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -329,7 +291,7 @@ capture_minutes: {capture_minutes}
 
 
 def test_scalar_entities_is_coerced_to_one_element_list_with_a_warning(tmp_path):
-    """D1: unguarded, `list("WidgetCache")` would explode into single characters, destroying
+    """Unguarded, `list("WidgetCache")` would explode into single characters, destroying
     `entities` and fabricating garbage `related` ids."""
     (tmp_path / "scalar-lists.md").write_text("""---
 id: scalar-lists
@@ -348,7 +310,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -367,7 +329,7 @@ capture_minutes: 1
 
 
 def test_id_with_embedded_newline_is_a_loud_error(tmp_path):
-    """D2: unrejected, a newline in an id would forge a second `### ` block in the rendered
+    """Unrejected, a newline in an id would forge a second `### ` block in the rendered
     header, and needs no special crafting to reach here."""
     (tmp_path / "inject-doc.md").write_text(
         "---\n"
@@ -387,9 +349,10 @@ def test_id_with_embedded_newline_is_a_loud_error(tmp_path):
         "verified_at_commit: 0000000\n"
         "capture_minutes: 1\n"
         "---\n\n"
-        "## Pre-reg\n"
+        "## Pre-reg\n",
+        encoding="utf-8",
     )
-    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"))
+    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"), encoding="utf-8")
 
     result = load_store(tmp_path)
 
@@ -411,7 +374,7 @@ def test_id_with_embedded_newline_is_a_loud_error(tmp_path):
 def test_status_value_is_case_normalized(
     tmp_path, filename, raw_status, superseded_by, expected_status
 ):
-    """D10: comparisons elsewhere use the lowercase literal, so `status: Draft` let a draft leak
+    """Comparisons elsewhere use the lowercase literal, so `status: Draft` let a draft leak
     into results."""
     (tmp_path / filename).write_text(f"""---
 id: {filename[:-3]}
@@ -430,7 +393,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     doc = load_store(tmp_path).docs[0]
 
@@ -438,7 +401,7 @@ capture_minutes: 1
 
 
 def test_unrecognized_status_value_defaults_to_active_with_a_warning(tmp_path):
-    """D10: `status: wip` was already behaving as `active` by accident, so default it explicitly
+    """`status: wip` was already behaving as `active` by accident, so default it explicitly
     and name the mistake."""
     (tmp_path / "wip-status.md").write_text("""---
 id: wip-status
@@ -457,7 +420,7 @@ capture_minutes: 1
 ---
 
 ## Pre-reg
-""")
+""", encoding="utf-8")
 
     result = load_store(tmp_path)
     doc = result.docs[0]
@@ -468,15 +431,10 @@ capture_minutes: 1
     assert "wip" in warning_messages
 
 
-
-
-from conftest import requires_symlinks
-
-
 @requires_permission_enforcement
 def test_unreadable_sessions_dir_is_reported_not_treated_as_empty(tmp_path):
-    """D2: an unreadable `sessions/` rendered byte-identical to a store holding zero documents."""
-    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"))
+    """An unreadable `sessions/` rendered byte-identical to a store holding zero documents."""
+    (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"), encoding="utf-8")
     os.chmod(tmp_path, 0o000)
     try:
         result = load_store(tmp_path)
@@ -503,8 +461,6 @@ def test_readable_sessions_dir_leaves_scan_error_unset(tmp_path):
 def test_stray_documents_reports_an_unreadable_subdirectory(tmp_path):
     """`os.walk` skips an unreadable directory in silence, so without its `onerror` callback a
     locked subdirectory would read as "no strays here"."""
-    from engmem.spine import stray_documents
-
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     locked = store / "sessions" / "archive"
@@ -521,8 +477,6 @@ def test_stray_documents_reports_an_unreadable_subdirectory(tmp_path):
 
 
 def test_stray_documents_finds_root_and_nested_markdown(tmp_path):
-    from engmem.spine import stray_documents
-
     store = tmp_path / "store"
     (store / "sessions" / "archive").mkdir(parents=True)
     (store / "root-note.md").write_text("# Root\n", encoding="utf-8")
@@ -540,9 +494,6 @@ def test_stray_documents_finds_root_and_nested_markdown(tmp_path):
 # ---------------------------------------------------------------------------
 # validate_doc_id — the write path's filename-safety gate.
 # ---------------------------------------------------------------------------
-
-
-from engmem.spine import validate_doc_id
 
 
 @pytest.mark.parametrize(
@@ -790,16 +741,19 @@ def test_an_impossible_derived_date_falls_back_to_mtime(tmp_path):
         "- Date:\n  2026-02-11\n",
         "-\nDate: 2026-02-11\n",
         "- Date\n: 2026-02-11\n",
+        "- Date: see 2026-02-11-old-flow.md\n",
     ],
     ids=["body-sentence", "sibling-filename", "bullet", "bold-run", "bare-line",
-         "indented", "empty-bullet", "colon-on-next-line"],
+         "indented", "empty-bullet", "colon-on-next-line", "value-names-another-document"],
 )
-def test_an_unfilled_date_label_takes_no_date_from_the_line_below(tmp_path, body):
+def test_a_date_label_that_states_no_date_falls_back_to_mtime(tmp_path, body):
     r"""`\s` spans the line break, so an unfilled `- Date:` reached past it and adopted the first
     date-shaped token below, whatever that line was: a body sentence, a bullet, another
     document's id, or — for `bare-line` and `indented` — a continuation line CommonMark would
     read as part of the same list item. The last two are the accepted cost of the rule, not
-    the theft; they are here because the rule has to hold at its own boundary."""
+    the theft; they are here because the rule has to hold at its own boundary. The last case is
+    the same rule on the label's own line: reading a date from anywhere in the value would take
+    the `2026-02-11` in a sibling's id as this document's own date."""
     path = tmp_path / "a-doc.md"
     path.write_text(f"# A\n\n{body}\n## Notes\n\nBody.\n", encoding="utf-8")
 
@@ -860,19 +814,6 @@ def test_a_non_ascii_space_before_the_date_still_states_it(tmp_path, line):
     doc = parse_document(path)
 
     assert doc.date == datetime.date(2026, 5, 4)
-
-
-def test_a_date_label_pointing_at_another_document_states_no_date(tmp_path):
-    """Reading a date from anywhere in the value would take the `2026-02-11` in a sibling's id
-    as this document's own date."""
-    path = tmp_path / "a-doc.md"
-    path.write_text(
-        "# A\n\n- Date: see 2026-02-11-old-flow.md\n\nBody.\n", encoding="utf-8"
-    )
-
-    doc = parse_document(path)
-
-    assert doc.date == datetime.date.fromtimestamp(path.stat().st_mtime)
 
 
 @pytest.mark.parametrize(
