@@ -336,6 +336,12 @@ _ENTITIES_MISSING_NOTE = (
 )
 
 
+_RITUAL_DOCUMENT_NOTE = (
+    "backfilled left unset — this document carries a Pre-reg section, so it ran the ritual. "
+    "Write `backfilled: true` yourself only if it was in fact written after the fact."
+)
+
+
 def _entities_empty_note(locator: str) -> str:
     # names backticks explicitly: the population reaching this note is dominated by the
     # documented false negative (lowercase, punctuation-free prose terms), whose author
@@ -393,17 +399,24 @@ def propose_backfill(doc: Doc) -> BackfillProposal:
                 "superseded_by", successors[0],
                 f"sibling link on the '- Status:' preamble line ({status_source})",
             ))
-    candidates.append(FieldProposal(
-        "backfilled", True,
-        "always true for a document engmem did not itself author",
-    ))
+    sections = split_sections(body)
+    notes: list[str] = []
+    # a Pre-reg section is the ritual's own evidence, and the same test `gate1_audit` counts
+    # ritual documents by: stamping one `backfilled` drops a real story out of that count
+    # (contracts/backfill.md)
+    if not sections_for_role(sections, "prereg"):
+        candidates.append(FieldProposal(
+            "backfilled", True,
+            "no Pre-reg section — a document engmem did not itself author",
+        ))
+    elif not stated(raw, "backfilled"):
+        notes.append(_RITUAL_DOCUMENT_NOTE)
 
     # every piece, not the first: a `Search Keywords` section over MAX_SECTION_BYTES is split
     # across its `###` subsections, and its terms live in all of them
-    keywords_sections = sections_for_role(split_sections(body), "keywords")
+    keywords_sections = sections_for_role(sections, "keywords")
     keywords_locators = ", ".join(s.locator for s in keywords_sections)
 
-    notes: list[str] = []
     if not keywords_sections:
         entities = []
         note = _ENTITIES_MISSING_NOTE

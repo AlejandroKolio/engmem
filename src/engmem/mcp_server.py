@@ -14,14 +14,7 @@ import yaml
 
 from engmem import __version__, gate1
 from engmem.cache import identity_for
-from engmem.output import (
-    render_no_match,
-    render_role_search_results,
-    render_scoreboard,
-    render_search_results,
-    select_role_hits,
-)
-from engmem.scoring import search as run_search, search_with_role_sections
+from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES, split_sections
 # imported, not reimplemented, so a document a write tool below produces is
 # validated by the exact rules load_store applies when reading it back
@@ -36,7 +29,6 @@ from engmem.spine import (
     validate_doc_id,
 )
 from engmem.staging import commit, discard, newline_of, read_document, stage
-from engmem.telemetry import UNATTRIBUTED_MCP_NOTE, log_role_search, log_search
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -195,7 +187,7 @@ def _argument_name_from_hint(hint: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# store access for the tool — mirrors _cmd_search's STDOUT shape only
+# store access for the tool — the text itself is search_report.compose's, shared with the CLI
 # ---------------------------------------------------------------------------
 
 
@@ -236,104 +228,19 @@ def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]
 
 
 def _run_search_for_tool(
-    store: Path, query: str, session_id: str | None = None
+    store: Path, query: str, session_id: str | None = None, role: str | None = None
 ) -> tuple[str, bool]:
-    """`(rendered_text, is_error)`, mirroring exactly what `_cmd_search` prints to stdout."""
+    """`(text, is_error)`: the composed result the CLI prints, carried in the tool result."""
     try:
         result, strays, stray_scan_errors = _load_store_for_tool(store)
     except _StoreLoadError as exc:
         return str(exc), True
 
-    outcome = run_search(result.docs, query)
-
-    # "found nothing" and "could not check" must never look the same
-    scan_notes = "".join(f"warning: {scan_error}\n" for scan_error in stray_scan_errors)
     for scan_error in stray_scan_errors:
         print(f"engmem-mcp: {scan_error}", file=sys.stderr)
-
-    # result_text is what context_bytes below measures; the stray-files note
-    # is store housekeeping, kept out of it (see telemetry.py context_bytes)
-    if outcome.hits or outcome.superseded_notes:
-        result_text = render_search_results(outcome, result.docs)
-    else:
-        result_text = render_no_match()
-    body = result_text
-    if not (outcome.hits or outcome.superseded_notes) and strays:
-        body += (
-            "\n"
-            f"({len(strays)} markdown file(s) sit outside the searched set — "
-            "only sessions/*.md is read, not the store root and not "
-            "subdirectories. They may hold the answer.)"
-        )
-
-    scoreboard = render_scoreboard(result.docs, failed=len(result.errors))
-    text = scan_notes + body + "\n" + scoreboard
-
-    # channel="mcp" keeps a Desktop search and a terminal search distinguishable
-    # in telemetry.jsonl; skipping this would make the MCP path invisible to Gate 1
-    telemetry_error = log_search(
-        store / "telemetry.jsonl",
-        query=query,
-        n_docs=len(result.docs),
-        outcome=outcome,
-        session_id=session_id,
-        channel="mcp",
-        context_bytes=len(result_text.encode("utf-8")),
-    )
-    if telemetry_error is not None:
-        # stdout here is JSON-RPC only, so the note rides in the tool result
-        # text instead of print() — never isError, since the search succeeded
-        text += f"\nnote: telemetry not recorded ({telemetry_error})"
-    if session_id is None:
-        text += f"\n{UNATTRIBUTED_MCP_NOTE}"
-
-    return text, False
-
-
-def _run_role_search_for_tool(
-    store: Path, query: str, role: str, session_id: str | None = None
-) -> tuple[str, bool]:
-    """Role-addressed counterpart to `_run_search_for_tool`."""
-    try:
-        result, strays, stray_scan_errors = _load_store_for_tool(store)
-    except _StoreLoadError as exc:
-        return str(exc), True
-
-    outcome, role_map = search_with_role_sections(result.docs, query)
-    role_hits, _n_with_role = select_role_hits(outcome, role_map, role)
-
-    scan_notes = "".join(f"warning: {scan_error}\n" for scan_error in stray_scan_errors)
-    for scan_error in stray_scan_errors:
-        print(f"engmem-mcp: {scan_error}", file=sys.stderr)
-
-    result_text = render_role_search_results(outcome, role_map, role)
-    body = result_text
-    if not role_hits and strays:
-        body += (
-            "\n"
-            f"({len(strays)} markdown file(s) sit outside the searched set — "
-            "only sessions/*.md is read, not the store root and not "
-            "subdirectories. They may hold the answer.)"
-        )
-
-    scoreboard = render_scoreboard(result.docs, failed=len(result.errors))
-    text = scan_notes + body + "\n" + scoreboard
-
-    telemetry_error = log_role_search(
-        store / "telemetry.jsonl",
-        query=query,
-        role=role,
-        n_docs=len(result.docs),
-        role_hits=role_hits,
-        session_id=session_id,
-        channel="mcp",
-        context_bytes=len(result_text.encode("utf-8")),
-    )
-    if telemetry_error is not None:
-        text += f"\nnote: telemetry not recorded ({telemetry_error})"
-    if session_id is None:
-        text += f"\n{UNATTRIBUTED_MCP_NOTE}"
-
+    # channel="mcp" keeps a Desktop search and a terminal search distinguishable in
+    # telemetry.jsonl; compose writes the row, so the MCP path is never invisible to Gate 1
+    text = compose(store, result, strays, stray_scan_errors, query, role, session_id, "mcp")
     return text, False
 
 
@@ -447,6 +354,17 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
     ), False
 
 
+def _refuse_if_changed_since_read(target: Path, read: Doc, doc_id: str) -> None:
+    """`backfill.apply_backfill`'s rule: a document that moved under the read a write is based
+    on is refused, never overwritten from the copy that is already stale."""
+    if read.source_identity != identity_for(target):
+        raise _ToolError(
+            f"sessions/{doc_id}.md changed on disk while it was being read — "
+            "refusing to write, so a newer version is not replaced by a stale one. "
+            "Call this tool again."
+        )
+
+
 def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
@@ -503,6 +421,9 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
                         ]
                     )
                 )
+            # the draft was confirmed a draft at the top; another writer may have activated it
+            # since, and committing this copy would silently replace the newer document
+            _refuse_if_changed_since_read(target, existing, doc_id)
             commit(tmp_path, target)
         # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
         # OSError of its own, and the staged file must go either way
@@ -582,8 +503,9 @@ def _citation_notes(store: Path, doc: Doc) -> list[str]:
                 problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
     if problems:
         notes.append(
-            f"warning: {len(problems)} Reuse Log citation problem(s) — run "
-            "tools/verify_citations.py --store <store>: " + "; ".join(problems)
+            f"warning: {len(problems)} Reuse Log citation problem(s) — run the engmem "
+            "checkout's checker, uv run --project <engmem-checkout> python "
+            "<engmem-checkout>/tools/verify_citations.py --store <store>: " + "; ".join(problems)
         )
     return notes
 
@@ -638,14 +560,7 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
             raise _ToolError(
                 f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
             ) from exc
-        # `backfill.apply_backfill`'s rule: a document that moved under the read it is being
-        # rebuilt from is refused, never rewritten from the copy that is already stale
-        if existing.source_identity != identity_for(target):
-            raise _ToolError(
-                f"sessions/{doc_id}.md changed on disk while it was being read — "
-                "refusing to write, so a newer version is not replaced by a stale one. "
-                "Call this tool again."
-            )
+        _refuse_if_changed_since_read(target, existing, doc_id)
 
         front_matter_text, body = split_front_matter(existing_text)
         front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
@@ -986,7 +901,7 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
                 + ", ".join(CANONICAL_ROLES)
                 + (f" (got {role!r})" if role is not None else " (missing)"),
             )
-        text, is_error = _run_role_search_for_tool(store, query, role, session_id)
+        text, is_error = _run_search_for_tool(store, query, session_id, role)
     else:
         text, is_error = _run_search_for_tool(store, query, session_id)
 

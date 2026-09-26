@@ -17,10 +17,16 @@ matter from the document's own prose, shows it, and writes it only once a human 
   has shown the proposal. The evidence string under each proposed value is the whole basis on
   which the human says yes, so it has to be true of the document: "no `- Repos:` preamble line
   with a value found" may not be printed over a line that carries one.
-- `backfilled: true` is always proposed. It marks a document engmem did not author:
-  `gate1_audit` keeps such documents out of the ritual population (`contracts/gate1.md`,
-  "What "a session document" is"), and `ENGMEM-SPEC.md` §11 ("Amendment, recorded 2026-09-12")
-  counts a document that is both backfilled and Pre-reg-less once, under this flag.
+- `backfilled: true` is proposed for every document without a `## Pre-reg` section. It marks a
+  document engmem did not author: `gate1_audit` keeps such documents out of the ritual
+  population (`contracts/gate1.md`, "What "a session document" is"), and `ENGMEM-SPEC.md` §11
+  ("Amendment, recorded 2026-09-12") counts a document that is both backfilled and
+  Pre-reg-less once, under this flag.
+- A document with a `prereg` section is never proposed `backfilled: true`; it gets a note
+  instead. The section is the ritual's own evidence and the exact test `gate1_audit` counts
+  ritual documents by, so the stamp would move a real story from "completed" to "backfilled"
+  and shrink the count the measurement freeze is read from. Whether such a document was in
+  fact written after the fact is something only its author knows.
 - `backfill` depends on `spine`, never the reverse. The preamble rules live in `spine.py`
   (`preamble`, `preamble_label_value`) because `spine`'s own `date` derivation obeys them.
 
@@ -64,7 +70,7 @@ here; `backfill` writes only where `load_store` found a document (`contracts/mcp
 | `task_date` | = `date` |
 | `status` | `superseded` when a `- Status:` preamble line contains the past participle `superseded`, else `active` — every other observed spelling ("Delivered", "In progress", no line at all) is a live document |
 | `superseded_by` | the sibling `.md` link on that `- Status:` line, only when the line passes the word test and the effective status is `superseded` |
-| `backfilled` | always `true` |
+| `backfilled` | `true`, unless the document has a `prereg` section — then left unset, with a note |
 | `tags` | repo names from a `- Repos:` preamble line. Facet labels ("Classes", "Endpoints") are not tags: nearly every document in this genre has them, so a tag built from one distinguishes nothing |
 | `repos` | the same names. `tags` is a scored spine field, so a repo name has to be there to be findable; `repos` is the declared answer to "which code is this about" and is never ranked on |
 | `entities` | the `Search Keywords` section — every `Section` whose `canonical == "keywords"` (`sections.sections_for_role`), since an oversized section is split across its `###` subsections and a subsection whose own heading names a different role is not read. Proposed only when at least one term was derived |

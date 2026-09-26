@@ -487,3 +487,29 @@ def test_a_declined_confirmation_still_reports_a_read_failure(store, capsys, mon
 
     assert "cancelled" in out
     assert exit_code == 2
+
+
+def test_backfilling_a_ritual_document_keeps_the_ritual_count(tmp_path, capsys):
+    """The freeze's story count is read off the ritual line; a backfill run must not move it."""
+    from engmem import gate1, gate1_audit
+
+    store = tmp_path / "store"
+    sessions = store / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "widget-cache-ritual.md").write_text(
+        "---\nid: widget-cache-ritual\ntitle: Widget Cache Ritual\ndate: 2026-08-01\n"
+        "status: active\ntags: [widget-cache]\nentities: [WidgetCache]\nrelated: []\n---\n\n"
+        "## Pre-reg\n\nWarm the cache before traffic.\n",
+        encoding="utf-8",
+    )
+
+    def ritual_counts():
+        report = gate1_audit.evaluate(store, gate1.evaluate(store))
+        return report.active_count, report.backfilled_count
+
+    before = ritual_counts()
+    exit_code, _out, _err = _run(["--id", "widget-cache-ritual", "--yes", "--store", str(store)], capsys)
+
+    assert exit_code == 0
+    assert load_store(sessions).docs[0].spine_complete, "backfill must actually have written"
+    assert ritual_counts() == before == (1, 0)

@@ -1,8 +1,10 @@
-"""The tool measures one quantity only -- engmem's own search-output tokens -- and must never
+"""The tool measures one quantity only -- engmem's own search-result tokens -- and must never
 read as a comparison against anything it did not actually run."""
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,13 +21,13 @@ def _doc(sessions: Path, doc_id: str, entities: str, body: str) -> None:
     )
 
 
-def _run(store: Path, queries: Path) -> subprocess.CompletedProcess:
+def _run(store: Path, queries: Path, env: dict | None = None) -> subprocess.CompletedProcess:
     # `encoding=`, not the locale's: engmem writes UTF-8 whatever the console code page says
     # (tests/test_cli.py, "output is utf8 whatever the console code page is"), so a reader
     # that decodes by locale mangles every non-ASCII byte on a cp1252 console.
     return subprocess.run(
         [sys.executable, str(TOOL), "--store", str(store), "--queries", str(queries)],
-        capture_output=True, text=True, encoding="utf-8", timeout=60,
+        capture_output=True, text=True, encoding="utf-8", timeout=60, env=env,
     )
 
 
@@ -61,27 +63,53 @@ def test_a_query_whose_expected_document_is_missing_counts_as_not_found(tmp_path
     assert [c.strip() for c in row.strip().strip("|").split("|")][3] == "not found"
 
 
-def test_token_cost_uses_the_same_estimator_as_telemetry(tmp_path):
-    """Counting the table differently from `engmem telemetry` would compare the engine against
-    itself measured two ways."""
+def _token_cell(stdout: str, query: str) -> int:
+    row = next(l for l in stdout.splitlines() if l.startswith(f"| {query} |"))
+    return int([c.strip() for c in row.strip().strip("|").split("|")][2])
+
+
+def test_token_cost_is_the_figure_telemetry_records_for_the_same_search(tmp_path):
+    """Parity with the tool's own byte count proved nothing: it counted the whole stdout while
+    telemetry counts the rendered result, and the two disagreed (661 against 634 tokens)."""
     from engmem.telemetry import estimate_tokens
 
     sessions = tmp_path / "sessions"
     _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
-    queries = _queries(tmp_path, "WidgetCache\twidget-cache-v1")
+    # with no match, the stray note is exactly what stdout carries beyond the recorded result
+    (tmp_path / "stray-notes.md").write_text("# outside sessions/\n", encoding="utf-8")
+    stdout = _run(tmp_path, _queries(tmp_path, "WidgetCache\twidget-cache-v1", "Nonexistent\t")).stdout
 
-    result = _run(tmp_path, queries)
-    row = next(l for l in result.stdout.splitlines() if l.startswith("| WidgetCache"))
-    reported = int([c.strip() for c in row.strip().strip("|").split("|")][2])
+    for query in ("WidgetCache", "Nonexistent"):
+        subprocess.run(
+            [sys.executable, "-m", "engmem.cli", "search", query, "--session", "s1",
+             "--store", str(tmp_path)],
+            capture_output=True, text=True, encoding="utf-8", timeout=30, check=True,
+        )
+        row = json.loads((tmp_path / "telemetry.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        assert _token_cell(stdout, query) == estimate_tokens(row["context_bytes"]), query
 
-    # re-run the same search and estimate its output independently. `encoding=` for the same
-    # reason as `_run`, and it matters here: the byte count is the assertion, and one em dash
-    # decoded by a cp1252 locale re-encodes to eight bytes instead of three.
-    search = subprocess.run(
-        [sys.executable, "-m", "engmem.cli", "search", "WidgetCache", "--store", str(tmp_path)],
-        capture_output=True, text=True, encoding="utf-8", timeout=30,
-    )
-    assert reported == estimate_tokens(len(search.stdout.encode("utf-8")))
+
+def test_measuring_leaves_existing_telemetry_byte_identical(tmp_path):
+    """Every calibration run used to append one unattributed row per query to the store it
+    measured, inflating `engmem telemetry` and the Gate 1 window."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
+    telemetry = tmp_path / "telemetry.jsonl"
+    telemetry.write_bytes(b'{"ts": "2026-08-01T00:00:00+00:00", "query": "earlier"}\n')
+    before = telemetry.read_bytes()
+
+    result = _run(tmp_path, _queries(tmp_path, "WidgetCache\twidget-cache-v1", "Eviction\t"))
+
+    assert result.returncode == 0, result.stdout
+    assert telemetry.read_bytes() == before
+
+
+def test_measuring_creates_no_telemetry_file(tmp_path):
+    _doc(tmp_path / "sessions", "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
+
+    _run(tmp_path, _queries(tmp_path, "WidgetCache\twidget-cache-v1"))
+
+    assert not (tmp_path / "telemetry.jsonl").exists()
 
 
 def test_a_blank_or_commented_line_in_the_queries_file_is_skipped(tmp_path):
@@ -112,7 +140,7 @@ def test_the_footer_totals_the_estimated_tokens_with_one_labelled_number(tmp_pat
     ]
     assert len(per_query) == 2, result.stdout
     assert (
-        f"2 queries -- estimated tokens of engmem search output, not a baseline, "
+        f"2 queries -- estimated tokens of engmem search result, not a baseline, "
         f"not compared against any alternative: {sum(per_query)} total, found 1"
     ) in result.stdout
     assert sum(per_query) > 0, "a zero total would make the number vacuous"
@@ -151,3 +179,42 @@ def test_store_problems_are_reported_once_and_do_not_break_the_table(tmp_path):
     assert all(lines[first + n].startswith("|") for n in range(4)), (
         "header, separator and both rows must be contiguous"
     )
+
+
+def test_the_report_is_utf8_whatever_the_console_code_page(tmp_path):
+    """Store diagnostics carry an em dash and queries are the user's own text; a cp437 console
+    stopped the report midway with UnicodeEncodeError."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
+    (sessions / "widget-cache-v1.md").write_text(
+        (sessions / "widget-cache-v1.md").read_text(encoding="utf-8").replace(
+            "status: active", "status: bogus"
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(tmp_path, _queries(tmp_path, "Cache—Warmer\t"),
+                  env={**os.environ, "PYTHONIOENCODING": "cp437"})
+
+    assert result.returncode == 0, result.stderr
+    assert "| Cache—Warmer |" in result.stdout
+    assert "—" in result.stdout.split("store problems seen while measuring:")[1]
+
+
+def test_markdown_outside_sessions_is_named_once(tmp_path):
+    """The explanation for an expected document reading "not found" when it sits in the store
+    root instead of sessions/."""
+    _doc(tmp_path / "sessions", "widget-cache-v1", "WidgetCache", "Eviction runs on boot.")
+    (tmp_path / "widget-cache-v2.md").write_text("# misplaced\n", encoding="utf-8")
+
+    result = _run(tmp_path, _queries(tmp_path, "WidgetCache\twidget-cache-v2", "Eviction\t"))
+
+    assert result.stdout.count("1 markdown file(s) sit outside the searched set") == 1, result.stdout
+
+
+def test_a_store_with_no_sessions_directory_fails_before_the_table(tmp_path):
+    """A typo'd --store used to fill the table with "none found" costs and exit 0."""
+    result = _run(tmp_path / "no-such-store", _queries(tmp_path, "WidgetCache\t"))
+
+    assert result.returncode == 2
+    assert "store not found" in result.stdout and "| query |" not in result.stdout

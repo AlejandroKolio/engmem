@@ -167,7 +167,7 @@ That is a ranking decision to be taken against a corpus, not a bug fix.
 `search_with_role_sections` (`ENGMEM-SPEC.md` §5, `--role`) ranks with the same `_search_core`
 as `search()` and builds its `doc_id -> {role: Section}` map from the same section-index
 build, so a role-filtered query costs no more than an ordinary one. `_role_index_from_entries`
-makes the two passes `sections.sections_by_locator` makes, so a role a section's own heading
-names wins over one inherited from an oversized parent (`contracts/sections.md`, "Role
-inheritance across a sub-split"); a role a document carries twice keeps the first in document
-order rather than being silently overwritten.
+makes two passes, so a role a section's own heading names wins over one inherited from an
+oversized parent (`contracts/sections.md`, "Role inheritance across a sub-split"); a role a
+document carries twice keeps the first in document order rather than being silently
+overwritten.

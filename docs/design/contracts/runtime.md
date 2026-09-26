@@ -52,7 +52,7 @@ user this machine lacks). `_expand_home()`, which both `resolve_store` and `defa
 use, catches it and returns the path unexpanded, so the literal `~nosuchuser/notes` (or
 `default_store`'s bare `~`) becomes an ordinary relative component, is made absolute like any
 other, and — not existing — is named by the `store not found` diagnostic
-(`cli._load_sessions`) exactly as a mistyped `--store` would be. The alternative, an uncaught
+(`cli._read_sessions`) exactly as a mistyped `--store` would be. The alternative, an uncaught
 traceback on stderr with stdout empty, is the swallowed error the next section exists to
 prevent. `resolve_store` stays pure: whether the failure is fatal, one skipped item or an
 interrupt is the command's choice, not this module's.

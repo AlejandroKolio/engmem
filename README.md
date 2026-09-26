@@ -101,7 +101,11 @@ it yourself if you want to. Running it twice is safe.
 
 The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` →
 `~/Developer/engmem`. It holds `sessions/*.md` (the documents) and `telemetry.jsonl`
-(append-only search log). No config files.
+(append-only search log). No config files — which also means `install --store PATH` is not
+remembered: the installed templates resolve `$ENGMEM_HOME`, else the default, every time
+they run. Install says so when the two differ; set `ENGMEM_HOME` to the store you want the
+agent to use. `--agent claude-desktop` is the exception, since its MCP entry records the
+path itself.
 
 ## Usage
 
@@ -113,7 +117,7 @@ The daily loop runs through three agent slash commands installed above:
 - `/engmem.save` — finish a task: drafts the full document metadata from the diff and
   conversation for one-round approval, fills in decisions, rejected alternatives,
   lessons learned, and a Reuse Log of which prior documents actually influenced the work.
-- `/engmem.save.quick` — save without the review round: no YAML check, no quote check, no supersede question; a single `ok` produces a minimal but valid document.
+- `/engmem.save.quick` — save without the review round: no YAML check, no supersede question, and no quote review with the user (the MCP path still refuses a Reuse Log row without a quote); a single `ok` produces a minimal but valid document.
 
 Direct search from the shell:
 
@@ -175,7 +179,7 @@ covers_files: [WidgetCache.java]
 ## Search Trace
 ```
 
-`/engmem.save` writes nineteen sections; `/engmem.save.quick` writes five. Every claim
+`/engmem.save` writes nineteen sections; `/engmem.save.quick` writes five (the list is in `ENGMEM-SPEC.md` §4). Every claim
 carries `[Verified]`, `[Assumed]`, or `[Open]`, so the document says what it does not
 know instead of staying silent about it.
 

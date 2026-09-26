@@ -1,6 +1,6 @@
 # Contract: `engmem mcp` stdio server
 
-Source: `src/engmem/mcp_server.py`. Author-approved addition beyond `ENGMEM-SPEC.md` §11
+Source: `src/engmem/mcp_server.py`. Author-approved addition beyond `ENGMEM-SPEC.md` §9
 (see §5 `engmem mcp`): Claude Desktop cannot run shell commands, so the CLI alone is
 unreachable from it.
 
@@ -77,8 +77,9 @@ that produced it to the call that needs it.
 
 Recorded reversal. Two measurements a week apart (2026-09-11 and 2026-09-18: 0 of 33, then
 2 of 44 rows attributed) showed the three wordings were not enough, so a search without an id
-now ends with `telemetry.UNATTRIBUTED_MCP_NOTE`, appended by `_run_search_for_tool` and
-`_run_role_search_for_tool` after the telemetry write, never `isError`. Blank ids earn the
+now ends with `telemetry.UNATTRIBUTED_MCP_NOTE`, appended by `search_report.compose` after
+the telemetry write (`contracts/output.md`, "One composed result for both channels"), never
+`isError`. Blank ids earn the
 note too — they log `null`. The earlier decision never to append to a search result
 protected `context_bytes`, which measures exactly the rendered text; the note is added after
 `context_bytes` is computed, and `tests/test_mcp_server.py` / `tests/test_cli.py` pin that a
@@ -179,8 +180,8 @@ name, and naming it after the commit names it to a session that has moved on. Th
 store-dependent defects keep the old argument: whether a cited id resolves depends on
 documents the author may not have open (the cited document may be about to land), and
 refusing over them would block a save on state the tool cannot prove wrong. The "note, don't
-fail" shape is the one `_run_search_for_tool`'s `telemetry not recorded` note already uses;
-here the callee's own failure is caught explicitly because `gate1.evaluate` has no
+fail" shape is the one `search_report.compose` already uses for its `telemetry not recorded`
+note; here the callee's own failure is caught explicitly because `gate1.evaluate` has no
 error-return shape.
 
 ### `engmem_mark_superseded`: two reads of one document
@@ -200,6 +201,12 @@ The raw re-read's own failures are properties of the document, refused as `isErr
 nothing was written: unreadable (`OSError`), or no longer UTF-8 because a writer replaced the
 bytes between the reads (`UnicodeDecodeError`, a `ValueError`). Neither may escape as a
 `-32603` with codec text in it.
+
+`engmem_complete_draft` has the same window between confirming the file is a draft and
+committing its replacement: another writer can activate the draft meanwhile, and the new
+content still parses as `active`, so nothing else notices. It runs the same check,
+`_refuse_if_changed_since_read`, just before the commit, and the staged file is discarded on
+refusal.
 
 Not closed by this: `engmem_create_draft`'s `exists()`-then-`os.replace` window. Closing it
 needs an exclusive-create commit path in `staging.py`; until then "never overwrites" is a

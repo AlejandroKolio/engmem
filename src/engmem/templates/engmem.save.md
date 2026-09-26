@@ -11,9 +11,10 @@ tool, its content is exactly what you passed as that call's `content`, so reuse 
 directly instead of trying to re-read the file — and complete it in the two passes
 below.
 
-This template produces the full 16-section knowledge-base shape (plus engmem's own two
-operational sections). It is deliberately the long path: use it when the session is worth
-the ritual. For a low-effort close-out, use `/engmem.save.quick` instead.
+This template produces the full knowledge-base shape: seventeen numbered sections plus
+engmem's own two operational ones, the list `ENGMEM-SPEC.md` §4 fixes. It is deliberately the
+long path: use it when the session is worth the ritual. For a low-effort close-out, use
+`/engmem.save.quick` instead.
 
 ## 1. Front-matter draft (one interactive round, not field-by-field)
 
@@ -46,7 +47,7 @@ Show the full YAML block to the user and ask for `y` or edits. Apply their edits
 asking — more than one interactive round for this draft is a design failure. Do not ask
 about individual fields one at a time.
 
-## 2. Body sections — all 17, plus engmem's own two
+## 2. Body sections — the numbered seventeen, plus engmem's own two
 
 Write every section below, in this order, using the numbered headings exactly as shown
 (the number is part of the heading text — `## 8. Decision Log`, not `## Decision Log`).
@@ -156,8 +157,15 @@ document shape:
   not rewrite it with hindsight. (Place it first, ahead of the numbered sections — it
   documents what was known before this work started.)
 - **`## Search Trace`** — the exact `shell` / `paste` / `miss` value `/engmem` recorded
-  for this session. (Place it last, after Status at a Glance — it documents how this session's own
-  retrieval went.)
+  for this session, alone on its own line: the audit reads a line that is exactly the
+  value, so `- shell` or `Trace: shell` counts as no trace at all. (Place it last, after
+  Status at a Glance — it documents how this session's own retrieval went.)
+
+  ```
+  ## Search Trace
+
+  shell
+  ```
 
 ### Reuse Log rules
 
@@ -174,15 +182,18 @@ One row per prior document that **actually influenced** this work:
   include a direct quote from that prior document. A row without a quote is invalid —
   do not write one. The quote is **verbatim**: copied character for character out of the
   prior document, never paraphrased, tidied, or reconstructed from memory, and it is
-  wrapped in double quotes so it can be found. `tools/verify_citations.py --store <store>`
-  checks every quote against the cited file; run it before finalising. An approximate
-  quote reads as a fabricated one.
+  wrapped in double quotes so it can be found. Before finalising, run the quote checker,
+  which checks every quote against the cited file. It ships in the engmem checkout, not in
+  the installed package, so run it from any directory through the checkout:
+  `uv run --project <engmem-checkout> python <engmem-checkout>/tools/verify_citations.py --store <store>`.
+  An approximate quote reads as a fabricated one.
 - `classification` is one of `reuse`, `anti-reuse`, `harmful` — exactly that spelling,
   lower case, nothing else in the cell.
 - `engmem_complete_draft` refuses the whole document when any row has no quoted span or a
   classification outside those three, and returns each offending row; fix the row and call
   it again. A shell save has no such gate, so check the two rules yourself before writing
-  the file — `tools/gate1_report.py --store <store>` shows what the count will do with it.
+  the file; the checkout's report shows what the count will do with it:
+  `uv run --project <engmem-checkout> python <engmem-checkout>/tools/gate1_report.py --store <store>`.
 - A row that passes both rules, cited by id, quote copied out of the prior document:
 
   | prior-doc | taken | impact | classification |
@@ -225,7 +236,10 @@ yes:
 ## 4. Close out
 
 - Set `status: active` (from `draft`).
-- Set `capture_minutes` to the elapsed time since the draft was created.
+- Set `capture_minutes` to the minutes the save ritual took only if you know when it really
+  started — a time you recorded, not the draft's `date:`, which has day resolution. Otherwise
+  leave it blank: blank means "never measured", and a guess corrupts the cost side of the
+  experiment.
 - Set `verified_at_commit` to the current git `HEAD` — run `git rev-parse HEAD` if you
   have a shell; leave the field blank if you don't (never guess a commit sha).
 - Write the finished document:

@@ -43,8 +43,8 @@ def _reuse(cited: str, quote: str, *, classification: str = "reuse") -> str:
     )
 
 
-def _run(store: Path) -> "subprocess.CompletedProcess[str]":
-    return run_tool(TOOL, store)
+def _run(store: Path, env: dict[str, str] | None = None) -> "subprocess.CompletedProcess[str]":
+    return run_tool(TOOL, store, env)
 
 
 def _cells(row: str) -> list[str]:
@@ -677,3 +677,41 @@ def test_a_backfilled_document_does_not_inflate_the_ritual_figures(tmp_path):
         "a backfilled document was never asked to run the ritual, so it must not appear on "
         "any missing-section line"
     )
+
+
+def test_a_store_with_no_sessions_directory_is_named_before_the_table(tmp_path):
+    """Exit 0 stays (contracts/gate1.md), so stdout is the only place a wrong --store can show."""
+    result = _run(tmp_path / "no-such-store")
+
+    assert result.returncode == 0
+    lines = result.stdout.splitlines()
+    assert lines[0].startswith("error: ") and "unknown, not zero" in lines[0], result.stdout
+    assert lines[1].startswith("| story | cited |")
+
+
+def test_a_missing_store_is_named_on_a_legacy_console_code_page(tmp_path):
+    """The error line carries an em dash cp437 cannot encode; it must still reach stdout."""
+    result = _run(tmp_path / "no-such-store", env={"PYTHONIOENCODING": "cp437"})
+
+    assert result.returncode == 0, result.stderr
+    first = result.stdout.splitlines()[0]
+    assert first.startswith("error: ") and "unknown, not zero" in first, result.stdout
+
+
+def test_a_citing_document_that_fails_to_load_is_named_and_counted_nowhere(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", body="## 8. Decision Log\n\nEviction runs on boot.")
+    sessions.joinpath("widget-cache-v2.md").write_text(
+        "---\nid: widget-cache-v2\ntags: [platform\n---\n\n"
+        + _reuse("widget-cache-v1", "Eviction runs on boot."),
+        encoding="utf-8",
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0
+    assert result.stdout.startswith("error: widget-cache-v2.md: "), result.stdout
+    # the YAML reason runs over several lines; the whole of it still comes before the table
+    before_table, _, after = result.stdout.partition("| story | cited |")
+    assert "widget-cache-v2.md" in before_table and after
+    assert "rows: 0" in result.stdout.splitlines()

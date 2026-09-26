@@ -15,23 +15,15 @@ from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.install import VALID_AGENTS, cmd_install, cmd_uninstall
 from engmem.output import (
     render_backfill_proposal,
-    render_no_match,
-    render_role_search_results,
     render_scoreboard,
-    render_search_results,
     render_telemetry_summary,
-    select_role_hits,
 )
-from engmem.runtime import fail, resolve_store
-from engmem.scoring import role_coverage, search as run_search, search_with_role_sections
+from engmem.runtime import fail, force_utf8_streams, resolve_store
+from engmem.scoring import role_coverage
+from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
 from engmem.spine import Doc, LoadResult, load_store, sessions_dir_unreadable, stray_documents
-from engmem.telemetry import (
-    UNATTRIBUTED_CLI_NOTE,
-    log_role_search,
-    log_search,
-    summarize as summarize_telemetry,
-)
+from engmem.telemetry import summarize as summarize_telemetry
 
 
 def _session_id(raw: str | None) -> str | None:
@@ -42,6 +34,15 @@ def _session_id(raw: str | None) -> str | None:
 
 
 def _load_sessions(store: Path) -> tuple[LoadResult | None, int]:
+    """`_read_sessions`, plus the stdout line for an unlistable `sessions/` — for subcommands whose
+    stdout is not `search_report.compose`'s, which carries that line itself."""
+    result, failure = _read_sessions(store)
+    if result is not None and result.scan_error is not None:
+        print(f"error: {result.scan_error.message}")
+    return result, failure
+
+
+def _read_sessions(store: Path) -> tuple[LoadResult | None, int]:
     """Loads `sessions/`, reporting every error to stderr; returns `(result, 0)` or `(None, 2)`."""
     sessions_dir = store / "sessions"
     unreadable = sessions_dir_unreadable(sessions_dir)
@@ -59,13 +60,11 @@ def _load_sessions(store: Path) -> tuple[LoadResult | None, int]:
         print(f"error: {problem.message}", file=sys.stderr)
     for problem in result.warnings:
         print(f"warning: {problem.message}", file=sys.stderr)
-    if result.scan_error is not None:
-        print(f"error: {result.scan_error.message}")
     return result, 0
 
 
-def _report_strays(store: Path) -> list[Path]:
-    """Warns on stderr about markdown engmem never reads; returns the strays for `_stray_note`."""
+def _report_strays(store: Path) -> tuple[list[Path], list[str]]:
+    """Warns on stderr about markdown engmem never reads; the stdout half is `compose`'s."""
     strays, scan_errors = stray_documents(store)
     if strays:
         names = ", ".join(p.name for p in strays[:3])
@@ -78,20 +77,8 @@ def _report_strays(store: Path) -> list[Path]:
             file=sys.stderr,
         )
     for scan_error in scan_errors:
-        # "found nothing" and "could not check" must never look the same on stdout
         print(f"warning: {scan_error}", file=sys.stderr)
-        print(f"warning: {scan_error}")
-    return strays
-
-
-def _stray_note(count: int) -> str:
-    """The stdout half of the stray report — one wording for both search branches, so the two
-    cannot drift into describing the same store differently."""
-    return (
-        f"({count} markdown file(s) sit outside the searched set — only "
-        f"sessions/*.md is read, not the store root and not subdirectories. "
-        f"They may hold the answer.)"
-    )
+    return strays, scan_errors
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
@@ -105,73 +92,15 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return 2
 
     store = resolve_store(args.store)
-    result, failure = _load_sessions(store)
+    result, failure = _read_sessions(store)
     if failure:
         return failure
 
-    strays = _report_strays(store)
-    session_id = _session_id(args.session)
-
-    if args.role is not None:
-        role_outcome, role_map = search_with_role_sections(result.docs, args.query)
-        role_hits, _matched_role_total = select_role_hits(role_outcome, role_map, args.role)
-        # role_result_text is exactly what the reader is shown, and what
-        # context_bytes below measures — the stray-files note is printed
-        # separately and deliberately excluded (store housekeeping, not content)
-        role_result_text = render_role_search_results(role_outcome, role_map, args.role)
-        print(role_result_text)
-        if not role_hits and strays:
-            print(_stray_note(len(strays)))
-
-        print(render_scoreboard(result.docs, failed=len(result.errors)))
-
-        telemetry_error = log_role_search(
-            store / "telemetry.jsonl",
-            query=args.query,
-            role=args.role,
-            n_docs=len(result.docs),
-            role_hits=role_hits,
-            session_id=session_id,
-            channel="cli",
-            context_bytes=len(role_result_text.encode("utf-8")),
-        )
-        if telemetry_error is not None:
-            print(f"note: telemetry not recorded ({telemetry_error})")
-        if session_id is None:
-            print(UNATTRIBUTED_CLI_NOTE)
-
-        return 0
-
-    outcome = run_search(result.docs, args.query)
-    surfaced_anything = bool(outcome.hits or outcome.superseded_notes)
-
-    # result_text is exactly what the reader is shown, and what context_bytes below measures — the
-    # stray-files note stays a separate print (same reasoning as the --role branch above)
-    result_text = (
-        render_search_results(outcome, result.docs) if surfaced_anything else render_no_match()
-    )
-    print(result_text)
-    if not surfaced_anything and strays:
-        print(_stray_note(len(strays)))
-
-    print(render_scoreboard(result.docs, failed=len(result.errors)))
-
-    telemetry_error = log_search(
-        store / "telemetry.jsonl",
-        query=args.query,
-        n_docs=len(result.docs),
-        outcome=outcome,
-        session_id=session_id,
-        channel="cli",
-        context_bytes=len(result_text.encode("utf-8")),
-    )
-    if telemetry_error is not None:
-        # search already succeeded; report the telemetry gap on stdout rather
-        # than crash (discarding good results) or stay silent (agent misses it)
-        print(f"note: telemetry not recorded ({telemetry_error})")
-    if session_id is None:
-        print(UNATTRIBUTED_CLI_NOTE)
-
+    strays, stray_scan_errors = _report_strays(store)
+    print(compose(
+        store, result, strays, stray_scan_errors, args.query, args.role,
+        _session_id(args.session), "cli",
+    ))
     return 0
 
 
@@ -559,16 +488,8 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     return parser
 
 
-def _force_utf8_streams() -> None:
-    """Locators carry `§`, which cp437 and cp866 cannot encode."""
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8")
-
-
 def main(argv: list[str] | None = None) -> int:
-    _force_utf8_streams()
+    force_utf8_streams()
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser(argv)
     args = parser.parse_args(argv)

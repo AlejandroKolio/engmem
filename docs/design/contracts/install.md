@@ -80,6 +80,17 @@ entry dropped is a file somewhere that install will skip and uninstall will leav
 `tests/conftest.py` carries its own copy of both the current and the legacy text, so a change
 to either constant fails a test rather than silently moving the goalposts.
 
+## `--store` is used once, and said to be used once
+
+No config files is a hard constraint, so `install --store X` creates and initialises `X` and
+writes it nowhere the installed templates read: they resolve `$ENGMEM_HOME`, else
+`~/Developer/engmem`, each time they run. For the template agents, when `X` differs from what
+they will resolve, install prints a second stdout line naming both and the `ENGMEM_HOME=` to
+set. Before it did, install printed `store=X` and said nothing else, and every later draft,
+search and telemetry row went to a different store than the one just created — or failed with
+"store not found" — splitting documents from their telemetry. `claude-desktop` prints no
+such line: its MCP entry records the store path itself.
+
 ## Every failure is a diagnosis, never a traceback
 
 `ENGMEM-SPEC.md` §5 promises exit 2 with a named cause on both streams for every failure the

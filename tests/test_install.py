@@ -952,3 +952,70 @@ def test_the_sandbox_home_is_actually_where_the_code_looks(env):
     assert claude_desktop_config_path(home).is_relative_to(home), (
         "the Desktop config must resolve inside the sandbox on every platform"
     )
+
+
+# --- --store is not persisted into the installed templates: say so when it matters ---
+
+STORE_NOTE = "note: installed templates resolve $ENGMEM_HOME"
+
+
+@pytest.mark.parametrize("agent", ["claude", "copilot-ide", "copilot-cli"])
+def test_a_store_the_templates_will_not_find_is_named_on_stdout(env, tmp_path, monkeypatch, capsys, agent):
+    """The templates resolve $ENGMEM_HOME or the default; an `install --store X` that said nothing
+    left every later draft and search in a different store than the one just created."""
+    monkeypatch.delenv("ENGMEM_HOME", raising=False)
+    _home, project = env
+    (project / ".git").mkdir()  # copilot-ide installs into the repository it runs in
+    store = tmp_path / "elsewhere"
+
+    assert _run_install("--agent", agent, "--store", str(store)) == 0
+    lines = capsys.readouterr().out.splitlines()
+
+    assert lines[0].startswith(f"engmem installed: store={store}, agent={agent}")
+    notes = [line for line in lines if line.startswith(STORE_NOTE)]
+    assert len(notes) == 1 and f"ENGMEM_HOME={store}" in notes[0], lines
+
+
+def test_a_store_matching_engmem_home_prints_no_store_note(env, tmp_path, monkeypatch, capsys):
+    store = tmp_path / "configured"
+    monkeypatch.setenv("ENGMEM_HOME", str(store))
+
+    assert _run_install("--agent", "claude", "--store", str(store)) == 0
+
+    assert STORE_NOTE not in capsys.readouterr().out
+
+
+def test_the_default_store_prints_no_store_note(env, monkeypatch, capsys):
+    monkeypatch.delenv("ENGMEM_HOME", raising=False)
+
+    assert _run_install("--agent", "claude") == 0
+
+    assert STORE_NOTE not in capsys.readouterr().out
+
+
+def test_claude_desktop_persists_its_store_and_prints_no_store_note(env, tmp_path, monkeypatch, capsys):
+    """Desktop writes the store into its own MCP config, so nothing is lost."""
+    monkeypatch.delenv("ENGMEM_HOME", raising=False)
+
+    assert _run_install("--agent", "claude-desktop", "--store", str(tmp_path / "elsewhere")) == 0
+
+    assert STORE_NOTE not in capsys.readouterr().out
+
+
+def test_a_store_other_than_engmem_home_is_named_on_stdout(env, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ENGMEM_HOME", str(tmp_path / "configured"))
+    store = tmp_path / "elsewhere"
+
+    assert _run_install("--agent", "claude", "--store", str(store)) == 0
+
+    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith(STORE_NOTE)]
+    assert len(notes) == 1 and f"ENGMEM_HOME={store}" in notes[0], notes
+
+
+def test_a_relative_store_that_resolves_to_engmem_home_prints_no_store_note(env, monkeypatch, capsys):
+    _home, project = env
+    monkeypatch.setenv("ENGMEM_HOME", str(project / "configured"))
+
+    assert _run_install("--agent", "claude", "--store", "configured") == 0
+
+    assert STORE_NOTE not in capsys.readouterr().out

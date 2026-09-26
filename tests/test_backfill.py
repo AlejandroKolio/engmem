@@ -1748,3 +1748,47 @@ def test_superseded_by_survives_the_write_and_reloads(tmp_path):
     reloaded = parse_document(path)
     assert reloaded.status == "superseded"
     assert reloaded.superseded_by == "widget-cache-v2"
+
+
+RITUAL_DOC_WITHOUT_BACKFILLED = """---
+id: widget-cache-ritual
+title: Widget Cache Ritual
+date: 2026-08-01
+status: active
+tags: [widget-cache]
+entities: [WidgetCache]
+related: []
+---
+
+## Pre-reg
+
+Warm the cache before traffic; measure the first request.
+
+## 16. Reuse Log
+
+Prior docs used: none.
+"""
+
+
+def test_a_document_with_a_prereg_section_is_not_proposed_as_backfilled(tmp_path):
+    """A Pre-reg section is the ritual's own evidence; stamping `backfilled: true` over it drops a
+    real story out of the ritual count the freeze is read from."""
+    write_file(tmp_path, "widget-cache-ritual.md", RITUAL_DOC_WITHOUT_BACKFILLED)
+    doc = load_store(tmp_path).docs[0]
+
+    proposal = propose_backfill(doc)
+
+    assert "backfilled" not in [f.name for f in proposal.fields]
+    assert sum("Pre-reg" in note and "backfilled" in note for note in proposal.notes) == 1
+
+
+def test_a_document_that_states_backfilled_gets_no_prereg_note(tmp_path):
+    write_file(
+        tmp_path, "widget-cache-ritual.md",
+        RITUAL_DOC_WITHOUT_BACKFILLED.replace("status: active\n", "status: active\nbackfilled: false\n"),
+    )
+    doc = load_store(tmp_path).docs[0]
+
+    proposal = propose_backfill(doc)
+
+    assert not any("Pre-reg" in note for note in proposal.notes)

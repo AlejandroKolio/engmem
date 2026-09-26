@@ -6,13 +6,15 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
 
-from conftest import requires_permission_enforcement
+from conftest import FIXTURES, requires_permission_enforcement
 from mcp_harness import (
     PROTOCOL_VERSION,
+    _call,
     _initialize_msg,
     _prompts_get_msg,
     _result_text,
@@ -21,6 +23,7 @@ from mcp_harness import (
     _stdin_of,
     _stdin_of_messages,
     _telemetry_lines,
+    _text,
     _tools_call_msg,
 )
 
@@ -1033,7 +1036,7 @@ def test_broken_pipe_teardown_leaves_the_stdout_fd_pointing_somewhere_harmless(s
             lambda store: mcp_server._run_search_for_tool(store, "WidgetCache"), id="search"
         ),
         pytest.param(
-            lambda store: mcp_server._run_role_search_for_tool(store, "WidgetCache", "decisions"),
+            lambda store: mcp_server._run_search_for_tool(store, "WidgetCache", None, "decisions"),
             id="role_search",
         ),
     ],
@@ -1315,3 +1318,55 @@ def test_an_unreadable_store_is_a_tool_error_not_an_internal_error(tmp_path):
     result = responses[0]["result"]
     assert result.get("isError") is True
     assert "store not readable" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# one composed result for both channels (contracts/output.md)
+# ---------------------------------------------------------------------------
+
+
+@requires_permission_enforcement
+def test_an_unlistable_sessions_directory_reads_unknown_not_zero_over_mcp(tmp_path):
+    """The CLI already said so; the MCP-only channel read the same store as an empty one."""
+    sessions = tmp_path / "store" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "control.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
+    os.chmod(sessions, 0o000)
+    try:
+        result, is_error = _call(tmp_path / "store", name="engmem_search", arguments={"query": "hello"})
+    finally:
+        os.chmod(sessions, 0o755)
+
+    assert not is_error
+    first = _text(result).splitlines()[0]
+    assert first.startswith("error: ") and "unknown, not zero" in first, _text(result)
+
+
+PARITY_QUERIES = [
+    ("WidgetCache", None),
+    ("zzz-no-such-term", None),
+    ("platform", "decisions"),
+    ("zzz-no-such-term", "decisions"),
+]
+
+
+@pytest.mark.parametrize(("query", "role"), PARITY_QUERIES)
+def test_mcp_text_is_the_cli_stdout_with_the_channels_own_note(tmp_path, capsys, query, role):
+    from engmem.cli import main
+    from engmem.telemetry import UNATTRIBUTED_CLI_NOTE, UNATTRIBUTED_MCP_NOTE
+
+    store = tmp_path / "store"
+    shutil.copytree(FIXTURES, store / "sessions")
+    (store / "stray-notes.md").write_text("# not in sessions/\n", encoding="utf-8")
+    role_args = ["--role", role] if role else []
+
+    main(["search", query, *role_args, "--store", str(store)])
+    cli_stdout = capsys.readouterr().out
+    arguments = {"query": query, **({"role": role} if role else {})}
+    name = "engmem_search_by_role" if role else "engmem_search"
+    result, is_error = _call(store, name=name, arguments=arguments)
+
+    assert not is_error
+    assert _text(result) == cli_stdout.rstrip("\n").replace(
+        UNATTRIBUTED_CLI_NOTE, UNATTRIBUTED_MCP_NOTE
+    )

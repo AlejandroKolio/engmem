@@ -277,3 +277,65 @@ def test_the_save_template_defines_anti_reuse():
         "the impact-cell polarity rule inverts when the prior document's own decision was "
         "a rejection -- it must not reappear"
     )
+
+
+# ---------------------------------------------------------------------------
+# claims an agent or contributor acts on literally
+# ---------------------------------------------------------------------------
+
+TEMPLATES = ROOT / "src" / "engmem" / "templates"
+ANATOMY = (ROOT / "docs" / "engmem-anatomy.html").read_text(encoding="utf-8")
+ANATOMY_RU = ANATOMY[ANATOMY.index('<div class="lang-ru"'):ANATOMY.index('<div class="lang-en"')]
+ANATOMY_EN = ANATOMY[ANATOMY.index('<div class="lang-en"'):]
+
+
+@pytest.mark.parametrize(
+    "doc", [ROOT / "SECURITY.md", ROOT / ".github" / "pull_request_template.md", ROOT / "README.md"],
+    ids=lambda p: p.name,
+)
+def test_the_runtime_dependencies_named_are_the_two_the_wheel_requires(doc):
+    text = doc.read_text(encoding="utf-8")
+
+    assert "pyyaml" in text and "markdown-it-py" in text, doc.name
+    assert "one runtime dependency" not in text.lower() and "pyyaml` only" not in text, doc.name
+
+
+def test_the_anatomy_page_states_two_dependencies_in_both_languages():
+    assert "Две зависимости" in ANATOMY_RU and "Одна зависимость" not in ANATOMY_RU
+    assert "Two dependencies" in ANATOMY_EN
+
+
+@pytest.mark.parametrize("template", sorted(TEMPLATES.glob("*.md")), ids=lambda p: p.name)
+def test_a_template_naming_a_gate1_tool_says_it_lives_in_the_checkout(template):
+    """`tools/` is not in the wheel: a bare `tools/verify_citations.py` resolves nowhere from the
+    repository an agent is working in."""
+    text = template.read_text(encoding="utf-8")
+    for tool in ("tools/verify_citations.py", "tools/gate1_report.py"):
+        for line in (line for line in text.splitlines() if tool in line):
+            assert f"<engmem-checkout>/{tool}" in line, f"{template.name}: {line.strip()}"
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [TEMPLATES / "engmem.save.md", TEMPLATES / "engmem.save.quick.md",
+     ROOT / "docs" / "design" / "data-model.md"],
+    ids=lambda p: p.name,
+)
+def test_the_section_list_cites_the_spec_and_no_stale_count(doc):
+    text = doc.read_text(encoding="utf-8")
+
+    assert "ENGMEM-SPEC.md` §4" in text, f"{doc.name} must cite ENGMEM-SPEC.md §4 for its sections"
+    for count in ("16-section", "six-section", "all 17"):
+        assert count not in text, f"{doc.name} restates a section count: {count!r}"
+
+
+@pytest.mark.parametrize(
+    "template", ["engmem.start.md", "engmem.save.md", "engmem.save.quick.md"]
+)
+def test_the_search_trace_instructions_show_a_bare_value_line(template):
+    """The audit reader matches a whole line equal to `shell`, `paste` or `miss`; `- shell` or
+    `Trace: shell` escapes it, so the writer has to be shown the exact shape."""
+    text = (TEMPLATES / template).read_text(encoding="utf-8")
+
+    # the example may sit indented inside a list item; the lines themselves carry nothing else
+    assert re.search(r"^( *)```\n\1## Search Trace\n\n\1shell\n\1```$", text, re.MULTILINE), template

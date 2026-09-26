@@ -63,7 +63,7 @@ until save fills them in).
 ---
 id: <YYYYMMDD>-<slug>          # or <story-id>-<slug>; must equal the filename stem
 title: <short title from the task description>
-date: <today>                   # this is the draft creation anchor for capture_minutes
+date: <today>                   # day resolution: not an anchor for capture_minutes
 task_date: <today>
 status: draft
 superseded_by:
@@ -144,7 +144,14 @@ A search that ran but found nothing is still `shell` or `paste` — the search *
 *execution path*, which is what the dogfooding smoke (S7) verifies for each agent.
 
 This value gets attached to the session document at save time; you don't need to write it
-into the draft file now, just remember it for `/engmem.save`.
+into the draft file now, just remember it for `/engmem.save`. It is saved alone on its own
+line, because the audit reads a line that is exactly the value:
+
+```
+## Search Trace
+
+shell
+```
 
 ## 6. Report, then answer in the same message
 

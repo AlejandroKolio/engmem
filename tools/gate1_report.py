@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 from engmem import gate1, gate1_audit
+from engmem.runtime import force_utf8_streams
 
 HEADER = ["story", "cited", "quote", "integrity", "classification", "distance", "staleness",
           "changed a decision?"]
@@ -189,9 +190,15 @@ def main(argv: list[str] | None = None) -> int:
              "coverage block below (default: all-time, unchanged from every prior run)",
     )
     args = parser.parse_args(argv)
+    force_utf8_streams()
 
     store = Path(args.store).expanduser()
     lines, verdicts = report(store)
+
+    # first, and on stdout: exit 0 is fixed by contract, so a wrong --store or an unreadable
+    # document must be visible here or nowhere; no figure below counts them
+    for load_error in verdicts.load_errors:
+        print(f"error: {load_error.message}")
 
     # printed in full BEFORE the audit block is computed: the per-row table and the
     # §11 endpoint figure must reach stdout even if telemetry.jsonl -- read only by the audit

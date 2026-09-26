@@ -13,7 +13,7 @@ from importlib import resources
 from pathlib import Path
 
 from engmem import __version__
-from engmem.runtime import fail, resolve_store
+from engmem.runtime import default_store, fail, resolve_store
 from engmem.staging import commit, discard, newline_of, read_document, stage
 
 
@@ -614,4 +614,11 @@ def _run_install(args: argparse.Namespace) -> int:
 
     trigger_note = _TRIGGER_RULE_NOTES.get(trigger_outcome, "")
     print(f"engmem installed: store={store}, agent={args.agent}{trigger_note}")
+    # the templates resolve the store at run time and `--store` is written nowhere they read
+    # (no config files); Desktop is the exception, its MCP entry records the path itself
+    if args.agent != "claude-desktop" and store != resolve_store(None):
+        print(
+            f"note: installed templates resolve $ENGMEM_HOME, else {default_store()}; --store "
+            f"is not written into them — set ENGMEM_HOME={store} to use this store"
+        )
     return 0

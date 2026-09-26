@@ -50,6 +50,14 @@ def resolve_store(explicit: str | None) -> Path:
     return _absolute(_expand_home(Path(configured)))
 
 
+def force_utf8_streams() -> None:
+    """Locators carry `§`, which cp437 and cp866 cannot encode; the tools print them too."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 def fail(message: str) -> None:
     # Both streams: the consuming agent reads stdout and never stderr (ENGMEM-SPEC.md §5,
     # §10 principle VIII), so a failure named on stderr alone is a swallowed error.

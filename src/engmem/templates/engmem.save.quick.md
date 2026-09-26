@@ -36,21 +36,26 @@ confirmation.
    `anti-reuse` / `harmful`; `engmem_complete_draft` refuses a row that breaks either and
    returns it) — but do not interrogate the user about it.
 3. Write `## Search Trace` with the `shell` / `paste` / `miss` value recorded by
-   `/engmem`.
+   `/engmem`, alone on its own line — `- shell` or `Trace: shell` counts as no trace:
+
+   ```
+   ## Search Trace
+
+   shell
+   ```
 4. Carry `## Pre-reg` over unedited from the draft. Skip
    `## Future LLM Context (cold-start primer)` — quick
-   save doesn't write it (ENGMEM-SPEC.md §6.3: quick save writes only Decision Log,
-   Reuse Log, and Search Trace beyond what the draft already had; Lessons Learned rides
-   along with Decision Log's bullets).
+   save doesn't write it (`ENGMEM-SPEC.md` §4: quick save writes five sections — Pre-reg,
+   Decision Log, Lessons Learned, Reuse Log and Search Trace — and no primer).
 
    Headings here carry the same names as `/engmem.save`'s but **no numbers**. The numbers
-   there index a fixed set of seventeen; a six-section document numbered 8, 11 and 16 would
+   there index a fixed set of seventeen; a five-section document numbered 8, 11 and 16 would
    read as one with gaps where sections were dropped, which is exactly what this path does
    not claim. Same names, same roles, no false implication of missing content.
-5. Generate the complete front matter automatically (same fields as `/engmem.save`,
-   including `capture_minutes` from the draft creation time and `verified_at_commit` from
-   `HEAD` — leave `verified_at_commit` blank if you have no shell to get it), set
-   `status: active` directly.
+5. Generate the complete front matter automatically (same fields as `/engmem.save`, with
+   `verified_at_commit` from `HEAD` — blank if you have no shell to get it — and
+   `capture_minutes` blank unless you know when the save really started; the draft's
+   `date:` has day resolution and is no anchor), set `status: active` directly.
 6. Show the user the finished document in one message and ask exactly one thing: `ok`?
    On `ok`, write it. On anything else, treat the reply as edits, apply them, and write —
    still no follow-up questions. Write directly if you have file access; otherwise call

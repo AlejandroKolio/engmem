@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 from engmem.sections import split_sections
-from engmem.spine import Doc, _coerce_list_field, load_store, split_front_matter
+from engmem.spine import Doc, Problem, _coerce_list_field, load_store, split_front_matter
 
 QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
 NONE_LINE = "prior docs used: none."
@@ -91,6 +91,9 @@ class Verdicts:
     rows: list[RowVerdict]
     none_reports: list[str]  # doc ids that cleanly reported "Prior docs used: none."
     conflicts: list[DocConflict]  # both the none-sentence AND real rows -- reported, not resolved
+    # every file `load_store` could not read, and an unlistable `sessions/`: named by the tools,
+    # never counted in a figure -- a document here has no row above (contracts/gate1.md)
+    load_errors: list[Problem]
 
 
 def _normalized(text: str) -> str:
@@ -253,7 +256,9 @@ def evaluate(store: Path) -> Verdicts:
         for table_row in table_rows:
             rows.append(_row_verdict(doc, table_row, docs, bodies, repos))
 
-    return Verdicts(rows=rows, none_reports=none_reports, conflicts=conflicts)
+    return Verdicts(
+        rows=rows, none_reports=none_reports, conflicts=conflicts, load_errors=result.errors
+    )
 
 
 def excluded_by_status(row: RowVerdict) -> str | None:

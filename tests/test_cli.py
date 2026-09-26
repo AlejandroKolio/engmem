@@ -223,17 +223,6 @@ def _clone_store(store: Path, times: int, originals: list[Path] | None = None) -
     return len(list(sessions.glob("*.md")))
 
 
-def _best_of_three(store: Path, capsys) -> float:
-    # noise only ever adds time, so the fastest run is the closest estimate of the real cost
-    best = float("inf")
-    for _ in range(3):
-        start = time.perf_counter()
-        main(["search", "platform", "--store", str(store)])
-        best = min(best, time.perf_counter() - start)
-        capsys.readouterr()
-    return best
-
-
 def _cold_floor(argv: list[str], cache_home: Path, capsys) -> float:
     """Fastest of three cold-cache runs: clearing the cache before each run measures the
     code's own cost rather than a warm cache's, and the floor discards scheduling noise,
@@ -270,8 +259,8 @@ def test_sc002_search_stays_well_inside_the_no_index_budget(
     # instrumentation. The previous 0.2 was not merely tight, it was false about this very code
     # under `--cov`, and it measured the machine rather than the engine. §3 budgets a full scan
     # at "milliseconds" and states no number; this bound is the tripwire on that budget, not the
-    # budget itself, and anything that grows with document count is caught by the ratio test
-    # below regardless of wall clock.
+    # budget itself, and anything that grows faster than document count is caught by the
+    # call-count test below, which measures no wall clock at all.
     assert elapsed < 0.5
 
 
@@ -291,25 +280,55 @@ def test_sc002_search_stays_within_an_order_of_magnitude_everywhere(
     assert elapsed < 2.0
 
 
-def test_search_cost_stays_linear_in_the_number_of_documents(store, tmp_path, capsys):
-    """The shape of the cost curve belongs to the code; a wall-clock bound would only measure the
-    machine."""
+# the same string space as `co_filename`: resolving the path would break the match through a
+# symlinked checkout, and three zero counts have a zero second difference
+ENGMEM_SOURCE = os.path.dirname(cache.identity_for.__code__.co_filename)
+
+
+def _engmem_calls(store: Path, cache_home: Path, monkeypatch, capsys) -> int:
+    """Python-level calls into engmem during one cold search: a count, so the same code gives the
+    same number on any machine under any load."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+    calls = 0
+
+    def count(frame, event, _arg):
+        nonlocal calls
+        if event == "call" and frame.f_code.co_filename.startswith(ENGMEM_SOURCE):
+            calls += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(count)
+    try:
+        main(["search", "platform", "--store", str(store)])
+    finally:
+        sys.setprofile(previous)
+    capsys.readouterr()
+    return calls
+
+
+def test_search_cost_stays_linear_in_the_number_of_documents(store, tmp_path, monkeypatch, capsys):
+    """The shape of the cost curve belongs to the code. A wall-clock ratio measured the machine
+    too: it flaked under load and still let a seeded quadratic pass five runs in five.
+
+    Each step adds one identical set of cloned documents, so linear code does exactly the same
+    extra work per step and the second difference of the call count is zero. Any per-pair work
+    makes it positive, however cheap: one call per pair of documents already shows as dozens."""
     originals = sorted((store / "sessions").glob("*.md"))
-    small_docs = _clone_store(store, 5, originals)
-    small = _best_of_three(store, capsys)
+    counts = []
+    for sets in (1, 2, 3):  # single-digit clone indices, so every set's ids tokenize alike
+        docs = _clone_store(store, sets, originals)
+        counts.append((docs, _engmem_calls(store, tmp_path / f"cache-{sets}", monkeypatch, capsys)))
 
-    large_docs = _clone_store(store, 25, originals)
-    large = _best_of_three(store, capsys)
-
-    size_ratio = large_docs / small_docs
-    time_ratio = large / small
-
-    # 2.0, chosen from measurement rather than taste: honest linear growth measures 4.2x for 4.3x
-    # the documents, and a quadratic doing real per-pair work measures 9.5x.
-    assert time_ratio < size_ratio * 2.0, (
-        f"{small_docs} docs took {small * 1000:.0f}ms, {large_docs} took {large * 1000:.0f}ms — "
-        f"{time_ratio:.1f}x the time for {size_ratio:.1f}x the documents. Linear would be "
-        f"about {size_ratio:.1f}x, quadratic about {size_ratio ** 2:.0f}x."
+    (_, first), (_, second), (_, third) = counts
+    assert 0 < first < second < third, (
+        f"engmem call counts must grow with the documents (zero means the profiler matched "
+        f"no engmem code): {counts}"
+    )
+    second_difference = (third - second) - (second - first)
+    assert second_difference == 0, (
+        f"engmem calls per search at {[d for d, _ in counts]} documents: "
+        f"{[c for _, c in counts]} — the cost per added set of documents changed by "
+        f"{second_difference}, so search work is not linear in the number of documents"
     )
 
 

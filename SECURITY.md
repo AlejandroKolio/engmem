@@ -18,8 +18,8 @@ private until a fix is on `main`.
 
 ## Threat model
 
-engmem reads and writes markdown on the machine it runs on. It has one runtime
-dependency, no server, and makes no network calls — `tests/conftest.py` blocks
+engmem reads and writes markdown on the machine it runs on. It has two runtime
+dependencies (`pyyaml` and `markdown-it-py`), no server, and makes no network calls — `tests/conftest.py` blocks
 sockets for the whole suite so a new call cannot be added unnoticed.
 
 That shapes what counts as a vulnerability here. Anything that moves store content

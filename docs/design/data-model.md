@@ -1,7 +1,7 @@
 # Phase 1 Data Model: Engmem — Personal Engineering Memory
 
 Source of truth for field-level detail: `ENGMEM-SPEC.md` §4. This document restates it as
-an entity model for implementation, per spec.md's Key Entities section.
+an entity model for implementation.
 
 ## Entity: Engineering Session Document
 
@@ -29,7 +29,7 @@ YAML front matter + a fixed set of markdown body sections.
 | `branch` | string | no | automatic (`git rev-parse --abbrev-ref HEAD`) | branch the work was done on |
 | `pr` | string \| number | no | agent draft | pull request number or URL, blank when none exists |
 | `navigation_miss` | list[{doc, query}] | no | agent, at save | documents the search failed to surface that were used anyway. Both keys required per entry; a half-written entry is dropped with a warning, never the document. Counted by `engmem telemetry` separately from search misses — a search that found nothing and a search that missed something present are different failures |
-| `capture_minutes` | number \| null | no | automatic | elapsed time from draft creation to save |
+| `capture_minutes` | number \| null | no | agent at save | minutes the save ritual took; blank unless a real start time is known (`null` = never measured) |
 | `baseline_tokens` | number | no | automatic | tokens the no-memory sub-agent consumed producing the Pre-reg baseline; omitted when the runtime does not report it |
 | `context_bytes` | number | no | automatic | bytes of prior-document text pulled into context this session |
 | `answer_steps` | number | no | automatic | tool calls needed *after* the search to reach the answer |
@@ -72,22 +72,22 @@ knowledge.
 
 **Zero manually-typed fields**: every field is either fully automatic or a one-round
 agent draft that the human approves with `y` or edits — never asked for field-by-field
-(spec FR-002; `ENGMEM-SPEC.md` §4 "Manually filled fields — zero").
+(`ENGMEM-SPEC.md` §4 "Manually filled fields — zero").
 
 The four cost fields are optional by design: they are omitted whenever the number is not
 actually available, because a guessed figure would corrupt the only analysis this project
 exists to produce. The parser ignores fields it does not know, so they require no schema
 enforcement — they are read at review time, not validated at write time.
 
-### Body sections (fixed order; `save.quick` writes only sections 2, 5, 6)
+### Body sections (the thin core; which template writes which sections is the list in `ENGMEM-SPEC.md` §4)
 
 1. `## Pre-reg` — 2–3 line naive baseline generated before any search, never asked of the
-   human, plus a `pre-reg source:` line naming how it was obtained (spec FR-011)
+   human, plus a `pre-reg source:` line naming how it was obtained (`ENGMEM-SPEC.md` §6, start step 1)
 2. `## Decision Log` — decisions made + alternatives rejected, with reasons
 3. `## Lessons Learned` — pitfalls hit during the work
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-starting agent
 5. `## Reuse Log` — see **Reuse Log Entry** below
-6. `## Search Trace` — one of `shell | paste | miss` (spec FR-014)
+6. `## Search Trace` — one of `shell | paste | miss`, alone on its line (`ENGMEM-SPEC.md` §6, start step 5)
 
 **Content rule**: only what isn't in the code, or is expensive to re-derive (rejected
 alternatives, incidents, business constraints, agreements, glossary) belongs in the body.
@@ -134,7 +134,7 @@ influenced the work; the artifact must be concrete (not "the doc was helpful"); 
 without a quote is invalid. Time saved is never estimated in this row — that judgment
 belongs to the human at review time, outside this document. If nothing was reused, the
 section is exactly the sentence `Prior docs used: none.` — never blank, never omitted
-(spec FR-001, User Story 2 acceptance scenario 3).
+(`ENGMEM-SPEC.md` §6, `/engmem.save` step 3).
 
 ### Validation rules
 
@@ -156,7 +156,7 @@ section is exactly the sentence `Prior docs used: none.` — never blank, never 
 | error | `capture_minutes` is `.inf`/`.nan` | the document is skipped, the rest of the store still returns. `int(float("inf"))` raises `OverflowError` and `.nan` raises `ValueError`; `_coerce_int` catches both and re-raises as the `ValueError` `load_store` handles, so one document's infinity does not take the whole load down |
 | error | `capture_minutes` is a boolean | rejected: `int(True)` is `1`, so a boolean would arrive as one measured minute rather than as the wrong type it is |
 
-Per spec FR-008 / Edge Cases: an **error** on one document during a `search` call MUST
+Per `ENGMEM-SPEC.md` §5 (`engmem search` step 1): an **error** on one document during a `search` call MUST
 NOT abort the whole call — the malformed document is skipped (with the error/warning
 reported), and results from the rest of the store are still returned. "Fails loud" means
 the failure is visible and named, not that it takes down the whole operation.
@@ -170,11 +170,10 @@ The engineer's full collection of Engineering Session Documents.
 | location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → default `~/Developer/engmem` |
 | contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) |
 | persistence | a git repository (created by `install` if it doesn't exist); no other database or cache |
-| scope | machine-wide default, or single-project if `--local` was used at install time (spec FR-017) |
+| scope | machine-wide default, or single-project if `--local` was used at install time (`ENGMEM-SPEC.md` §5, `engmem install`) |
 
 There is no derived/generated artifact belonging to the store (no index file, no cache) —
-this is a hard invariant, not an optimization detail (spec FR-019; research.md "Storage &
-indexing strategy").
+this is a hard invariant, not an optimization detail (`ENGMEM-SPEC.md` §3).
 
 ## Entity: Search Result Set
 
@@ -183,15 +182,14 @@ telemetry.
 
 | Attribute | Description |
 |---|---|
-| results | top 3 matching **active** documents, ranked by score (research.md "Search ranking algorithm") |
+| results | top 3 matching **active** documents, ranked by score (`ENGMEM-SPEC.md` §7) |
 | per-result fields | id, path, score, why-matched (which query tokens matched which fields), first 2 lines of Cold-start primer, its `related` (id + path only, depth 1) |
 | ambiguous flag | set when a short/numeric query token matches entities across distinct clusters; one representative per cluster is returned instead of a single top result |
 | scoreboard footer | always present: `docs: N | drafts: N | last doc: Nd ago`; `N` in `last doc` is clamped to `0` for a future-dated newest document (typo, timezone skew, a `task_date` copied forward), since `Nd ago` cannot express a negative count |
-| size constraint | total rendered output ≤ 4 KB (`output.MAX_OUTPUT_BYTES`; spec SC-002, FR-004) |
+| size constraint | total rendered output ≤ 4 KB (`output.MAX_OUTPUT_BYTES`; `ENGMEM-SPEC.md` §5, `engmem search`) |
 | no-match output | exactly `prior context: none found`, exit code 0 |
 
-Every call also produces one `telemetry.jsonl` line (see research.md "Telemetry &
-measurement instrumentation") — this is a side effect of the Search Result Set being
+Every call also produces one `telemetry.jsonl` line (`ENGMEM-SPEC.md` §5, `engmem search` step 6) — this is a side effect of the Search Result Set being
 produced, not a separate entity. The line carries two join keys beyond the result itself:
 `session_id` (the draft document this search was run for, `null` when unattributed) and
 `surfaced` (the ids actually shown, including redirect targets that never scored).
