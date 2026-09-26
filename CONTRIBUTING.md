@@ -13,8 +13,8 @@ repository, and finishes in seconds.
 ## Pull requests
 
 Branch, push, open a PR against `main`. One check gates the merge: **`ci`**, which
-passes only when the test matrix (Linux, macOS, Windows × Python 3.11–3.13) and the
-runtime-dependency job both succeed.
+passes only when the test matrix (Linux, macOS, Windows × Python 3.11–3.13), the
+runtime-dependency job and the packaging job all succeed.
 
 Squash merge is the only merge method; write the PR title as the commit message you
 want in the history.
@@ -40,9 +40,20 @@ the fix is usually the change, not the test.
   and nothing else. A new runtime import fails `runtime-dependencies` in CI. Dev-only
   tools belong in the `dev` dependency group.
 - **No network.** `tests/conftest.py` blocks sockets for the entire suite.
-- **stdout is protocol-only.** `test_stdout_is_protocol_only.py` walks the AST and
-  fails if anything prints to stdout outside the output layer — the MCP server shares
-  that stream, and one stray `print` corrupts every message on it.
+- **stdout is protocol-only.** `test_stdout_is_protocol_only.py` walks the AST of
+  `mcp_server` and of every engmem module it imports, directly or not, and fails if any of
+  them prints to stdout — the MCP server shares that stream, and one stray `print` in
+  `gate1` corrupts every message on it as surely as one in `mcp_server`.
+- **Every text open names its encoding.** `test_explicit_encoding.py` reads every
+  text-mode `open`, `read_text` and `write_text` in `src/` and `tools/` from the syntax tree. The
+  locale's code page is not UTF-8 on Windows or under `LANG=C`, and the dynamic check in
+  `test_encoding.py` only sees the paths its script runs.
+- **The start template's draft parses as a draft.** `test_lifecycle.py` builds the draft
+  from the YAML block in `engmem.start.md` itself, not a copy, so a typo in the template
+  cannot publish every new draft as active.
+- **Search cost is linear.** The guard in `test_cli.py` counts Python calls into engmem, not
+  seconds, over equal steps of cloned documents: linear code adds exactly the same work per
+  step, so any per-pair work shows as a non-zero second difference on any machine.
 - **Docs match the code.** `test_docs_match_the_code.py` checks that names, constants,
   and CLI flags quoted in the documentation still exist.
 - **Fixtures land as bytes.** `write_file` in `tests/conftest.py` writes exactly the

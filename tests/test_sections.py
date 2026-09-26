@@ -4,7 +4,6 @@ from engmem.sections import (
     CANONICAL_ALIASES,
     CANONICAL_ROLES,
     split_sections,
-    sections_by_locator,
     sections_for_role,
 )
 
@@ -167,15 +166,6 @@ def test_unmapped_heading_has_no_canonical_alias():
     body = "## Rollout Plan\n\nSome content.\n"
     section = split_sections(body)[0]
     assert section.canonical is None
-
-
-def test_both_literal_slug_and_canonical_alias_resolve():
-    body = "## 8. Decision Log\n\nRejected the alternative.\n"
-    sections = split_sections(body)
-    index = sections_by_locator(sections)
-
-    assert index["decision-log"] is sections[0]
-    assert index["decisions"] is sections[0]
 
 
 def test_sections_are_returned_in_document_order_with_sequential_index():
@@ -341,11 +331,9 @@ def test_near_miss_headings_do_not_fold_to_a_canonical_role(heading_line):
 def test_unmapped_near_miss_still_yields_a_working_literal_anchor():
     body = "## Testing Knowledge Gaps\n\nOpen questions about coverage.\n"
     sections = split_sections(body)
-    index = sections_by_locator(sections)
 
     assert sections[0].canonical is None
     assert sections[0].anchor == "testing-knowledge-gaps"
-    assert index["testing-knowledge-gaps"] is sections[0]
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +520,6 @@ def test_split_subsections_inherit_the_parent_role():
 
     assert [s.heading for s in sections] == ["Classes", "Endpoints"]
     assert [s.canonical for s in sections] == ["keywords", "keywords"]
-    assert sections_by_locator(sections)["keywords"].heading == "Classes"
 
 
 def test_a_lead_in_still_takes_the_role_first():
@@ -558,9 +545,9 @@ def test_sections_for_role_returns_document_order_and_nothing_for_an_absent_role
     assert sections_for_role(sections, "decisions") == []
 
 
-def test_a_section_that_names_the_role_outranks_an_inherited_one_earlier_in_the_document():
+def test_every_section_answering_for_a_role_is_returned_inherited_or_not():
     """`CANONICAL_ALIASES` maps several headings onto one role, so two sections can both answer
-    for it."""
+    for it; which one outranks the other is role search's rule, pinned in test_scoring.py."""
     filler = ", ".join(f"`Term{i}`" for i in range(400))
     body = (
         f"## Business Context\n\n### Actors\n\n{filler}\n\n### Flows\n\nflows\n\n"
@@ -569,9 +556,6 @@ def test_a_section_that_names_the_role_outranks_an_inherited_one_earlier_in_the_
     sections = split_sections(body)
 
     assert [s.canonical for s in sections] == ["context", "context", "context"]
-    assert sections_by_locator(sections)["context"].heading == "Glossary"
-    # the inherited pieces are still reachable, both by anchor and as the role's content
-    assert sections_by_locator(sections)["actors"].heading == "Actors"
     assert [s.heading for s in sections_for_role(sections, "context")] == [
         "Actors", "Flows", "Glossary",
     ]

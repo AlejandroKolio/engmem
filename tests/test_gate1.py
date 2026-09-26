@@ -471,3 +471,36 @@ def test_a_row_failing_two_axes_reports_the_earlier_axis(tmp_path, row_fields, c
     row = replace(eligible, citing=replace(eligible.citing, status=citing_status), **row_fields)
 
     assert gate1.exclusion_reason(row) == expected
+
+
+# ---------------------------------------------------------------------------
+# load errors -- carried alongside the verdicts, never inside a figure
+# ---------------------------------------------------------------------------
+
+
+def test_a_document_that_fails_to_load_is_a_load_error_not_a_row(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1")
+    (sessions / "widget-cache-v2.md").write_text(
+        "---\nid: widget-cache-v2\ntags: [platform\n---\n\n"
+        + _reuse("widget-cache-v1", "Body."),
+        encoding="utf-8",
+    )
+
+    verdicts = gate1.evaluate(tmp_path)
+
+    assert [p.path.name for p in verdicts.load_errors] == ["widget-cache-v2.md"]
+    assert verdicts.rows == []
+
+
+def test_a_missing_sessions_directory_is_a_load_error(tmp_path):
+    verdicts = gate1.evaluate(tmp_path / "no-such-store")
+
+    assert len(verdicts.load_errors) == 1
+    assert "unknown, not zero" in verdicts.load_errors[0].message
+
+
+def test_a_clean_store_has_no_load_errors(tmp_path):
+    _doc(tmp_path / "sessions", "widget-cache-v1")
+
+    assert gate1.evaluate(tmp_path).load_errors == []

@@ -23,8 +23,8 @@ def _doc(sessions: Path, doc_id: str, body: str, *, status: str = "active",
     )
 
 
-def _run(store: Path) -> "subprocess.CompletedProcess[str]":
-    return run_tool(TOOL, store)
+def _run(store: Path, env: dict[str, str] | None = None) -> "subprocess.CompletedProcess[str]":
+    return run_tool(TOOL, store, env)
 
 
 def _cited(quote: str) -> str:
@@ -260,3 +260,55 @@ def test_the_report_is_printable_on_a_windows_console(tmp_path):
     assert "quote not found" in output, "the case under test must actually report something"
 
     output.encode("cp1252")  # raises if a character cannot reach a Windows console
+
+
+def _broken(sessions: Path, doc_id: str, body: str) -> None:
+    sessions.mkdir(parents=True, exist_ok=True)
+    (sessions / f"{doc_id}.md").write_text(
+        f"---\nid: {doc_id}\ntitle: Widget cache\ntags: [platform\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_store_with_no_sessions_directory_fails_loudly(tmp_path):
+    """A typo'd --store used to print "0 unverifiable citation(s)" and exit 0 -- a clean pass for
+    a store that was never read."""
+    result = _run(tmp_path / "no-such-store")
+
+    assert result.returncode == 1
+    first = result.stdout.splitlines()[0]
+    assert first.startswith("error: ") and "unknown, not zero" in first, result.stdout
+
+
+def test_a_missing_store_fails_loudly_on_a_legacy_console_code_page(tmp_path):
+    """The error line carries an em dash cp437 cannot encode; it must still reach stdout."""
+    result = _run(tmp_path / "no-such-store", env={"PYTHONIOENCODING": "cp437"})
+
+    assert result.returncode == 1, result.stderr
+    first = result.stdout.splitlines()[0]
+    assert first.startswith("error: ") and "unknown, not zero" in first, result.stdout
+
+
+def test_a_citing_document_that_fails_to_load_fails_the_run_by_name(tmp_path):
+    """Its fabricated quote cannot be checked, so the run cannot pass; before, the document simply
+    vanished from the count."""
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot, not lazily.")
+    _broken(sessions, "widget-cache-v2", _cited("Eviction is performed lazily on first read."))
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert result.stdout.startswith("error: widget-cache-v2.md: "), result.stdout
+    assert "verify_citations: 0 unverifiable citation(s)" in result.stdout
+
+
+def test_a_duplicate_id_fails_the_run_by_name(tmp_path):
+    sessions = tmp_path / "sessions"
+    _doc(sessions, "widget-cache-v1", "## 8. Decision Log\n\nEviction runs on boot, not lazily.")
+    (sessions / "widget-cache-copy.md").write_bytes((sessions / "widget-cache-v1.md").read_bytes())
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "error: duplicate id 'widget-cache-v1'" in result.stdout

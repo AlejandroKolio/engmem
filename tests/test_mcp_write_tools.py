@@ -402,7 +402,7 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
     assert "not in the store" in text
     assert "20260101-widget-cache.md:" in text
     assert "prior-doc takes the document's id" in text
-    assert "tools/verify_citations.py --store" in text
+    assert "uv run --project <engmem-checkout> python <engmem-checkout>/tools/verify_citations.py --store" in text
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == content
 
@@ -1284,3 +1284,27 @@ def test_supersede_refuses_a_key_that_is_not_a_line_of_its_own(store, front_matt
     assert result.get("isError") is True
     assert "not a line of its own" in result["content"][0]["text"]
     assert path.read_bytes() == before
+
+
+def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(store, monkeypatch):
+    """Another writer activated the draft after the tool confirmed it was one; committing the
+    tool's copy over it would silently replace the newer document."""
+    target = _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    external = ACTIVE_CONTENT + "\nFinished elsewhere while the tool was working.\n"
+    real_stage = mcp_server._stage_content
+
+    def stage_after_an_external_write(path, content):
+        target.write_bytes(external.encode("utf-8"))
+        return real_stage(path, content)
+
+    monkeypatch.setattr(mcp_server, "_stage_content", stage_after_an_external_write)
+
+    result, is_error = _call(
+        store, name=COMPLETE_TOOL,
+        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+    )
+
+    assert is_error
+    assert "changed on disk while it was being read" in _text(result)
+    assert target.read_bytes() == external.encode("utf-8")
+    assert _sessions_files(store) == ["20260101-widget-cache.md"], "the staged file must be gone"

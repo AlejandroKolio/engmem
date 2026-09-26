@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks that every Reuse Log quote occurs in the document it cites; exit 1 when one cannot be
-verified."""
+verified or a document cannot be read."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ import argparse
 from pathlib import Path
 
 from engmem import gate1
+from engmem.runtime import force_utf8_streams
 
 
-def verify(store: Path) -> tuple[list[str], list[str], list[str]]:
-    """`(problems, stale, conflicts)` — only `problems` decides the exit code."""
+def verify(store: Path) -> tuple[list[str], list[str], list[str], list[str]]:
+    """`(load_errors, problems, stale, conflicts)` — the first two decide the exit code."""
     verdicts = gate1.evaluate(store)
     problems: list[str] = []
     stale: list[str] = []
@@ -39,15 +40,18 @@ def verify(store: Path) -> tuple[list[str], list[str], list[str]]:
         for conflict in verdicts.conflicts
     ]
 
-    return problems, stale, conflicts
+    return [p.message for p in verdicts.load_errors], problems, stale, conflicts
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="verify_citations")
     parser.add_argument("--store", required=True, help="store directory holding sessions/")
     args = parser.parse_args(argv)
+    force_utf8_streams()
 
-    problems, stale, conflicts = verify(Path(args.store).expanduser())
+    load_errors, problems, stale, conflicts = verify(Path(args.store).expanduser())
+    for load_error in load_errors:
+        print(f"error: {load_error}")
     for problem in problems:
         print(problem)
     for note in stale:
@@ -59,9 +63,10 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(stale)} citing a superseded document, "
         f"{len(conflicts)} with a conflicting Reuse Log"
     )
-    # only an unverifiable quote fails the run: a superseded citation or a conflicting
-    # section verified fine and is a finding for the review, not a defect that fails it
-    return 1 if problems else 0
+    # an unverifiable quote fails the run, and so does a document that could not be read at all:
+    # its quotes are unverifiable too. A superseded citation or a conflicting section verified
+    # fine and is a finding for the review, not a defect that fails it
+    return 1 if problems or load_errors else 0
 
 
 if __name__ == "__main__":

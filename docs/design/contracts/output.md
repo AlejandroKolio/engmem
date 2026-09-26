@@ -61,6 +61,20 @@ spine`, `failed to load`) plus that line already exceeds the 128 before any tele
 stdout can pass `MAX_OUTPUT_BYTES` on a fully trimmed body. Accepted: both notes are
 diagnostics about the instrument, and truncating them would hide the one thing they say.
 
+## One composed result for both channels
+
+`search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/`
+line, stray-scan warnings, the ranked result, the stray note, the scoreboard, the telemetry
+note and the channel's unattributed note, in that order, and it writes the one telemetry row.
+`engmem search` prints the string; `engmem_search` and `engmem_search_by_role` return it as the
+tool text. Only the unattributed note differs by channel, and stderr diagnostics stay with each
+caller. There were four copies of this composition, and they had drifted: the MCP ones never
+read `scan_error`, so the MCP-only channel showed an unlistable `sessions/` as
+`prior context: none found / docs: 0`, the phantom empty the spec forbids, while the CLI said
+"unknown, not zero". `render_result` is the pure half — the text `context_bytes` measures,
+with no I/O; only `compose` writes telemetry. `tools/baseline_cost.py` measures through it, so
+a calibration run reports exactly what telemetry records and adds no row to the store it measures.
+
 ## Known limits
 
 `surfaced_ids` reports what the renderer *selected*, not what survived the trim, so a trimmed

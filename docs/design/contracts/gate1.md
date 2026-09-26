@@ -20,6 +20,15 @@ citation-integrity axis and never grows to cover classification, staleness or do
 runs before the Gate 1 review. Every later addition to the report (the audit block, `--since`)
 inherits that rule rather than overriding it.
 
+Neither tool may read an unread store as an empty one. `evaluate()` returns `load_store`'s
+`errors` as `Verdicts.load_errors`: every file it could not parse, and the scan failure of a
+missing or unlistable `sessions/`. Both tools print each as an `error:` line on stdout before
+anything else, and no figure counts them. Before 2026-09-25 a typo'd `--store` printed "0 unverifiable
+citation(s)" and `rows: 0` and exited 0, and a citing document broken during save vanished
+from both, fabricated quote and all. `verify_citations.py` exits 1 when `load_errors` is not
+empty — a document it could not read has quotes it could not verify, which is the axis it fails
+on. `gate1_report.py` still exits 0; the lines are its way of failing loudly.
+
 `reuse_log_rows`, `quotes_in` and `classification_of` are public, not underscored, for one
 consumer: `engmem_complete_draft` refuses a row the count would exclude for a defect visible in
 the row itself, and that refusal must agree with the count to the character. A second regex in
@@ -295,8 +304,9 @@ also reads every document's `repos` from disk.
 
 Any file `sessions/*.md` that `load_store` parses into a `Doc`, of any status and however
 degraded its spine. A file that fails to parse (duplicate id, invalid YAML, an `OSError`) is not a
-`Doc`; it is already on `load_store`'s `errors` list, which neither module reads, and this block
-does not count it a second time under another name.
+`Doc`; it is already on `load_store`'s `errors` list, which both tools print by name from
+`Verdicts.load_errors` (above), and this block does not count it a second time under another
+name.
 
 A session document that never ran the ritual is still a `Doc` but not part of the ritual
 population. Two things put it outside, and a document matching both is counted once, under the

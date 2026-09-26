@@ -557,8 +557,8 @@ def _search_core(
 def _role_index_from_entries(entries: list[_SectionEntry]) -> dict[str, dict[str, Section]]:
     """`doc_id -> {canonical role: Section}`, from the section index a search already parsed."""
     index: dict[str, dict[str, Section]] = {}
-    # two passes, matching sections_by_locator: a role named by a section's own heading wins
-    # over one inherited from an oversized parent, wherever each sits in the document
+    # two passes: a role named by a section's own heading wins over one inherited from an
+    # oversized parent, wherever each sits in the document
     for inherited_ok in (False, True):
         for entry in entries:
             section = entry.section

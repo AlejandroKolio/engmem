@@ -262,18 +262,3 @@ def sections_for_role(sections: list[Section], role: str) -> list[Section]:
     """Every section carrying `role`, in document order. More than one when an oversized
     section was split: the role's content is then spread across all of them."""
     return [s for s in sections if s.canonical == role]
-
-
-def sections_by_locator(sections: list[Section]) -> dict[str, Section]:
-    """Both the literal slug and the canonical alias resolve to the same section."""
-    index: dict[str, Section] = {}
-    for s in sections:
-        index.setdefault(s.anchor, s)
-        if s.canonical and not role_is_inherited(s):
-            index.setdefault(s.canonical, s)
-    # a second pass, so an inherited role only fills a gap: `## Glossary` still answers for
-    # `context` even when an oversized `## Business Context` split earlier in the document
-    for s in sections:
-        if s.canonical:
-            index.setdefault(s.canonical, s)
-    return index

@@ -54,7 +54,7 @@ showing it:
 3. Python ≥3.11. Dependencies: **pyyaml and markdown-it-py only**. CLI scaffolding is
    argparse (stdlib). Forbidden: click, typer, rich, pydantic, and any other packages.
 4. The CLI is thin and dumb; all the intelligence lives in the prompt templates.
-5. Nothing "for future growth": the list of cut features is §11; build none of it.
+5. Nothing "for future growth": the list of cut features is §9; build none of it.
 
 Update (author-approved exception): constraint 3 admits a second runtime dependency,
 `markdown-it-py`. `backfill` reads link destinations out of a document body to derive
@@ -70,7 +70,7 @@ rest of the list is unchanged and still in force.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): install, search. Does no thinking. │
+│ CLI `engmem` (Python): seven subcommands, no thinking.    │
 ├──────────────────────────────────────────────────────────┤
 │ Prompt templates (all the intelligence, agent-agnostic    │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
@@ -125,7 +125,7 @@ related:
   - ttl-etag-revalidation-v2       # ids of other docs; the reason goes in a comment
 covers_files: [ResponseCacheController.java]
 verified_at_commit: abc1234
-capture_minutes: 12               # duration of the save ritual (delta from draft creation)
+capture_minutes: 12               # minutes the save ritual took; blank unless a real start time is known
 author: A. Engineer               # git config user.name
 repos: [platform-core]            # repositories the work touched
 branch: feature/response-cache
@@ -133,9 +133,10 @@ pr: 42                            # number or URL, blank when none exists
 ---
 ```
 
-Manually filled fields — **zero**: id/date/verified_at_commit/capture_minutes/author/branch
-are computed automatically; title/tags/entities/related/covers_files/repos/pr are drafted by
-the agent from the diff and transcript, and the human replies "y".
+Manually filled fields — **zero**: id/date/verified_at_commit/author/branch are computed
+automatically; title/tags/entities/related/covers_files/repos/pr are drafted by the agent
+from the diff and transcript, and the human replies "y". `capture_minutes` is filled by the
+agent only when a real start time is known, and left blank otherwise.
 
 **No field is required.** A document with no front matter, or with an incomplete one,
 always loads. Missing values are derived: `id` from the filename stem, `title` from the
@@ -178,7 +179,16 @@ then reports `none found` with the answer sitting in the store. Ritual telemetry
 knowledge: a document whose capture duration was never measured is still true and still
 useful.
 
-**Body sections** (thin core; save.quick writes only 2, 5, 6):
+**Body sections.** This is the one authoritative list; the templates and
+`docs/design/data-model.md` cite this list as the authority. `/engmem.save` writes
+nineteen: `## Pre-reg` first, seventeen numbered sections — 1. Executive Summary,
+2. Business Context, 3. End-to-End Business Flow, 4. Functional Requirements, 5. Acceptance
+Criteria Analysis, 6. System Architecture, 7. Code Implementation, 8. Decision Log,
+9. Production Considerations, 10. Testing Knowledge, 11. Lessons Learned, 12. Knowledge
+Graph, 13. Future LLM Context (cold-start primer), 14. Search Keywords, 15. One-Page Cheat
+Sheet, 16. Reuse Log, 17. Status at a Glance — and `## Search Trace` last.
+`/engmem.save.quick` writes five, unnumbered: Pre-reg, Decision Log, Lessons Learned, Reuse
+Log and Search Trace. The thin core, with each section's role (`/engmem.save.quick` omits 4):
 1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store
 2. `## Decision Log` — decisions + rejected alternatives with reasons
 3. `## Lessons Learned` — pitfalls hit along the way
@@ -207,12 +217,13 @@ path spelled `mcp`, both keep the ordinary stdout mirror. Which options take a v
 read off the actions each parser owns — argument groups included, since a group shares its
 parser's action list — so a new one cannot silently reopen the gap.
 
-### `engmem install [--agent claude|copilot|claude-desktop] [--local] [--store PATH]`
+### `engmem install [--agent claude|copilot-ide|copilot-cli|claude-desktop] [--local] [--store PATH]`
 
 Idempotent (re-running = upgrade, nothing breaks):
 1. Creates the store (`sessions/`, `git init` if missing).
 2. Copies prompt templates into the agent's config: claude → `~/.claude/commands/` (or
-   `.claude/commands/` with `--local`); copilot → `.github/prompts/`.
+   `.claude/commands/` with `--local`); copilot-ide → `./.github/prompts/`; copilot-cli →
+   `~/.copilot/skills/`; claude-desktop gets no templates, only its MCP config entry.
 3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v<package version> -->`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` if not
    already present: "Before proposing a plan, run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
@@ -240,7 +251,7 @@ Idempotent (re-running = upgrade, nothing breaks):
 
 ### `engmem mcp [--store PATH]`
 
-Author-approved addition beyond §11, which parks "MCP server" until the author asks for
+Author-approved addition beyond §9, which parks "MCP server" until the author asks for
 it explicitly — this is that ask (milestone M3 of the MCP server feature). Runs an MCP
 stdio server exposing search as a tool call, so an MCP-capable client (e.g. Claude
 Desktop, wired up by `engmem install --agent claude-desktop`) can call it directly
@@ -260,9 +271,11 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    without ever starting the protocol loop.
 3. The stdio loop's own protocol behavior (tool schema, request/response shapes,
    error handling within the protocol) is out of scope for this section — it lives with
-   `engmem.mcp_server`. Two tools are exposed: `engmem_search` (word search, unchanged)
-   and `engmem_search_by_role` (role-addressed retrieval — English addition, see the
-   `--role` subsection under `engmem search` below).
+   `engmem.mcp_server`. Five tools are exposed: `engmem_search` (word search, unchanged),
+   `engmem_search_by_role` (role-addressed retrieval — English addition, see the
+   `--role` subsection under `engmem search` below), and three that write to the store —
+   `engmem_create_draft`, `engmem_complete_draft` and `engmem_mark_superseded` — plus
+   three prompts, one per template.
 4. A tool call writes the same `telemetry.jsonl` line as `search`, with the same
    `session_id` semantics (the tool takes an optional `session_id` argument alongside
    `query`). This path is inside the experiment, not beside it: a search that leaves no
@@ -419,13 +432,16 @@ navigation misses recorded in the store's own documents.
    engmem; if no sub-agent is available, write it yourself, before opening any doc. The
    source is recorded in a `pre-reg source:` line. Reason: a step that costs the author
    effort and gives them nothing back is the first thing to get dropped (D2).
-2. **Draft:** immediately create `sessions/<id>.md` with front matter `status: draft`, a
-   Pre-reg section, and a creation timestamp (capture_minutes is measured from it).
-3. **Search:** if you can run commands, call `engmem search "<key terms>"`. If you can't
+2. **Draft:** immediately create `sessions/<id>.md` with front matter `status: draft` and a
+   Pre-reg section. No creation time is recorded (`date:` has day resolution), so nothing
+   here anchors `capture_minutes`.
+3. **Search:** if you can run commands, call `engmem search "<key terms>" --session <id>`,
+   the draft just created. If you can't
    (no shell), hand the user the ready-to-run command and ask them to paste the output
    back into the chat (the paste bridge).
 4. Load ≤3 found docs + their related docs (depth 1, no further).
-5. Record the Search Trace (shell | paste | miss) — it goes into the doc at save time.
+5. Record the Search Trace (shell | paste | miss) — it goes into the doc at save time, alone
+   on its own line: the audit reads only a line that is exactly the value.
 6. Explicitly list what was pulled in (or "prior context: none found"), and answer the
    actual question IN THE SAME message. The ritual doesn't delay or replace the answer;
    there must be no message that consists only of a ritual report.
@@ -445,8 +461,9 @@ navigation misses recorded in the store's own documents.
    exactly the line `Prior docs used: none.`
 4. Ask: "does this work supersede a decision from some prior doc?" → if yes, set that
    doc's `status: superseded` and `superseded_by`.
-5. Flip `status: draft → active`, compute `capture_minutes` (now − draft creation), fill
-   in `verified_at_commit` (current HEAD).
+5. Flip `status: draft → active`, set `capture_minutes` only when a real start time is
+   known (otherwise leave it blank — "never measured"), fill in `verified_at_commit`
+   (current HEAD).
 
 ### `/engmem.save.quick` (save without review)
 
@@ -695,7 +712,7 @@ work in the endpoint's favour.
 
 1. **Token cost**: `engmem search` versus an agent grepping the store for the same query,
    over 15–20 real queries taken from `telemetry.jsonl`. `tools/baseline_cost.py` automates
-   only one side of this — the estimated token cost of engmem's own search output per query
+   only one side of this — the estimated token cost of engmem's own search result per query
    (`ceil(bytes / 3.5)`, the same estimator `engmem telemetry` uses). The comparison side (a
    fresh agent session per query, file-reading only, counted the same way) is a second,
    deliberately separate measurement the tool does not run.

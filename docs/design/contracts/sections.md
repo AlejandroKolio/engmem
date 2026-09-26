@@ -35,16 +35,16 @@ decision, not a semantic one: without inheritance the role survived only on the 
 section opening straight onto its first `###` lost its role entirely. The role's content is
 then spread over several `Section`s, so a consumer that needs all of it (`backfill` reading
 `keywords`) uses `sections_for_role`, which returns every piece in document order;
-`sections_by_locator` and `scoring._role_index_from_entries` return one section, the right
-answer for a reader being pointed at a place to look.
+`scoring._role_index_from_entries` returns one section, the right answer for a reader being
+pointed at a place to look.
 
 Which one is not simply the first. `CANONICAL_ALIASES` maps several headings onto one role, so
 a document can hold two sections answering for it, and an inherited role loses to a section
 whose own heading names the role wherever each sits in the document: otherwise an oversized
 `## Business Context` splitting into `### Actors` takes `context` away from the `## Glossary`
 below it and points a `--role` reader at a subheading that does not name the role.
-`role_is_inherited` is that test, and both indexes make two passes with it; an inherited role
-still answers when nothing else claims it.
+`role_is_inherited` is that test, and `scoring._role_index_from_entries` makes two passes with
+it; an inherited role still answers when nothing else claims it.
 
 ## Heading regexes
 

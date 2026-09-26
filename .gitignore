@@ -18,8 +18,7 @@ __pycache__/
 # copies of src/engmem/templates/, so committing them guarantees a stale duplicate.
 .github/prompts/
 .github/copilot-instructions.md
-.claude/
-
+.claude
 # A store must never live inside this repository, but nothing stops one from being
 # pointed here. These are the two things it would leave: the documents themselves, and
 # the search log — which records the queries, and a query quotes the work.
@@ -27,6 +26,9 @@ __pycache__/
 # tests/fixtures/sessions/, the golden documents search ranking is defined against.
 /sessions/
 /telemetry.jsonl
+# tests/fixtures is itself laid out as a store, so any search pointed at it logs here; the
+# rows it gathered were residue of such runs, never a fixture anything read
+/tests/fixtures/telemetry.jsonl
 
 # Never commit: working notes and raw session transcripts may quote private material
 # from whatever codebase the tool was used on.
