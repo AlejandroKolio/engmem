@@ -343,7 +343,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </div>
 
   <div class="note prose">
-    <p><strong>Чем это не является.</strong> Не векторная база: ни эмбеддингов, ни индексов, ни ранжирования по смыслу. Не ещё один memory bank при репозитории: цикл «захватить — сжать — подставить» здесь общее место, а не продукт. Не поисковик, соревнующийся с <code>grep</code>: свободный grep агента по хранилищу нельзя ни ограничить по объёму, ни занести в телеметрию — измеримым канал делает именно это, а не качество выдачи.</p>
+    <p><strong>Чем это не является.</strong> Не векторная база: ни эмбеддингов, ни поискового индекса, ни ранжирования по смыслу. Из производных данных между запусками хранится только кэш разбора (<code>~/.cache/engmem</code> или <code>$XDG_CACHE_HOME/engmem</code>), его можно удалить в любой момент. Не ещё один memory bank при репозитории: цикл «захватить — сжать — подставить» здесь общее место, а не продукт. Не поисковик, соревнующийся с <code>grep</code>: свободный grep агента по хранилищу нельзя ни ограничить по объёму, ни занести в телеметрию — измеримым канал делает именно это, а не качество выдачи.</p>
   </div>
 </section>
 
@@ -1347,7 +1347,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </div>
 
   <div class="note prose">
-    <p><strong>What this is not.</strong> Not a vector database: no embeddings, no indexes, no ranking by meaning. Not another repository-side memory bank: the capture→compress→inject loop is common ground here, not the product. Not a search engine competing with <code>grep</code>: an agent's free-form grep over the store can neither be capped in volume nor written to telemetry — and that, rather than result quality, is what makes a channel measurable.</p>
+    <p><strong>What this is not.</strong> Not a vector database: no embeddings, no search index, no ranking by meaning. The only derived data kept between runs is a parse cache (<code>~/.cache/engmem</code>, or <code>$XDG_CACHE_HOME/engmem</code>), safe to delete at any time. Not another repository-side memory bank: the capture→compress→inject loop is common ground here, not the product. Not a search engine competing with <code>grep</code>: an agent's free-form grep over the store can neither be capped in volume nor written to telemetry — and that, rather than result quality, is what makes a channel measurable.</p>
   </div>
 </section>
 

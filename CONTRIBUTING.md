@@ -45,9 +45,9 @@ the fix is usually the change, not the test.
   them prints to stdout — the MCP server shares that stream, and one stray `print` in
   `gate1` corrupts every message on it as surely as one in `mcp_server`.
 - **Every text open names its encoding.** `test_explicit_encoding.py` reads every
-  text-mode `open`, `read_text` and `write_text` in `src/` and `tools/` from the syntax tree. The
-  locale's code page is not UTF-8 on Windows or under `LANG=C`, and the dynamic check in
-  `test_encoding.py` only sees the paths its script runs.
+  text-mode `open`, `read_text`, `write_text` and text-mode `subprocess` call in `src/`
+  and `tools/` from the syntax tree. The locale's code page is not UTF-8 on Windows or under
+  `LANG=C`, and the dynamic check in `test_encoding.py` only sees the paths its script runs.
 - **The start template's draft parses as a draft.** `test_lifecycle.py` builds the draft
   from the YAML block in `engmem.start.md` itself, not a copy, so a typo in the template
   cannot publish every new draft as active.

@@ -218,3 +218,13 @@ def test_a_store_with_no_sessions_directory_fails_before_the_table(tmp_path):
 
     assert result.returncode == 2
     assert "store not found" in result.stdout and "| query |" not in result.stdout
+
+
+def test_an_expected_id_that_is_only_a_prefix_of_a_returned_id_is_not_found(tmp_path):
+    """`widget-cache` is not `widget-cache-v2`; a substring test called it found."""
+    _doc(tmp_path / "sessions", "widget-cache-v2", "WidgetCache", "Eviction runs on boot.")
+
+    result = _run(tmp_path, _queries(tmp_path, "WidgetCache\twidget-cache"))
+
+    row = next(l for l in result.stdout.splitlines() if l.startswith("| WidgetCache"))
+    assert [c.strip() for c in row.strip().strip("|").split("|")][3] == "not found"

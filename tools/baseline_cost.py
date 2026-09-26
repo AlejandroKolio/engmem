@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from engmem.output import surfaced_ids
 from engmem.runtime import fail, force_utf8_streams
 from engmem.search_report import render_result, stray_note
 from engmem.spine import load_store, sessions_dir_unreadable, stray_documents
@@ -65,9 +66,11 @@ def main(argv: list[str] | None = None) -> int:
 
     total, found = 0, 0
     for query, expected in pairs:
-        text = render_result(loaded.docs, query, None).text
-        tokens = estimate_tokens(len(text.encode("utf-8")))
-        hit = "found" if expected and expected in text else "not found"
+        rendered = render_result(loaded.docs, query, None)
+        tokens = estimate_tokens(len(rendered.text.encode("utf-8")))
+        # the ids actually shown, as telemetry records them: a substring of the text would count
+        # `widget-cache` found whenever `widget-cache-v2` or a related line mentions it
+        hit = "found" if expected in surfaced_ids(rendered.outcome) else "not found"
         total += tokens
         found += hit == "found"
         print(f"| {query} | {expected} | {tokens} | {hit} |")

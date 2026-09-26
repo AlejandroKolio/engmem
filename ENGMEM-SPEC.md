@@ -3,7 +3,7 @@
 `2026-08-18 · single document for development · supersedes all previous documents for implementation purposes`
 
 This document is self-contained. It is meant to be used with Claude Code: read it in full,
-then work through the backlog (§9) story by story. Working rules are in §10.
+then build from it story by story; what not to build is §9. Working rules are in §10.
 
 ---
 
@@ -80,7 +80,9 @@ rest of the list is unchanged and still in force.
 ```
 
 **Key decision: NO derived index.** `search` parses the front matter of every doc directly
-on each invocation (20–200 files ≈ milliseconds). No INDEX.md, no cache, no SQLite.
+on each invocation (20–200 files ≈ milliseconds). No INDEX.md, no SQLite, no index file; the
+only derived data kept between runs is the disposable parse cache in the note below
+(`~/.cache/engmem`, or `$XDG_CACHE_HOME/engmem`).
 
 **Note on `engmem.cache` (English, added when the store grew past ~800 documents — see
 `cache.py`'s module docstring for the implementation):** the on-disk cache under
