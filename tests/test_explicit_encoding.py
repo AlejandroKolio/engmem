@@ -1,4 +1,5 @@
-"""Every text-mode open in shipped code names its encoding, checked from the syntax tree.
+"""Every text-mode open and text-mode subprocess in shipped code names its encoding, checked from
+the syntax tree.
 
 `test_encoding.py` catches a default-encoding open only on the paths its script runs; this reads
 every call site, including the error branches and install paths nothing exercises there."""
@@ -13,6 +14,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 FILES = sorted((REPO / "src" / "engmem").rglob("*.py")) + sorted((REPO / "tools").glob("*.py"))
 TEXT_METHODS = {"read_text", "write_text"}
+SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
 
 
 def _mode(call: ast.Call) -> ast.expr | None:
@@ -26,8 +28,11 @@ def _mode(call: ast.Call) -> ast.expr | None:
 
 
 def _is_binary(call: ast.Call) -> bool:
-    # read_text/write_text are text-only; their first argument is data, never a mode
+    # read_text/write_text and text-mode subprocess calls are text-only; their first argument
+    # is data or a command, never a mode
     if isinstance(call.func, ast.Attribute) and call.func.attr in TEXT_METHODS:
+        return False
+    if _is_text_subprocess(call):
         return False
     mode = _mode(call)
     return isinstance(mode, ast.Constant) and isinstance(mode.value, str) and "b" in mode.value
@@ -49,6 +54,23 @@ def _is_module_call(func: ast.expr) -> bool:
     )
 
 
+def _is_text_subprocess(call: ast.Call) -> bool:
+    # text=True decodes the child's output with the locale's code page unless encoding= is given
+    func = call.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr in SUBPROCESS_CALLS
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "subprocess"
+        and any(
+            kw.arg in {"text", "universal_newlines"}
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is True
+            for kw in call.keywords
+        )
+    )
+
+
 def _opens(tree: ast.Module) -> list[ast.Call]:
     calls = []
     for node in ast.walk(tree):
@@ -64,6 +86,8 @@ def _opens(tree: ast.Module) -> list[ast.Call]:
             calls.append(node)
         elif isinstance(func, ast.Attribute) and func.attr == "fdopen" and _is_os(func.value):
             calls.append(node)
+        elif _is_text_subprocess(node):
+            calls.append(node)
     return calls
 
 
@@ -78,6 +102,22 @@ SITES = [
 def test_write_text_data_containing_b_is_still_a_text_call():
     """`write_text` takes data first, not a mode: a "b" in the data must not exempt the call."""
     [call] = _opens(ast.parse('p.write_text("abc")'))
+
+    assert not _is_binary(call)
+    assert not _names_encoding(call)
+
+
+def test_a_text_mode_subprocess_is_scanned():
+    [call] = _opens(ast.parse('subprocess.run(["git", "init"], text=True)'))
+
+    assert not _is_binary(call)
+    assert not _names_encoding(call)
+
+
+def test_a_text_mode_subprocess_with_a_string_command_containing_b_is_scanned():
+    """A string command sits where `_mode` looks for a mode: its "b" must not exempt the call."""
+    source = 'subprocess.check_output("git rev-parse --abbrev-ref HEAD", shell=True, text=True)'
+    [call] = _opens(ast.parse(source))
 
     assert not _is_binary(call)
     assert not _names_encoding(call)

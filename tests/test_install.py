@@ -1019,3 +1019,18 @@ def test_a_relative_store_that_resolves_to_engmem_home_prints_no_store_note(env,
     assert _run_install("--agent", "claude", "--store", "configured") == 0
 
     assert STORE_NOTE not in capsys.readouterr().out
+
+
+@requires_symlinks
+def test_a_store_reached_through_a_symlink_prints_no_store_note(env, tmp_path, monkeypatch, capsys):
+    """`/tmp` and `/private/tmp` on macOS are one directory; naming them apart warned about a
+    store the templates will in fact find."""
+    real = tmp_path / "real-store"
+    real.mkdir()
+    link = tmp_path / "linked-store"
+    link.symlink_to(real, target_is_directory=True)
+    monkeypatch.setenv("ENGMEM_HOME", str(link))
+
+    assert _run_install("--agent", "claude", "--store", str(real)) == 0
+
+    assert STORE_NOTE not in capsys.readouterr().out

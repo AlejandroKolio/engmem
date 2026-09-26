@@ -162,7 +162,10 @@ def _ensure_store(store: Path) -> None:
         return
     try:
         subprocess.run(
-            ["git", "init"], cwd=store, check=True, capture_output=True, text=True
+            ["git", "init"], cwd=store, check=True, capture_output=True, text=True,
+            # decoded as UTF-8 whatever the locale; `replace` so a byte in another charset cannot
+            # raise before the failure is reported
+            encoding="utf-8", errors="replace",
         )
     except FileNotFoundError as exc:
         raise _SetupError(
@@ -615,8 +618,9 @@ def _run_install(args: argparse.Namespace) -> int:
     trigger_note = _TRIGGER_RULE_NOTES.get(trigger_outcome, "")
     print(f"engmem installed: store={store}, agent={args.agent}{trigger_note}")
     # the templates resolve the store at run time and `--store` is written nowhere they read
-    # (no config files); Desktop is the exception, its MCP entry records the path itself
-    if args.agent != "claude-desktop" and store != resolve_store(None):
+    # (no config files); Desktop is the exception, its MCP entry records the path itself.
+    # Compared resolved: two spellings of one directory are the store the templates will find
+    if args.agent != "claude-desktop" and store.resolve() != resolve_store(None).resolve():
         print(
             f"note: installed templates resolve $ENGMEM_HOME, else {default_store()}; --store "
             f"is not written into them — set ENGMEM_HOME={store} to use this store"
