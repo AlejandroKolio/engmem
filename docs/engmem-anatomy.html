@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Анатомия engmem</title>
+<title>Anatomy of engmem</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
@@ -58,9 +58,9 @@ body {
 .prose p, .prose li { max-width: 68ch; }
 
 /* ---------- language switching ---------- */
-.lang-en { display: none; }
-body[data-lang="en"] .lang-en { display: block; }
-body[data-lang="en"] .lang-ru { display: none; }
+.lang-ru { display: none; }
+body[data-lang="ru"] .lang-ru { display: block; }
+body[data-lang="ru"] .lang-en { display: none; }
 
 .topbar {
   position: sticky; top: 0; z-index: 20;
@@ -276,8 +276,8 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 <div class="topbar">
   <div class="seg" role="group" aria-label="Language / Язык">
-    <button type="button" id="btn-ru" aria-pressed="true">RU</button>
-    <button type="button" id="btn-en" aria-pressed="false">EN</button>
+    <button type="button" id="btn-ru" aria-pressed="false">RU</button>
+    <button type="button" id="btn-en" aria-pressed="true">EN</button>
   </div>
 </div>
 
@@ -2297,13 +2297,16 @@ rm -rf ~/Developer/engmem         # your documents — only if you're sure</code
     document.documentElement.setAttribute('lang', lang);
     document.getElementById('btn-ru').setAttribute('aria-pressed', String(lang === 'ru'));
     document.getElementById('btn-en').setAttribute('aria-pressed', String(lang === 'en'));
+    document.title = lang === 'ru' ? 'Анатомия engmem' : 'Anatomy of engmem';
     try { localStorage.setItem('engmem-doc-lang', lang); } catch (e) {}
   }
   document.getElementById('btn-ru').addEventListener('click', function () { setLang('ru'); });
   document.getElementById('btn-en').addEventListener('click', function () { setLang('en'); });
+  // ?lang= in the link wins, then the reader's own last choice, then English
+  var requested = (/[?&]lang=(ru|en)\b/.exec(location.search) || [])[1];
   var saved = null;
   try { saved = localStorage.getItem('engmem-doc-lang'); } catch (e) {}
-  setLang(saved === 'en' ? 'en' : 'ru');
+  setLang(requested || (saved === 'ru' ? 'ru' : 'en'));
 
   function setStep(step, open) {
     var head = step.querySelector('.step-head');
