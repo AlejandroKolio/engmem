@@ -76,6 +76,8 @@ engmem install --agent claude --local    # templates -> ./.claude/commands/ (thi
 engmem install --agent copilot-ide       # templates -> ./.github/prompts/ (Copilot's IDE plugin)
 engmem install --agent copilot-cli       # skills -> ~/.copilot/skills/ (Copilot CLI)
 engmem install --agent claude-desktop    # MCP server entry (Claude Desktop)
+engmem install --agent codex             # skills -> ~/.agents/skills/, rule -> ~/.codex/AGENTS.md, MCP entry -> ~/.codex/config.toml
+engmem install --agent chatgpt           # prints the Secure MCP Tunnel setup (ChatGPT)
 ```
 
 Pick `copilot-ide` if you use the Copilot chat panel in VS Code / Visual Studio /
@@ -85,13 +87,29 @@ app, which cannot run shell commands — it reaches engmem over MCP instead, and
 same commands arrive as prompts. `copilot-ide` and `--local` must be run from a repo
 root (a directory containing `.git`) — they refuse to run anywhere else.
 
+`codex` wires up both channels at once, because Codex (CLI, IDE extension and desktop app)
+runs shell commands and MCP servers alike: the skills are invoked as `$engmem`,
+`$engmem-save` and `$engmem-save-quick`, and the MCP server is there for the Codex surfaces
+without a shell. Codex's default `workspace-write` sandbox keeps the CLI from writing to a
+store outside the repository, and the skills reach for the shell first; add the store to
+`[sandbox_workspace_write] writable_roots` in `~/.codex/config.toml`, or approve each write
+when Codex asks. `$CODEX_HOME` is
+honoured in place of `~/.codex`.
+
+`chatgpt` writes nothing outside the store. ChatGPT runs no local MCP server — it only
+calls servers it can reach — so `install` prints the
+[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+commands that run `engmem mcp` on your machine and let ChatGPT's developer mode reach it.
+Whether the tunnel is available depends on your OpenAI workspace. engmem itself still opens
+no port and makes no network call; `tunnel-client` does.
+
 `install` is idempotent — re-running it upgrades templates in place and never duplicates
 the trigger rule or touches existing store content.
 
 To remove the wiring again, mirror it with the same `--agent`:
 
 ```bash
-engmem uninstall --agent claude          # or copilot-ide / copilot-cli, plus --local
+engmem uninstall --agent claude          # or copilot-ide / copilot-cli / codex, plus --local
 ```
 
 `uninstall` deletes the templates it installed and the trigger rule it appended, reports
@@ -104,8 +122,9 @@ The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` →
 (append-only search log). No config files — which also means `install --store PATH` is not
 remembered: the installed templates resolve `$ENGMEM_HOME`, else the default, every time
 they run. Install says so when the two differ; set `ENGMEM_HOME` to the store you want the
-agent to use. `--agent claude-desktop` is the exception, since its MCP entry records the
-path itself.
+agent to use. `--agent claude-desktop` and `--agent chatgpt` are the exception, since their
+MCP command records the path itself; `codex`'s MCP entry does too, but its skills still run
+the CLI.
 
 ## Usage
 
@@ -220,9 +239,9 @@ process running as you can write to. Unpickling from there would execute whateve
 contained; JSON cannot. A corrupted entry degrades to a cache miss.
 
 **Installing touches known paths only.** `engmem install` writes templates into the agent
-directory you name and, for `claude-desktop`, adds one key to that app's config. `engmem
-uninstall` removes exactly what it added and never touches the store. The two files engmem
-edits but does not own — your instructions file and that config, which holds every other
+directory you name and, for `claude-desktop` and `codex`, adds one server entry to that
+app's config. `engmem uninstall` removes exactly what it added and never touches the store.
+The files engmem edits but does not own — your instructions file and those configs, which hold every other
 MCP server you configured — are replaced atomically, through any symlink rather than over
 it, so a failed write leaves them exactly as they were.
 
