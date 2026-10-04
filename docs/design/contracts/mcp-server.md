@@ -12,6 +12,23 @@ through ngrok or similar: a listening socket in a tool whose contract is "no ser
 network calls" (`tests/test_no_network.py`), with the write tools open to whoever holds the
 URL. The tunnel keeps both outside engmem.
 
+## `--read-only`: a server someone else can reach
+
+A ChatGPT plan without Secure MCP Tunnel can only reach the server through a public bridge
+(`supergateway` plus `ngrok` or `cloudflared`), and ChatGPT's developer mode connects such a URL
+without authentication. Whoever learns the URL then holds every tool. `--read-only` limits the
+damage of that leak to reading: `tools/list` returns the two search tools only, and a call to a
+write tool is the `-32602 unknown tool` every unlisted name gets, with `--read-only` named in the
+message so a caller can tell the cause. It is a dispatch-table swap (`_READ_ONLY_METHODS`) whose
+two handlers both allow `_SEARCH_TOOL_NAMES` rather than deny the write tools, so a tool added
+later is unreachable here until it is named there.
+
+What it does not stop: a search still appends a row to `telemetry.jsonl`, because the row is the
+measurement engmem exists for, so a URL holder can grow that file; and the documents themselves
+are readable. Prompts are still served, on purpose: `/engmem` is useful for its search step,
+and the save prompts reach their write calls and get the `--read-only` refusal by name. A
+bridge stays a test setup; the tunnel is the way to keep a store private.
+
 ## Transport and the stdout-purity rule
 
 Newline-delimited JSON-RPC 2.0 on stdio. `serve()` is the only writer of `stdout`, through

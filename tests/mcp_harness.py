@@ -21,12 +21,12 @@ def _stdin_of_messages(*messages: dict) -> io.StringIO:
     return _stdin_of(*(json.dumps(m) for m in messages))
 
 
-def _run(store: Path, *messages: dict) -> tuple[int, list[dict], str]:
+def _run(store: Path, *messages: dict, read_only: bool = False) -> tuple[int, list[dict], str]:
     """`(exit_code, parsed_responses, raw_stdout)`; every non-empty stdout line must be valid
     JSON, checked here unconditionally."""
     stdin = _stdin_of_messages(*messages)
     stdout = io.StringIO()
-    exit_code = serve(store, stdin=stdin, stdout=stdout)
+    exit_code = serve(store, stdin=stdin, stdout=stdout, read_only=read_only)
     raw = stdout.getvalue()
     responses = []
     for line in raw.splitlines():

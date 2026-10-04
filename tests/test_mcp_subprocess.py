@@ -33,10 +33,10 @@ class _Client:
     """Records every line read from the child's stdout, so one teardown assertion covers the whole
     session, not just inspected calls."""
 
-    def __init__(self, store: Path) -> None:
+    def __init__(self, store: Path, *flags: str) -> None:
         assert ENGMEM_BIN.exists(), f"expected installed console script at {ENGMEM_BIN}"
         self.proc = subprocess.Popen(
-            [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+            [str(ENGMEM_BIN), "mcp", "--store", str(store), *flags],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -381,3 +381,21 @@ def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protoc
         c.close()
         for recorded_line in c.all_stdout_lines:
             json.loads(recorded_line)  # every stdout line must still be a valid JSON-RPC frame
+
+
+def test_read_only_flag_reaches_the_real_server(tmp_path):
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+    c = _Client(store, "--read-only")
+    try:
+        tools = [tool["name"] for tool in c.call("tools/list")["result"]["tools"]]
+        refused = c.call(
+            "tools/call",
+            {"name": "engmem_create_draft", "arguments": {"id": "20260101-x", "content": DRAFT_CONTENT}},
+        )
+    finally:
+        c.close()
+
+    assert tools == ["engmem_search", "engmem_search_by_role"]
+    assert "--read-only" in refused["error"]["message"]
+    assert list((store / "sessions").iterdir()) == []
