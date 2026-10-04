@@ -261,7 +261,7 @@ Idempotent (re-running = upgrade, nothing breaks):
    machine, and uninstall prints where the connector is removed. engmem itself still makes
    no network call (`tunnel-client` does). ChatGPT rejects `--local`.
 
-### `engmem mcp [--store PATH]`
+### `engmem mcp [--store PATH] [--read-only]`
 
 Author-approved addition beyond §9, which parks "MCP server" until the author asks for
 it explicitly — this is that ask (milestone M3 of the MCP server feature). Runs an MCP
@@ -271,7 +271,8 @@ instead of a human pasting `engmem search` output across the paste-bridge.
 
 1. Resolves the store the same way `search` does (`--store`, then `ENGMEM_HOME`, then
    the default) and runs the protocol loop until stdin closes; the exit code is
-   whatever the loop returns.
+   whatever the loop returns. `--read-only` lists only the two search tools and refuses
+   the write tools as unknown, for a server reachable from outside this machine.
 2. On this path, **stdout carries the MCP JSON-RPC protocol and nothing else** — no
    banner, no confirmation, no error line. A single stray line corrupts a frame and
    kills the client session. This is the opposite convention from every other command

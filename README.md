@@ -101,7 +101,10 @@ calls servers it can reach — so `install` prints the
 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 commands that run `engmem mcp` on your machine and let ChatGPT's developer mode reach it.
 Whether the tunnel is available depends on your OpenAI workspace. engmem itself still opens
-no port and makes no network call; `tunnel-client` does.
+no port and makes no network call; `tunnel-client` does. Without a tunnel, a public bridge
+(`supergateway` plus `ngrok` or `cloudflared`) works on any paid plan, but ChatGPT connects it
+without authentication; run the server behind it as `engmem mcp --read-only`, so a leaked URL
+can read the store but never write to it.
 
 `install` is idempotent — re-running it upgrades templates in place and never duplicates
 the trigger rule or touches existing store content.
