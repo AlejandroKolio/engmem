@@ -84,6 +84,8 @@ def _real_user_paths() -> dict[Path, bytes | None]:
         _REAL_HOME / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
         _REAL_HOME / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",
         _REAL_HOME / ".claude" / "CLAUDE.md",
+        _REAL_HOME / ".codex" / "AGENTS.md",
+        _REAL_HOME / ".codex" / "config.toml",
     ):
         try:
             snapshot[path] = hashlib.sha256(path.read_bytes()).digest()
@@ -94,6 +96,7 @@ def _real_user_paths() -> dict[Path, bytes | None]:
     for path in (
         _REAL_HOME / ".claude" / "commands",
         _REAL_HOME / ".copilot" / "skills",
+        _REAL_HOME / ".agents" / "skills",
         _REAL_CACHE_ROOT,
     ):
         try:
@@ -140,6 +143,8 @@ def redirect_home(monkeypatch, home: Path) -> None:
     monkeypatch.setenv("HOMEPATH", str(home)[len(home.drive):])
     # Claude Desktop's config lives under %APPDATA% on Windows
     monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
+    # Codex reads $CODEX_HOME before ~/.codex; a developer who sets it would otherwise be written to
+    monkeypatch.delenv("CODEX_HOME", raising=False)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sessions"

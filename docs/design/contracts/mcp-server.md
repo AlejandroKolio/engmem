@@ -2,7 +2,15 @@
 
 Source: `src/engmem/mcp_server.py`. Author-approved addition beyond `ENGMEM-SPEC.md` §9
 (see §5 `engmem mcp`): Claude Desktop cannot run shell commands, so the CLI alone is
-unreachable from it.
+unreachable from it. Codex launches the same server from `config.toml`; ChatGPT reaches it
+through OpenAI's `tunnel-client`, which spawns this stdio process and carries the frames
+itself.
+
+stdio is the only transport, and that is decided, not deferred (2026-10-04). ChatGPT calls only
+servers it can reach, and the alternative to the tunnel was an HTTP transport here, exposed
+through ngrok or similar: a listening socket in a tool whose contract is "no server, no
+network calls" (`tests/test_no_network.py`), with the write tools open to whoever holds the
+URL. The tunnel keeps both outside engmem.
 
 ## Transport and the stdout-purity rule
 

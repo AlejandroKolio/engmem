@@ -18,9 +18,9 @@ it would be the same bug in the other direction.
 ## The answer is absolute, and it is not resolved
 
 Absolute, because the answer outlives the process that computed it: `install --agent
-claude-desktop --store ./notes` writes the path into `claude_desktop_config.json`, and Claude
-Desktop launches the server from a working directory of its own — the reason
-`_claude_desktop_mcp_entry` already spends `sys.executable` rather than a bare `engmem`. Every
+claude-desktop --store ./notes` writes the path into `claude_desktop_config.json` (and `--agent
+codex` into `config.toml`), and the client launches the server from a working directory of its
+own — the reason `_stdio_mcp_entry` already spends `sys.executable` rather than a bare `engmem`. Every
 diagnostic that names the store gains the same way: `store not found: sessions` sends the
 reader nowhere.
 
