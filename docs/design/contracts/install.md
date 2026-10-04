@@ -5,13 +5,13 @@ Source: `src/engmem/install.py`. What each agent mode writes, and where, is `ENG
 
 ## Two kinds of file, and only one of them is engmem's
 
-**engmem's own files** — the templates in `~/.claude/commands/`, `.github/prompts/` and
-`~/.copilot/skills/<name>/SKILL.md` — are rewritten whole by every install and can be rebuilt
+**engmem's own files** — the templates in `~/.claude/commands/`, `.github/prompts/`,
+`~/.copilot/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md` — are rewritten whole by every install and can be rebuilt
 from the package at any time, so `_write_template` writes them in place: a torn write costs a
 re-run of an idempotent command.
 
-**The user's files** — the trigger-rule file (`CLAUDE.md`, `.github/copilot-instructions.md`)
-and `claude_desktop_config.json` — hold content engmem cannot regenerate (the user's own
+**The user's files** — the trigger-rule file (`CLAUDE.md`, `.github/copilot-instructions.md`,
+Codex's `AGENTS.md`), `claude_desktop_config.json` and Codex's `config.toml` — hold content engmem cannot regenerate (the user's own
 instructions; every other MCP server they configured, tokens included), and engmem rewrites
 them **whole** to append or drop a couple of lines. They go through `_replace_user_file`,
 which stages a sibling temp file with `staging` (the store's own staged write; there is no
@@ -95,7 +95,7 @@ such line: its MCP entry records the store path itself.
 
 `ENGMEM-SPEC.md` §5 promises exit 2 with a named cause on both streams for every failure the
 user's own environment can produce: a template path occupied by a directory, an unwritable
-directory, an instructions file or a Desktop config engmem cannot decode, a `git` on PATH that
+directory, an instructions file or a Desktop or Codex config engmem cannot decode, a `git` on PATH that
 cannot be executed, a full disk during the replace. `_SetupError` is the single carrier: every
 filesystem step raises it with the path and the OS reason, and `cmd_install` turns it into
 `fail()` plus exit 2 in one place. Uninstall cannot, because by the time it reaches the
@@ -110,7 +110,63 @@ than anything a user can act on: a template missing from the installed wheel
 (`_to_skill_front_matter`). "Fix it by hand and re-run" is the wrong advice for a file the
 user does not own; the traceback names the template and belongs in a bug report.
 
-One failure is swallowed. `_claude_desktop_entry_present` only decides whether uninstall adds
-its "you may have meant a different agent" nudge, so a config it cannot parse counts as
-nothing found: the command has already done its work by then, and a second diagnosis of a
-file this run was never going to write would bury the summary that matters.
+Failures are swallowed in one kind of place. `_claude_desktop_entry_present` and
+`_codex_mcp_block_present` only decide whether uninstall adds its "you may have meant a
+different agent" nudge, so a config they cannot read counts as nothing found: the command has
+already done its work by then, and a second diagnosis of a file this run was never going to
+write would bury the summary that matters. For the same reason `engmem uninstall --agent codex`
+looks for its block before it parses `config.toml`: a broken config with no block in it holds
+nothing of engmem's, and is not reported.
+
+## Codex's `config.toml`: a block engmem owns inside a file it does not
+
+The standard library reads TOML (`tomllib`) but cannot write it, and re-serialising the user's
+config through a third-party writer would drop their comments and reorder their tables for a
+five-line change. So the entry is plain text between `CODEX_MCP_BEGIN` and `CODEX_MCP_END`,
+and both directions work on lines: install appends the block or replaces it where it stands,
+uninstall cuts exactly that span. The file still goes through `_replace_user_file`, keeping
+its BOM and line ending like the trigger-rule files.
+
+Text edits on a structured file are only safe if the result is checked, and checking that it
+still parses is not enough: a key the user typed below engmem's header belongs to engmem's
+table, and with the header gone it parses fine as part of the table above — `enabled = false`
+moved onto another server switches that server off. So every write compares meaning: install
+requires the composed file to parse to the original config plus engmem's entry, uninstall
+requires it to parse to the original minus that entry (and minus `mcp_servers` when it was
+the only server). An inline `mcp_servers = {…}`, which a later table header cannot extend,
+fails the same comparison. A reinstall that would rewrite the block refuses when the user
+added keys inside it (`_refuse_keys_added_to_the_block`), naming them: the block is
+rewritten whole, so they would be dropped. Every refusal names the path and the fix, and
+leaves the bytes alone.
+
+`_toml_string` reuses `json.dumps`, whose escapes TOML shares, with two exceptions it handles:
+DEL, which TOML forbids raw and JSON leaves alone, and a lone surrogate (an undecodable byte
+in a POSIX path), which no TOML string can hold and is refused by name.
+
+An `[mcp_servers.engmem]` without the markers is the user's, and is reported, never rewritten,
+never removed: the same rule as `TRIGGER_MARKER` for the trigger rule.
+
+The config step runs before the skills and the trigger rule. It is the only codex step that
+refuses on a well-formed environment, and running it last left a refused install with three
+skills and a rule already written.
+
+Codex sandboxes shell commands to the working tree by default, so the CLI half of the wiring
+cannot write drafts, saves or telemetry to a store outside it, and the templates do not fall
+back on their own: they choose MCP only when there is no shell. Install says so and names
+`writable_roots` instead of editing the sandbox: widening what an agent may write is the
+user's decision.
+
+The trigger rule Codex gets is the shared wording, `/engmem` included, where Codex would say
+`$engmem`. A Codex-only wording would be one more exact line for install and uninstall to
+recognise forever (`LEGACY_TRIGGER_RULES`), for a reference the model reads correctly either
+way. Codex reads `AGENTS.override.md` instead of `AGENTS.md` when it exists; install does not
+write into the user's override and says so instead.
+
+## ChatGPT: nothing to write
+
+ChatGPT's connector lives in the ChatGPT workspace, so `--agent chatgpt` creates the store and
+prints the `tunnel-client` commands with `--mcp-command` built from `_stdio_mcp_entry`, the same
+launch line the other MCP clients get, quoted as one argument for the platform's shell
+(`shlex` on POSIX, `list2cmdline` on Windows). Uninstall prints where the
+connector is deleted and reports 0, without the "other agent present" nudge, which would read
+as if it had looked for ChatGPT's files.

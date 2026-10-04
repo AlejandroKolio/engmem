@@ -219,15 +219,17 @@ path spelled `mcp`, both keep the ordinary stdout mirror. Which options take a v
 read off the actions each parser owns — argument groups included, since a group shares its
 parser's action list — so a new one cannot silently reopen the gap.
 
-### `engmem install [--agent claude|copilot-ide|copilot-cli|claude-desktop] [--local] [--store PATH]`
+### `engmem install [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--store PATH]`
 
 Idempotent (re-running = upgrade, nothing breaks):
 1. Creates the store (`sessions/`, `git init` if missing).
 2. Copies prompt templates into the agent's config: claude → `~/.claude/commands/` (or
    `.claude/commands/` with `--local`); copilot-ide → `./.github/prompts/`; copilot-cli →
-   `~/.copilot/skills/`; claude-desktop gets no templates, only its MCP config entry.
+   `~/.copilot/skills/`; codex → `~/.agents/skills/` (skills, mentioned as `$engmem`);
+   claude-desktop and chatgpt get no templates.
 3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v<package version> -->`.
-4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` if not
+4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` /
+   `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`) if not
    already present: "Before proposing a plan, run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
    rule the user reworded is recognised and never duplicated; a skip for this reason
    is reported on stdout, not left silent. A line that is exactly an earlier wording engmem
@@ -250,6 +252,14 @@ Idempotent (re-running = upgrade, nothing breaks):
    Instead it writes one entry into Claude Desktop's own
    `claude_desktop_config.json`, merging under the `mcpServers` key without disturbing
    any other server or key already there.
+6. `--agent codex` also adds an `[mcp_servers.engmem]` table to `$CODEX_HOME/config.toml`
+   inside a comment-delimited block engmem owns, written before the skills so a config it
+   cannot extend refuses the whole install. An `[mcp_servers.engmem]` the user wrote
+   is left untouched. Codex rejects `--local`.
+7. `--agent chatgpt` writes nothing but the store: ChatGPT runs no local MCP server, so
+   install prints the OpenAI Secure MCP Tunnel commands that run `engmem mcp` on this
+   machine, and uninstall prints where the connector is removed. engmem itself still makes
+   no network call (`tunnel-client` does). ChatGPT rejects `--local`.
 
 ### `engmem mcp [--store PATH]`
 
