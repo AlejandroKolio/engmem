@@ -29,6 +29,24 @@ def _expected_args(store: Path) -> list[str]:
     return ["-m", "engmem.cli", "mcp", "--store", str(store)]
 
 
+def _split_command_line(line: str) -> list[str]:
+    """Splits the way the shell the line is printed for will: POSIX rules, or Windows' own."""
+    if sys.platform != "win32":
+        return shlex.split(line)
+    import ctypes
+    from ctypes import wintypes
+
+    command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    command_line_to_argv.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    command_line_to_argv.restype = ctypes.POINTER(wintypes.LPWSTR)
+    count = ctypes.c_int()
+    argv = command_line_to_argv("program " + line, ctypes.byref(count))
+    try:
+        return [argv[i] for i in range(1, count.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(argv)
+
+
 def _install(*args) -> int:
     return main(["install", *args])
 
@@ -185,9 +203,25 @@ def test_an_engmem_server_the_user_wrote_is_left_alone(env, tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param('quote" back\\slash', id="quote-and-backslash"),
+        pytest.param("кириллица 🙂", id="non-ascii-and-astral"),
+        pytest.param("delete\x7fchar", id="del"),
+        pytest.param("tab\tnewline\n", id="control"),
+    ],
+)
+def test_toml_string_round_trips_what_a_path_can_hold(value):
+    """A `"` cannot be in a Windows file name, so the escaping is pinned here, not through a store."""
+    from engmem.install import _toml_string
+
+    assert tomllib.loads(f"value = {_toml_string(value)}")["value"] == value
+
+
+@pytest.mark.parametrize(
     "name",
     [
-        pytest.param('quote" back\\slash кириллица 🙂', id="escapes-and-astral"),
+        pytest.param("кириллица 🙂", id="non-ascii-and-astral"),
         pytest.param("delete\x7fchar", id="del-is-escaped"),
     ],
 )
@@ -366,9 +400,9 @@ def test_chatgpt_install_prints_a_tunnel_command_that_launches_this_store(env, t
 
     out = capsys.readouterr().out
     init_line = next(line for line in out.splitlines() if "tunnel-client init" in line)
-    tokens = shlex.split(init_line)
+    tokens = _split_command_line(init_line.strip())
     mcp_command = tokens[tokens.index("--mcp-command") + 1]
-    assert shlex.split(mcp_command) == [sys.executable, *_expected_args(store)]
+    assert _split_command_line(mcp_command) == [sys.executable, *_expected_args(store)]
     assert "note: installed templates" not in out, "the tunnel command carries the store itself"
 
 
