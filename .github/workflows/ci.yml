@@ -88,7 +88,7 @@ jobs:
           ALLOWED = {
               ".github", ".gitignore", "CONTRIBUTING.md", "ENGMEM-SPEC.md", "LICENSE",
               "PKG-INFO", "README.md", "SECURITY.md", "docs", "pyproject.toml",
-              "src", "tests", "tools", "uv.lock",
+              "scripts", "src", "tests", "tools", "uv.lock",
           }
           sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
           top = {

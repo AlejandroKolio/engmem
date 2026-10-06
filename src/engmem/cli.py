@@ -110,7 +110,7 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     store = resolve_store(args.store)
     from engmem.mcp_server import serve
 
-    return serve(store)
+    return serve(store, read_only=args.read_only)
 
 
 def _cmd_roles(args: argparse.Namespace) -> int:
@@ -426,6 +426,11 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     # even a usage error stays off stdout here: a client that launched `engmem mcp` with a
     # bad flag reads the stream as JSON-RPC, and one plain line is an unparseable frame
     mcp_parser.mirror_errors_to_stdout = False
+    mcp_parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="expose only the search tools, for a server reachable from outside this machine",
+    )
     _add_store_option(mcp_parser)
     mcp_parser.set_defaults(func=_cmd_mcp)
 

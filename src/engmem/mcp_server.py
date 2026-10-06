@@ -981,6 +981,31 @@ _METHODS = {
     "prompts/get": _handle_prompts_get,
 }
 
+_SEARCH_TOOL_NAMES = (TOOL_NAME, ROLE_TOOL_NAME)
+
+
+def _handle_read_only_tools_list(params: dict, store: Path) -> dict:
+    tools = _handle_tools_list(params, store)["tools"]
+    return {"tools": [tool for tool in tools if tool["name"] in _SEARCH_TOOL_NAMES]}
+
+
+def _handle_read_only_tools_call(params: dict, store: Path) -> dict:
+    # an allowlist, like tools/list: a tool added later stays unreachable here until named above
+    name = params.get("name")
+    if "name" in params and name not in _SEARCH_TOOL_NAMES:
+        raise _ProtocolError(
+            INVALID_PARAMS, f"unknown tool: {name!r} — this server runs with --read-only"
+        )
+    return _handle_tools_call(params, store)
+
+
+# `engmem mcp --read-only`: the two search tools and nothing that writes a document
+_READ_ONLY_METHODS = {
+    **_METHODS,
+    "tools/list": _handle_read_only_tools_list,
+    "tools/call": _handle_read_only_tools_call,
+}
+
 # methods legitimately invoked with no id — their handler still runs even
 # though no response can be sent; every other method is request/response, and
 # _dispatch skips the handler entirely for a non-conforming id-less message
@@ -1016,7 +1041,7 @@ def _has_unpaired_surrogate(message: Any) -> bool:
     return False
 
 
-def _dispatch(message: Any, store: Path) -> dict | None:
+def _dispatch(message: Any, store: Path, read_only: bool = False) -> dict | None:
     """The response dict to write, or None when nothing should be written."""
     if not isinstance(message, dict):
         return _error_response(None, INVALID_REQUEST, "invalid request: expected a JSON object")
@@ -1062,7 +1087,7 @@ def _dispatch(message: Any, store: Path) -> dict | None:
             else None
         )
 
-    handler = _METHODS.get(method)
+    handler = (_READ_ONLY_METHODS if read_only else _METHODS).get(method)
     if handler is None:
         return (
             _error_response(msg_id, METHOD_NOT_FOUND, f"method not found: {method}")
@@ -1123,7 +1148,9 @@ def _use_utf8_transport(stdin: TextIO) -> None:
         reconfigure(encoding="utf-8", errors="surrogateescape")
 
 
-def serve(store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
+def serve(
+    store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout, read_only: bool = False
+) -> int:
     """Runs the MCP stdio loop until stdin closes; the only writer to stdout."""
     _use_utf8_transport(stdin)
     try:
@@ -1141,7 +1168,7 @@ def serve(store: Path, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -
                 _write(stdout, _error_response(None, PARSE_ERROR, f"parse error: {exc}"))
                 continue
 
-            response = _dispatch(message, store)
+            response = _dispatch(message, store, read_only)
             if response is not None:
                 _write(stdout, response)
     except BrokenPipeError:
