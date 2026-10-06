@@ -154,6 +154,13 @@ related docs, matched section locators) capped at 4 KB, with a footer scoreboard
 (exit 0). Ambiguous short queries (e.g. `MQ` matching both MessageQueue and
 MetricsQuery) return one representative per cluster, marked `ambiguous`.
 
+Matching is exact, word for word, in any language that separates words with spaces or
+punctuation: `ОТМЕНА, заказа!` finds "Отмена заказа", `CacheMémoire` finds itself and
+`mémoire`. Case and Unicode spelling variants are folded; nothing else is. `cafe` does not
+find `café`, `заказ` does not find `заказа`, and Chinese, Japanese or Thai text without
+spaces is one long word. Upgrading re-tokenises cached documents on the next search; no
+document needs re-saving.
+
 Ask for one section rather than whole documents:
 
 ```bash

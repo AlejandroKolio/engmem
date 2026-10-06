@@ -18,6 +18,84 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
   a primary result. A draft is outside the ranking corpus altogether (below); a superseded
   document becomes a `SupersededNote`, with its successor when the store holds it.
 
+## Tokenisation (`tokenize_raw`, `normalize_token`, `camel_fragments`)
+
+One rule set, applied by the same functions to front matter fields, section text and the
+query, so CLI and MCP cannot drift (both call `search`):
+
+1. **NFKC** over the whole text (`tokenize_raw`).
+2. **Split** into maximal runs of Unicode letters, numbers and combining marks
+   (`_token_run_re`). Everything else separates, `_` included, so `snake_case_name` still
+   yields three words. So does every apostrophe, including the four modifier letters used as
+   one (below).
+3. **Casefold** each token after NFKC (`normalize_token`), so `ОТМЕНА` = `отмена`,
+   `STRASSE` = `straße`, and a Greek final `ς` = `σ`.
+4. **Identifier split** (`camel_fragments`) over Unicode case, not ASCII ranges.
+
+Why NFKC and not NFC. Both compose `e` + U+0301 into `é`, which is what makes canonically
+equivalent spellings one token. NFKC also folds compatibility forms: fullwidth `ＭＱ` = `MQ`,
+the ligature `ﬁ` = `fi`. Search had NFKC before Unicode support, and
+`test_nfkc_runs_before_tokenization` pins that. The cost is that a few distinctions vanish
+(`x²` and `x2` are one token), which exact search over prose can afford.
+
+Combining marks stay inside a word. NFKC composes most of them away, but a letter with no
+precomposed form keeps its mark: Russian stress (`за́мок`), many Latin transliterations.
+Python's `\w` does not cover marks (category `M`), so the token pattern adds them
+explicitly. Splitting on a mark cut the word in two and lost the mark. The pattern is built
+once per process from `unicodedata`, as code-point ranges, which the regex engine scans about
+four times faster than 2,000-odd single characters. The build scans only the planes that hold
+marks today (`_MARK_PLANES`: 0, 1 and 14), about 12 ms on first use instead of about 70 ms
+for all 17 planes, which every CLI search paid even with a warm cache. Letters and numbers
+need no scan: `\w` covers them in every plane. A Unicode version that adds a mark elsewhere
+fails `test_the_mark_scan_covers_every_plane_with_marks`, and
+`test_the_token_pattern_is_exactly_letters_numbers_and_marks` checks the finished pattern
+against a full scan of every code point.
+
+Every apostrophe separates (owner decision, US-02 review). `'` (U+0027) and `’` (U+2019) are
+punctuation and always did. U+02BC MODIFIER LETTER APOSTROPHE is a letter (`Lm`), so `\w`
+kept it inside the word: Ukrainian `обʼєкт`, its standard spelling, stayed one token while
+`об'єкт` split into two, and the two spellings of one word could not find each other.
+`_APOSTROPHE_LETTERS` carves out U+02BC and the other modifier letters that are apostrophe
+glyphs: U+02BB (turned comma, the `ʻ` of Uzbek `oʻ` and Hawaiian ʻokina), U+02BD (reversed
+comma) and U+02EE (double apostrophe). Splitting `oʻzbek` loses nothing that `o'zbek` keeps.
+Left as letters: the primes U+02B9/U+02BA and half rings U+02BE/U+02BF, which are
+transliteration letters, not apostrophes, and U+A78C saltillo, a lower-case letter.
+
+Identifier splitting keeps its ASCII-era shape: `[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+`,
+evaluated over a class string (`A` upper or title case, `a` any other letter, `0` number,
+`m` mark following its base character). For ASCII input the fragments are the same as
+before (`HTTPServer2Go` → `http, server, 2, go`). For a mixed identifier the accented letter
+is a letter, so `CacheMémoire` → `cache, mémoire` with acronym `cm`. The old ASCII ranges
+made it `cache, m, moire`, and `moire` matched an unrelated word. Cased scripts split the
+same way (`ОтменаЗаказа` → `отмена, заказа`). A letter without case (Hebrew, CJK) counts as
+lower case: no rule for it was asked for, and it at least never invents a split inside a
+word.
+
+Limits, all deliberate and each its own slice if demand appears:
+
+- Diacritics are significant: `cafe` does not find `café`.
+- No morphology: `заказ` does not find `заказа`.
+- Case folding is `str.casefold`, with no locale: Turkish `İ` folds to `i̇`, not `i`.
+- No segmentation for text written without spaces (Chinese, Japanese, Thai): such a run is
+  one token.
+- Apostrophes, in every form above, and hyphens separate: `l'annulation` is `l` and
+  `annulation`, `обʼєкт` is `об` and `єкт`.
+
+A section heading with no ASCII letters still gets the anchor `section`
+(`contracts/sections.md`), so a match there shows as `§N-section`. The index still names
+the section. The anchor is section identity, not tokenisation, and is left as it is.
+
+Changing any of this changes the cached `literal_tf`/`derived_tf`, so it bumps
+`cache.CACHE_FORMAT_VERSION`. That constant also carries `unicodedata.unidata_version`,
+because every step above reads the Unicode database (`contracts/cache.md`).
+
+Golden G8 (`ENGMEM-SPEC.md` §8) changed with this, approved by the owner. Its query mixes
+Greek words with `MessageQueue sweeper`. The Greek used to be dropped by the tokenizer, so
+the scores equalled those of `MessageQueue sweeper` alone. Now the Greek words are query
+terms that match nothing, and coverage counts them. The test pins the same top hit and order
+as before, and scores equal to the same query with two unmatched ASCII words in place of the
+Greek ones.
+
 ## Drafts are outside the ranking corpus (`_ranking_corpus`)
 
 `search` and `search_with_role_sections` rank over `_ranking_corpus(docs)`, which leaves every

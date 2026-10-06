@@ -9,13 +9,16 @@ import hashlib
 import json
 import os
 import sys
+import unicodedata
 from uuid import uuid4
 from collections.abc import Iterable
 from pathlib import Path
 
-# Bump when the cached payload shape changes; older-format entries are then
-# treated as absent, not corrupt.
-CACHE_FORMAT_VERSION = 3  # 3: headings tolerate 0-3 leading spaces, changing section boundaries
+# Bump the number when the cached payload shape or the tokenizer changes; older-format entries
+# are then treated as absent, not corrupt. 3: headings tolerate 0-3 leading spaces, changing
+# section boundaries. 4: Unicode tokenization. The Unicode database version rides along because
+# NFKC, casefold and the token character classes all come from it (contracts/cache.md).
+CACHE_FORMAT_VERSION = f"4/unicode-{unicodedata.unidata_version}"
 
 
 def cache_root() -> Path:
