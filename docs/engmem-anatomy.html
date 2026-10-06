@@ -937,7 +937,7 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
             <p>Множитель покрытия наказывает частичные совпадения — он и опускает спайн второго документа до 6.86: четыре токена из семи (итог 16.5 — остальное дало тело).</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><ul>
-            <li><code>draft</code> — отбрасывается молча на фильтрации, но продолжает считаться в скорборде.</li>
+            <li><code>draft</code> — сюда не доходит: черновик убирают из поиска ещё до подсчёта, и на статистику и чужие баллы он не влияет. В скорборде его по-прежнему считают.</li>
             <li><code>superseded</code> — перенаправляется: активный документ, на который указывает <code>superseded_by</code>, попадает в <code>superseded_notes</code>, а не в <code>hits</code>.</li>
             <li><code>active</code> — единственный статус, доходящий до <code>hits</code>.</li>
             <li>Омоним (<code>MQ</code> как <code>MessageQueue</code> и как <code>MetricsQuery</code>) даёт по представителю каждого смысла с пометкой <code>ambiguous</code>, а не молчаливый выбор.</li>
@@ -1941,7 +1941,7 @@ body  = 10.13                    →  score 20.8</code></pre>
             <p>The coverage multiplier punishes partial hits — it's what drops the second document's spine to 6.86: four tokens out of seven (16.5 in total — the body supplied the rest).</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><ul>
-            <li><code>draft</code> — dropped silently during the filtering pass, though it still counts toward the scoreboard.</li>
+            <li><code>draft</code> — never gets this far: it is left out of the ranking corpus before scoring and takes no part in the statistics, though it still counts toward the scoreboard.</li>
             <li><code>superseded</code> — redirected: the active document <code>superseded_by</code> points at lands in <code>superseded_notes</code>, not in <code>hits</code>.</li>
             <li><code>active</code> — the only status that reaches <code>hits</code>.</li>
             <li>A homonym (<code>MQ</code> as both <code>MessageQueue</code> and <code>MetricsQuery</code>) yields one representative per meaning, flagged <code>ambiguous</code>, rather than a silent pick.</li>

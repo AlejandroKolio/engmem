@@ -459,20 +459,29 @@ def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
     return None
 
 
+def _ranking_corpus(docs: list[Doc]) -> list[Doc]:
+    """The documents a search ranks over; a draft is outside it (contracts/scoring.md)."""
+    return [doc for doc in docs if doc.status != "draft"]
+
+
 def search(docs: list[Doc], query: str) -> SearchOutcome:
     query_tokens = _build_query_tokens(query)
-    entries = _build_section_index(docs, docs)
-    return _search_core(docs, query_tokens, entries)
+    corpus = _ranking_corpus(docs)
+    entries = _build_section_index(corpus, docs)
+    return _search_core(corpus, docs, query_tokens, entries)
 
 
 def _search_core(
-    docs: list[Doc], query_tokens: list[_QueryToken], entries: list[_SectionEntry]
+    corpus: list[Doc],
+    store_docs: list[Doc],
+    query_tokens: list[_QueryToken],
+    entries: list[_SectionEntry],
 ) -> SearchOutcome:
-    """`search()`'s ranking, factored out so the role variant shares one section-index build."""
+    """Ranks `corpus`; `store_docs` only resolves a superseded document's successor."""
     body_scores = _body_scores_from_entries(entries, query_tokens)
 
     scored: list[Hit] = []
-    for doc in docs:
+    for doc in corpus:
         spine_value, matched_fields = _spine_score(query_tokens, doc)
         body_value, section_hits = body_scores.get(doc.id, (0.0, []))
 
@@ -518,10 +527,10 @@ def _search_core(
                 continue
             # every cluster member is collapsed, whatever its status — but only a document
             # that can be output may represent one. The status partition runs below, so a
-            # draft or superseded representative collapses its cluster-mates and is then
-            # dropped itself, taking an active document out of the results with it
+            # superseded representative collapses its cluster-mates and is then dropped
+            # itself, taking an active document out of the results with it
             clustered_ids.add(h.doc.id)
-            if h.doc.status in _NEVER_PRIMARY:
+            if h.doc.status == "superseded":
                 continue
             if key not in clusters or h.score > clusters[key].score:
                 clusters[key] = h
@@ -536,13 +545,11 @@ def _search_core(
             for h in scored:
                 h.ambiguous = h.doc.id in rep_ids
 
-    docs_by_id = {d.id: d for d in docs}
+    docs_by_id = {d.id: d for d in store_docs}
     hits: list[Hit] = []
     superseded_notes: list[SupersededNote] = []
 
     for h in scored:
-        if h.doc.status == "draft":
-            continue
         if h.doc.status == "superseded":
             successor = docs_by_id.get(h.doc.superseded_by) if h.doc.superseded_by else None
             superseded_notes.append(
@@ -577,8 +584,9 @@ def search_with_role_sections(
 ) -> tuple[SearchOutcome, dict[str, dict[str, Section]]]:
     """`search()` plus a `doc_id -> {role: Section}` map built from the same parse."""
     query_tokens = _build_query_tokens(query)
-    entries = _build_section_index(docs, docs)
-    outcome = _search_core(docs, query_tokens, entries)
+    corpus = _ranking_corpus(docs)
+    entries = _build_section_index(corpus, docs)
+    outcome = _search_core(corpus, docs, query_tokens, entries)
     role_map = _role_index_from_entries(entries)
     return outcome, role_map
 

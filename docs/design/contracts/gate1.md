@@ -179,7 +179,9 @@ makes `Distance.UNDECIDABLE` reachable at all now that the boundary bug is close
 ## Draft and superseded citing documents
 
 `load_store` returns every document regardless of `status`; search excludes `draft` and
-`superseded` documents from its results (`scoring.py`, `_NEVER_PRIMARY`). Until the count did
+`superseded` documents from its results — a draft is left out of the ranking corpus before
+scoring (`scoring.py`, `_ranking_corpus`), a superseded one becomes a redirect
+(`_NEVER_PRIMARY`, `SupersededNote`). Until the count did
 the same, its population differed from the retrieval layer's, and a draft's Reuse Log is a
 work-in-progress claim that has not been through the save ritual's review step.
 
