@@ -316,7 +316,10 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    one ordinary bad file. The same distinction applies to the stray-file scan below: a
    subdirectory under `sessions/` (or the store root) that cannot be listed is reported by
    name on both stdout and stderr, never silently counted as "no strays".
-2. `status: draft` documents don't appear in results (but do count toward the scoreboard).
+2. `status: draft` documents don't appear in results and take no part in ranking them —
+   adding, editing or deleting a draft never changes a published result
+   (`docs/design/contracts/scoring.md`, "Drafts are outside the ranking corpus"); they do
+   count toward the scoreboard.
    `status: superseded` documents don't appear either; if a superseded doc would have won,
    its line is replaced with `superseded by <id>` plus the successor itself, if it exists.
 3. Scoring — §7. Output is the top 3 docs: id, path, score, why-matched (which tokens

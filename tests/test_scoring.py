@@ -940,16 +940,29 @@ def _store_with_each_status(tmp_path):
     return sessions
 
 
-def test_role_coverage_does_not_evict_the_documents_it_skips(tmp_path, monkeypatch):
-    """`prune_orphans` means "no longer in the store". `role_coverage` narrows to searchable
-    documents first, so passing it that list deletes every draft and superseded entry."""
+@pytest.mark.parametrize(
+    "narrowing_caller",
+    [
+        pytest.param(role_coverage, id="role_coverage"),
+        pytest.param(lambda docs: search(docs, "WidgetCache"), id="search"),
+        pytest.param(
+            lambda docs: search_with_role_sections(docs, "WidgetCache"), id="role_search"
+        ),
+    ],
+)
+def test_a_narrowing_caller_does_not_evict_the_documents_it_skips(
+    tmp_path, monkeypatch, narrowing_caller
+):
+    """`prune_orphans` means "no longer in the store". `role_coverage` skips drafts and
+    superseded documents and search skips drafts, so pruning on that narrowed list deletes
+    their entries."""
     monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
     sessions = _store_with_each_status(tmp_path)
     docs = load_store(sessions).docs
-    search(docs, "WidgetCache")
+    _build_section_index(docs, docs)
     assert len(list((tmp_path / "cache-home").glob("*.json"))) == 3
 
-    role_coverage(docs)
+    narrowing_caller(docs)
 
     assert len(list((tmp_path / "cache-home").glob("*.json"))) == 3
 
@@ -959,7 +972,7 @@ def test_a_document_gone_from_the_store_still_loses_its_entry(tmp_path, monkeypa
     monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "cache-home")
     sessions = _store_with_each_status(tmp_path)
     docs = load_store(sessions).docs
-    search(docs, "WidgetCache")
+    _build_section_index(docs, docs)
 
     (sessions / "gamma-old.md").unlink()
     search(load_store(sessions).docs, "WidgetCache")

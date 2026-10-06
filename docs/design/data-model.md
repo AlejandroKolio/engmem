@@ -100,8 +100,8 @@ draft --(save: human confirms full draft)--> active
 active --(save of a LATER doc: human confirms "yes, this supersedes it")--> superseded
 ```
 
-- `draft`: created immediately when `/engmem` starts; excluded from search results but
-  counted in the scoreboard's `drafts: N`.
+- `draft`: created immediately when `/engmem` starts; excluded from search results and
+  from the statistics that rank them, but counted in the scoreboard's `drafts: N`.
 - `active`: the only state search actually returns as a primary result.
 - `superseded`: excluded from primary results; a query that would otherwise rank it
   returns `superseded by <id>` plus the successor document, if the successor itself

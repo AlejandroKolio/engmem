@@ -15,8 +15,31 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
   property of the token's text, decided once in `_build_query_tokens` and read from
   `qt.restricted` by `_spine_score` and `_bm25_entry_score` alike; it is never re-derived.
 - `_NEVER_PRIMARY` (`draft`, `superseded`; data-model.md "State transitions") never appears as
-  a primary result. A draft is dropped; a superseded document becomes a `SupersededNote`, with
-  its successor when the store holds it.
+  a primary result. A draft is outside the ranking corpus altogether (below); a superseded
+  document becomes a `SupersededNote`, with its successor when the store holds it.
+
+## Drafts are outside the ranking corpus (`_ranking_corpus`)
+
+`search` and `search_with_role_sections` rank over `_ranking_corpus(docs)`, which leaves every
+draft out before any statistic is taken: the section index, `n`, `avgdl`, document
+frequencies and so `DF_CEILING_RATIO`, `idf`, and the ambiguity clusters. Adding, editing or
+deleting a draft therefore cannot change the set, order or score of a published result; only
+the scoreboard's `drafts: N` (and the `docs: N` / `last doc` it shares a line with) moves.
+
+The defect this closes: drafts used to be indexed with everything else and dropped only after
+scoring. An active document with the term in one of two sections sits at `df / n = 0.5`, inside
+the ceiling; a draft repeating the term in three more sections put it at `4 / 5`, the term left
+body scoring, and the active document vanished from a search that had found it — a silent
+false negative caused by unpublished text. Filtering earlier is the whole fix: a draft is never a
+hit and contributes nothing to any score, so excluding it from statistics loses nothing.
+
+`superseded` stays in the corpus. It is not hidden: a match emits its redirect, so it is ranked
+like any other result, and its terms are terms a published document once used.
+
+The successor lookup still sees the whole store (`_search_core`'s `store_docs`): a superseded
+document's `superseded_by` may name a draft, which `output.md` names but does not render.
+Once published (`draft -> active`) a document joins the corpus on the next search and is ranked
+exactly as one that was born active.
 
 ## `ID_SLUG_WEIGHT`
 
@@ -66,15 +89,16 @@ entity has an unknown full form, not a differing one, so it returns `None` and s
 unclustered rather than being given a spurious unique key.
 
 Every matching document collapses into its cluster, but only one that can be a primary result
-may represent it (`_NEVER_PRIMARY`). The status partition runs after clustering, so a draft or
-superseded representative would collapse its cluster-mates and then be dropped itself, taking
+may represent it. A draft never reaches clustering (it is outside the ranking corpus); the
+status partition runs after clustering, so a superseded representative would collapse its
+cluster-mates and then be dropped itself, taking
 an active document out of the results silently. Rejected: narrowing membership instead of
 representation — within the ambiguous branch a superseded cluster-mate would survive the
 collapse and emit a second entry for one cluster, against §7's "output one top doc from each
 cluster". Below the gate (fewer than two clusters with a representative) nothing collapses and
 a superseded match emits its ordinary redirect. Accepted consequence: two active documents
-sharing a cluster are not ambiguous when the only competing cluster came from a draft or
-superseded document; ambiguity between a visible meaning and an invisible one is noise.
+sharing a cluster are not ambiguous when the only competing cluster came from a superseded
+document; ambiguity between a visible meaning and an invisible one is noise.
 
 ## Section index caching (`_entries_for_doc`, `_build_section_index`)
 
@@ -86,9 +110,10 @@ not at a shared store in the hundreds. The key is `doc.source_identity`, stamped
 
 `_build_section_index(docs, store_docs)` indexes the documents it was handed and prunes against
 the whole store. The second parameter has no default because a wrongly pruned cache neither
-fails nor warns, it only costs a rebuild. `role_coverage` is the caller that needs the
-distinction: it narrows to searchable documents before indexing, and pruning on that narrowed
-list deleted every draft and superseded document's entry on each `engmem roles`.
+fails nor warns, it only costs a rebuild. Every caller narrows: `role_coverage` to searchable
+documents, and pruning on that narrowed list deleted every draft and superseded document's
+entry on each `engmem roles`; `search` and `search_with_role_sections` to the ranking corpus,
+which would evict every draft's entry on each search.
 
 ### A shape mismatch is a miss, never a crash
 
