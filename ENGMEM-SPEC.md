@@ -489,10 +489,14 @@ active. That's it. This degrades the doc's completeness, not the experiment's ri
 
 ## 7. Scoring (deterministic, no ML)
 
-**Normalization:** NFKC → casefold → tokenize on non-alphanumerics. CamelCase tokens are
+**Normalization:** NFKC → split into runs of Unicode letters, numbers and combining marks
+(everything else, `_` included, separates) → casefold each token. CamelCase tokens are
 additionally split into fragments + an abbreviation, keeping the original:
 `ResponseCacheController` → `responsecachecontroller, response, cache, controller,
-rcc`. The same applies to both the query and the doc's fields.
+rcc`; the split reads Unicode case, so `CacheMémoire` → `cachemémoire, cache, mémoire, cm`.
+The same applies to both the query and the doc's fields. Diacritics stay significant
+(`cafe` ≠ `café`); no morphology, no segmentation of text written without spaces.
+Rationale and limits: `contracts/scoring.md`, "Tokenisation".
 
 **Match rules:**
 - A match = equality of normalized tokens. No substrings, no prefixes.
@@ -538,7 +542,7 @@ Assertions (id → expected outcome):
 | G5 | `MQ` | exactly two results, one from each of the MessageQueue and MetricsQuery clusters, marked ambiguous |
 | G6 | `mq` | identical to G5 (casefold) |
 | G7 | `MessageQueue sweeper` | mq-message-sweeper first (2-token coverage) |
-| G8 | `landmines with MessageQueue sweeper` | mq-message-sweeper first; non-Latin noise doesn't break the run and doesn't match anything |
+| G8 | `σφάλματα και MessageQueue sweeper` | mq-message-sweeper first, same order as `MessageQueue sweeper`; non-Latin words no fixture contains don't break the run and don't match anything. Since US-02 they count toward coverage like any unmatched word (owner-approved; `contracts/scoring.md`, "Tokenisation") |
 | G9 | `ETAG` | response-cache and revalidation-v2 rank above the rest |
 | G10 | `ET` | empty, `prior context: none found` (≤3 chars — exact only, ET ≠ ETAG) |
 | G11 | `etag revalidation` | revalidation-v2 first (2/2 coverage vs 1/2) |

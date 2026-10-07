@@ -68,6 +68,26 @@ that text would disagree with `doc.body` on every CRLF document and refuse it as
 change moves the guards from "the same file" to "the same bytes", couples them to `spine`'s
 normalisation, and retires every stored key behind a `CACHE_FORMAT_VERSION` bump.
 
+## Format version: what retires an entry
+
+`CACHE_FORMAT_VERSION` must change whenever the same document would produce a different
+payload: a new payload shape, but also a change to section boundaries (3) or to the
+tokenizer (4, Unicode tokenization, `contracts/scoring.md` "Tokenisation"). The identity key
+cannot catch either case, because the file has not changed. Only the version can tell an
+entry the old code built from one the current code would build. Without the bump, a store
+upgraded to Unicode tokenization kept serving its pre-upgrade entries, in which a Cyrillic
+section had no tokens at all, and its documents stayed unfindable until each one was edited.
+With it, every old entry is a silent miss, the first search after the upgrade rebuilds it,
+and no document needs re-saving. This is the whole migration path.
+
+The constant is `"4/unicode-<unicodedata.unidata_version>"`, not a bare number. NFKC,
+`casefold` and the letter/mark classes the tokenizer splits on all come from the running
+Python's Unicode database, and `cache_root()` is shared by every install on the machine. Two
+Pythons with different Unicode versions (3.11 ships 14.0, 3.13 ships 15.1) can tokenize the
+same text differently, and neither may serve the other's tokens as its own. The cost is a
+rebuild each time the active Python changes. The comparison stays a plain `!=`, so a mismatch
+remains a silent miss, as the table below requires.
+
 ## Degrading, and how loudly
 
 `load` never raises: every damaged shape is a miss, and the caller recomputes. What differs is

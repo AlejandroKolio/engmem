@@ -96,14 +96,19 @@ def test_gN_short_token_is_ambiguous_across_two_clusters(query):
 def test_g8_non_latin_noise_does_not_break_and_does_not_match():
     outcome = search(fixture_docs(), "σφάλματα και MessageQueue sweeper")
     baseline = search(fixture_docs(), "MessageQueue sweeper")
+    # US-02: Greek words are query terms now, so they count in coverage exactly as two
+    # unmatched ASCII words would; before, the tokenizer dropped them
+    unmatched_ascii = search(fixture_docs(), "zqxw vjkq MessageQueue sweeper")
 
     assert _top_id(outcome) == "mq-message-sweeper"
 
-    # "does not match": the non-Latin tokens must contribute nothing to scoring —
-    # same hit count and same scores as the query with them stripped out, and no
-    # non-Latin token appears anywhere in any hit's matched fields.
+    # "does not match": the Greek tokens match nothing in this corpus — same hits in the same
+    # order as without them, the scores of any two unmatched words, and no non-Latin token
+    # anywhere in any hit's matched fields.
     assert [h.doc.id for h in outcome.hits] == [h.doc.id for h in baseline.hits]
-    assert [h.score for h in outcome.hits] == [h.score for h in baseline.hits]
+    assert [(h.doc.id, h.score) for h in outcome.hits] == [
+        (h.doc.id, h.score) for h in unmatched_ascii.hits
+    ]
     matched_tokens = {
         token
         for hit in outcome.hits
