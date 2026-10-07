@@ -28,7 +28,7 @@ from engmem.spine import (
     stray_documents,
     validate_doc_id,
 )
-from engmem.staging import commit, discard, newline_of, read_document, stage
+from engmem.staging import commit, commit_new, discard, newline_of, read_document, stage
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -309,6 +309,15 @@ def _stage_content(target: Path, content: bytes) -> tuple[Doc | None, Path, str 
     return doc, tmp_path, None
 
 
+def _create_conflict(doc_id: str, detail: str | None = None) -> _ToolError:
+    reason = detail or "it already exists"
+    return _ToolError(
+        f"refusing to create sessions/{doc_id}.md: {reason} — "
+        f"{CREATE_DRAFT_TOOL_NAME} never overwrites. Use "
+        f"{COMPLETE_DRAFT_TOOL_NAME} to finish an existing draft, or choose a different id."
+    )
+
+
 def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
@@ -317,11 +326,7 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
         target = _resolve_write_target(store, doc_id)
 
         if target.exists():
-            raise _ToolError(
-                f"refusing to create sessions/{doc_id}.md: it already exists — "
-                f"{CREATE_DRAFT_TOOL_NAME} never overwrites. Use "
-                f"{COMPLETE_DRAFT_TOOL_NAME} to finish an existing draft."
-            )
+            raise _create_conflict(doc_id)
 
         doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
         try:
@@ -337,8 +342,13 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
                     f"content's front matter status is {doc.status!r}, not "
                     f"'draft' — {CREATE_DRAFT_TOOL_NAME} only ever creates a draft."
                 )
-            commit(tmp_path, target)
-        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+            try:
+                commit_new(tmp_path, target)
+            except FileExistsError as exc:
+                # another creator took the id after the check above
+                detail = None if os.path.lexists(target) else exc.strerror
+                raise _create_conflict(doc_id, detail) from exc
+        # BaseException, not _ToolError: `commit_new` links or renames, so it can raise
         # OSError of its own, and the staged file must go either way
         except BaseException:
             discard(tmp_path)

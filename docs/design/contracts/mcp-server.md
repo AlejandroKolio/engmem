@@ -54,10 +54,12 @@ not found" as a protocol fault the client cannot render, or coerces a malformed 
 non-string `session_id`) into something that looks like it worked.
 
 One runtime fault is deliberately a `-32603` and not a tool result: an `OSError` out of
-`staging.stage` or `staging.commit` (full disk, revoked permission). The document's state is
-known — `os.replace` is the atomic last statement of `commit`, so the target is untouched —
-but `isError` is for what the model can restate and retry, and a host fault would invite a
-retry that cannot succeed. The boundary is `stage`/`commit` only: an `OSError` re-parsing the
+`staging.stage`, `staging.commit` or `staging.commit_new` (full disk, revoked permission). The
+document's state is known — `os.replace` is the atomic last statement of `commit`, and
+`commit_new` publishes in one `os.link` or `os.replace`, so the target is untouched — but `isError` is for what the model can restate and retry, and a host fault would invite a
+retry that cannot succeed. The one `OSError` that is a tool result is `commit_new`'s
+`FileExistsError`: the id is taken, which the model can act on by choosing another. The
+boundary is otherwise `stage`/`commit`/`commit_new` only: an `OSError` re-parsing the
 staged file is a tool result. Either way the staged file is discarded; `discard` is
 best-effort, so what actually keeps a leftover out of the store is its `.tmp` suffix —
 `load_store` and `stray_documents` select on `.md`.
@@ -129,7 +131,9 @@ already found a file.
 
 Every write is staged through `engmem/staging.py` (shared with `backfill`) to a hidden
 sibling `.<target>.<hex>.tmp`, parsed with the same `spine.parse_document` `load_store` uses,
-and `os.replace`d over the target only after every handler-specific check passes. The uuid is
+and published over the target only after every handler-specific check passes — by
+`os.replace` for the two tools that rewrite a document, by `commit_new` for the one that
+creates it (below). The uuid is
 what lets a leftover from a crashed run never block or collide with a later write to the same
 document: `stage` opens with `O_EXCL`, so a fixed name would fail every retry until
 hand-deleted. On any failure the staged file is discarded. `engmem_create_draft` is the only
@@ -138,7 +142,8 @@ path that creates a document, so it alone sets a new document's mode: it keeps t
 stays `0600` for life.
 
 The three tools' own rules:
-- `engmem_create_draft` never overwrites: fails if the target exists.
+- `engmem_create_draft` never overwrites: fails if the target exists, including when another
+  creator takes the id while the call is running.
 - `engmem_complete_draft` requires the existing file to be `status: draft` and the new
   content to be `status: active` with a matching `id` — it can never touch an active or
   superseded document.
@@ -233,9 +238,66 @@ content still parses as `active`, so nothing else notices. It runs the same chec
 `_refuse_if_changed_since_read`, just before the commit, and the staged file is discarded on
 refusal.
 
-Not closed by this: `engmem_create_draft`'s `exists()`-then-`os.replace` window. Closing it
-needs an exclusive-create commit path in `staging.py`; until then "never overwrites" is a
-check, not a guarantee against a concurrent creator.
+### Creating a document: exclusive, not checked
+
+`engmem_create_draft` used to check `exists()` and then `os.replace` the staged file over the
+target. Two clients creating one id could both pass the check, both be told they succeeded,
+and the later rename silently replaced the earlier writer's draft. The check still runs first,
+so an id that is plainly taken is refused before anything is staged, but it is no longer what
+the guarantee rests on. The publish step is `staging.commit_new`, which cannot replace
+anything:
+
+- **`os.link(staged, target)`** is the primary path. It fails with `FileExistsError` on any
+  existing entry, a dangling symlink included, and it is atomic: the name appears already
+  holding the whole staged, fsynced, parsed document, so no reader ever sees a partial one.
+  The staged name is then discarded; if that fails, the leftover is a second name for the
+  same bytes, and inert, because no scan loads a `.tmp`. The new document shares the staged file's inode,
+  so it keeps the staged `0600`. POSIX filesystems, APFS and NTFS all support it, which
+  covers the CI matrix.
+- **A `mkdir` lock** is the fallback when `os.link` fails in a way that means the
+  filesystem has no hard links (FAT, exFAT) or a sandbox forbids them: `EPERM`, `ENOTSUP`,
+  `EOPNOTSUPP` or `ENOSYS`, and on Windows `ERROR_INVALID_FUNCTION` or `ERROR_NOT_SUPPORTED`
+  (`_hard_links_unavailable`). Every other `OSError` from the link — `EIO`, `ENOSPC`,
+  `EACCES` — propagates as the `-32603` above. Falling back on those would be a data-loss
+  bug, not a retry: the lock excludes other lock holders only, so a creator that fell back
+  on a transient error could check, find nothing, and replace a document another creator
+  had just linked. `os.mkdir` is exclusive on every filesystem, so creating
+  `.<target>.create-lock` serialises the check (`os.path.lexists`) and the `os.replace`
+  between engmem creators; the lock is removed in a `finally`. On Windows a `PermissionError`
+  from that `mkdir` is also a busy lock: NTFS answers access denied for a directory name still
+  pending delete, which is a lock another creator has just released. A failed release is ignored,
+  because by then the document is published and an error would report a create that happened
+  as one that did not. A lock left by a killed process fails closed: later creates of that one
+  id are refused with a message naming the lock to remove. Neither file name ends in `.md`,
+  so `load_store` and `stray_documents` never see one.
+
+A `FileExistsError` from either path becomes the same `isError` refusal the up-front check
+gives, naming the id and saying to choose another; the staged file is discarded. It is not a
+`-32603`: a taken id is the model's to act on.
+
+An interrupted create never leaves a document behind. Before the publish step, all that
+exists is the staged `.tmp`, which no scan loads; the publish step is a single link or rename;
+and an exception or Ctrl-C anywhere in between discards the staged file and propagates, so no
+success text is produced.
+
+Limits, recorded rather than closed:
+
+- The guarantee covers writers that go through `commit_new`, which today is only
+  `engmem_create_draft`. The `/engmem` template tells a runtime that can write files directly
+  to write `sessions/<id>.md` itself, and only if no file by that name exists yet; that is an
+  instruction to the agent, a check at best. The write never reaches engmem, and nothing here
+  can make it exclusive. A shell-capable create command (`engmem create-draft` or similar) would
+  extend the guarantee to that path; it is a new CLI surface and not part of this change.
+- The lock path is not exclusive against the link path. The case left open is two creators
+  in one directory where one is refused hard links (a sandbox that forbids `link`, say) and
+  the other is not — an agent in a sandbox and an unsandboxed host sharing one store. The
+  refused creator checks, finds nothing, and its `os.replace` can land over the document the
+  other creator linked a moment before; both are told they succeeded. This holds for as long
+  as that setup does, not for one unlucky window. Closing it would mean taking the lock on
+  the link path too, which costs every create a lock that a killed process leaves behind;
+  not done while no supported setup mixes the two.
+- `engmem_complete_draft` and `engmem_mark_superseded` still rewrite with `os.replace`; their
+  read-to-commit window is narrowed by `_refuse_if_changed_since_read`, not closed.
 
 ### `_patch_front_matter_line`: what it refuses
 
