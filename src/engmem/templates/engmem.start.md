@@ -84,7 +84,8 @@ capture_minutes:                 # left empty: a draft has measured nothing yet
   it with `id` set to `<id>` and `content` set to the exact text above (the front
   matter block, then the `## Pre-reg` section). It never overwrites an existing
   document, so a call that fails because the id is already taken means the id itself
-  needs to change, not something to retry as-is.
+  needs to change, not something to retry as-is. Its result names the draft's
+  `version`; keep it, because `/engmem.save` passes it back when it completes the draft.
 - If you can do neither: skip creating the draft, say so in your final report, and
   keep going — steps 3–6 below are not blocked by it.
 

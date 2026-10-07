@@ -6,6 +6,8 @@ import json
 import os
 import re
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from typing import Any, TextIO
@@ -28,7 +30,17 @@ from engmem.spine import (
     stray_documents,
     validate_doc_id,
 )
-from engmem.staging import commit, commit_new, discard, newline_of, read_document, stage
+from engmem.staging import (
+    DocumentLockedError,
+    commit,
+    commit_new,
+    discard,
+    document_lock,
+    newline_of,
+    read_document,
+    stage,
+    version_of,
+)
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -86,7 +98,9 @@ CREATE_DRAFT_TOOL_DESCRIPTION = (
     "argument — this tool refuses to create anything else. NEVER overwrites: "
     "if `sessions/<id>.md` already exists, the call fails and nothing is "
     "written, regardless of what the existing file contains. Use "
-    "`engmem_complete_draft` to finish a draft this tool already created."
+    "`engmem_complete_draft` to finish a draft this tool already created. The "
+    "result names the draft's version: keep it and pass it as `expected_version` "
+    "when you complete the draft."
 )
 
 COMPLETE_DRAFT_TOOL_NAME = "engmem_complete_draft"
@@ -105,7 +119,12 @@ COMPLETE_DRAFT_TOOL_DESCRIPTION = (
     "`anti-reuse` / `harmful`, returning each offending row so it can be fixed "
     "in the same turn. To mark a DIFFERENT, already-finished document as "
     "superseded by this one, call `engmem_mark_superseded` instead — never pass "
-    "that document's id here."
+    "that document's id here. Always pass `expected_version`, the version "
+    "`engmem_create_draft` returned for this draft: if the draft changed since "
+    "then, the call is refused and its result carries the current draft and its "
+    "version — re-read it, carry its changes into `content`, and call again with "
+    "that version. Without `expected_version` only the draft's status is checked, "
+    "so a change to a draft that is still a draft is overwritten."
 )
 
 MARK_SUPERSEDED_TOOL_NAME = "engmem_mark_superseded"
@@ -328,7 +347,8 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
         if target.exists():
             raise _create_conflict(doc_id)
 
-        doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
+        content_bytes = content.encode("utf-8")
+        doc, tmp_path, parse_error = _stage_content(target, content_bytes)
         try:
             if parse_error is not None:
                 raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
@@ -357,10 +377,11 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
         return str(exc), True
 
     return (
-        f"created sessions/{doc_id}.md (status: draft). Now pass "
-        f'session_id: "{doc_id}" on every {TOOL_NAME} and {ROLE_TOOL_NAME} call '
+        f"created sessions/{doc_id}.md (status: draft, version: {version_of(content_bytes)}). "
+        f'Now pass session_id: "{doc_id}" on every {TOOL_NAME} and {ROLE_TOOL_NAME} call '
         "for the rest of this task — a search without it is logged unattributed "
-        "and drops out of the analysis."
+        "and drops out of the analysis. Keep the version: pass it as expected_version "
+        f"to {COMPLETE_DRAFT_TOOL_NAME} when you finish this draft."
     ), False
 
 
@@ -375,71 +396,54 @@ def _refuse_if_changed_since_read(target: Path, read: Doc, doc_id: str) -> None:
         )
 
 
+@contextmanager
+def _locked(target: Path, doc_id: str) -> Iterator[None]:
+    """`staging.document_lock`, with a lock held past the wait refused by name."""
+    try:
+        with document_lock(target):
+            yield
+    except DocumentLockedError as exc:
+        raise _ToolError(
+            f"sessions/{doc_id}.md is being written by another engmem call — nothing was "
+            "written; call this tool again. If this repeats while no engmem process is "
+            f"running, an interrupted write left sessions/{exc.lock.name} behind: remove it."
+        ) from None
+
+
+def _refuse_if_not_the_version_read(target: Path, doc_id: str, expected_version: str) -> None:
+    """A draft that changed since the client read it is refused with its current text and
+    version, never overwritten from the client's stale copy."""
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        raise _ToolError(
+            f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
+        ) from exc
+    current = version_of(data)
+    if current == expected_version.strip():
+        return
+    raise _ToolError(
+        f"refusing to complete sessions/{doc_id}.md: it changed since you read it "
+        f"(expected_version {expected_version!r}, current version {current!r}) — "
+        "nothing was written. Re-read the current draft below, carry its changes into "
+        f"your content, and call {COMPLETE_DRAFT_TOOL_NAME} again with "
+        f'expected_version: "{current}".\n'
+        f"--- current sessions/{doc_id}.md ---\n"
+        + data.decode("utf-8", errors="replace")
+    )
+
+
 def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
+    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
 
     try:
         target = _resolve_write_target(store, doc_id)
-
-        if not target.exists():
-            raise _ToolError(
-                f"no draft found for id {doc_id!r}: sessions/{doc_id}.md does not "
-                f"exist — create it first with {CREATE_DRAFT_TOOL_NAME}."
-            )
-        try:
-            existing = parse_document(target)
-        except (yaml.YAMLError, ValueError, OSError) as exc:
-            # can't confirm the current document is actually a draft; refuse
-            raise _ToolError(
-                f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
-                "overwrite a document that cannot first be confirmed to be a draft."
-            ) from exc
-        if existing.status != "draft":
-            raise _ToolError(
-                f"refusing to overwrite sessions/{doc_id}.md: its current status "
-                f"is {existing.status!r}, not 'draft' — {COMPLETE_DRAFT_TOOL_NAME} "
-                "only ever finishes a document still in draft."
-            )
-
-        doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
-        try:
-            if parse_error is not None:
-                raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
-            if doc.id != doc_id:
-                raise _ToolError(
-                    f"content's front matter id {doc.id!r} does not match the "
-                    f"'id' argument {doc_id!r} — they must be identical."
-                )
-            if doc.status != "active":
-                raise _ToolError(
-                    f"content's front matter status is {doc.status!r}, not "
-                    f"'active' — {COMPLETE_DRAFT_TOOL_NAME} must complete the "
-                    "sanctioned draft -> active transition; leave status as "
-                    "'draft' and simply call this tool again later if the "
-                    "document is not actually ready to finish yet."
-                )
-            rejections = _reuse_log_rejections(doc)
-            if rejections:
-                raise _ToolError(
-                    "\n".join(
-                        [
-                            f"refusing to complete sessions/{doc_id}.md: its Reuse Log "
-                            "fails the mechanical rules Gate 1 counts by — fix the rows "
-                            "below in the content and call this tool again.",
-                            *rejections,
-                        ]
-                    )
-                )
-            # the draft was confirmed a draft at the top; another writer may have activated it
-            # since, and committing this copy would silently replace the newer document
-            _refuse_if_changed_since_read(target, existing, doc_id)
-            commit(tmp_path, target)
-        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
-        # OSError of its own, and the staged file must go either way
-        except BaseException:
-            discard(tmp_path)
-            raise
+        # held from the first look at the document to the replace: two completions of one
+        # draft can no longer both see `status: draft` and both commit
+        with _locked(target, doc_id):
+            doc = _complete_draft_locked(target, doc_id, content, expected_version)
     except _ToolError as exc:
         return str(exc), True
 
@@ -447,6 +451,72 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     for note in _citation_notes(store, doc):
         message += f"\n{note}"
     return message, False
+
+
+def _complete_draft_locked(
+    target: Path, doc_id: str, content: str, expected_version: str | None
+) -> Doc:
+    if not target.exists():
+        raise _ToolError(
+            f"no draft found for id {doc_id!r}: sessions/{doc_id}.md does not "
+            f"exist — create it first with {CREATE_DRAFT_TOOL_NAME}."
+        )
+    try:
+        existing = parse_document(target)
+    except (yaml.YAMLError, ValueError, OSError) as exc:
+        # can't confirm the current document is actually a draft; refuse
+        raise _ToolError(
+            f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
+            "overwrite a document that cannot first be confirmed to be a draft."
+        ) from exc
+    if existing.status != "draft":
+        raise _ToolError(
+            f"refusing to overwrite sessions/{doc_id}.md: its current status "
+            f"is {existing.status!r}, not 'draft' — {COMPLETE_DRAFT_TOOL_NAME} "
+            "only ever finishes a document still in draft."
+        )
+    if expected_version is not None:
+        _refuse_if_not_the_version_read(target, doc_id, expected_version)
+
+    doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
+    try:
+        if parse_error is not None:
+            raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
+        if doc.id != doc_id:
+            raise _ToolError(
+                f"content's front matter id {doc.id!r} does not match the "
+                f"'id' argument {doc_id!r} — they must be identical."
+            )
+        if doc.status != "active":
+            raise _ToolError(
+                f"content's front matter status is {doc.status!r}, not "
+                f"'active' — {COMPLETE_DRAFT_TOOL_NAME} must complete the "
+                "sanctioned draft -> active transition; leave status as "
+                "'draft' and simply call this tool again later if the "
+                "document is not actually ready to finish yet."
+            )
+        rejections = _reuse_log_rejections(doc)
+        if rejections:
+            raise _ToolError(
+                "\n".join(
+                    [
+                        f"refusing to complete sessions/{doc_id}.md: its Reuse Log "
+                        "fails the mechanical rules Gate 1 counts by — fix the rows "
+                        "below in the content and call this tool again.",
+                        *rejections,
+                    ]
+                )
+            )
+        # the lock excludes engmem writers only; a hand edit or another tool landing since the
+        # read above is caught here, in a window the lock cannot close
+        _refuse_if_changed_since_read(target, existing, doc_id)
+        commit(tmp_path, target)
+    # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+    # OSError of its own, and the staged file must go either way
+    except BaseException:
+        discard(tmp_path)
+        raise
+    return doc
 
 
 _CLASSIFICATION_CHOICES = " / ".join(
@@ -536,65 +606,10 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
                 f"(both are {doc_id!r})."
             )
 
-        if not target.exists():
-            raise _ToolError(
-                f"no document found for id {doc_id!r}: sessions/{doc_id}.md does "
-                "not exist."
-            )
-        try:
-            # the validating parse first, and it stats before it reads, so its
-            # `source_identity` covers the raw re-read below as well
-            existing = parse_document(target)
-        except (yaml.YAMLError, ValueError, OSError) as exc:
-            raise _ToolError(
-                f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
-                "modify a document that cannot first be confirmed to be active."
-            ) from exc
-        if existing.status != "active":
-            raise _ToolError(
-                f"refusing to supersede sessions/{doc_id}.md: its current status "
-                f"is {existing.status!r}, not 'active' — a draft was never "
-                "published, and an already-superseded document does not get "
-                "superseded twice."
-            )
-
-        try:
-            # bytes, not `read_text`: this handler rebuilds the whole file from what it reads,
-            # and `read_text` drops the BOM and translates every line ending on the way in —
-            # see contracts/backfill.md, "Line endings"
-            existing_text, bom = read_document(target)
-        # ValueError as well as OSError: `read_document` decodes what it read, so a document
-        # replaced with invalid UTF-8 between the two reads raises `UnicodeDecodeError` here.
-        # That is the document's problem, refused as one — not a -32603 server fault
-        except (OSError, ValueError) as exc:
-            raise _ToolError(
-                f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
-            ) from exc
-        _refuse_if_changed_since_read(target, existing, doc_id)
-
-        front_matter_text, body = split_front_matter(existing_text)
-        front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
-        front_matter_text = _patch_front_matter_line(
-            front_matter_text, "superseded_by", superseded_by
-        )
-        newline = newline_of(front_matter_text) or newline_of(body) or "\n"
-        new_content = f"---{newline}" + front_matter_text + f"---{newline}" + body
-
-        doc, tmp_path, parse_error = _stage_content(target, bom + new_content.encode("utf-8"))
-        try:
-            if parse_error is not None:
-                raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
-            if doc.status != "superseded" or doc.superseded_by != superseded_by:
-                raise _ToolError(
-                    "internal error: patched front matter did not produce the "
-                    "expected status/superseded_by — refusing to write it."
-                )
-            commit(tmp_path, target)
-        # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
-        # OSError of its own, and the staged file must go either way
-        except BaseException:
-            discard(tmp_path)
-            raise
+        # the same lock `engmem_complete_draft` holds: two supersedes of one document can no
+        # longer both see `status: active`, and the later one replace the earlier's successor
+        with _locked(target, doc_id):
+            _mark_superseded_locked(target, doc_id, superseded_by)
     except _ToolError as exc:
         return str(exc), True
 
@@ -602,6 +617,68 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
         f"marked sessions/{doc_id}.md superseded by {superseded_by} "
         "(status: active -> superseded)"
     ), False
+
+
+def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> None:
+    if not target.exists():
+        raise _ToolError(
+            f"no document found for id {doc_id!r}: sessions/{doc_id}.md does "
+            "not exist."
+        )
+    try:
+        # the validating parse first, and it stats before it reads, so its
+        # `source_identity` covers the raw re-read below as well
+        existing = parse_document(target)
+    except (yaml.YAMLError, ValueError, OSError) as exc:
+        raise _ToolError(
+            f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
+            "modify a document that cannot first be confirmed to be active."
+        ) from exc
+    if existing.status != "active":
+        raise _ToolError(
+            f"refusing to supersede sessions/{doc_id}.md: its current status "
+            f"is {existing.status!r}, not 'active' — a draft was never "
+            "published, and an already-superseded document does not get "
+            "superseded twice."
+        )
+
+    try:
+        # bytes, not `read_text`: this handler rebuilds the whole file from what it reads,
+        # and `read_text` drops the BOM and translates every line ending on the way in —
+        # see contracts/backfill.md, "Line endings"
+        existing_text, bom = read_document(target)
+    # ValueError as well as OSError: `read_document` decodes what it read, so a document
+    # replaced with invalid UTF-8 between the two reads raises `UnicodeDecodeError` here.
+    # That is the document's problem, refused as one — not a -32603 server fault
+    except (OSError, ValueError) as exc:
+        raise _ToolError(
+            f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
+        ) from exc
+    _refuse_if_changed_since_read(target, existing, doc_id)
+
+    front_matter_text, body = split_front_matter(existing_text)
+    front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
+    front_matter_text = _patch_front_matter_line(
+        front_matter_text, "superseded_by", superseded_by
+    )
+    newline = newline_of(front_matter_text) or newline_of(body) or "\n"
+    new_content = f"---{newline}" + front_matter_text + f"---{newline}" + body
+
+    doc, tmp_path, parse_error = _stage_content(target, bom + new_content.encode("utf-8"))
+    try:
+        if parse_error is not None:
+            raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
+        if doc.status != "superseded" or doc.superseded_by != superseded_by:
+            raise _ToolError(
+                "internal error: patched front matter did not produce the "
+                "expected status/superseded_by — refusing to write it."
+            )
+        commit(tmp_path, target)
+    # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
+    # OSError of its own, and the staged file must go either way
+    except BaseException:
+        discard(tmp_path)
+        raise
 
 
 def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> str:
@@ -813,6 +890,18 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                                 "followed by the full body sections."
                             ),
                         },
+                        "expected_version": {
+                            "type": "string",
+                            "description": (
+                                "The draft's version as engmem_create_draft "
+                                "returned it, or as a refusal of this tool "
+                                "reported it after you re-read the draft. The "
+                                "call is refused, and nothing written, if the "
+                                "draft on disk is no longer that version. "
+                                "Omitted, a draft changed since you read it is "
+                                "overwritten."
+                            ),
+                        },
                     },
                     "required": ["id", "content"],
                 },
@@ -850,6 +939,10 @@ _WRITE_TOOL_REQUIRED_STRING_ARGS = {
     MARK_SUPERSEDED_TOOL_NAME: ("id", "superseded_by"),
 }
 
+_WRITE_TOOL_OPTIONAL_STRING_ARGS = {
+    COMPLETE_DRAFT_TOOL_NAME: ("expected_version",),
+}
+
 _WRITE_TOOL_HANDLERS = {
     CREATE_DRAFT_TOOL_NAME: _handle_create_draft,
     COMPLETE_DRAFT_TOOL_NAME: _handle_complete_draft,
@@ -876,6 +969,12 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
                 raise _ProtocolError(
                     INVALID_PARAMS,
                     f"invalid params: {field_name!r} must be a non-empty string",
+                )
+        for field_name in _WRITE_TOOL_OPTIONAL_STRING_ARGS.get(name, ()):
+            value = arguments.get(field_name) if isinstance(arguments, dict) else None
+            if value is not None and not isinstance(value, str):
+                raise _ProtocolError(
+                    INVALID_PARAMS, f"invalid params: {field_name!r} must be a string"
                 )
         text, is_error = _WRITE_TOOL_HANDLERS[name](arguments, store)
         result: dict = {"content": [{"type": "text", "text": text}]}

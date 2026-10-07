@@ -115,6 +115,11 @@ active --(save of a LATER doc: human confirms "yes, this supersedes it")--> supe
   intentionally out of scope — reversing supersession is a manual front-matter edit, not
   a supported CLI/template operation, per principle V).
 
+A document has no stored version field. Its version is derived from its bytes on disk
+(`staging.version_of`), so every existing document has one; `engmem_complete_draft` uses it
+to refuse completing a draft that changed after the client read it (`contracts/mcp-server.md`,
+"Rewriting a document: the version read").
+
 `superseded_by` is coerced to `str` like every other id-shaped field. Unquoted, YAML reads
 `2026-01-01` as a `date`, and the MCP `mark_superseded` tool writes the value unquoted,
 re-reads it and compares it against the string it was given — so that round trip used to

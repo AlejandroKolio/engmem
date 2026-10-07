@@ -75,6 +75,8 @@ STATED_VALUES = [
     ("scoring", "BM25_B", None, "`b = {value}`", "scoring.md"),
     ("scoring", "FIELD_WEIGHTS", "entities", "returns `{value}.0,", "scoring.md"),
     ("scoring", "FIELD_WEIGHTS", "id", "caps a token at {value}", "scoring.md"),
+    ("staging", "_LOCK_WAIT_SECONDS", None, "`_LOCK_WAIT_SECONDS` ({value})", "mcp-server.md"),
+    ("staging", "_VERSION_HEX_DIGITS", None, "first {value} hex digits", "mcp-server.md"),
 ]
 
 
