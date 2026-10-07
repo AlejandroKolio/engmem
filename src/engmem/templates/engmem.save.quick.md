@@ -59,4 +59,8 @@ confirmation.
 6. Show the user the finished document in one message and ask exactly one thing: `ok`?
    On `ok`, write it. On anything else, treat the reply as edits, apply them, and write —
    still no follow-up questions. Write directly if you have file access; otherwise call
-   the `engmem_complete_draft` MCP tool with `id` and the finished document as `content`.
+   the `engmem_complete_draft` MCP tool with `id`, the finished document as `content`,
+   and the version `engmem_create_draft` returned as `expected_version`. If it refuses
+   because the draft changed since you read it, the refusal carries the current draft
+   and its version: carry what changed into the document, show it to the user again,
+   and call with that version.

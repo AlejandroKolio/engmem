@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import threading
 
 import pytest
 
@@ -343,3 +344,83 @@ def test_an_access_denied_lock_is_busy_on_windows_only(tmp_path, monkeypatch, wi
     assert isinstance(raised.value, FileExistsError) is windows
     assert not target.exists()
     discard(tmp)
+
+
+def _write_lock(target):
+    return target.with_name(f".{target.name}.write-lock")
+
+
+def test_document_lock_makes_a_second_writer_wait_for_the_first(tmp_path):
+    """US-04: the read-check-replace inside the lock is one step to every other holder."""
+    target = tmp_path / "widget-cache-warmup.md"
+    order: list[str] = []
+    first_inside, release_first = threading.Event(), threading.Event()
+
+    def first() -> None:
+        with staging.document_lock(target):
+            order.append("first in")
+            first_inside.set()
+            assert release_first.wait(10)
+            order.append("first out")
+
+    def second() -> None:
+        with staging.document_lock(target):
+            order.append("second in")
+
+    a = threading.Thread(target=first)
+    a.start()
+    assert first_inside.wait(10)
+    b = threading.Thread(target=second)
+    b.start()
+    b.join(0.2)
+    release_first.set()
+    a.join()
+    b.join()
+
+    assert order == ["first in", "first out", "second in"]
+    assert not _write_lock(target).exists()
+
+
+def test_document_lock_held_past_the_wait_names_itself_and_is_left_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(staging, "_LOCK_WAIT_SECONDS", 0.05)
+    target = tmp_path / "widget-cache-warmup.md"
+    _write_lock(target).mkdir()
+
+    with pytest.raises(staging.DocumentLockedError) as raised:
+        with staging.document_lock(target):
+            pytest.fail("entered a lock another writer holds")
+
+    assert raised.value.lock == _write_lock(target)
+    assert _write_lock(target).is_dir()
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_an_access_denied_write_lock_is_busy_on_windows_only(tmp_path, monkeypatch, windows):
+    monkeypatch.setattr(staging, "_LOCK_WAIT_SECONDS", 0.05)
+
+    def denied(path, *args, **kwargs):
+        raise PermissionError(errno.EACCES, "Access is denied")
+
+    monkeypatch.setattr(staging.os, "mkdir", denied)
+    monkeypatch.setattr(staging, "_WINDOWS", windows)
+    target = tmp_path / "widget-cache-warmup.md"
+
+    with pytest.raises(staging.DocumentLockedError if windows else PermissionError):
+        with staging.document_lock(target):
+            pytest.fail("entered a lock that could not be taken")
+
+
+def test_document_lock_is_released_when_the_body_raises(tmp_path):
+    target = tmp_path / "widget-cache-warmup.md"
+
+    with pytest.raises(KeyboardInterrupt):
+        with staging.document_lock(target):
+            raise KeyboardInterrupt
+
+    assert not _write_lock(target).exists()
+
+
+def test_version_of_is_a_digest_of_the_exact_bytes():
+    assert staging.version_of(b"---\nid: a\n---\n") == staging.version_of(b"---\nid: a\n---\n")
+    assert staging.version_of(b"body\n") != staging.version_of(b"body\r\n")
+    assert staging.version_of(b"body") != staging.version_of(b"\xef\xbb\xbfbody")

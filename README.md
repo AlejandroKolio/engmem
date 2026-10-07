@@ -242,7 +242,9 @@ the source it describes.
 **Writes stay inside `sessions/`.** The MCP write tools resolve every path first and
 compare after, so `..` segments, absolute paths, symlinks pointing out of the store, and
 ids containing separators or NUL bytes are refused. Writes stage to a temporary file,
-re-validate, then `os.replace`, so a crash mid-write cannot leave half a document.
+re-validate, then `os.replace`, so a crash mid-write cannot leave half a document. Two
+engmem calls rewriting one document take turns, and finishing a draft can name the version
+it read, so a stale copy is refused instead of replacing newer text.
 
 **The cache is JSON, never pickle.** Token counts live under `~/.cache/engmem/`, which any
 process running as you can write to. Unpickling from there would execute whatever it

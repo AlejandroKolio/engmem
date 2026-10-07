@@ -8,8 +8,8 @@ You are closing out the session started by `/engmem`. Find the `sessions/<id>.md
 created at the start of this task (`status: draft`) — if you wrote it yourself via a
 shell, read it back from disk; if you created it through the `engmem_create_draft` MCP
 tool, its content is exactly what you passed as that call's `content`, so reuse that
-directly instead of trying to re-read the file — and complete it in the two passes
-below.
+directly instead of trying to re-read the file, together with the `version` that call
+returned — and complete it in the two passes below.
 
 This template produces the full knowledge-base shape: seventeen numbered sections plus
 engmem's own two operational ones, the list `ENGMEM-SPEC.md` §4 fixes. It is deliberately the
@@ -246,10 +246,16 @@ yes:
   - If you can write files directly: replace `sessions/<id>.md` with the complete
     document (finalised front matter from step 1 plus all body sections from step 2).
   - If your runtime exposes the `engmem_complete_draft` MCP tool instead of a shell:
-    call it with `id` set to `<id>` and `content` set to that complete document text.
+    call it with `id` set to `<id>`, `content` set to that complete document text, and
+    `expected_version` set to the version `engmem_create_draft` returned for this draft.
     It refuses to run unless the document on disk is still `status: draft`, and
     refuses the new content unless its own front matter states `status: active` —
     so this is the one call that actually performs the `draft -> active` transition.
+    If it refuses because the draft changed since you read it, the refusal carries the
+    current draft and its version: re-read it, carry what changed into your document,
+    and call again with that version. Never retry the same content with the new version
+    without reading what changed. Leave `expected_version` out only if you no longer
+    have it; the call then cannot tell that the draft changed.
 
 ## 5. Navigation misses — the other half of the retrieval instrument
 
