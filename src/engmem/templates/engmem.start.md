@@ -78,7 +78,8 @@ capture_minutes:                 # left empty: a draft has measured nothing yet
 ```
 
 - If you can write files directly: write `sessions/<id>.md` there with that front
-  matter plus the `## Pre-reg` section, exactly as composed above.
+  matter plus the `## Pre-reg` section, exactly as composed above. Write it only if no
+  file by that name exists yet; if one does, pick a new id — never overwrite it.
 - If your runtime exposes the `engmem_create_draft` MCP tool instead of a shell: call
   it with `id` set to `<id>` and `content` set to the exact text above (the front
   matter block, then the `## Pre-reg` section). It never overwrites an existing

@@ -1153,28 +1153,31 @@ def _make_active(store: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "setup, name, arguments",
+    "setup, name, arguments, committer",
     [
         (lambda store: None, CREATE_TOOL,
-         {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
+         {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}, "commit_new"),
         (lambda store: _call(store, name=CREATE_TOOL,
                              arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
          COMPLETE_TOOL,
-         {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+         {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}, "commit"),
         (_make_active, SUPERSEDE_TOOL,
-         {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}),
+         {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}, "commit"),
     ],
     ids=["create", "complete", "supersede"],
 )
-def test_a_failing_commit_still_discards_the_staged_file(store, monkeypatch, setup, name, arguments):
+def test_a_failing_commit_still_discards_the_staged_file(
+    store, monkeypatch, setup, name, arguments, committer
+):
     """`commit` stats and chmods before it replaces, so it can raise where the bare `os.replace`
-    it succeeded could not — and the staged file must go either way."""
+    it succeeded could not — and the staged file must go either way. For create this is also
+    AC-03.4's second half: a failed create is a fault, never a success."""
     setup(store)
 
     def failing_commit(tmp_path, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(mcp_server, "commit", failing_commit)
+    monkeypatch.setattr(mcp_server, committer, failing_commit)
     _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
 
     # the code and the message together, so a renamed argument or tool cannot leave this green

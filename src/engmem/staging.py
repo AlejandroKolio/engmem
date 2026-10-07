@@ -3,12 +3,28 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 from pathlib import Path
 from uuid import uuid4
 
 _BOM = b"\xef\xbb\xbf"
+_WINDOWS = os.name == "nt"
+# what `os.link` raises where the filesystem has no hard links at all (FAT, exFAT, a sandbox
+# that forbids them) — the only failures `commit_new` falls back on
+_NO_HARD_LINKS_ERRNOS = frozenset(
+    code
+    for code in (
+        errno.EPERM,
+        getattr(errno, "ENOTSUP", None),
+        getattr(errno, "EOPNOTSUPP", None),
+        getattr(errno, "ENOSYS", None),
+    )
+    if code is not None
+)
+_ERROR_INVALID_FUNCTION = 1
+_ERROR_NOT_SUPPORTED = 50
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 
 
@@ -71,3 +87,62 @@ def commit(tmp_path: Path, target: Path) -> None:
         except (OSError, AttributeError):
             pass  # only root can give a file away; elsewhere there is nothing to restore
     os.replace(tmp_path, target)  # atomic on POSIX — never a half-written document
+
+
+def commit_new(tmp_path: Path, target: Path) -> None:
+    """Publishes the staged file as `target` only if no entry by that name exists, else raises
+    `FileExistsError` with `tmp_path` left for the caller to discard. See contracts/mcp-server.md,
+    "Creating a document: exclusive, not checked"."""
+    try:
+        # atomic and exclusive in one step: fails on any existing entry, a dangling symlink
+        # included, and the name appears already holding the whole fsynced document
+        os.link(tmp_path, target)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        # only "no hard links here": the lock excludes other lock holders, not a creator whose
+        # link works, so falling back on a transient error would let it replace that creator
+        if not _hard_links_unavailable(exc):
+            raise
+        _commit_new_under_lock(tmp_path, target)
+        return
+    discard(tmp_path)  # the document is published; a leftover second name is inert
+
+
+def _hard_links_unavailable(exc: OSError) -> bool:
+    if _WINDOWS and getattr(exc, "winerror", None) in (
+        _ERROR_INVALID_FUNCTION,
+        _ERROR_NOT_SUPPORTED,
+    ):
+        return True
+    return exc.errno in _NO_HARD_LINKS_ERRNOS
+
+
+def _commit_new_under_lock(tmp_path: Path, target: Path) -> None:
+    """For a filesystem without hard links (FAT, exFAT): `mkdir` is exclusive everywhere, so it
+    serialises the check and the rename between engmem creators."""
+    lock = target.with_name(f".{target.name}.create-lock")
+    try:
+        os.mkdir(lock)
+    except (FileExistsError, PermissionError) as exc:
+        # on Windows a lock another creator just removed can still be pending delete, and
+        # `mkdir` then reports access denied for what is a busy lock
+        if isinstance(exc, PermissionError) and not _WINDOWS:
+            raise
+        raise FileExistsError(
+            errno.EEXIST,
+            f"another create of {target.name} is in progress, or one was interrupted "
+            f"(remove {lock.name} if no engmem process is running)",
+            str(target),
+        ) from None
+    try:
+        if os.path.lexists(target):
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(target))
+        os.replace(tmp_path, target)
+    finally:
+        # best-effort, like `discard`: raising here would report a published document as a
+        # failed create. A lock left behind fails closed, refusing this one id by name
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass

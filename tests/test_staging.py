@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 
 import pytest
 
-from conftest import requires_posix_modes
+from conftest import requires_posix_modes, requires_symlinks
 
-from engmem.staging import commit, discard, stage
+from engmem import staging
+from engmem.staging import commit, commit_new, discard, stage
 
 
 def test_the_staged_file_is_a_hidden_sibling_no_scan_picks_up(tmp_path):
@@ -130,3 +132,214 @@ def test_commit_tolerates_a_chown_failure(tmp_path, monkeypatch):
 
     assert target.read_bytes() == b"new"
     assert stat.S_IMODE(os.stat(target).st_mode) == 0o640
+
+
+# --- commit_new: the exclusive create behind `engmem_create_draft` (US-03)
+
+
+@pytest.fixture(params=["link", "no-hard-links"])
+def link_support(request, monkeypatch):
+    """Every `commit_new` guarantee holds on both paths: the hard link, and the `mkdir` lock a
+    filesystem without hard links (FAT, exFAT) falls back to."""
+    if request.param == "no-hard-links":
+        def unsupported(src, dst, *args, **kwargs):
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(staging.os, "link", unsupported)
+    return request.param
+
+
+def _create_lock(target):
+    return target.with_name(f".{target.name}.create-lock")
+
+
+def test_commit_new_publishes_the_staged_content_and_leaves_nothing_else(tmp_path, link_support):
+    target = tmp_path / "widget-cache-warmup.md"
+
+    commit_new(stage(target, b"new"), target)
+
+    assert target.read_bytes() == b"new"
+    assert [p.name for p in tmp_path.iterdir()] == ["widget-cache-warmup.md"]
+
+
+@requires_posix_modes
+def test_commit_new_keeps_the_staged_0600(tmp_path, link_support):
+    target = tmp_path / "widget-cache-warmup.md"
+
+    commit_new(stage(target, b"new"), target)
+
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
+
+
+def test_commit_new_never_replaces_an_existing_document(tmp_path, link_support):
+    """The caller's existence check can be stale by the time it commits; this is the check
+    that cannot be."""
+    target = tmp_path / "widget-cache-warmup.md"
+    target.write_bytes(b"theirs")
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(FileExistsError):
+        commit_new(tmp, target)
+
+    assert target.read_bytes() == b"theirs"
+    assert tmp.read_bytes() == b"mine", "left for the caller to discard"
+    assert not _create_lock(target).exists()
+    discard(tmp)
+
+
+@requires_symlinks
+def test_commit_new_treats_a_dangling_symlink_as_occupied(tmp_path, link_support):
+    target = tmp_path / "widget-cache-warmup.md"
+    outside = tmp_path / "elsewhere" / "outside.md"
+    target.symlink_to(outside)
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(FileExistsError):
+        commit_new(tmp, target)
+
+    assert target.is_symlink() and not outside.exists()
+    discard(tmp)
+
+
+def test_commit_new_without_hard_links_refuses_while_another_create_holds_the_lock(
+    tmp_path, monkeypatch
+):
+    """The lock is what makes the fallback's check-then-rename exclusive; a lock left by a
+    crashed create fails closed and names itself."""
+    def unsupported(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(staging.os, "link", unsupported)
+    target = tmp_path / "widget-cache-warmup.md"
+    _create_lock(target).mkdir()
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(FileExistsError) as raised:
+        commit_new(tmp, target)
+
+    assert _create_lock(target).name in str(raised.value)
+    assert not target.exists()
+    discard(tmp)
+
+
+def test_commit_new_without_hard_links_releases_the_lock_when_interrupted(tmp_path, monkeypatch):
+    """AC-03.4: an interrupted create leaves neither a document nor a lock that would refuse
+    the id on the retry."""
+    def unsupported(*args, **kwargs):
+        raise OSError(errno.ENOTSUP, "Operation not supported")
+
+    def interrupted(src, dst):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(staging.os, "link", unsupported)
+    monkeypatch.setattr(staging.os, "replace", interrupted)
+    target = tmp_path / "widget-cache-warmup.md"
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(KeyboardInterrupt):
+        commit_new(tmp, target)
+
+    assert not target.exists()
+    assert not _create_lock(target).exists()
+    discard(tmp)
+
+
+def test_commit_new_without_hard_links_is_a_success_even_if_the_lock_cannot_be_removed(
+    tmp_path, monkeypatch
+):
+    """The document is already published when the lock is released; failing there would
+    report a create that happened as one that did not, and the retry would hit "exists"."""
+    def unsupported(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    def stuck(path):
+        raise OSError(16, "Device or resource busy")
+
+    monkeypatch.setattr(staging.os, "link", unsupported)
+    monkeypatch.setattr(staging.os, "rmdir", stuck)
+    target = tmp_path / "widget-cache-warmup.md"
+
+    commit_new(stage(target, b"new"), target)
+
+    assert target.read_bytes() == b"new"
+
+
+def _link_failing_with(monkeypatch, exc: OSError) -> None:
+    def failing(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(staging.os, "link", failing)
+
+
+@pytest.mark.parametrize(
+    "code", [errno.EIO, errno.ENOSPC, errno.EACCES], ids=["EIO", "ENOSPC", "EACCES"]
+)
+def test_commit_new_propagates_a_link_failure_that_is_not_missing_hard_links(
+    tmp_path, monkeypatch, code
+):
+    """The lock excludes other lock holders only: a creator that fell back on a transient error
+    could replace one whose link succeeded meanwhile, so such an error is raised, not retried."""
+    _link_failing_with(monkeypatch, OSError(code, os.strerror(code)))
+    target = tmp_path / "widget-cache-warmup.md"
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(OSError) as raised:
+        commit_new(tmp, target)
+
+    assert raised.value.errno == code
+    assert not target.exists()
+    assert not _create_lock(target).exists()
+    assert tmp.read_bytes() == b"mine", "left for the caller to discard"
+    discard(tmp)
+
+
+@pytest.mark.parametrize(
+    "code",
+    sorted({errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS}),
+    ids=lambda code: errno.errorcode[code],
+)
+def test_commit_new_falls_back_to_the_lock_where_hard_links_are_unavailable(
+    tmp_path, monkeypatch, code
+):
+    _link_failing_with(monkeypatch, OSError(code, os.strerror(code)))
+    target = tmp_path / "widget-cache-warmup.md"
+
+    commit_new(stage(target, b"new"), target)
+
+    assert target.read_bytes() == b"new"
+
+
+@pytest.mark.parametrize("winerror", [1, 50], ids=["ERROR_INVALID_FUNCTION", "ERROR_NOT_SUPPORTED"])
+def test_commit_new_falls_back_on_the_windows_no_hard_links_codes(tmp_path, monkeypatch, winerror):
+    """Windows reports these as `EINVAL`, which on its own is no evidence links are missing."""
+    exc = OSError(errno.EINVAL, "Incorrect function")
+    exc.winerror = winerror
+    _link_failing_with(monkeypatch, exc)
+    monkeypatch.setattr(staging, "_WINDOWS", True)
+    target = tmp_path / "widget-cache-warmup.md"
+
+    commit_new(stage(target, b"new"), target)
+
+    assert target.read_bytes() == b"new"
+
+
+@pytest.mark.parametrize("windows", [True, False], ids=["windows", "posix"])
+def test_an_access_denied_lock_is_busy_on_windows_only(tmp_path, monkeypatch, windows):
+    """NTFS answers `mkdir` of a name still pending delete with access denied; that is a lock
+    another creator just released, a conflict to report, not a host fault."""
+    _link_failing_with(monkeypatch, PermissionError(errno.EPERM, "Operation not permitted"))
+
+    def access_denied(path, *args, **kwargs):
+        raise PermissionError(errno.EACCES, "Access is denied")
+
+    monkeypatch.setattr(staging.os, "mkdir", access_denied)
+    monkeypatch.setattr(staging, "_WINDOWS", windows)
+    target = tmp_path / "widget-cache-warmup.md"
+    tmp = stage(target, b"mine")
+
+    with pytest.raises(PermissionError if not windows else FileExistsError) as raised:
+        commit_new(tmp, target)
+
+    assert isinstance(raised.value, FileExistsError) is windows
+    assert not target.exists()
+    discard(tmp)
