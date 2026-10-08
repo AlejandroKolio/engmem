@@ -19,8 +19,8 @@ one confirmation, and one published document. Nothing else is asked of the user.
 The first four go in `## Decision Log`, one labelled line each. The fifth is
 `## Future LLM Context (cold-start primer)`: `engmem search` shows its first two lines as the
 result preview, cut at about 240 characters, so make those two lines short and able to stand
-alone. Besides Pre-reg, Reuse Log and Search Trace (steps 3–5), which every save carries, no
-other section needs filling.
+alone. Besides Reuse Log and Search Trace (steps 3–4), which every save carries, and the draft's
+Pre-reg (step 5) when it has one, no other section needs filling.
 
 ## Rules
 
@@ -78,7 +78,8 @@ other section needs filling.
 
    shell
    ```
-5. Carry `## Pre-reg` over unedited from the draft, first in the body.
+5. Carry `## Pre-reg` over unedited from the draft, first in the body. Skip it when the
+   draft has none: a daily draft has none, and none is written now.
 
    Headings here carry the same names as `/engmem.save`'s but **no numbers**. The numbers
    there index a fixed set of seventeen; a short record numbered 8 and 13 would read as one
@@ -87,7 +88,8 @@ other section needs filling.
 6. Generate the complete front matter automatically (same fields as `/engmem.save`, with
    `verified_at_commit` from `HEAD`, blank if you have no shell to get it, and
    `capture_minutes` blank unless you know when the save really started; the draft's
-   `date:` has day resolution and is no anchor), and set `status: active`. Name the
+   `date:` has day resolution and is no anchor; `mode`, and `baseline_unavailable` if the
+   draft has it, copied from the draft unchanged), and set `status: active`. Name the
    decision in `title`, and put the classes, services or components it is about in
    `entities`: search weighs both above the body.
 7. **The preview.** Show the user the finished document in one message and ask exactly one
@@ -111,7 +113,8 @@ other section needs filling.
 
 ## Example
 
-The shape, not content to copy. This record had a rejected alternative and no source:
+The shape, not content to copy. This record, from a daily session, had a rejected alternative
+and no source:
 
 ````markdown
 ---
@@ -132,12 +135,8 @@ author:
 repos: [platform-core]
 branch:
 pr:
+mode: daily
 ---
-
-## Pre-reg
-
-Naive baseline: wrap the export call in a retry loop.
-pre-reg source: self (no sub-agent available)
 
 ## Decision Log
 

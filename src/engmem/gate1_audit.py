@@ -42,13 +42,26 @@ class AuditReport:
     telemetry_rows_with_session: int
     telemetry_distinct_sessions: int
 
-    reuse_log_count: int  # any status, by section PRESENCE (`_has_role`) -- the same rule
+    reuse_log_count: int  # any status, counted modes only, by section PRESENCE (`_has_role`) --
+    # the same rule
     # `active_missing_trace` uses
     none_report_count: int  # gate1.Verdicts.none_reports, reused rather than re-derived
+    # US-08: the same two figures for documents kept apart by mode, printed beside them and
+    # never added to them
+    reuse_log_kept_apart: int
+    none_report_kept_apart: int
 
     no_prereg_docs: list[str] = field(default_factory=list)  # any status, not backfilled, no
     # `## Pre-reg` section -- written before the ritual existed, or outside it; excluded from the
     # ritual population and named here so the sample's composition stays visible
+
+    # US-08, each outside the ritual population and named on its own line; a backfilled
+    # document is counted on the backfilled figure instead, and a document here is never also
+    # in `no_prereg_docs` (a daily session writes no Pre-reg by design)
+    daily_docs: list[str] = field(default_factory=list)  # outside the experiment
+    incomplete_docs: list[str] = field(default_factory=list)  # baseline_unavailable
+    missing_baseline_docs: list[str] = field(default_factory=list)  # research, no baseline at all
+    unrecognized_mode_docs: list[str] = field(default_factory=list)
 
     active_missing_reuse: list[str] = field(default_factory=list)
     active_missing_trace: list[str] = field(default_factory=list)
@@ -123,14 +136,23 @@ def evaluate(
     # ritual population (draft/active/superseded) and from the missing-section lists below;
     # counted on its own rather than silently folded into either side.
     backfilled_count = sum(1 for d in docs.values() if d.backfilled)
+    # US-08: a daily session is outside the experiment, an incomplete one is kept apart from the
+    # valid group, and a misspelled mode is neither until corrected -- each named, none in the
+    # ritual figures. After backfilled, before the Pre-reg check (contracts/gate1.md, "Modes").
+    observed = [d for d in docs.values() if not d.backfilled]
+    by_observation: dict[gate1.Observation, list[str]] = {}
+    for d in observed:
+        by_observation.setdefault(gate1.observation_of(d), []).append(d.id)
+    def counted(d: Doc) -> bool:
+        return gate1.observation_of(d) in gate1.COUNTED_OBSERVATIONS
+
+    experiment = [d for d in observed if counted(d)]
     # A missing `## Pre-reg` section is the evidence a `backfilled: true` flag nobody stamped
     # would have carried: the document never ran the ritual either. Counted once, under
     # `backfilled_count`, when both apply. ENGMEM-SPEC.md §11, amendment of 2026-09-12;
     # contracts/gate1.md, "(e) A document with no Pre-reg section never ran the ritual either."
-    no_prereg_docs = sorted(
-        d.id for d in docs.values() if not d.backfilled and not _has_role(d, "prereg")
-    )
-    ritual_docs = [d for d in docs.values() if not d.backfilled and _has_role(d, "prereg")]
+    no_prereg_docs = sorted(d.id for d in experiment if not _has_role(d, "prereg"))
+    ritual_docs = [d for d in experiment if _has_role(d, "prereg")]
 
     draft = [d for d in ritual_docs if d.status == "draft"]
     active = [d for d in ritual_docs if d.status == "active"]
@@ -184,9 +206,21 @@ def evaluate(
         telemetry_error=telemetry_error,
         telemetry_rows_with_session=len(session_rows),
         telemetry_distinct_sessions=len(sessions_by_id),
-        reuse_log_count=sum(1 for d in docs.values() if _has_role(d, "reuse")),
+        reuse_log_count=sum(
+            1 for d in docs.values() if counted(d) and _has_role(d, "reuse")
+        ),
         none_report_count=len(verdicts.none_reports),
+        reuse_log_kept_apart=sum(
+            1 for d in docs.values() if not counted(d) and _has_role(d, "reuse")
+        ),
+        none_report_kept_apart=len(verdicts.none_reports_kept_apart),
         no_prereg_docs=no_prereg_docs,
+        daily_docs=sorted(by_observation.get(gate1.Observation.DAILY, [])),
+        incomplete_docs=sorted(by_observation.get(gate1.Observation.INCOMPLETE, [])),
+        missing_baseline_docs=sorted(
+            by_observation.get(gate1.Observation.MISSING_BASELINE, [])
+        ),
+        unrecognized_mode_docs=sorted(by_observation.get(gate1.Observation.UNRECOGNIZED, [])),
         active_missing_reuse=sorted(d.id for d in active if not _has_role(d, "reuse")),
         active_missing_trace=sorted(d.id for d in active if not _has_role(d, "trace")),
         orphan_session_ids=orphan_ids,

@@ -196,6 +196,71 @@ document is still a draft is strictly better than waiting for promotion to surfa
 Not closed by this: the **cited** document's status. Axis D already covers `superseded`; a
 citation of a `draft` document is unaddressed.
 
+## Modes: daily, research and legacy (US-08, owner decision 2026-10-08)
+
+Each session records the mode it was started in, `mode: daily` or `mode: research`, when its
+draft is created (`contracts/runtime.md`, "The saved mode"). `observation_of(doc)` reads it
+into one of six `Observation` values, and `exclusion_reason` consults it after the citing
+document's status and before dogfooding:
+
+- **legacy** — no `mode` field: written before modes existed. Counted exactly as before.
+- **research** — counted. Research mode *is* the protocol Gate 1 was pre-registered on, the
+  current start template unchanged, so legacy and research are one population
+  (`COUNTED_OBSERVATIONS`).
+- **daily** — `"excluded: outside the experiment (mode: daily)"`. A daily session skipped the
+  Pre-reg by design; counting it, as a success or as a failure, would mix two conditions in one
+  figure (AC-08.3).
+- **incomplete** — `baseline_unavailable` stated on a non-daily document:
+  `"excluded: incomplete observation (baseline_unavailable)"`. The session searched and saved
+  normally but has no uncontaminated baseline, so it is kept apart from the valid group and
+  from any baseline comparison (AC-08.5). Daily wins over it: a daily session is outside the
+  experiment whatever else it records.
+- **missing baseline** — `mode: research` with neither a `## Pre-reg` section nor
+  `baseline_unavailable`: `"excluded: research session with no Pre-reg and no
+  baseline_unavailable"`. A shell agent writes its draft directly, with no tool checking it
+  (`contracts/mcp-server.md`, "The mode a draft records"), so this is what a skipped baseline
+  looks like on that path; counting it as research would credit the experiment with a session
+  that never ran its protocol. The rule reads only documents that say `mode: research`, so a
+  legacy document without a Pre-reg is counted exactly as before.
+- **unrecognized** — any other `mode` value: `"excluded: mode '<value>' not recognized"`. A typo
+  is neither legacy nor research, and reading it as either would decide the question in the
+  count's favour. The loader warns, and the document is still searched. The start template's
+  draft placeholder, `mode: <daily|research from step 0>`, reads as this value when copied
+  literally, so a careless copy counts nowhere instead of as research.
+
+**Transition rule, stated rather than versioned.** No new protocol version is introduced:
+research mode is the current Gate 1 protocol plus one recorded fact, `baseline_unavailable`.
+Documents written before 2026-10-08 carry no `mode` and are counted as they always were; no
+existing document is rewritten, and §11's endpoints, interpretation table and amendments stand
+unchanged. A document never changes mode after its draft is created: `engmem_complete_draft`
+refuses content whose `mode` differs from the draft's, or that drops a recorded
+`baseline_unavailable` (`contracts/mcp-server.md`). A switch of the saved mode therefore applies
+to the next session only (AC-08.4).
+
+**Story-level figures count the counted modes only.** A clean `Prior docs used: none.` is the
+failure side of the endpoint, and daily is the default, so daily sessions would soon outnumber
+every other "none" report. `evaluate()` therefore splits clean none reports in two:
+`Verdicts.none_reports` holds those from counted documents (legacy, research), and
+`none_reports_kept_apart` those from every other mode. `gate1_audit` does the same for
+"documents with a Reuse Log section" (`reuse_log_count` / `reuse_log_kept_apart`), and
+`none_report_count` stays `len(verdicts.none_reports)`. `gate1_report.py` prints each counted
+figure as before, followed by `(N more kept apart by mode -- ... -- not counted)` only when N is
+not zero, so a store with no mode-tagged documents prints exactly what it printed before US-08.
+Conflicted Reuse Logs are reported for every mode: a conflict is a defect to fix, not a figure.
+
+**The audit block keeps the conditions apart too.** `gate1_audit.evaluate()` removes daily,
+incomplete, missing-baseline and unrecognized-mode documents from the ritual population and
+lists each on its own line (`daily_docs`, `incomplete_docs`, `missing_baseline_docs`,
+`unrecognized_mode_docs`), after the backfilled exclusion
+and before the Pre-reg check. A daily document has no Pre-reg on purpose, and listing it as
+"no Pre-reg section" would report a design choice as a gap; a backfilled document stays on the
+backfilled figure. Each document is counted once.
+
+**`verify_citations.py` ignores the mode**, as it ignores status ("Draft and superseded citing
+documents" above): whether a quote occurs in the cited document does not depend on the
+condition the citing session ran under, and a fabricated quote in a daily document is still a
+fabrication.
+
 ## `Prior docs used: none.` conflicting with real rows
 
 The Reuse Log is either exactly the sentence `Prior docs used: none.` or a table of rows
@@ -221,14 +286,18 @@ human may overrule it per row, in writing"), so an `adjacent` or `undecidable` r
 otherwise legitimate reuse stays open exactly like a `distant` one. Only population membership,
 decided once and the same way for every row, gets a tool-written reason.
 
+Since US-08 the citing document must also be in a counted mode (legacy or research, "Modes"
+above).
+
 `is_valid(row)` is `exclusion_reason(row) is None`, and because axis E is unset for exactly these
 rows, "N valid" and "rows awaiting human verdict" are one count, not two peers — an earlier
 summary printed them as siblings and double-counted. `is_primary_candidate` is `is_valid AND
 distance == Distance.DISTANT`, the strict subset §11 counts; the summary reads "N valid, of which
 M distant", never two independent totals.
 
-Precedence inside `exclusion_reason`: integrity, then the citing document's status, then
-dogfooding, then classification — the `INTEGRITY_EXCLUSIONS` lookup, the two predicates, then
+Precedence inside `exclusion_reason`: integrity, then the citing document's status, then its
+mode, then dogfooding, then classification — the `INTEGRITY_EXCLUSIONS` lookup, the three
+predicates, then
 the `CLASSIFICATION_EXCLUSIONS` lookup — and the first applicable reason is the one printed, so a
 draft citing document with a `harmful` dogfooding row prints only the status reason. Integrity
 comes first because a row that never reached `verified` has no citation to classify or
@@ -236,8 +305,8 @@ attribute. The order is contract, pinned by a row that fails two axes at once. I
 not a masked count: the `classification` and `distance` columns still show the row's other facts,
 and every summary counter is computed per axis across all rows, independent of this precedence.
 
-The exclusion breakdown is not a partition. `dogfooding` and `excluded_by_status` are
-independent per-row facts and can both hold for one row, so the per-axis figures may overlap and
+The exclusion breakdown is not a partition. `dogfooding`, `excluded_by_status` and the mode
+are independent per-row facts and can all hold for one row, so the per-axis figures may overlap and
 do not sum to the rows excluded. The summary prints the true total, `len(rows) - len(valid)`,
 before the breakdown, and the breakdown line says its figures may overlap.
 

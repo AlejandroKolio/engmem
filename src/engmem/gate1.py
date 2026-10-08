@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from engmem.settings import Mode
 from engmem.sections import split_sections
 from engmem.spine import Doc, Problem, _coerce_list_field, load_store, split_front_matter
 
@@ -53,6 +54,50 @@ class Staleness(enum.StrEnum):
     CITED_SUPERSEDED = "cited_superseded"
 
 
+class Observation(enum.StrEnum):
+    """Which experimental condition the citing document was recorded under (US-08)."""
+
+    LEGACY = "legacy"  # no `mode` field: written before modes existed, counted as before
+    RESEARCH = "research"
+    DAILY = "daily"
+    INCOMPLETE = "incomplete"  # `baseline_unavailable` stated outside daily mode
+    # `mode: research` with neither a Pre-reg nor `baseline_unavailable`: the shell path writes
+    # drafts unguarded, so this is what a skipped baseline looks like there
+    MISSING_BASELINE = "missing_baseline"
+    UNRECOGNIZED = "unrecognized_mode"
+
+
+# legacy and research are one protocol, the one Gate 1 was pre-registered on -- contracts/gate1.md
+COUNTED_OBSERVATIONS = frozenset({Observation.LEGACY, Observation.RESEARCH})
+
+
+def observation_of(doc: Doc) -> Observation:
+    if doc.mode == Mode.DAILY:
+        return Observation.DAILY
+    if doc.mode is not None and doc.mode != Mode.RESEARCH:
+        return Observation.UNRECOGNIZED
+    if doc.baseline_unavailable is not None:
+        return Observation.INCOMPLETE
+    if doc.mode is None:
+        return Observation.LEGACY
+    if not any(s.canonical == "prereg" for s in split_sections(doc.body)):
+        return Observation.MISSING_BASELINE
+    return Observation.RESEARCH
+
+
+def observation_reason(observation: Observation, raw_mode: str | None) -> str | None:
+    """The verdict-cell reason for a condition outside the count, None for a counted one."""
+    if observation == Observation.DAILY:
+        return "excluded: outside the experiment (mode: daily)"
+    if observation == Observation.INCOMPLETE:
+        return "excluded: incomplete observation (baseline_unavailable)"
+    if observation == Observation.MISSING_BASELINE:
+        return "excluded: research session with no Pre-reg and no baseline_unavailable"
+    if observation == Observation.UNRECOGNIZED:
+        return f"excluded: mode {raw_mode!r} not recognized"
+    return None
+
+
 # the classification cell a human may write; `missing`/`unrecognized` are this module's
 # own readings, so a cell spelling either of them out is `unrecognized` like any other word
 VALID_CLASSIFICATIONS = frozenset(
@@ -90,6 +135,9 @@ class DocConflict:
 class Verdicts:
     rows: list[RowVerdict]
     none_reports: list[str]  # doc ids that cleanly reported "Prior docs used: none."
+    # in a counted mode only; the same clean reports from daily, incomplete or unrecognized-mode
+    # documents are kept apart here, never in the figure above (contracts/gate1.md, "Modes")
+    none_reports_kept_apart: list[str]
     conflicts: list[DocConflict]  # both the none-sentence AND real rows -- reported, not resolved
     # every file `load_store` could not read, and an unlistable `sessions/`: named by the tools,
     # never counted in a figure -- a document here has no row above (contracts/gate1.md)
@@ -236,6 +284,7 @@ def evaluate(store: Path) -> Verdicts:
 
     rows: list[RowVerdict] = []
     none_reports: list[str] = []
+    none_reports_kept_apart: list[str] = []
     conflicts: list[DocConflict] = []
 
     for doc in sorted(docs.values(), key=lambda d: d.id):
@@ -250,14 +299,16 @@ def evaluate(store: Path) -> Verdicts:
             # a plausible half-edit: report it loudly rather than silently picking a side
             conflicts.append(DocConflict(doc_id=doc.id, row_count=len(table_rows)))
         elif has_none_line:
-            none_reports.append(doc.id)
+            counted = observation_of(doc) in COUNTED_OBSERVATIONS
+            (none_reports if counted else none_reports_kept_apart).append(doc.id)
             continue
 
         for table_row in table_rows:
             rows.append(_row_verdict(doc, table_row, docs, bodies, repos))
 
     return Verdicts(
-        rows=rows, none_reports=none_reports, conflicts=conflicts, load_errors=result.errors
+        rows=rows, none_reports=none_reports, none_reports_kept_apart=none_reports_kept_apart,
+        conflicts=conflicts, load_errors=result.errors,
     )
 
 
@@ -282,14 +333,18 @@ CLASSIFICATION_EXCLUSIONS = {
 def exclusion_reason(row: RowVerdict) -> str | None:
     """`None` means the row is eligible: verified, classified reuse, in scope, not dogfooding --
     axis E (the verdict column) is then left for the human, whatever axis C (distance) says."""
-    # the four axes in the order contracts/gate1.md ("Who fills the last column") fixes: integrity,
-    # then the citing document's status, then dogfooding, then classification -- first one wins
+    # the axes in the order contracts/gate1.md ("Who fills the last column") fixes: integrity,
+    # then the citing document's status, then its mode, then dogfooding, then classification --
+    # first one wins
     integrity_reason = INTEGRITY_EXCLUSIONS.get(row.integrity)
     if integrity_reason is not None:
         return integrity_reason
     status = excluded_by_status(row)
     if status is not None:
         return f"excluded: citing document status is {status}"
+    mode_reason = observation_reason(observation_of(row.citing), row.citing.mode)
+    if mode_reason is not None:
+        return mode_reason
     if row.dogfooding:
         return "excluded: dogfooding (story about this repository)"
     if row.classification == Classification.UNRECOGNIZED:

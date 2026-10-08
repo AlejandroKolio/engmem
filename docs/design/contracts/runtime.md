@@ -1,10 +1,10 @@
 # Contract: store resolution and failure reporting
 
-Source: `src/engmem/runtime.py`. The store resolves `--store PATH`, then `ENGMEM_HOME`, then
+Source: `src/engmem/runtime.py` and `src/engmem/settings.py`. The store resolves `--store PATH`, then `ENGMEM_HOME`, then
 the choice saved by `engmem store set`, then `~/Developer/engmem` (`ENGMEM-SPEC.md` §3). This
 file records what that order leaves open: what counts as a setting, what shape the answer takes,
 where the saved choice lives and what happens when it cannot be read, and why a failure is
-printed twice.
+printed twice. It also records the second one-line setting, the mode (US-08).
 
 ## The saved choice: one file, one line (US-05, owner decision 2026-10-07)
 
@@ -13,7 +13,8 @@ forgotten: the installed templates, every later shell command and the MCP entry 
 their own store, and CLI and MCP could work with different memories without saying so. The
 owner relaxed "no config files" to exactly one exception: a file holding one line, the absolute
 store path, and nothing else. A second setting would need its own decision; this file is not a
-place to grow one.
+place to grow one. US-08 took that decision for the mode, as a second file of its own (below), so
+the rule now reads "one-line setting files: the store path and the mode".
 
 **Where.** `$XDG_CONFIG_HOME/engmem/store`, default `~/.config/engmem/store`, the same XDG
 family as the cache (`contracts/cache.md`). `XDG_CONFIG_HOME` is honoured on every platform when
@@ -61,6 +62,44 @@ a crash leaves the old choice or the new one, never half a path. A symlinked set
 written through, like the user files install edits (`contracts/install.md`). A path with a line
 break, or one that cannot be encoded as UTF-8, is refused rather than written as something the
 reader would reject.
+
+## The saved mode: a second one-line file (US-08, owner decision 2026-10-08)
+
+`$XDG_CONFIG_HOME/engmem/mode`, next to the store file and found by the same rules
+(`settings.setting_file`, Windows `%APPDATA%` included), holds one word: `daily` or `research`.
+`engmem mode set daily|research` writes it the way `store set` writes the store, atomically and
+through a symlink; `engmem mode show` prints `mode: <mode>` on its first line, the line the
+start template reads, then where it came from. No file means `daily`, the default the owner
+chose: research mode is opt-in, so ordinary work never pays for the experiment's ritual.
+
+**A second file, not a second line.** The store file's reader refuses anything but one line
+holding an absolute path, and that strictness is what makes a broken store choice a named
+error; a second line there would mean loosening the one check US-05 depends on. Two files keep
+each reader exact and let one be repaired or deleted without touching the other.
+
+**Tolerant of how a person types it, strict about what it says.** Surrounding whitespace, case,
+a line ending and a UTF-8 BOM are accepted (`Research\r\n` reads as `research`), because none of
+them can change which of two words was meant. Empty, more than one line, invalid UTF-8, a
+directory or an unreadable file, and any other word raise `ModeSettingError` with the file and
+the cause. `cli.main` turns it into exit 2 on both streams, like `StoreSettingError`. Reading a
+broken file as `daily` would silently drop a user who chose research out of the experiment.
+
+**Read only where the mode decides something.** `engmem mode show`, the MCP server's start
+prompt and `engmem_create_draft` read it, each time they run, so a change applies to the next
+session even in a server process that has been running since before the change (AC-08.4).
+Search, roles, telemetry and backfill never read it: a broken mode file is not a reason a search
+fails. Templates without a shell read the file by hand, with the same default.
+
+**No environment override.** The store has `ENGMEM_HOME` because a one-off store is a real need;
+a per-shell mode would let the shell, which runs the template, and the MCP server, launched by
+the client with an environment of its own, record different modes for one session, the
+divergence US-05 removed for the store. One file is the one answer both read.
+
+**`settings.py` and not `runtime.py`.** The mode is read inside `engmem mcp`, whose stdout is the
+protocol channel. `runtime` holds `fail`, which writes to stdout, and
+`tests/test_stdout_is_protocol_only.py` keeps every module the server imports free of stdout
+prints. The setting-file mechanics (location, read, atomic write) moved to `settings.py`, which
+both `runtime` and `mcp_server` import; the store-specific rules stayed in `runtime`.
 
 ## A blank setting is not a setting
 

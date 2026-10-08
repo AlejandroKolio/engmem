@@ -2,7 +2,8 @@
 
 A scripted session of an agent that has the engmem MCP tools and no shell, following
 `/engmem.save.quick` (`src/engmem/templates/engmem.save.quick.md`) twice against one empty
-store: once the engineer confirms the preview, once the engineer declines it.
+store: once the engineer confirms the preview, once the engineer declines it. No mode is saved,
+so both sessions run in daily mode (US-08): the drafts record `mode: daily` and carry no Pre-reg.
 
 `tests/test_short_capture.py` replays it. Every `json call` block is sent to the MCP server in
 order, against a temporary store. The `text result` block after it lists lines that must
@@ -42,12 +43,8 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
+mode: daily
 ---
-
-## Pre-reg
-
-Naive baseline: pick the highest compression level the library offers.
-pre-reg source: self (no sub-agent available)
 ```
 
 ```json call
@@ -55,7 +52,7 @@ pre-reg source: self (no sub-agent available)
 ```
 
 ```text result
-created sessions/20260101-report-archive-compression.md (status: draft, version: 45acbe42c85e9f7a). …
+created sessions/20260101-report-archive-compression.md (status: draft, version: 665f0fcdf99ed1d9). …
 ```
 
 ```json call
@@ -122,12 +119,8 @@ author:
 repos: []
 branch:
 pr: "#41"
+mode: daily
 ---
-
-## Pre-reg
-
-Naive baseline: pick the highest compression level the library offers.
-pre-reg source: self (no sub-agent available)
 
 ## Decision Log
 
@@ -159,7 +152,7 @@ ok
 ```
 
 ```json call
-{"method": "tools/call", "params": {"name": "engmem_complete_draft", "arguments": {"id": "20260101-report-archive-compression", "content": "@preview", "expected_version": "45acbe42c85e9f7a"}}}
+{"method": "tools/call", "params": {"name": "engmem_complete_draft", "arguments": {"id": "20260101-report-archive-compression", "content": "@preview", "expected_version": "665f0fcdf99ed1d9"}}}
 ```
 
 ```text result
@@ -204,12 +197,8 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
+mode: daily
 ---
-
-## Pre-reg
-
-Naive baseline: run the cutoff at local midnight of the main office.
-pre-reg source: self (no sub-agent available)
 ```
 
 ```json call
@@ -217,7 +206,7 @@ pre-reg source: self (no sub-agent available)
 ```
 
 ```text result
-created sessions/20260102-billing-cutoff-timezone.md (status: draft, version: 5ace99e4b77ed9c2). …
+created sessions/20260102-billing-cutoff-timezone.md (status: draft, version: 4d091d730a7b9561). …
 ```
 
 ```json call
@@ -267,12 +256,8 @@ author:
 repos: []
 branch:
 pr:
+mode: daily
 ---
-
-## Pre-reg
-
-Naive baseline: run the cutoff at local midnight of the main office.
-pre-reg source: self (no sub-agent available)
 
 ## Decision Log
 

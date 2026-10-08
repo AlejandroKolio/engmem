@@ -117,6 +117,13 @@ store without saying so.)* An override never rewrites it; a file that exists but
 stops the command with a named cause instead of falling back to the default; no file at all is
 the behaviour from before. Nothing else is configurable through it.
 
+A second one-line file holds the mode: `$XDG_CONFIG_HOME/engmem/mode` (same location rules),
+`daily` or `research`, written by `engmem mode set`. *(2026-10-08, owner decision, US-08: the
+rule above becomes "one-line setting files: the store path and the mode"; daily is the default
+and research mode is opt-in; no environment override, so the shell and the MCP server read one
+answer.)* No file means daily; a file that exists but cannot be used is a named error, never read
+as daily. See `contracts/runtime.md`, "The saved mode".
+
 ## 4. Document schema (front matter + sections)
 
 ```yaml
@@ -140,13 +147,17 @@ author: A. Engineer               # git config user.name
 repos: [platform-core]            # repositories the work touched
 branch: feature/response-cache
 pr: 42                            # number or URL, blank when none exists
+mode: research                    # daily | research — the mode the session started in (US-08)
+baseline_unavailable:             # research only: why no baseline could be had; blank = it was had
 ---
 ```
 
 Manually filled fields — **zero**: id/date/verified_at_commit/author/branch are computed
 automatically; title/tags/entities/related/covers_files/repos/pr are drafted by the agent
 from the diff and transcript, and the human replies "y". `capture_minutes` is filled by the
-agent only when a real start time is known, and left blank otherwise.
+agent only when a real start time is known, and left blank otherwise. `mode` is written into the
+draft from `engmem mode show` and copied unchanged at save, as is `baseline_unavailable`; a
+document without `mode` predates US-08 and is a legacy document (§11).
 
 **No field is required.** A document with no front matter, or with an incomplete one,
 always loads. Missing values are derived: `id` from the filename stem, `title` from the
@@ -180,7 +191,9 @@ one-element list rather than exploded character-by-character by `list(str)`, or 
 outright, or a `status` value that is not `draft`/`active`/`superseded` once matched
 case-insensitively (`Draft`, `SUPERSEDED` are recognized; `wip` is not) — defaults to
 `active`, named on stderr, rather than silently ranking or counting as whichever of the
-three states its raw string happens to equal.
+three states its raw string happens to equal; a `mode` other than `daily`/`research`
+(case-insensitive) — kept as written, named, and excluded from the Gate 1 count until corrected;
+a `baseline_unavailable` that is stated but is not a reason (`true`, `''`) — read as unavailable.
 
 Rationale: a missing field is incompleteness, not corruption. Rejecting the document hid it
 whole while the diagnostic went to stderr, which the consuming agent never reads — a search
@@ -202,7 +215,8 @@ labelled line each for the decision, its reason, the rejected alternative and th
 Future LLM Context (cold-start primer), Reuse Log and Search Trace; it adds Lessons Learned
 only when a pitfall was actually hit. The thin core, with each section's role
 (`/engmem.save.quick` writes 3 only for a pitfall hit):
-1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store
+1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store; research mode only —
+   a daily session has none, and either save carries it over only when the draft has one
 2. `## Decision Log` — decisions + rejected alternatives with reasons
 3. `## Lessons Learned` — pitfalls hit along the way
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-start agent; 2–4 in
@@ -289,6 +303,18 @@ an override. `store set` never reads the file: it is the repair, overwrites an u
 exits 0; it also prints the `mismatch:` lines the new choice causes. *(Owner decisions,
 2026-10-08: `install --store X` does not save X — its note points at `engmem store set X`; there
 is no `store unset` — deleting the file restores the default.)*
+
+### `engmem mode show` / `engmem mode set daily|research`
+
+Added by US-08. `mode set` saves `daily` or `research` (case-insensitive) as the one word of the
+mode file (§3), atomically; another word exits 2 with a named cause and leaves the file as it
+was. It also says that the next session started with `/engmem` records the new mode and that
+sessions already started keep theirs. `mode show` prints `mode: <mode>` on its first line — the
+line the `engmem.start` template reads in its step 0 — then `source:` (`saved choice (<file>)` or
+`default (no saved choice in <file>)`) and one line on what the mode means. A mode file that
+cannot be used exits 2 with a named cause on both streams. No other command reads the file except
+`engmem mcp`, whose start prompt and `engmem_create_draft` read it on every call
+(`contracts/mcp-server.md`, "The mode a draft records").
 
 ### `engmem doctor [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--store PATH]`
 
@@ -494,14 +520,21 @@ navigation misses recorded in the store's own documents.
 
 ### `/engmem <task description>` (start)
 
-1. **Pre-reg:** capture 2–3 lines of "how this would be solved without prior context" —
+0. **Mode** (US-08): read it first — `engmem mode show`, the first line of the `engmem` MCP
+   prompt, or the mode file; `daily` when nothing is saved or the mode cannot be read (said to
+   the user). Daily skips step 1 entirely: no Pre-reg, no baseline sub-agent. Research runs it
+   unchanged.
+1. **Pre-reg** (research mode): capture 2–3 lines of "how this would be solved without prior context" —
    BEFORE any search, and without asking the author. Preferably via a separate sub-agent
    that is given only the task statement, with no access to the store and no knowledge of
    engmem; if no sub-agent is available, write it yourself, before opening any doc. The
    source is recorded in a `pre-reg source:` line. Reason: a step that costs the author
-   effort and gives them nothing back is the first thing to get dropped (D2).
-2. **Draft:** immediately create `sessions/<id>.md` with front matter `status: draft` and a
-   Pre-reg section. No creation time is recorded (`date:` has day resolution), so nothing
+   effort and gives them nothing back is the first thing to get dropped (D2). When no
+   uncontaminated baseline can be had before the search, none is written and the draft records
+   `baseline_unavailable: <reason>`; search and save go on, and the session is an incomplete
+   observation (§11).
+2. **Draft:** immediately create `sessions/<id>.md` with front matter `status: draft`, `mode`
+   from step 0, and, in research mode, the Pre-reg section. No creation time is recorded (`date:` has day resolution), so nothing
    here anchors `capture_minutes`.
 3. **Search:** if you can run commands, call `engmem search "<key terms>" --session <id>`,
    the draft just created. If you can't
@@ -518,7 +551,8 @@ navigation misses recorded in the store's own documents.
 
 1. Generate a FULL front matter draft from the diff and transcript (all fields in §4).
    Show the YAML, wait for "y" (or edits). More than one interactive round is a design
-   failure.
+   failure. `mode` and `baseline_unavailable` are copied from the draft unchanged, never
+   edited; the Pre-reg is carried over only when the draft has one.
 2. Fill in the thin-core sections. Decision Log must contain rejected alternatives.
 3. **Reuse Log** — a table, one row per prior doc that actually influenced the work:
    `| prior-doc | what was taken (artifact + QUOTE from the doc) | how it influenced the
@@ -537,8 +571,8 @@ navigation misses recorded in the store's own documents.
 
 One preview, one confirmation: the decision, its reason, the rejected alternative and the
 source as labelled lines of the Decision Log, plus 2–4 lines of cold-start primer as the
-context for the next task; Reuse Log, Search Trace and Pre-reg as for any save; front matter
-filled automatically, status → active. A component the session's material does not contain
+context for the next task; Reuse Log, Search Trace and (when the draft has one) Pre-reg as
+for any save; front matter filled automatically, `mode` copied from the draft, status → active. A component the session's material does not contain
 is written as `not stated in the available material.`, never invented. Confirmed or edited →
 published once, no second round. Declined → nothing published; the draft stays a draft. No
 supersede question. This degrades the doc's completeness, not its validity or the
@@ -842,6 +876,36 @@ before. "Left open, and named rather than resolved," above, holds that gap open 
 the reason given there, and this amendment does not close it from the side — recorded here rather
 than read into the endpoint quietly, per this section's own rule.
 
+**Amendment, recorded 2026-10-08 (owner decision, US-08): daily and research modes.** A session
+records the mode it was started in, `mode: daily` or `mode: research`, in its draft. This is the
+transition rule, and no new protocol version is introduced:
+
+- **Research mode is this section's protocol, unchanged**, plus one recorded fact: when no
+  uncontaminated baseline could be had before the first search, the draft states
+  `baseline_unavailable: <reason>`.
+- **A document without `mode` is a legacy document** — every document written before this
+  date — and is counted exactly as before. Nothing already written is rewritten, and the
+  endpoints, the interpretation table and the earlier amendments stand as they are.
+- **A `mode: daily` document is outside the experiment.** Its rows are excluded from the count
+  under that name (`excluded: outside the experiment (mode: daily)`), it is in no ritual figure,
+  and `tools/gate1_report.py` lists it on its own line; it is neither a success nor a failure.
+- **A research document with `baseline_unavailable` is an incomplete observation**, excluded from
+  the valid group and from every baseline comparison and listed on its own line.
+- **A `mode: research` document with neither a Pre-reg section nor `baseline_unavailable`** is
+  excluded under its own name: a shell agent writes its draft unchecked, and such a document
+  never ran the protocol. Only documents stating `mode: research` are read this way.
+- **Any other `mode` value** is excluded under its own name until corrected; the template's
+  unfilled placeholder is one.
+- **Story-level figures** — "documents reporting no reuse", "documents with a Reuse Log
+  section", "honestly reporting 'Prior docs used: none.'" — count legacy and research documents
+  only. Every other mode is shown beside each figure as "N more kept apart by mode", never added
+  to it; with no such documents the lines read exactly as before.
+- **A session's mode never changes after its draft is created**; a change of the saved mode
+  applies from the next session.
+
+Recorded before any session has been written in either mode. See
+`docs/design/contracts/gate1.md`, "Modes".
+
 ### What does not count as evidence
 
 - **Dogfooding.** Reuse requires forgetting, and while building engmem the author forgets
@@ -854,6 +918,8 @@ than read into the endpoint quietly, per this section's own rule.
   documents from its results (§5, search step 2); the count now excludes a Reuse Log row whose *citing*
   document carries either status, so the counted population matches what the retrieval layer
   actually serves.
+- **A daily session, or an incomplete observation.** Neither is in the count; both are named in
+  the report (amendment of 2026-10-08 above).
 - **Divergence between the pre-registered plan and the final one.** It is a secondary
   signal at best: a plan written blind diverges for many reasons, reading the repository
   among them. The verdict is carried by quoted Reuse Log rows.

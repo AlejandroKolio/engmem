@@ -23,9 +23,14 @@ conversation:
 
 `id`, `title`, `date`, `task_date`, `status`, `superseded_by`, `backfilled`, `tags`,
 `entities`, `related`, `covers_files`, `verified_at_commit`, `capture_minutes`, `author`,
-`repos`, `branch`, `pr`
+`repos`, `branch`, `pr`, `mode`
 
-`related` and the last four are worth a word each — derive them, never guess them:
+`mode`, and `baseline_unavailable` when the draft has it, are copied from the draft unchanged —
+never added, edited or dropped, even if the user has switched mode since: they record the
+condition this session was started under. A draft without `mode` was started before modes
+existed and stays without one.
+
+`related` and the last four before `mode` are worth a word each — derive them, never guess them:
 
 - `related` — document ids, never filenames: a `.md` suffix will not resolve. It breaks
   both `gate1`'s adjacency check (a citation that should read `adjacent` reads `distant`
@@ -153,9 +158,10 @@ omitting the heading or inventing content to fill it.
 Plus engmem's own two operational sections, which every save carries regardless of
 document shape:
 
-- **`## Pre-reg`** — carry this over **unedited** from the draft `/engmem` created. Do
-  not rewrite it with hindsight. (Place it first, ahead of the numbered sections — it
-  documents what was known before this work started.)
+- **`## Pre-reg`** — carry this over **unedited** from the draft `/engmem` created, if it
+  has one; a daily draft has none, and none is written now. Do not rewrite it with
+  hindsight. (Place it first, ahead of the numbered sections — it documents what was known
+  before this work started.)
 - **`## Search Trace`** — the exact `shell` / `paste` / `miss` value `/engmem` recorded
   for this session, alone on its own line: the audit reads a line that is exactly the
   value, so `- shell` or `Trace: shell` counts as no trace at all. (Place it last, after
@@ -286,7 +292,7 @@ parser ignores fields it does not know, so omitting any of them is safe — and 
 one is always better than inventing it.
 
 ```yaml
-baseline_tokens:   # what the no-memory sub-agent actually consumed, if reported
+baseline_tokens:   # research mode: what the no-memory sub-agent actually consumed, if reported
 context_bytes:     # prior-document text pulled into context this session
 answer_steps:      # tool calls needed after the search to reach the answer
 answer_tokens:     # only if the runtime really reports it

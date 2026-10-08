@@ -12,7 +12,23 @@ something, and steps 1–5 exist to serve that request, not to gate it. If any s
 be completed, record what happened and keep going — never withhold the answer or the plan
 because a step did not work out.
 
-## 1. Pre-reg — generated, never asked of the user
+## 0. Mode — daily or research
+
+Find this session's mode before anything else. With a shell, run `engmem mode show`: its first
+line is `mode: daily` or `mode: research`. Through the engmem MCP prompt, the line above this
+template names it. Otherwise read the one word in `$XDG_CONFIG_HOME/engmem/mode` (default
+`~/.config/engmem/mode`; `%APPDATA%\engmem\mode` on Windows); when that file does not exist,
+the mode is `daily`. If the mode cannot be read (an `error:` line), tell the user and continue
+as `daily`: a daily session is never counted in the experiment, so it cannot corrupt it.
+
+- **daily** — skip step 1: no Pre-reg, no baseline sub-agent. The draft records `mode: daily`
+  and has no `## Pre-reg` section.
+- **research** — step 1 is the Gate 1 protocol, unchanged. The draft records `mode: research`.
+
+The mode is written once, into the draft's front matter in step 2, and never changed after:
+if the user switches mode during the task, the switch applies to the next session.
+
+## 1. Pre-reg — generated, never asked of the user (research mode only)
 
 **Do not ask the user anything in this step.** Do not ask them to describe their approach,
 do not wait for a reply, do not offer to skip the ritual. They asked a question or gave a
@@ -34,6 +50,13 @@ refine it, and do not show it to the user for approval — write it down and mov
 
 Record which way you got it, as the last line of the Pre-reg section:
 `pre-reg source: sub-agent` or `pre-reg source: self (no sub-agent available)`.
+
+**When no baseline can be had.** If neither way works before the search — the sub-agent
+failed and you have already read a store document in this conversation, so anything you wrote
+now would be contaminated — do not write a baseline. Record the reason instead, in one line, as
+`baseline_unavailable: <reason>` in the draft's front matter (step 2). Search and save go on as
+usual; the session is reported as an incomplete observation, apart from the valid experimental
+group and from every baseline comparison.
 
 If the sub-agent's token usage is reported back to you, note it too —
 `baseline_tokens: <n>` — this is the one cost of the no-memory path that is genuinely
@@ -57,13 +80,16 @@ the draft nowhere — another directory is another store, and the draft would be
 later search. Without a shell, the store resolves in this order: `$ENGMEM_HOME` if
 set, otherwise the one path saved in `$XDG_CONFIG_HOME/engmem/store` (default
 `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file exists, otherwise
-`~/Developer/engmem`. As soon as you have the baseline text, compose the draft: the
-**complete** front matter below — placeholder values, but every field present, so the
-document is valid to the parser from the moment it exists — followed by a `## Pre-reg`
-section containing the baseline from step 1 plus its `pre-reg source:` line. Leave the
-other body sections for `/engmem.save`; the empty `tags`/`entities` lists are expected in
-a draft (the parser reports empty entities as a warning, not an error — that's normal
-until save fills them in).
+`~/Developer/engmem`. Compose the draft as soon as step 0 (and, in research mode, step 1) is
+done: the **complete** front matter below — placeholder values, but every field present, so
+the document is valid to the parser from the moment it exists — with `mode` from step 0. In
+research mode it is followed by a `## Pre-reg` section containing the baseline from step 1
+plus its `pre-reg source:` line, or, when step 1 found no baseline, the front matter carries
+`baseline_unavailable: <reason>` and there is no Pre-reg section. In daily mode the draft is
+the front matter alone. Leave the other body sections for `/engmem.save`; the empty
+`tags`/`entities` lists are expected in a draft (the parser reports empty entities as a warning,
+not an error — that's normal until save fills them in), and an empty daily draft draws no
+warning at all.
 
 ```yaml
 ---
@@ -80,15 +106,18 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:                 # left empty: a draft has measured nothing yet
+mode: <daily|research from step 0>   # write the one word; left as is, it counts nowhere
 ---
 ```
 
 - If you can write files directly: write `sessions/<id>.md` there with that front
-  matter plus the `## Pre-reg` section, exactly as composed above. Write it only if no
+  matter plus, in research mode, the `## Pre-reg` section, exactly as composed above. Write it only if no
   file by that name exists yet; if one does, pick a new id — never overwrite it.
 - If your runtime exposes the `engmem_create_draft` MCP tool instead of a shell: call
   it with `id` set to `<id>` and `content` set to the exact text above (the front
-  matter block, then the `## Pre-reg` section). It never overwrites an existing
+  matter block, then any `## Pre-reg` section). It refuses a `mode` other than the
+  configured one and names the configured mode; take that one and compose again. It never
+  overwrites an existing
   document, so a call that fails because the id is already taken means the id itself
   needs to change, not something to retry as-is. Its result names the draft's
   `version`; keep it, because `/engmem.save` passes it back when it completes the draft.

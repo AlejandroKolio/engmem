@@ -30,6 +30,8 @@ YAML front matter + a fixed set of markdown body sections.
 | `pr` | string \| number | no | agent draft | pull request number or URL, blank when none exists |
 | `navigation_miss` | list[{doc, query}] | no | agent, at save | documents the search failed to surface that were used anyway. Both keys required per entry; a half-written entry is dropped with a warning, never the document. Counted by `engmem telemetry` separately from search misses — a search that found nothing and a search that missed something present are different failures |
 | `capture_minutes` | number \| null | no | agent at save | minutes the save ritual took; blank unless a real start time is known (`null` = never measured) |
+| `mode` | `daily` \| `research` | no | automatic, when the draft is created | the mode the session was started in (US-08), from `engmem mode show`; copied unchanged at save. Absent = written before modes existed (legacy), counted by Gate 1 exactly as before. `daily` keeps the document outside the experiment; another value loads with a warning and is excluded from the count until corrected (contracts/gate1.md, "Modes") |
+| `baseline_unavailable` | string | no | agent, before the first search | research mode only: why no uncontaminated baseline could be had. Present, the session is an incomplete observation, kept apart from the valid group and the baseline comparison; a value that is not a reason (`true`, `''`) still marks it, with a warning |
 | `baseline_tokens` | number | no | automatic | tokens the no-memory sub-agent consumed producing the Pre-reg baseline; omitted when the runtime does not report it |
 | `context_bytes` | number | no | automatic | bytes of prior-document text pulled into context this session |
 | `answer_steps` | number | no | automatic | tool calls needed *after* the search to reach the answer |
@@ -62,7 +64,7 @@ reasoning that governs every other field here.
 Spine completeness (`spine_complete` / the `partial spine` count) is measured over the
 fields that affect retrieval only — `id`, `title`, `date`, `task_date`, `status`, `tags`,
 `entities`. `backfilled`, `verified_at_commit`, `capture_minutes`, `author`, `repos`,
-`branch` and `pr` are excluded: nothing ranks, orders or filters on them, and a draft cannot know the commit it will be verified
+`branch`, `pr`, `mode` and `baseline_unavailable` are excluded: nothing ranks, orders or filters on them, and a draft cannot know the commit it will be verified
 at nor how long its own capture will take. Counting them flagged every draft the `/engmem`
 template creates as a partial spine, which trains the reader to ignore the signal.
 
@@ -82,7 +84,9 @@ enforcement — they are read at review time, not validated at write time.
 ### Body sections (the thin core; which template writes which sections is the list in `ENGMEM-SPEC.md` §4)
 
 1. `## Pre-reg` — 2–3 line naive baseline generated before any search, never asked of the
-   human, plus a `pre-reg source:` line naming how it was obtained (`ENGMEM-SPEC.md` §6, start step 1)
+   human, plus a `pre-reg source:` line naming how it was obtained (`ENGMEM-SPEC.md` §6, start step 1).
+   Research mode only: a `mode: daily` session has none, and a research session that could not
+   get a baseline records `baseline_unavailable` instead
 2. `## Decision Log` — decisions made + alternatives rejected, with reasons
 3. `## Lessons Learned` — pitfalls hit during the work
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-starting agent
@@ -152,12 +156,15 @@ section is exactly the sentence `Prior docs used: none.` — never blank, never 
 | error | a front-matter value of the wrong type for its field (e.g. `capture_minutes: [1, 2]`, `tags: 5`) | fails loud for that document, named by field |
 | error | `id` contains an embedded newline | fails loud for that document; a multi-line `id` can never equal the filename stem, and rendered into a `### <id> (score: ...)` header it forges a second, fabricated result block |
 | warning | `entities` is empty | surfaced on stderr; document still processed |
+| warning | the body is empty | surfaced on stderr; document still processed — except a `status: draft` with `mode: daily`, which is front matter alone by design (US-08) and would otherwise print the warning on every search until it is saved |
 | warning | `id` ≠ filename stem | surfaced on stderr; document still processed |
 | warning | a scalar value in a list-typed field (`tags`, `entities`, `related`, `covers_files`), e.g. `entities: WidgetCache` | coerced to a one-element list and named on stderr — never silently exploded into single characters by `list(str)` |
 | warning | `status` is not `draft`/`active`/`superseded` after case-insensitive normalization, e.g. `status: wip` | degraded to `active` and named on stderr — never silently ranks or counts as whichever of the three states its raw string happens to equal |
 | warning | `backfilled` is not a YAML boolean, e.g. `backfilled: "false"` | treated as `false` and named on stderr — `bool("false")` is `True`, so a quoted value would read as the opposite of what it says |
 | warning | `capture_minutes` coerces but was not written as an integer, e.g. `"12"` or `3.9` | read and named on stderr, so the same quoting slip is reported for this field as for `backfilled` |
 | warning | `superseded_by` is not a string, e.g. an unquoted `2026-01-01` | read as its `str` and named — a non-string would otherwise print as a fabricated id |
+| warning | `mode` is not `daily`/`research` after case-insensitive normalization, e.g. `mode: reserch` | kept as written and named on stderr; the document loads and is searched, and Gate 1 excludes it under its own reason rather than counting it as legacy |
+| warning | `baseline_unavailable` is stated but is not a reason, e.g. `true` or `''` | read as unavailable, "(no reason stated)", and named — reading it as "the baseline was there" would put a session with no baseline into the valid group |
 | error | `capture_minutes` is `.inf`/`.nan` | the document is skipped, the rest of the store still returns. `int(float("inf"))` raises `OverflowError` and `.nan` raises `ValueError`; `_coerce_int` catches both and re-raises as the `ValueError` `load_store` handles, so one document's infinity does not take the whole load down |
 | error | `capture_minutes` is a boolean | rejected: `int(True)` is `1`, so a boolean would arrive as one measured minute rather than as the wrong type it is |
 
