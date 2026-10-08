@@ -516,7 +516,7 @@ def test_show_flags_a_codex_entry_the_user_wrote_without_offering_install(home, 
     codex = home / ".codex"
     codex.mkdir(parents=True)
     (codex / "config.toml").write_text(
-        f'[mcp_servers.engmem]\ncommand = "engmem"\nargs = ["mcp", "--store={tmp_path / "wired"}"]\n',
+        f'[mcp_servers.engmem]\ncommand = "engmem"\nargs = {json.dumps(["mcp", f"--store={tmp_path / "wired"}"])}\n',
         encoding="utf-8",
     )
 
