@@ -522,6 +522,8 @@ class Scope:
     repos: tuple[str, ...] = ()
     unscoped: bool = False
     all_repos: bool = False
+    # derived from `repos`, so it stays out of `==`, the hash and the repr (contracts/scoring.md)
+    repo_keys: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if isinstance(self.repos, str):
@@ -534,6 +536,7 @@ class Scope:
                 "a scope is repositories, the unscoped records or all repositories, exactly one"
             )
         object.__setattr__(self, "repos", _distinct_repos(names))
+        object.__setattr__(self, "repo_keys", frozenset(repo_key(name) for name in self.repos))
 
 
 def repo_key(name: str) -> str:
@@ -556,7 +559,7 @@ def in_scope(doc: Doc, scope: Scope) -> bool:
     keys = {repo_key(name) for name in linked_repos(doc)}
     if scope.unscoped:
         return not keys
-    return not keys.isdisjoint(repo_key(name) for name in scope.repos)
+    return not keys.isdisjoint(scope.repo_keys)
 
 
 def ranking_corpus(docs: list[Doc], scope: Scope | None = None) -> list[Doc]:

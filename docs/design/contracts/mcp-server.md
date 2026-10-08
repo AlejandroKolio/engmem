@@ -138,10 +138,14 @@ honours them unchanged: it filters tools, not arguments.
   strings are understood by all of them, and a call written for US-09 still reads the same.
 - `repos` that is not a list of strings, an empty `repos`, or a blank name inside it is
   `-32602`, for the reason a blank `repo` is: read as absent or dropped, it would search more,
-  or other, repositories than the caller listed. Repeated and case-variant names collapse in
+  or other, repositories than the caller listed. The schema says `"minItems": 1` so a client
+  that validates never sends the empty list, and the server still refuses it for a client that
+  does not. Repeated and case-variant names collapse in
   `Scope`, so `["a", "A"]` is the scope `repo: "a"` is.
 - `all_repos: true` is `--all-repos`; `false` and `null` mean "not passed". It, `unscoped: true`
   and any repository name are three different scopes: two at once is `-32602` naming both.
+  The message names only the arguments that carry a value: a `repo: null` next to `repos` is
+  absent, so it is not quoted as one of the clashing scopes.
 - Nothing about a scope outlives its call. `_search_scope` reads it from that call's arguments
   and the server keeps no other state, so a call without a scope argument searches the whole
   store whatever the call before it asked for (AC-10.4).

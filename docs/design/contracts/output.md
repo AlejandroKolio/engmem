@@ -108,7 +108,35 @@ each name to `SCOPE_NAME_DISPLAY_MAX` characters (US-09), and the names listed s
 joined list passes `SCOPE_NAMES_DISPLAY_MAX` characters, the rest counted as `and <k> more`
 (`_scope_names`). The first name is always shown, so the line never lists nothing. With both
 caps the lead stays a few hundred characters whatever the caller passes, well inside the
-budget left after `SCOREBOARD_RESERVE`; the telemetry row keeps every name.
+budget left after `SCOREBOARD_RESERVE`. The telemetry row keeps more, but not without bound:
+up to `SCOPE_NAMES_RECORD_MAX` names, each to `SCOPE_NAME_RECORD_MAX` characters, and the query
+to `QUERY_RECORD_MAX` characters; a capped row says so (`ENGMEM-SPEC.md` §5, search step 6c).
+
+## Query and scope names are bounded in the telemetry row, and a capped row says so
+
+`compose` writes the row whatever the caller typed, so one call with a book-length query or
+thousands of names would otherwise add that much to the line, and every reader of
+`telemetry.jsonl` reads every line. `query` and the scope's names are capped; `session_id` is
+the one caller-typed field no cap applies to, kept whole by design (below), so the row as a
+whole is not bounded. The caps are far above real use and the marks are additive:
+
+- `query` keeps its first `QUERY_RECORD_MAX` (1000) characters. A real query is a few words
+  to a sentence; at 1000 an analysis still sees what was asked. A cut query adds
+  `"query_truncated": true` right after it.
+- `scope.repos` keeps its first `SCOPE_NAMES_RECORD_MAX` (50) names, each to
+  `SCOPE_NAME_RECORD_MAX` characters, the display cap `SCOPE_NAME_DISPLAY_MAX` (120). A real
+  union is a handful of repositories, and 120 is past a GitHub repository name's 100-character
+  limit, so a real name is never cut. When any name was cut or dropped the scope adds
+  `"repos_truncated": true` and `"repos_total": N`, the number of distinct names chosen, so an
+  analysis can tell a capped row from a real one and knows how many there were.
+- A row under every cap is byte-identical to the row before the caps: no new key, no new
+  value. The caps change only what is recorded: the search, `n_searched`, `context_bytes`
+  (measured on the rendered result, never on the row) and `session_id` are the same.
+  `session_id` is not capped: it is the attribution key the Gate 1 join matches against a
+  draft's id, and a cut id would quietly attribute the row to no session.
+- Every reader keeps working on old and new rows: `summarize` reads `channel`, `result` and
+  the context counts, `read_session_rows` reads `session_id` and `ts`, and neither reads
+  `query` or `scope`.
 
 ## One composed result for both channels
 

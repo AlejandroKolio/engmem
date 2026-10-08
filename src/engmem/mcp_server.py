@@ -900,6 +900,7 @@ _REPO_SCHEMA = {
 _REPOS_SCHEMA = {
     "type": "array",
     "items": {"type": "string"},
+    "minItems": 1,
     "description": (
         "Search only the records linked to any of these repositories, each record once. "
         "Same matching as `repo`, and joined with it when both are passed. Only when the "
@@ -1137,7 +1138,8 @@ def _search_scope(arguments: object) -> Scope | None:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: 'all_repos' must be a boolean")
     chosen = []
     if names:
-        chosen.append("/".join(f"'{key}'" for key in ("repo", "repos") if key in args))
+        given = [key for key in ("repo", "repos") if args.get(key) is not None]
+        chosen.append("/".join(f"'{key}'" for key in given))
     if unscoped:
         chosen.append("'unscoped'")
     if all_repos:

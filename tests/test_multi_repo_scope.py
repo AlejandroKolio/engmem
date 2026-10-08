@@ -170,6 +170,34 @@ def test_the_first_spelling_of_a_repeated_name_is_the_one_kept():
     )
 
 
+def test_a_scope_compares_by_its_names_not_by_its_cached_keys():
+    first = Scope(repos=(ALPHA, BETA))
+    second = Scope(repos=(ALPHA, BETA))
+
+    assert first == second and hash(first) == hash(second)
+    assert first != Scope(repos=(BETA, ALPHA)), "the order given is part of the scope"
+    assert first.repo_keys == frozenset({ALPHA, BETA})
+    assert Scope(repos=(ALPHA.upper(), f" {BETA} ")).repo_keys == frozenset({ALPHA, BETA})
+    assert "repo_keys" not in repr(first)
+
+
+def test_the_union_keys_a_scope_name_once_not_once_per_document(store, monkeypatch):
+    import engmem.scoring as scoring
+
+    docs = _docs(store) * 20
+    scope = Scope(repos=tuple(f"other-{n}" for n in range(50)) + (ALPHA,))
+    calls = []
+    real_repo_key = scoring.repo_key
+    monkeypatch.setattr(scoring, "repo_key", lambda name: calls.append(name) or real_repo_key(name))
+
+    corpus = scoring.ranking_corpus(docs, scope)
+
+    assert {doc.id for doc in corpus} == {"3001-alpha-retry", "3003-shared-retry"}
+    assert len(calls) <= sum(len(scoring.linked_repos(doc)) for doc in docs), (
+        "only each document's own links are keyed per call; the scope's names were keyed once"
+    )
+
+
 # AC-10.2 ---------------------------------------------------------------------------------------
 
 
@@ -433,6 +461,32 @@ def test_a_malformed_mcp_multi_repository_scope_is_invalid_params(
     assert not (store / "telemetry.jsonl").exists()
 
 
+@pytest.mark.parametrize("name", ["engmem_search", "engmem_search_by_role"])
+def test_repos_declares_that_it_is_never_empty(store, name):
+    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    tool = next(t for t in responses[0]["result"]["tools"] if t["name"] == name)
+
+    assert tool["inputSchema"]["properties"]["repos"]["minItems"] == 1
+
+
+@pytest.mark.parametrize("arguments, named", [
+    pytest.param({"repo": None, "repos": [ALPHA], "unscoped": True},
+                 "'repos' and 'unscoped'", id="null-repo-next-to-repos"),
+    pytest.param({"repo": ALPHA, "repos": None, "all_repos": True},
+                 "'repo' and 'all_repos'", id="null-repos-next-to-repo"),
+    pytest.param({"repo": ALPHA, "repos": [BETA], "unscoped": True},
+                 "'repo'/'repos' and 'unscoped'", id="both-present"),
+])
+def test_a_scope_conflict_names_only_the_arguments_given_a_value(store, arguments, named):
+    message = _tools_call_msg(1, name="engmem_search", arguments={"query": "Retry", **arguments})
+    _, responses, _ = _run(store, message)
+
+    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["message"] == (
+        f"invalid params: {named} are different scopes — pass one"
+    )
+
+
 def test_the_scope_value_object_refuses_two_modes_or_none():
     for kwargs in (
         {"repos": (ALPHA,), "all_repos": True},
@@ -465,6 +519,22 @@ def test_the_telemetry_row_records_the_multi_repository_scope(store, capsys, cli
     (row,) = _telemetry_lines(store)
     assert row["scope"] == expected
     assert row["n_docs"] == len(STORE), "n_docs stays the whole store"
+
+
+def test_a_capped_row_keeps_its_session_and_measures_the_same_result(store, capsys):
+    names = [ALPHA] + [f"other-{n}-" + "r" * 200 for n in range(80)]
+    query = "Retry " + "x" * 3000
+    args = [arg for name in names for arg in ("--repo", name)]
+    out = _cli(store, capsys, *args, "--session", "sess-7", query=query)
+
+    (row,) = _telemetry_lines(store)
+    rendered = render_result(_docs(store), query, None, Scope(repos=tuple(names)))
+    assert row["session_id"] == "sess-7"
+    assert row["context_bytes"] == len(rendered.text.encode("utf-8"))
+    assert rendered.text in out
+    assert (row["query_truncated"], row["scope"]["repos_truncated"]) == (True, True)
+    assert row["scope"]["repos_total"] == len(names)
+    assert row["scope"]["n_searched"] == 2
 
 
 # the output budget still holds ------------------------------------------------------------------

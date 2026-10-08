@@ -180,6 +180,15 @@ several is refused by both channels, never dropped: dropping it would search few
 repositories than the caller listed without saying so. A repository nobody links to is simply
 an empty part of the union.
 
+`Scope` also keys its names once, into `repo_keys`, so `in_scope` compares each document's
+links against a ready set. Keying them inside `in_scope` cost one `repo_key` per chosen name per
+document on every search: 10,000 names over 3,000 records took 1.5–3 s, now about 1 ms.
+`repo_keys` is derived from `repos`, so it is left out of `==`, the hash and the repr
+(`compare=False`, `repr=False`): two scopes are equal when their names are, as before, and the
+repr shows only what the caller chose. It is not an `__init__` argument (`init=False`), so a
+caller cannot hand in keys that disagree with the names, and `dataclasses.replace` recomputes
+it.
+
 `--unscoped` stays its own scope rather than an addition to a list (no "a plus the unlinked
 records"). Nothing asked for it, and one scope per search keeps the `scope:` line a single
 statement of what was searched.

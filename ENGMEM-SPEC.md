@@ -494,6 +494,17 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     `--all-repos` records `{"all_repos": true, "n_searched": N}`; a plain search stays `null`,
     so an explicit whole-store search and a default one can be told apart.
 
+6c. `query` and the scope's names are bounded in the row. `query` keeps its first 1000
+    characters, and a cut query adds `"query_truncated": true` right after it. `scope.repos`
+    keeps its first 50 names, each to 120 characters; when any name was cut or dropped the
+    scope adds `"repos_truncated": true` and `"repos_total": N`, the number of distinct names
+    chosen. Both marks are additive and appear only on a capped row, so a row under the caps
+    is the row 6–6b describe, byte for byte. `session_id`, `context_bytes` and the search
+    itself are unaffected. `session_id` is the one caller-typed field no cap applies to: it is
+    kept whole by design as the attribution key, so the row as a whole is not bounded
+    (`docs/design/contracts/output.md`, "Query and scope names are bounded in the telemetry
+    row, and a capped row says so").
+
 ### `engmem search "<query>" --role ROLE` / `engmem roles [--store PATH]` (English
 addition — role-addressed retrieval)
 
