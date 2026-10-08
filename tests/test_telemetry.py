@@ -1,19 +1,23 @@
 import json
 import os
-from datetime import timezone
+from datetime import datetime, timezone
 
 import pytest
 
 from conftest import fixture_docs, requires_permission_enforcement
 
-from engmem.output import RoleHit
-from engmem.scoring import search, search_with_role_sections
+import engmem.telemetry as telemetry
+from engmem.output import SCOPE_NAME_DISPLAY_MAX, RoleHit
+from engmem.scoring import Scope, search, search_with_role_sections
 from engmem.spine import load_store
 from engmem.telemetry import (
+    QUERY_RECORD_MAX,
+    SCOPE_NAMES_RECORD_MAX,
     estimate_tokens,
     log_role_search,
     log_search,
     read_session_rows,
+    scope_row,
     summarize,
 )
 
@@ -531,3 +535,104 @@ def test_read_session_rows_raises_on_a_file_that_cannot_be_read(tmp_path):
             read_session_rows(jsonl_path)
     finally:
         os.chmod(jsonl_path, 0o644)
+
+
+# ---------------------------------------------------------------------------
+# One call cannot write an unbounded row: `query` and the scope's names are capped, and a capped
+# row says so (ENGMEM-SPEC.md §5, search step 6c).
+# ---------------------------------------------------------------------------
+
+
+class _FixedClock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+
+def _write(jsonl_path, *, role=None, query="nothing-matches-xyz", names=("svc-a", "svc-b"),
+           session_id="sess-1"):
+    scope = scope_row(Scope(repos=tuple(names)), 3) if names else None
+    common = dict(query=query, n_docs=7, session_id=session_id, channel="mcp",
+                  context_bytes=42, scope=scope)
+    if role is None:
+        docs = fixture_docs()
+        log_search(jsonl_path, outcome=search(docs, query), **common)
+    else:
+        log_role_search(jsonl_path, role=role, role_hits=[], **common)
+    return jsonl_path.read_text(encoding="utf-8")
+
+
+ORDINARY_ROWS = [
+    pytest.param(None, (
+        '{"ts": "2026-01-02T03:04:05+00:00", "query": "nothing-matches-xyz", '
+        '"session_id": "sess-1", "channel": "mcp", "n_docs": 7, "hits": [], "surfaced": [], '
+        '"result": "miss", "context_bytes": 42, "context_tokens_estimate": 12, '
+        '"scope": {"repos": ["svc-a", "svc-b"], "n_searched": 3}}\n'
+    ), id="search"),
+    pytest.param("decisions", (
+        '{"ts": "2026-01-02T03:04:05+00:00", "query": "nothing-matches-xyz", '
+        '"role": "decisions", "session_id": "sess-1", "channel": "mcp", "n_docs": 7, '
+        '"hits": [], "surfaced": [], "result": "miss", "context_bytes": 42, '
+        '"context_tokens_estimate": 12, "scope": {"repos": ["svc-a", "svc-b"], '
+        '"n_searched": 3}}\n'
+    ), id="role"),
+]
+
+
+@pytest.mark.parametrize("role, expected", ORDINARY_ROWS)
+def test_an_ordinary_row_is_written_byte_for_byte_as_before_the_caps(
+    tmp_path, monkeypatch, role, expected
+):
+    monkeypatch.setattr(telemetry, "datetime", _FixedClock)
+
+    assert _write(tmp_path / "t.jsonl", role=role) == expected
+
+
+@pytest.mark.parametrize("role", [None, "decisions"])
+def test_a_row_exactly_at_every_cap_is_recorded_whole(tmp_path, role):
+    query = "q" * QUERY_RECORD_MAX
+    names = [f"{n:02d}" + "r" * (SCOPE_NAME_DISPLAY_MAX - 2) for n in range(SCOPE_NAMES_RECORD_MAX)]
+
+    record = json.loads(_write(tmp_path / "t.jsonl", role=role, query=query, names=names))
+
+    assert record["query"] == query
+    assert record["scope"] == {"repos": names, "n_searched": 3}
+    assert "query_truncated" not in record
+
+
+@pytest.mark.parametrize("role", [None, "decisions"])
+def test_a_query_past_the_cap_is_cut_and_marked(tmp_path, role):
+    query = "q" * (QUERY_RECORD_MAX - 1) + "XYZ"
+
+    record = json.loads(_write(tmp_path / "t.jsonl", role=role, query=query))
+
+    assert record["query"] == query[:QUERY_RECORD_MAX]
+    assert record["query_truncated"] is True
+    keys = list(record)
+    assert keys[keys.index("query") + 1] == "query_truncated", "the mark sits next to the field"
+
+
+@pytest.mark.parametrize("names, recorded", [
+    pytest.param([f"name-{n}" for n in range(SCOPE_NAMES_RECORD_MAX + 7)],
+                 [f"name-{n}" for n in range(SCOPE_NAMES_RECORD_MAX)], id="too-many-names"),
+    pytest.param(["svc-a", "x" * (SCOPE_NAME_DISPLAY_MAX + 1)],
+                 ["svc-a", "x" * SCOPE_NAME_DISPLAY_MAX], id="one-name-too-long"),
+])
+def test_scope_names_past_the_caps_are_cut_and_counted(names, recorded):
+    row = scope_row(Scope(repos=tuple(names)), 3)
+
+    assert row == {"repos": recorded, "n_searched": 3, "repos_truncated": True,
+                   "repos_total": len(names)}
+
+
+def test_a_capped_row_still_reads_everywhere(tmp_path):
+    jsonl_path = tmp_path / "t.jsonl"
+    names = [f"name-{n}" for n in range(SCOPE_NAMES_RECORD_MAX * 4)]
+    _write(jsonl_path, query="q" * (QUERY_RECORD_MAX * 5), names=names, session_id="sess-9")
+    _write(jsonl_path)
+
+    summary = summarize(jsonl_path)
+    assert (summary.total, summary.unreadable, summary.overall.context_bytes) == (2, 0, 84)
+    assert [row.session_id for row in read_session_rows(jsonl_path)] == ["sess-9", "sess-1"]
+    first = json.loads(jsonl_path.read_text(encoding="utf-8").splitlines()[0])
+    assert (first["session_id"], first["context_bytes"]) == ("sess-9", 42)

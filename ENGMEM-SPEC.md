@@ -376,7 +376,7 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    carries protocol frames only, so the note travels inside the tool result text — the
    same reader, that reader's own channel — and never through `print()`.
 
-### `engmem search "<query>" [--session ID] [--repo NAME | --unscoped] [--store PATH]`
+### `engmem search "<query>" [--session ID] [--repo NAME ... | --unscoped | --all-repos] [--store PATH]`
 
 1. Walks `sessions/*.md` (flat — subdirectories are not scanned) and parses front matter.
    Corrupt files, wrongly-typed field values, and files that cannot even be read (a
@@ -408,11 +408,23 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    way a draft is left out (`docs/design/contracts/scoring.md`, "A repository scope narrows the
    corpus"). A scoped result opens with a `scope:` line naming the scope and how many documents
    it searched, and every block in it carries a `repos:` line listing all of the record's links,
-   so a record shared by two repositories appears once with both (`contracts/output.md`). One
-   `--repo` per search; a second one, a blank name, or `--repo` with `--unscoped` is a usage
-   error (exit 2), never a silently wider search. `--role` combines with either. The scope is a
-   search filter, not an access control. The MCP search tools take the same scope as `repo` /
-   `unscoped` (`contracts/mcp-server.md`).
+   so a record shared by two repositories appears once with both (`contracts/output.md`). A
+   blank name, or `--repo` with `--unscoped`, is a usage error (exit 2), never a silently wider
+   search. `--role` combines with any scope. The scope is a search filter, not an access
+   control. The MCP search tools take the same scope as `repo` / `unscoped`
+   (`contracts/mcp-server.md`).
+2b. *(US-10)* `--repo` may be repeated: `--repo A --repo B` ranks the records linked to A or B,
+   each once (a record linked to both is one result whose `repos:` line names both); a third
+   repository is never added on its own. Names that differ only in case or surrounding space
+   collapse to the first one given. A single `--repo` reads exactly as in 2a. `--all-repos`
+   searches the whole store, ranked exactly as without a flag, but as a scope: the result
+   opens with `scope: all repositories (N document(s) searched; …)` and every block shows its
+   `repos:`, so the cross-project mode and each result's origin are on the page. Without any
+   flag the output stays byte-identical to the whole-store default. `--repo`, `--unscoped`
+   and `--all-repos` are mutually exclusive (exit 2). A scope applies to its one search only;
+   nothing is remembered, so the next search without a flag is the whole-store default again.
+   MCP: `repos` (a list of names, joined with `repo`) and `all_repos: true`
+   (`contracts/scoring.md`, "Several repositories are a union").
 3. Scoring — §7. Output is the top 3 docs: id, path, score, why-matched (which tokens
    matched in which fields), the first 2 lines of the Cold-start primer, their related docs
    (id + path only), plus the locator and first line of each matched section. Total size
@@ -477,7 +489,21 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     `{"repos": [NAME], "n_searched": N}` or `{"unscoped": true, "n_searched": N}`. `NAME` is
     the name as passed; `n_searched` is the number of documents the scoped search ranked
     (drafts excluded), next to `n_docs`, which stays the whole store. `repos` is a list so a
-    multi-repository scope can be recorded without a new row shape.
+    multi-repository scope can be recorded without a new row shape. *(US-10)* Several
+    repositories record every name once, in the order given (`{"repos": [A, B], …}`), and
+    `--all-repos` records `{"all_repos": true, "n_searched": N}`; a plain search stays `null`,
+    so an explicit whole-store search and a default one can be told apart.
+
+6c. `query` and the scope's names are bounded in the row. `query` keeps its first 1000
+    characters, and a cut query adds `"query_truncated": true` right after it. `scope.repos`
+    keeps its first 50 names, each to 120 characters; when any name was cut or dropped the
+    scope adds `"repos_truncated": true` and `"repos_total": N`, the number of distinct names
+    chosen. Both marks are additive and appear only on a capped row, so a row under the caps
+    is the row 6–6b describe, byte for byte. `session_id`, `context_bytes` and the search
+    itself are unaffected. `session_id` is the one caller-typed field no cap applies to: it is
+    kept whole by design as the attribution key, so the row as a whole is not bounded
+    (`docs/design/contracts/output.md`, "Query and scope names are bounded in the telemetry
+    row, and a capped row says so").
 
 ### `engmem search "<query>" --role ROLE` / `engmem roles [--store PATH]` (English
 addition — role-addressed retrieval)

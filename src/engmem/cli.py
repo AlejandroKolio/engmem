@@ -109,20 +109,16 @@ def _search_scope(args: argparse.Namespace) -> tuple[Scope | None, int]:
     """`(scope, 0)`, or `(None, 2)` after naming why the scope asked for is not one."""
     if args.unscoped:
         return Scope(unscoped=True), 0
+    if args.all_repos:
+        return Scope(all_repos=True), 0
     if args.repo is None:
         return None, 0
-    if len(args.repo) > 1:
-        fail(
-            f"engmem search: one --repo per search (got {len(args.repo)}: "
-            f"{', '.join(repr(name) for name in args.repo)})"
-        )
-        return None, 2
-    name = args.repo[0].strip()
-    if not name:
-        # never read as "no scope": a blank name would widen the search to the whole store
+    names = tuple(name.strip() for name in args.repo)
+    if not all(names):
+        # never dropped or read as "no scope": either would widen the search past what was asked
         fail("engmem search: --repo needs a repository name (got a blank value)")
         return None, 2
-    return Scope(repo=name), 0
+    return Scope(repos=names), 0
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
@@ -580,15 +576,24 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
         metavar="NAME",
         help=(
             "search only the records whose `repos` front matter names this repository "
-            "(case-insensitive). Title and tags never stand in for that link, so a record "
-            "with no `repos` is left out; find those with --unscoped. Without --repo or "
-            "--unscoped the whole store is searched."
+            "(case-insensitive); repeat it to search several, a record linked to any of them "
+            "counting once. Title and tags never stand in for that link, so a record with no "
+            "`repos` is left out; find those with --unscoped. Without a scope flag the whole "
+            "store is searched."
         ),
     )
     scope_options.add_argument(
         "--unscoped",
         action="store_true",
         help="search only the records linked to no repository (no readable `repos` value)",
+    )
+    scope_options.add_argument(
+        "--all-repos",
+        action="store_true",
+        help=(
+            "search the whole store, as without a scope flag, but say so in a `scope:` line and "
+            "show each result's `repos:` links"
+        ),
     )
     _add_store_option(search_parser)
     search_parser.set_defaults(func=_cmd_search)

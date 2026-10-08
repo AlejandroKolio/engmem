@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engmem.output import surfaced_ids
+from engmem.output import SCOPE_NAME_DISPLAY_MAX, surfaced_ids
 from engmem.scoring import Scope, SearchOutcome
 
 
@@ -34,14 +34,40 @@ def estimate_tokens(byte_count: int) -> int:
     return math.ceil(byte_count / BYTES_PER_TOKEN_ESTIMATE)
 
 
+# `query` and the scope's names are capped, and a capped row says so; `session_id` is kept
+# whole as the attribution key (ENGMEM-SPEC.md §5, 6c)
+QUERY_RECORD_MAX = 1000
+SCOPE_NAMES_RECORD_MAX = 50
+SCOPE_NAME_RECORD_MAX = SCOPE_NAME_DISPLAY_MAX
+
+
+def _query_fields(query: str) -> dict:
+    """`query`, plus `query_truncated` only when it was cut."""
+    if len(query) <= QUERY_RECORD_MAX:
+        return {"query": query}
+    return {"query": query[:QUERY_RECORD_MAX], "query_truncated": True}
+
+
+def _repos_fields(names: tuple[str, ...], n_searched: int) -> dict:
+    """The names as recorded, plus `repos_truncated` and `repos_total` only when any was cut or
+    dropped."""
+    recorded = [name[:SCOPE_NAME_RECORD_MAX] for name in names[:SCOPE_NAMES_RECORD_MAX]]
+    fields = {"repos": recorded, "n_searched": n_searched}
+    if recorded != list(names):
+        fields.update(repos_truncated=True, repos_total=len(names))
+    return fields
+
+
 def scope_row(scope: Scope | None, n_searched: int) -> dict | None:
-    """The row's `scope`: `None` for the whole store; a list of names so a multi-repo scope
-    later needs no new shape (ENGMEM-SPEC.md §5, 6b)."""
+    """The row's `scope`: `None` for the whole store searched without a flag (ENGMEM-SPEC.md
+    §5, 6b)."""
     if scope is None:
         return None
     if scope.unscoped:
         return {"unscoped": True, "n_searched": n_searched}
-    return {"repos": [scope.repo], "n_searched": n_searched}
+    if scope.all_repos:
+        return {"all_repos": True, "n_searched": n_searched}
+    return _repos_fields(scope.repos, n_searched)
 
 
 UNATTRIBUTED_CLI_NOTE = "note: unattributed search — pass --session <draft-id>"
@@ -63,7 +89,7 @@ def log_search(
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "query": query,
+        **_query_fields(query),
         # explicit null, not omitted: distinguishes "no --session passed" from
         # "row predates this field" and from "no search happened"
         "session_id": session_id,
@@ -103,7 +129,7 @@ def log_role_search(
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "query": query,
+        **_query_fields(query),
         "role": role,
         "session_id": session_id,
         "channel": channel,

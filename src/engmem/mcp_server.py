@@ -886,21 +886,46 @@ _SESSION_ID_SCHEMA = {
     ),
 }
 
-# US-09: the same scope `engmem search --repo` / `--unscoped` take, under the same rules
+# US-09/US-10: the same scope `engmem search --repo` / `--unscoped` / `--all-repos` take, under
+# the same rules
 _REPO_SCHEMA = {
     "type": "string",
     "description": (
         "Search only the records whose `repos` front matter names this repository "
         "(case-insensitive). Title and tags never stand in for that link, so a record "
-        "with no `repos` is left out. Omit it, and `unscoped`, to search the whole store."
+        "with no `repos` is left out. For several repositories use `repos`. Omit every "
+        "scope argument to search the whole store."
+    ),
+}
+_REPOS_SCHEMA = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "description": (
+        "Search only the records linked to any of these repositories, each record once. "
+        "Same matching as `repo`, and joined with it when both are passed. Only when the "
+        "user asks to bring in other repositories; never empty."
     ),
 }
 _UNSCOPED_SCHEMA = {
     "type": "boolean",
     "description": (
         "true: search only the records linked to no repository (no readable `repos` "
-        "value). Not combined with `repo`."
+        "value). Not combined with another scope argument."
     ),
+}
+_ALL_REPOS_SCHEMA = {
+    "type": "boolean",
+    "description": (
+        "true: search the whole store, as with no scope argument, but say so in a `scope:` "
+        "line and show each result's `repos:` links. Not combined with another scope argument."
+    ),
+}
+_SCOPE_PROPERTIES = {
+    "repo": _REPO_SCHEMA,
+    "repos": _REPOS_SCHEMA,
+    "unscoped": _UNSCOPED_SCHEMA,
+    "all_repos": _ALL_REPOS_SCHEMA,
 }
 
 
@@ -921,8 +946,7 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                             ),
                         },
                         "session_id": _SESSION_ID_SCHEMA,
-                        "repo": _REPO_SCHEMA,
-                        "unscoped": _UNSCOPED_SCHEMA,
+                        **_SCOPE_PROPERTIES,
                     },
                     "required": ["query"],
                 },
@@ -956,8 +980,7 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                             ),
                         },
                         "session_id": _SESSION_ID_SCHEMA,
-                        "repo": _REPO_SCHEMA,
-                        "unscoped": _UNSCOPED_SCHEMA,
+                        **_SCOPE_PROPERTIES,
                     },
                     "required": ["query", "role"],
                 },
@@ -1071,32 +1094,68 @@ _WRITE_TOOL_HANDLERS = {
 }
 
 
-def _search_scope(arguments: object) -> Scope | None:
-    """The scope a search tool call asks for; `null` and `false` are absent, and a blank
-    `repo` is refused rather than read as the whole store (contracts/mcp-server.md)."""
-    args = arguments if isinstance(arguments, dict) else {}
+def _scope_names(args: dict) -> list[str]:
+    """`repo` and `repos` together, refused rather than read as absent when blank or empty."""
     repo = args.get("repo")
-    unscoped = args.get("unscoped")
+    repos = args.get("repos")
     if repo is not None and not isinstance(repo, str):
         raise _ProtocolError(INVALID_PARAMS, "invalid params: 'repo' must be a string")
-    if unscoped is not None and not isinstance(unscoped, bool):
-        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'unscoped' must be a boolean")
+    if repos is not None and not (
+        isinstance(repos, list) and all(isinstance(name, str) for name in repos)
+    ):
+        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'repos' must be a list of strings")
     if repo is not None and not repo.strip():
         raise _ProtocolError(
             INVALID_PARAMS,
             "invalid params: 'repo' needs a repository name (got a blank value) — omit it "
             "to search the whole store",
         )
-    if repo is not None and unscoped:
+    if repos is not None and not repos:
         raise _ProtocolError(
             INVALID_PARAMS,
-            "invalid params: 'repo' and 'unscoped' are two different scopes — pass one",
+            "invalid params: 'repos' needs at least one repository name (got an empty list) "
+            "— omit it to search the whole store",
+        )
+    if repos is not None and not all(name.strip() for name in repos):
+        raise _ProtocolError(
+            INVALID_PARAMS,
+            "invalid params: 'repos' needs repository names (got a blank value) — omit it "
+            "to search the whole store",
+        )
+    return ([repo] if repo is not None else []) + (repos or [])
+
+
+def _search_scope(arguments: object) -> Scope | None:
+    """The scope a search tool call asks for; `null` and `false` are absent
+    (contracts/mcp-server.md)."""
+    args = arguments if isinstance(arguments, dict) else {}
+    unscoped = args.get("unscoped")
+    all_repos = args.get("all_repos")
+    names = _scope_names(args)
+    if unscoped is not None and not isinstance(unscoped, bool):
+        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'unscoped' must be a boolean")
+    if all_repos is not None and not isinstance(all_repos, bool):
+        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'all_repos' must be a boolean")
+    chosen = []
+    if names:
+        given = [key for key in ("repo", "repos") if args.get(key) is not None]
+        chosen.append("/".join(f"'{key}'" for key in given))
+    if unscoped:
+        chosen.append("'unscoped'")
+    if all_repos:
+        chosen.append("'all_repos'")
+    if len(chosen) > 1:
+        raise _ProtocolError(
+            INVALID_PARAMS,
+            f"invalid params: {' and '.join(chosen)} are different scopes — pass one",
         )
     if unscoped:
         return Scope(unscoped=True)
-    if repo is None:
+    if all_repos:
+        return Scope(all_repos=True)
+    if not names:
         return None
-    return Scope(repo=repo.strip())
+    return Scope(repos=tuple(names))
 
 
 def _handle_tools_call(params: dict, store: Path) -> dict:

@@ -516,16 +516,27 @@ def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
 
 @dataclass(frozen=True)
 class Scope:
-    """A search narrowed to one repository, or to the records linked to none (US-09)."""
+    """Chosen repositories, the records linked to none, or every record with its links shown
+    (US-09, US-10); exactly one of the three."""
 
-    repo: str | None = None
+    repos: tuple[str, ...] = ()
     unscoped: bool = False
+    all_repos: bool = False
+    # derived from `repos`, so it stays out of `==`, the hash and the repr (contracts/scoring.md)
+    repo_keys: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self.repo is not None and not self.repo.strip():
+        if isinstance(self.repos, str):
+            raise TypeError("repos is a tuple of repository names, not one name")
+        names = tuple(name.strip() for name in self.repos)
+        if not all(names):
             raise ValueError("a repository scope needs a name")
-        if (self.repo is None) != self.unscoped:
-            raise ValueError("a scope is one repository or the unscoped records, exactly one")
+        if (bool(names), self.unscoped, self.all_repos).count(True) != 1:
+            raise ValueError(
+                "a scope is repositories, the unscoped records or all repositories, exactly one"
+            )
+        object.__setattr__(self, "repos", _distinct_repos(names))
+        object.__setattr__(self, "repo_keys", frozenset(repo_key(name) for name in self.repos))
 
 
 def repo_key(name: str) -> str:
@@ -533,12 +544,22 @@ def repo_key(name: str) -> str:
     return name.strip().casefold()
 
 
+def _distinct_repos(names: tuple[str, ...]) -> tuple[str, ...]:
+    """One name per `repo_key`, in the order given, spelled as first given."""
+    by_key: dict[str, str] = {}
+    for name in names:
+        by_key.setdefault(repo_key(name), name)
+    return tuple(by_key.values())
+
+
 def in_scope(doc: Doc, scope: Scope) -> bool:
     """Only the explicit `repos` link decides; title and tags never stand in for it."""
+    if scope.all_repos:
+        return True
     keys = {repo_key(name) for name in linked_repos(doc)}
     if scope.unscoped:
         return not keys
-    return repo_key(scope.repo) in keys
+    return not keys.isdisjoint(scope.repo_keys)
 
 
 def ranking_corpus(docs: list[Doc], scope: Scope | None = None) -> list[Doc]:

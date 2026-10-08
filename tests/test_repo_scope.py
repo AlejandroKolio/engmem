@@ -112,7 +112,7 @@ def _block(output: str, doc_id: str) -> list[str]:
 
 @pytest.mark.parametrize("name", [ALPHA, ALPHA.upper(), f"  {ALPHA} "])
 def test_ac_09_1_a_repo_scope_returns_only_records_linked_to_it(store, name):
-    outcome = search(_docs(store), "Settings", Scope(repo=name.strip()))
+    outcome = search(_docs(store), "Settings", Scope(repos=(name.strip(),)))
 
     assert {h.doc.id for h in outcome.hits} == ALPHA_IDS
 
@@ -123,7 +123,7 @@ def test_ac_09_1_a_scalar_repos_value_is_a_link(tmp_path):
     write_file(sessions, "2101-scalar.md", _doc(
         "2101-scalar", "## Decision Log\n\nSettings.\n", repos=ALPHA, entities="[Settings]"))
 
-    outcome = search(load_store(sessions).docs, "Settings", Scope(repo=ALPHA))
+    outcome = search(load_store(sessions).docs, "Settings", Scope(repos=(ALPHA,)))
 
     assert [h.doc.id for h in outcome.hits] == ["2101-scalar"]
 
@@ -168,7 +168,7 @@ def test_a_scoped_search_ranks_exactly_like_a_store_holding_only_the_scope(store
     for doc_id in ALPHA_IDS:
         write_file(only_alpha, f"{doc_id}.md", STORE[doc_id])
 
-    scoped = search(_docs(store), "Settings schema boot", Scope(repo=ALPHA))
+    scoped = search(_docs(store), "Settings schema boot", Scope(repos=(ALPHA,)))
     alone = search(load_store(only_alpha).docs, "Settings schema boot")
 
     assert _signature(scoped) == _signature(alone)
@@ -189,7 +189,7 @@ def test_another_repositorys_text_cannot_push_a_term_past_the_df_ceiling(tmp_pat
         "the scenario must reproduce the whole-store false negative"
     )
 
-    outcome = search(docs, "flag", Scope(repo=ALPHA))
+    outcome = search(docs, "flag", Scope(repos=(ALPHA,)))
 
     assert [h.doc.id for h in outcome.hits] == ["2201-alpha"]
 
@@ -204,7 +204,7 @@ def test_another_repositorys_entity_cannot_make_a_scoped_short_query_ambiguous(t
     docs = load_store(sessions).docs
     assert search(docs, "WC").ambiguous, "the scenario must be ambiguous across the store"
 
-    outcome = search(docs, "WC", Scope(repo=ALPHA))
+    outcome = search(docs, "WC", Scope(repos=(ALPHA,)))
 
     assert not outcome.ambiguous
     assert [h.doc.id for h in outcome.hits] == ["2301-alpha"]
@@ -236,7 +236,7 @@ def test_ac_09_3_title_and_tags_do_not_stand_in_for_a_repo_link(store):
         "the bait must match the repository's name through title and tags"
     )
 
-    outcome = search(docs, f"{ALPHA} Settings", Scope(repo=ALPHA))
+    outcome = search(docs, f"{ALPHA} Settings", Scope(repos=(ALPHA,)))
 
     assert not UNSCOPED_IDS & {h.doc.id for h in outcome.hits}
 
@@ -258,7 +258,7 @@ def test_an_empty_or_blank_repos_list_is_no_link(tmp_path, repos):
         "2401-empty", "## Decision Log\n\nSettings.\n", repos=repos, entities="[Settings]"))
     docs = load_store(sessions).docs
 
-    assert search(docs, "Settings", Scope(repo=ALPHA)).hits == []
+    assert search(docs, "Settings", Scope(repos=(ALPHA,))).hits == []
     assert [h.doc.id for h in search(docs, "Settings", Scope(unscoped=True)).hits] == [
         "2401-empty"
     ]
@@ -330,7 +330,6 @@ def test_ac_09_4_both_search_tools_declare_the_scope_arguments(store, name, read
 
 @pytest.mark.parametrize("args, cause", [
     pytest.param(["--repo", "  "], "blank", id="blank-repo"),
-    pytest.param(["--repo", ALPHA, "--repo", BETA], "one --repo", id="two-repos"),
 ])
 def test_a_malformed_cli_scope_is_a_usage_error_on_stdout(store, capsys, args, cause):
     code = main(["search", "Settings", "--store", str(store), *args])
@@ -415,7 +414,7 @@ def test_the_scope_line_counts_against_the_output_budget(tmp_path):
             f"250{n}-narrow", "## Decision Log\n\nSettings.\n\n## Landmines\n\nNone.\n",
             repos=f"[{name}]", entities="[Settings]"))
 
-    rendered = render_result(load_store(sessions).docs, "Settings", None, Scope(repo=name))
+    rendered = render_result(load_store(sessions).docs, "Settings", None, Scope(repos=(name,)))
 
     assert TRIM_MARKER in rendered.text, "the scenario must overflow the budget"
     assert len(rendered.text.encode("utf-8")) <= MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE
@@ -473,7 +472,7 @@ def test_a_document_without_front_matter_has_no_repo_link(tmp_path):
 
 
 def test_role_sections_and_ranking_share_the_scope(store):
-    outcome, role_map = search_with_role_sections(_docs(store), "Settings", Scope(repo=BETA))
+    outcome, role_map = search_with_role_sections(_docs(store), "Settings", Scope(repos=(BETA,)))
 
     assert {h.doc.id for h in outcome.hits} == {"2002-beta-settings", "2003-shared-settings"}
     assert set(role_map) == {"2002-beta-settings", "2003-shared-settings"}
@@ -481,9 +480,9 @@ def test_role_sections_and_ranking_share_the_scope(store):
 
 def test_scope_rejects_a_blank_name_or_two_scopes_at_once():
     with pytest.raises(ValueError):
-        Scope(repo=" ")
+        Scope(repos=(" ",))
     with pytest.raises(ValueError):
-        Scope(repo=ALPHA, unscoped=True)
+        Scope(repos=(ALPHA,), unscoped=True)
     with pytest.raises(ValueError):
         Scope()
 
