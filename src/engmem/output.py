@@ -7,9 +7,9 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from engmem.scoring import SearchOutcome, SectionHit
+from engmem.scoring import Scope, SearchOutcome, SectionHit
 from engmem.sections import Section, split_sections
-from engmem.spine import Doc
+from engmem.spine import Doc, linked_repos
 
 if TYPE_CHECKING:
     # deferred to avoid a circular import (telemetry.py imports surfaced_ids
@@ -28,6 +28,8 @@ SCOREBOARD_RESERVE = 128
 TRIM_MARKER = "[output trimmed to fit 4 KB]"
 SECTION_DISPLAY_MAX = 3  # sections named per hit; mirrors TOP_N's reasoning
 SECTION_SNIPPET_MAX_CHARS = 140
+# the scope's name is typed by the caller; a miss is never trimmed, so its lead line must be short
+SCOPE_NAME_DISPLAY_MAX = 120
 
 # a primer heading spelled in words the canonical alias table does not carry, e.g. the
 # unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
@@ -134,6 +136,27 @@ def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
     return "related: " + ", ".join(parts)
 
 
+def _repos_line(doc: Doc) -> str:
+    """Every link as written, so a record shared by two repositories shows both (AC-09.2)."""
+    if doc.repos is None:
+        return "repos: unreadable (see the load warning)"
+    names = linked_repos(doc)
+    return "repos: " + (", ".join(_escape_controls(name) for name in names) or "none")
+
+
+def scope_line(scope: Scope, n_searched: int) -> str:
+    """The first line of a scoped result: a miss inside a scope is not a miss in the store."""
+    if scope.unscoped:
+        return f"scope: unscoped ({n_searched} document(s) linked to no repository searched)"
+    name = _escape_controls(scope.repo)
+    if len(name) > SCOPE_NAME_DISPLAY_MAX:
+        name = name[: SCOPE_NAME_DISPLAY_MAX - 1] + "…"
+    return (
+        f"scope: repo {name} ({n_searched} linked document(s) "
+        f"searched; records linked to no repository are left out)"
+    )
+
+
 def _trim_to_bytes(text: str, limit: int) -> str:
     if len(text.encode("utf-8")) <= limit:
         return text
@@ -165,8 +188,11 @@ def _hit_block(
     header: str,
     why: str = "",
     section_hits: list[SectionHit] | None = None,
+    show_repos: bool = False,
 ) -> str:
     lines = [header, f"path: {_escape_controls(doc.path)}"]
+    if show_repos:
+        lines.append(_repos_line(doc))
     if why:
         lines.append(f"matched: {why}")
     for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
@@ -202,9 +228,14 @@ def surfaced_ids(outcome: SearchOutcome) -> list[str]:
     return [i for i in ids if not (i in seen or seen.add(i))]
 
 
-def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
+def render_search_results(
+    outcome: SearchOutcome, docs: list[Doc], scope_lead: str | None = None
+) -> str:
+    """`scope_lead` is set for a scoped search: it leads the result, and every block then names
+    its repository links."""
     docs_by_id = {d.id: d for d in docs}
-    blocks: list[str] = []
+    blocks: list[str] = [scope_lead] if scope_lead else []
+    show_repos = bool(scope_lead)
 
     shown_hits, shown_ids, notes = _selected(outcome)
 
@@ -212,7 +243,9 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
         tag = "  [ambiguous]" if hit.ambiguous else ""
         header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
         blocks.append(
-            _hit_block(hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits)
+            _hit_block(
+                hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits, show_repos
+            )
         )
 
     for note in notes:
@@ -253,7 +286,7 @@ def render_search_results(outcome: SearchOutcome, docs: list[Doc]) -> str:
         blocks.append(f"{safe_id}: superseded by {safe_superseded_by}")
         if note.successor.id not in shown_ids:
             header = f"### {_escape_controls(note.successor.id)} (successor)"
-            blocks.append(_hit_block(note.successor, docs_by_id, header))
+            blocks.append(_hit_block(note.successor, docs_by_id, header, show_repos=show_repos))
 
     # names how many were left out, so a tie cut mid-list doesn't look decisive
     withheld = len(outcome.hits) - len(shown_hits)
@@ -284,8 +317,9 @@ def render_scoreboard(docs: list[Doc], failed: int = 0) -> str:
     return f"docs: {count} | drafts: {drafts} | last doc: {days_ago}d ago"
 
 
-def render_no_match() -> str:
-    return "prior context: none found"
+def render_no_match(scope_lead: str | None = None) -> str:
+    miss = "prior context: none found"
+    return f"{scope_lead}\n{miss}" if scope_lead else miss
 
 
 @dataclass
@@ -312,7 +346,7 @@ def select_role_hits(
     return kept, n_with_role
 
 
-def _role_hit_block(role_hit: RoleHit, role: str) -> str:
+def _role_hit_block(role_hit: RoleHit, role: str, show_repos: bool = False) -> str:
     # tagged on the header itself so a lone block (after a 4 KB trim) still
     # can't be mistaken for an ordinary best-word-match result
     header = (
@@ -320,20 +354,23 @@ def _role_hit_block(role_hit: RoleHit, role: str) -> str:
         f"  [role: {role}]"
     )
     section_hit = SectionHit(section=role_hit.section, score=0.0, matched_tokens=[])
-    lines = [
-        header,
-        f"path: {_escape_controls(role_hit.doc.path)}",
-        _section_line(section_hit),
-    ]
+    lines = [header, f"path: {_escape_controls(role_hit.doc.path)}"]
+    if show_repos:
+        lines.append(_repos_line(role_hit.doc))
+    lines.append(_section_line(section_hit))
     return "\n".join(lines)
 
 
 def render_role_search_results(
-    outcome: SearchOutcome, role_map: dict[str, dict[str, Section]], role: str
+    outcome: SearchOutcome,
+    role_map: dict[str, dict[str, Section]],
+    role: str,
+    scope_lead: str | None = None,
 ) -> str:
     """A `--role` result: "nothing matched" and "matched, but none has this role" stay distinct."""
     kept, n_with_role = select_role_hits(outcome, role_map, role)
-    lead = f"role: {role}"
+    lead = f"{scope_lead}\nrole: {role}" if scope_lead else f"role: {role}"
+    show_repos = bool(scope_lead)
 
     if not kept:
         if not outcome.hits:
@@ -343,7 +380,7 @@ def render_role_search_results(
             f"matched the query, but none has a '{role}' section"
         )
 
-    blocks = [lead] + [_role_hit_block(rh, role) for rh in kept]
+    blocks = [lead] + [_role_hit_block(rh, role, show_repos) for rh in kept]
     withheld = n_with_role - len(kept)
     withheld_line = (
         f"({withheld} more document(s) have a '{role}' section but rank below the "

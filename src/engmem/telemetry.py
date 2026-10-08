@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engmem.output import surfaced_ids
-from engmem.scoring import SearchOutcome
+from engmem.scoring import Scope, SearchOutcome
 
 
 def _result_label(outcome: SearchOutcome) -> str:
@@ -34,6 +34,16 @@ def estimate_tokens(byte_count: int) -> int:
     return math.ceil(byte_count / BYTES_PER_TOKEN_ESTIMATE)
 
 
+def scope_row(scope: Scope | None, n_searched: int) -> dict | None:
+    """The row's `scope`: `None` for the whole store; a list of names so a multi-repo scope
+    later needs no new shape (ENGMEM-SPEC.md §5, 6b)."""
+    if scope is None:
+        return None
+    if scope.unscoped:
+        return {"unscoped": True, "n_searched": n_searched}
+    return {"repos": [scope.repo], "n_searched": n_searched}
+
+
 UNATTRIBUTED_CLI_NOTE = "note: unattributed search — pass --session <draft-id>"
 UNATTRIBUTED_MCP_NOTE = "note: unattributed search — pass session_id <draft-id>"
 
@@ -47,6 +57,7 @@ def log_search(
     session_id: str | None = None,
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
+    scope: dict | None = None,
 ) -> str | None:
     """Appends one JSON line, returning a failure reason rather than raising."""
     context_tokens_estimate = estimate_tokens(context_bytes)
@@ -63,6 +74,9 @@ def log_search(
         "result": _result_label(outcome),
         "context_bytes": context_bytes,
         "context_tokens_estimate": context_tokens_estimate,
+        # explicit null for the whole store, like `session_id`: a row predating the field
+        # has no key at all
+        "scope": scope,
     }
     try:
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +97,7 @@ def log_role_search(
     session_id: str | None = None,
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
+    scope: dict | None = None,
 ) -> str | None:
     """`log_search` for a role search, reporting role-filtered hits rather than the word ranking."""
     context_tokens_estimate = estimate_tokens(context_bytes)
@@ -98,6 +113,9 @@ def log_role_search(
         "result": "hit" if role_hits else "miss",
         "context_bytes": context_bytes,
         "context_tokens_estimate": context_tokens_estimate,
+        # explicit null for the whole store, like `session_id`: a row predating the field
+        # has no key at all
+        "scope": scope,
     }
     try:
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)

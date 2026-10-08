@@ -144,7 +144,7 @@ covers_files: [ResponseCacheController.java]
 verified_at_commit: abc1234
 capture_minutes: 12               # minutes the save ritual took; blank unless a real start time is known
 author: A. Engineer               # git config user.name
-repos: [platform-core]            # repositories the work touched
+repos: [platform-core]            # repositories the work touched; `search --repo` filters on it
 branch: feature/response-cache
 pr: 42                            # number or URL, blank when none exists
 mode: research                    # daily | research — the mode the session started in (US-08)
@@ -376,7 +376,7 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    carries protocol frames only, so the note travels inside the tool result text — the
    same reader, that reader's own channel — and never through `print()`.
 
-### `engmem search "<query>" [--session ID] [--store PATH]`
+### `engmem search "<query>" [--session ID] [--repo NAME | --unscoped] [--store PATH]`
 
 1. Walks `sessions/*.md` (flat — subdirectories are not scanned) and parses front matter.
    Corrupt files, wrongly-typed field values, and files that cannot even be read (a
@@ -400,6 +400,19 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    count toward the scoreboard.
    `status: superseded` documents don't appear either; if a superseded doc would have won,
    its line is replaced with `superseded by <id>` plus the successor itself, if it exists.
+2a. *(US-09)* Without `--repo` or `--unscoped` the whole store is searched, exactly as above.
+   `--repo NAME` ranks only the records whose `repos` front matter names `NAME` (surrounding
+   space and case ignored, nothing else normalised); `--unscoped` ranks only the records linked
+   to no repository — `repos` absent, empty, or a value that could not be read. Title and tags
+   never stand in for the link. The scope narrows the corpus before any statistic is taken, the
+   way a draft is left out (`docs/design/contracts/scoring.md`, "A repository scope narrows the
+   corpus"). A scoped result opens with a `scope:` line naming the scope and how many documents
+   it searched, and every block in it carries a `repos:` line listing all of the record's links,
+   so a record shared by two repositories appears once with both (`contracts/output.md`). One
+   `--repo` per search; a second one, a blank name, or `--repo` with `--unscoped` is a usage
+   error (exit 2), never a silently wider search. `--role` combines with either. The scope is a
+   search filter, not an access control. The MCP search tools take the same scope as `repo` /
+   `unscoped` (`contracts/mcp-server.md`).
 3. Scoring — §7. Output is the top 3 docs: id, path, score, why-matched (which tokens
    matched in which fields), the first 2 lines of the Cold-start primer, their related docs
    (id + path only), plus the locator and first line of each matched section. Total size
@@ -458,6 +471,13 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     locator/header lines (~3 bytes/token) and prose-like primer excerpts (~4). Read
     it as a floor: prose-heavy text lands within ~10% of its real cost, while
     identifier/table-dense text commonly runs 15-30% above.
+
+6b. *(US-09)* `scope` rides the same line: `null` for a whole-store search — explicit, like
+    `session_id`, so it differs from a row written before the field existed — else
+    `{"repos": [NAME], "n_searched": N}` or `{"unscoped": true, "n_searched": N}`. `NAME` is
+    the name as passed; `n_searched` is the number of documents the scoped search ranked
+    (drafts excluded), next to `n_docs`, which stays the whole store. `repos` is a list so a
+    multi-repository scope can be recorded without a new row shape.
 
 ### `engmem search "<query>" --role ROLE` / `engmem roles [--store PATH]` (English
 addition — role-addressed retrieval)

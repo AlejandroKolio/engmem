@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from engmem import cache
 from engmem.sections import CANONICAL_ROLES, Section, role_is_inherited, split_sections
-from engmem.spine import Doc
+from engmem.spine import Doc, linked_repos
 
 FIELD_WEIGHTS = {"id": 5, "entities": 3, "title": 2, "tags": 1}
 
@@ -514,14 +514,45 @@ def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
     return None
 
 
-def _ranking_corpus(docs: list[Doc]) -> list[Doc]:
-    """The documents a search ranks over; a draft is outside it (contracts/scoring.md)."""
-    return [doc for doc in docs if doc.status != "draft"]
+@dataclass(frozen=True)
+class Scope:
+    """A search narrowed to one repository, or to the records linked to none (US-09)."""
+
+    repo: str | None = None
+    unscoped: bool = False
+
+    def __post_init__(self) -> None:
+        if self.repo is not None and not self.repo.strip():
+            raise ValueError("a repository scope needs a name")
+        if (self.repo is None) != self.unscoped:
+            raise ValueError("a scope is one repository or the unscoped records, exactly one")
 
 
-def search(docs: list[Doc], query: str) -> SearchOutcome:
+def repo_key(name: str) -> str:
+    """What two repository names are compared by: case and surrounding space do not count."""
+    return name.strip().casefold()
+
+
+def in_scope(doc: Doc, scope: Scope) -> bool:
+    """Only the explicit `repos` link decides; title and tags never stand in for it."""
+    keys = {repo_key(name) for name in linked_repos(doc)}
+    if scope.unscoped:
+        return not keys
+    return repo_key(scope.repo) in keys
+
+
+def ranking_corpus(docs: list[Doc], scope: Scope | None = None) -> list[Doc]:
+    """The documents a search ranks over: no draft, and only the scope's records when one is
+    chosen (contracts/scoring.md)."""
+    return [
+        doc for doc in docs
+        if doc.status != "draft" and (scope is None or in_scope(doc, scope))
+    ]
+
+
+def search(docs: list[Doc], query: str, scope: Scope | None = None) -> SearchOutcome:
     query_tokens = _build_query_tokens(query)
-    corpus = _ranking_corpus(docs)
+    corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
     return _search_core(corpus, docs, query_tokens, entries)
 
@@ -635,11 +666,11 @@ def _role_index_from_entries(entries: list[_SectionEntry]) -> dict[str, dict[str
 
 
 def search_with_role_sections(
-    docs: list[Doc], query: str
+    docs: list[Doc], query: str, scope: Scope | None = None
 ) -> tuple[SearchOutcome, dict[str, dict[str, Section]]]:
     """`search()` plus a `doc_id -> {role: Section}` map built from the same parse."""
     query_tokens = _build_query_tokens(query)
-    corpus = _ranking_corpus(docs)
+    corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
     outcome = _search_core(corpus, docs, query_tokens, entries)
     role_map = _role_index_from_entries(entries)

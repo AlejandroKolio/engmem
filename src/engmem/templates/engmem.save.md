@@ -41,7 +41,8 @@ existed and stays without one.
 - `repos` — the repository or repositories this work actually touched, as a list (e.g.
   `[platform-core]`, or `[platform-core, widget-cache-client]` for a cross-repo change).
   Usually just the current repo's name; widen it only where `covers_files` genuinely spans
-  more than one checkout.
+  more than one checkout. It is the link `engmem search --repo` filters on, so spell each
+  repository the same way every time: its directory name.
 - `branch` — the branch this work happened on. Run `git rev-parse --abbrev-ref HEAD` if
   you have a shell; leave it blank on detached HEAD or if you have no shell, never
   fabricate a name.

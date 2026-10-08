@@ -112,6 +112,25 @@ protected `context_bytes`, which measures exactly the rendered text; the note is
 `context_bytes` is computed, and `tests/test_mcp_server.py` / `tests/test_cli.py` pin that a
 search with and without an id logs the same value.
 
+## `repo` / `unscoped`: the CLI's scope, refused rather than widened (US-09)
+
+Both search tools take the same optional scope as `engmem search --repo` / `--unscoped`
+(`_REPO_SCHEMA`, `_UNSCOPED_SCHEMA`, read by `_search_scope`) and hand it to
+`search_report.compose`, so the scope rules, the `scope:` line and the telemetry row are the
+CLI's (`contracts/scoring.md`, `contracts/output.md`). The `--read-only` server lists and
+honours them unchanged: it filters tools, not arguments.
+
+- `null` and `unscoped: false` mean "not passed": the whole store, as before.
+- A `repo` that is not a string, an `unscoped` that is not a boolean, a blank `repo`, and
+  `repo` together with `unscoped: true` are each `-32602` naming the argument, and no search
+  runs and no row is written. A blank `repo` is refused, not read as absent the way a blank
+  `session_id` is: an absent id costs one row's attribution, while a blank scope read as
+  absent would silently widen the search to every repository — the reader would take a
+  whole-store result for the scoped one it asked for. The CLI refuses `--repo ""` the same way
+  (exit 2).
+- One repository per call. A list would be the multi-repository search US-10 owns; the
+  telemetry row already records `repos` as a list so that search needs no new row shape.
+
 ## Write tools: security contract
 
 Every write target MUST resolve inside the resolved store's `sessions/`. Order matters:

@@ -255,6 +255,19 @@ the answer. Role addressing does, by resolving section headings across their spe
 variants, and it returns the section instead of the document: a few hundred bytes rather
 than tens of kilobytes.
 
+Limit a search to one repository:
+
+```bash
+engmem search "Settings" --repo platform-core   # only records whose repos names platform-core
+engmem search "Settings" --unscoped             # only records linked to no repository
+```
+
+The link is the `repos` front-matter field; a repository's name in the title or the tags does
+not count. Names match regardless of case. A scoped result starts with a `scope:` line, and
+each hit shows all of its `repos:`, so a story shared by two repositories appears once with
+both. Without either flag the whole store is searched, as before. The MCP search tools take
+the same scope as `repo` and `unscoped`. It narrows a search; it does not restrict access.
+
 Two more commands:
 
 ```bash

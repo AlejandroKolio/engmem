@@ -152,11 +152,15 @@ name instead of dogfooding's.
 
 ## Front matter is parsed once
 
-`_repos()` reads `repos:` without adding it to the `Doc` model (a loader change touching every
-`Doc` consumer). It is the one place this module reads front matter outside
-`spine.parse_document`, and that independence produced the same bug twice: a parse the tool
-could not complete reading as "shares nothing" instead of "unknown", which scores `distant` —
-the direction §11 says a parse failure must never work in.
+`_repos()` reads the `Doc.repos` that `spine.parse_document` already parsed (US-09): `None`
+when the value was neither a list nor a string, otherwise the set of names as written. It used
+to re-read each file and parse `repos:` itself, which kept the loader untouched but was the one
+place this module read front matter outside `spine.parse_document` — and that independence
+produced the same bug twice (the two reversals below): a parse the tool could not complete
+reading as "shares nothing" instead of "unknown", which scores `distant` — the direction §11
+says a parse failure must never work in. The verdicts are unchanged: a document reaching
+`_repos()` is one `load_store` parsed, so the re-read could not fail where the loader did not,
+and `spine` coerces `repos` with the same `_coerce_list_field` the old `_repos()` called.
 
 Recorded reversal, the boundary search. The first `_repos()` found the closing delimiter with
 `text.find("\n---", 3)`, while `spine.split_front_matter` requires a whole line that strips to
@@ -164,23 +168,25 @@ Recorded reversal, the boundary search. The first `_repos()` found the closing d
 `---not-a-delimiter]`) is parsed correctly by spine and truncated by the substring search.
 `load_store` already drops any document whose YAML fails outright, so every document reaching
 `_repos()` has front matter spine parsed successfully; the two parsers had no business
-disagreeing. `_repos()` now calls `spine.split_front_matter` for the boundary and
-`yaml.safe_load` on the same text `spine.parse_document` parses.
+disagreeing. `_repos()` then called `spine.split_front_matter` for the boundary and
+`yaml.safe_load` on the same text `spine.parse_document` parses; since US-09 it reads
+`Doc.repos` and parses nothing.
 
 Recorded reversal, list versus scalar. `{str(v) for v in value} if isinstance(value, list) else
 set()` read a bare scalar (`repos: engmem`, the ordinary hand-written form) as "no
-repositories", defeating both adjacency and dogfooding for the same row. `_repos()` now calls
-`spine._coerce_list_field`, the rule every other list field already follows: a list reads as
-before, a bare string degrades to a one-element set, `None`/absent reads as `set()`, and a
-mapping or number raises `ValueError`, which `_repos()` turns into `None`. That mapping case
-(`repos: {a: b}`, on a document that still loads because `repos` is not a spine field) is what
-makes `Distance.UNDECIDABLE` reachable at all now that the boundary bug is closed.
+repositories", defeating both adjacency and dogfooding for the same row. `repos` is now read
+with `spine._coerce_list_field`, the rule every other list field already follows: a list reads
+as before, a bare string degrades to a one-element set, `None`/absent reads as `set()`, and a
+mapping or number is unreadable — `spine` keeps the document and sets `Doc.repos = None`,
+which `_repos()` passes on. That mapping case (`repos: {a: b}`, on a document that still loads
+because a bad `repos` costs the record its links, not the record) is what makes
+`Distance.UNDECIDABLE` reachable at all now that the boundary bug is closed.
 
 ## Draft and superseded citing documents
 
 `load_store` returns every document regardless of `status`; search excludes `draft` and
 `superseded` documents from its results — a draft is left out of the ranking corpus before
-scoring (`scoring.py`, `_ranking_corpus`), a superseded one becomes a redirect
+scoring (`scoring.py`, `ranking_corpus`), a superseded one becomes a redirect
 (`_NEVER_PRIMARY`, `SupersededNote`). Until the count did
 the same, its population differed from the retrieval layer's, and a draft's Reuse Log is a
 work-in-progress claim that has not been through the save ritual's review step.
@@ -369,7 +375,7 @@ header row and separator produced neither, so the document read as both not-pres
 was — `_has_role(doc, "reuse")`, section presence — and `verdicts` feeds `none_report_count`
 alone. Everything else (status, section presence by role, the telemetry join) the audit computes
 from `load_store`/`split_sections` directly, not through the per-row `RowVerdict` machinery that
-also reads every document's `repos` from disk.
+also reads every document's `repos`.
 
 ### What "a session document" is
 

@@ -61,11 +61,39 @@ spine`, `failed to load`) plus that line already exceeds the 128 before any tele
 stdout can pass `MAX_OUTPUT_BYTES` on a fully trimmed body. Accepted: both notes are
 diagnostics about the instrument, and truncating them would hide the one thing they say.
 
+## A scoped result says so, and shows every link (US-09)
+
+A search run with a scope (`--repo` / `--unscoped`, MCP `repo` / `unscoped`;
+`contracts/scoring.md`, "A repository scope narrows the corpus") renders through the same
+functions with a `scope_lead`: `scope_line` opens the result —
+`scope: repo <name> (<n> linked document(s) searched; records linked to no repository are left
+out)` or `scope: unscoped (<n> document(s) linked to no repository searched)` — and every
+block, hit, successor and role hit alike, carries a `repos:` line after its `path:`
+(`_repos_line`). `<n>` is the size of the scoped ranking corpus, drafts excluded.
+
+- The lead line exists because a miss inside a scope is not a miss in the store: without it,
+  `prior context: none found` from `--repo` read exactly like an empty store, and a reader had
+  no way to see that the other repositories, and the unlinked records, were never searched.
+- `repos:` lists every link as written (`a, b` for a record shared by two repositories, which
+  is shown once — AC-09.2), `none` for a record with no link, and `unreadable` when `repos`
+  could not be read. Every name, and the scope's own name, goes through `_escape_controls`:
+  the scope is typed by a caller and the links come from a file, so either could forge a line.
+- Both lines sit inside `_rendered`'s budget — the lead is the first block, so the trim never
+  reaches it — and so inside `context_bytes`: they are text the reader pays for. A miss is
+  not trimmed, so the scope's name is shown to `SCOPE_NAME_DISPLAY_MAX` characters and cut
+  with `…`: a caller-typed name must not be able to carry the output past the cap.
+- Without a scope nothing changes: no lead, no `repos:` lines, byte for byte the earlier
+  output. Showing links on every result would also have served US-10, but it would have moved
+  `context_bytes` for every search already in the telemetry history (an owner decision left
+  open).
+
 ## One composed result for both channels
 
 `search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/`
 line, stray-scan warnings, the ranked result, the stray note, the scoreboard, the telemetry
 note and the channel's unattributed note, in that order, and it writes the one telemetry row.
+The scope is one more argument to it, so CLI and MCP cannot apply different scope rules
+(AC-09.4); the row's `scope` field records it (`ENGMEM-SPEC.md` §5, search step 6b).
 `engmem search` prints the string; `engmem_search` and `engmem_search_by_role` return it as the
 tool text. Only the unattributed note differs by channel, and stderr diagnostics stay with each
 caller. There were four copies of this composition, and they had drifted: the MCP ones never

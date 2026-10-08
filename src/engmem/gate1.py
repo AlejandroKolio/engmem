@@ -10,11 +10,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from engmem.settings import Mode
 from engmem.sections import split_sections
-from engmem.spine import Doc, Problem, _coerce_list_field, load_store, split_front_matter
+from engmem.spine import Doc, Problem, load_store
 
 QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
 NONE_LINE = "prior docs used: none."
@@ -173,31 +171,11 @@ def _line_number(path: Path, row_line: str) -> int:
     return 0
 
 
-def _repos(path: Path) -> set[str] | None:
-    """`None` means the front matter could not be read for `repos` -- distinct from "read fine,
-    no repos field". Uses `spine.split_front_matter`/`_coerce_list_field` directly rather than a
-    second, weaker parser -- see contracts/gate1.md, "Front matter is parsed once"."""
-    text = path.read_text(encoding="utf-8-sig")
-    try:
-        # no opening `---` line -> ("", text): yaml.safe_load("") -> {} -> set() below,
-        # the same answer the old explicit startswith guard gave -- removed as dead code
-        front_matter_text, _body = split_front_matter(text)
-    except ValueError:
-        return None
-    try:
-        raw = yaml.safe_load(front_matter_text) or {}
-    except yaml.YAMLError:
-        return None
-    if not isinstance(raw, dict):
-        return None
-    try:
-        # a bare scalar (`repos: engmem`) degrades to a one-element list, exactly like every
-        # other list field (spine._coerce_list_field) -- a mapping or number is unreadable
-        # and must not read as "no repos"
-        values, _warning = _coerce_list_field("repos", raw.get("repos"))
-    except ValueError:
-        return None
-    return set(values)
+def _repos(doc: Doc) -> set[str] | None:
+    """`None` means `repos` could not be read -- distinct from "read fine, no repos field". The
+    value is the one `spine.parse_document` read; see contracts/gate1.md, "Front matter is
+    parsed once"."""
+    return None if doc.repos is None else set(doc.repos)
 
 
 def _distance(citing: Doc, cited: Doc, repos: dict[str, set[str] | None]) -> Distance:
@@ -280,7 +258,7 @@ def evaluate(store: Path) -> Verdicts:
     result = load_store(store / "sessions")
     docs = {d.id: d for d in result.docs}
     bodies = {d.id: _normalized(d.body) for d in result.docs}
-    repos = {d.id: _repos(Path(d.path)) for d in result.docs}
+    repos = {d.id: _repos(d) for d in result.docs}
 
     rows: list[RowVerdict] = []
     none_reports: list[str] = []

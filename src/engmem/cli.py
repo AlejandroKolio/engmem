@@ -41,7 +41,7 @@ from engmem.runtime import (
     source_description,
     store_setting_file,
 )
-from engmem.scoring import role_coverage
+from engmem.scoring import Scope, role_coverage
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
 from engmem.settings import Mode, ModeSettingError, mode_setting_file, save_mode, saved_mode
@@ -105,6 +105,26 @@ def _report_strays(store: Path) -> tuple[list[Path], list[str]]:
     return strays, scan_errors
 
 
+def _search_scope(args: argparse.Namespace) -> tuple[Scope | None, int]:
+    """`(scope, 0)`, or `(None, 2)` after naming why the scope asked for is not one."""
+    if args.unscoped:
+        return Scope(unscoped=True), 0
+    if args.repo is None:
+        return None, 0
+    if len(args.repo) > 1:
+        fail(
+            f"engmem search: one --repo per search (got {len(args.repo)}: "
+            f"{', '.join(repr(name) for name in args.repo)})"
+        )
+        return None, 2
+    name = args.repo[0].strip()
+    if not name:
+        # never read as "no scope": a blank name would widen the search to the whole store
+        fail("engmem search: --repo needs a repository name (got a blank value)")
+        return None, 2
+    return Scope(repo=name), 0
+
+
 def _cmd_search(args: argparse.Namespace) -> int:
     # cheapest usage-error check first: a typo'd --role needs no store to be wrong
     if args.role is not None and args.role not in CANONICAL_ROLES:
@@ -114,6 +134,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
             f"the store actually has documents for)"
         )
         return 2
+    scope, failure = _search_scope(args)
+    if failure:
+        return failure
 
     store = resolve_store(args.store)
     result, failure = _read_sessions(store)
@@ -123,7 +146,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     strays, stray_scan_errors = _report_strays(store)
     print(compose(
         store, result, strays, stray_scan_errors, args.query, args.role,
-        _session_id(args.session), "cli",
+        _session_id(args.session), "cli", scope,
     ))
     return 0
 
@@ -548,6 +571,24 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
             "never padded with the wrong section. Run `engmem roles` to see the "
             "full vocabulary and which roles the store currently has documents for."
         ),
+    )
+    scope_options = search_parser.add_mutually_exclusive_group()
+    scope_options.add_argument(
+        "--repo",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help=(
+            "search only the records whose `repos` front matter names this repository "
+            "(case-insensitive). Title and tags never stand in for that link, so a record "
+            "with no `repos` is left out; find those with --unscoped. Without --repo or "
+            "--unscoped the whole store is searched."
+        ),
+    )
+    scope_options.add_argument(
+        "--unscoped",
+        action="store_true",
+        help="search only the records linked to no repository (no readable `repos` value)",
     )
     _add_store_option(search_parser)
     search_parser.set_defaults(func=_cmd_search)
