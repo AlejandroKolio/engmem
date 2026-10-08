@@ -116,6 +116,14 @@ class Doc:
     # the stated reason a research session had no baseline; "(no reason stated)" when the field
     # is present without one — see contracts/gate1.md, "Modes"
     baseline_unavailable: str | None = None
+    # US-09: the repositories this record is explicitly linked to, as written; None when the
+    # value could not be read, so "unknown" never reads as "linked to none" (contracts/gate1.md)
+    repos: list[str] | None = field(default_factory=list)
+
+
+def linked_repos(doc: Doc) -> list[str]:
+    """The repository names `doc` is linked to, stripped; a blank name is no link."""
+    return [name.strip() for name in doc.repos or () if name.strip()]
 
 
 @dataclass
@@ -248,6 +256,15 @@ def _coerce_list_field(field_name: str, value) -> tuple[list[str], str | None]:
             f"one-element list: [{value!r}]"
         )
     raise ValueError(f"{field_name} is not a list: {value!r}")
+
+
+def _coerce_repos(value) -> tuple[list[str] | None, str | None]:
+    """`repos` reads like any list field, except that a value of the wrong type costs the
+    record its links, not the record itself — see data-model.md, `repos`."""
+    try:
+        return _coerce_list_field("repos", value)
+    except ValueError as exc:
+        return None, f"{exc} — its repository links are unknown, so a --repo search leaves it out"
 
 
 def _coerce_bool(field_name: str, value) -> tuple[bool, str | None]:
@@ -394,6 +411,9 @@ def parse_document(path: Path) -> Doc:
     entities = _list_field("entities")
     related = _list_field("related")
     covers_files = _list_field("covers_files")
+    repos, repos_warning = _coerce_repos(raw.get("repos"))
+    if repos_warning:
+        field_warnings.append(repos_warning)
     navigation_miss, nav_warnings = _coerce_navigation_miss(raw.get("navigation_miss"))
     field_warnings.extend(nav_warnings)
 
@@ -455,6 +475,7 @@ def parse_document(path: Path) -> Doc:
         source_identity=identity,
         mode=mode,
         baseline_unavailable=baseline_unavailable,
+        repos=repos,
     )
 
 

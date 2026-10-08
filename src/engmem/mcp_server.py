@@ -17,6 +17,7 @@ import yaml
 from engmem import __version__, gate1
 from engmem.cache import identity_for
 from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
+from engmem.scoring import Scope
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES, split_sections
 # imported, not reimplemented, so a document a write tool below produces is
@@ -253,7 +254,11 @@ def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]
 
 
 def _run_search_for_tool(
-    store: Path, query: str, session_id: str | None = None, role: str | None = None
+    store: Path,
+    query: str,
+    session_id: str | None = None,
+    role: str | None = None,
+    scope: Scope | None = None,
 ) -> tuple[str, bool]:
     """`(text, is_error)`: the composed result the CLI prints, carried in the tool result."""
     try:
@@ -265,7 +270,9 @@ def _run_search_for_tool(
         print(f"engmem-mcp: {scan_error}", file=sys.stderr)
     # channel="mcp" keeps a Desktop search and a terminal search distinguishable in
     # telemetry.jsonl; compose writes the row, so the MCP path is never invisible to Gate 1
-    text = compose(store, result, strays, stray_scan_errors, query, role, session_id, "mcp")
+    text = compose(
+        store, result, strays, stray_scan_errors, query, role, session_id, "mcp", scope
+    )
     return text, False
 
 
@@ -879,6 +886,23 @@ _SESSION_ID_SCHEMA = {
     ),
 }
 
+# US-09: the same scope `engmem search --repo` / `--unscoped` take, under the same rules
+_REPO_SCHEMA = {
+    "type": "string",
+    "description": (
+        "Search only the records whose `repos` front matter names this repository "
+        "(case-insensitive). Title and tags never stand in for that link, so a record "
+        "with no `repos` is left out. Omit it, and `unscoped`, to search the whole store."
+    ),
+}
+_UNSCOPED_SCHEMA = {
+    "type": "boolean",
+    "description": (
+        "true: search only the records linked to no repository (no readable `repos` "
+        "value). Not combined with `repo`."
+    ),
+}
+
 
 def _handle_tools_list(params: dict, store: Path) -> dict:
     return {
@@ -897,6 +921,8 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                             ),
                         },
                         "session_id": _SESSION_ID_SCHEMA,
+                        "repo": _REPO_SCHEMA,
+                        "unscoped": _UNSCOPED_SCHEMA,
                     },
                     "required": ["query"],
                 },
@@ -930,6 +956,8 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                             ),
                         },
                         "session_id": _SESSION_ID_SCHEMA,
+                        "repo": _REPO_SCHEMA,
+                        "unscoped": _UNSCOPED_SCHEMA,
                     },
                     "required": ["query", "role"],
                 },
@@ -1043,6 +1071,34 @@ _WRITE_TOOL_HANDLERS = {
 }
 
 
+def _search_scope(arguments: object) -> Scope | None:
+    """The scope a search tool call asks for; `null` and `false` are absent, and a blank
+    `repo` is refused rather than read as the whole store (contracts/mcp-server.md)."""
+    args = arguments if isinstance(arguments, dict) else {}
+    repo = args.get("repo")
+    unscoped = args.get("unscoped")
+    if repo is not None and not isinstance(repo, str):
+        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'repo' must be a string")
+    if unscoped is not None and not isinstance(unscoped, bool):
+        raise _ProtocolError(INVALID_PARAMS, "invalid params: 'unscoped' must be a boolean")
+    if repo is not None and not repo.strip():
+        raise _ProtocolError(
+            INVALID_PARAMS,
+            "invalid params: 'repo' needs a repository name (got a blank value) — omit it "
+            "to search the whole store",
+        )
+    if repo is not None and unscoped:
+        raise _ProtocolError(
+            INVALID_PARAMS,
+            "invalid params: 'repo' and 'unscoped' are two different scopes — pass one",
+        )
+    if unscoped:
+        return Scope(unscoped=True)
+    if repo is None:
+        return None
+    return Scope(repo=repo.strip())
+
+
 def _handle_tools_call(params: dict, store: Path) -> dict:
     if "name" not in params:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: missing required 'name' field")
@@ -1093,6 +1149,7 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
     if session_id is not None:
         # blank == absent; mirrors cli.py's _session_id so both paths log the same key
         session_id = session_id.strip() or None
+    scope = _search_scope(arguments)
 
     if name == ROLE_TOOL_NAME:
         role = arguments.get("role") if isinstance(arguments, dict) else None
@@ -1103,9 +1160,9 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
                 + ", ".join(CANONICAL_ROLES)
                 + (f" (got {role!r})" if role is not None else " (missing)"),
             )
-        text, is_error = _run_search_for_tool(store, query, session_id, role)
+        text, is_error = _run_search_for_tool(store, query, session_id, role, scope)
     else:
-        text, is_error = _run_search_for_tool(store, query, session_id)
+        text, is_error = _run_search_for_tool(store, query, session_id, scope=scope)
 
     result: dict = {"content": [{"type": "text", "text": text}]}
     if is_error:

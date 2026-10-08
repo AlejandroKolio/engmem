@@ -144,6 +144,12 @@ mode: <daily|research from step 0>   # write the one word; left as is, it counts
   to paste the output back into the conversation. Do not silently skip this step just
   because you can't run it yourself.
 
+Search the whole store unless the user asks you to limit it to one repository: a story from
+another repository is often the one worth finding. When they do, add `--repo <name>` (MCP:
+`repo`) with the name their documents write in `repos`; `--unscoped` (MCP: `unscoped: true`)
+finds the records linked to no repository. A scoped result opens with a `scope:` line, and a
+miss under it says nothing about the rest of the store.
+
 ## 4. Load what was found — and measure what it cost
 
 From the search results, load at most 3 documents, plus each of their `related` documents

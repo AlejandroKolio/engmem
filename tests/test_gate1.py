@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from engmem import gate1
+from engmem.spine import parse_document
 
 
 def _doc(sessions: Path, doc_id: str, *, status: str = "active", tags="[platform]",
@@ -303,7 +304,7 @@ def test_repos_on_a_document_with_no_front_matter_at_all_is_an_empty_set(tmp_pat
     path = tmp_path / "no-front-matter.md"
     path.write_text("# Just a heading\n\nNo front matter block at all.\n", encoding="utf-8")
 
-    assert gate1._repos(path) == set()
+    assert gate1._repos(parse_document(path)) == set()
 
 
 # ---------------------------------------------------------------------------

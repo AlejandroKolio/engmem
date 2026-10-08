@@ -25,7 +25,7 @@ YAML front matter + a fixed set of markdown body sections.
 | `covers_files` | list[string] | no | agent draft, human confirms | files touched by the underlying work |
 | `verified_at_commit` | string (git sha) | no | automatic | HEAD at the moment of save |
 | `author` | string | no | automatic (`git config user.name`) | who did the work; constant in a single-author store, kept for parity with hand-written knowledge-base documents |
-| `repos` | list[string] | no | agent draft, human confirms / backfill | repositories the work touched. The same names also appear in `tags`, deliberately: `tags` is scored and `repos` is not, so the tag copy is what makes a repo findable while this field is what a reader looks at |
+| `repos` | list[string] | no | agent draft, human confirms / backfill | repositories the work touched, by name (the repository's directory name, e.g. `platform-core`). The same names also appear in `tags`, deliberately: `tags` is scored and `repos` is not, so the tag copy is what makes a repo findable. `repos` is the explicit link a `--repo` search filters on (US-09; contracts/scoring.md) — the tag copy and the title never stand in for it. A scalar degrades to a one-element list with a warning; a value of another type (`repos: {a: b}`) does not cost the document — it loads with a warning, its links unknown, and only an `--unscoped` search finds it |
 | `branch` | string | no | automatic (`git rev-parse --abbrev-ref HEAD`) | branch the work was done on |
 | `pr` | string \| number | no | agent draft | pull request number or URL, blank when none exists |
 | `navigation_miss` | list[{doc, query}] | no | agent, at save | documents the search failed to surface that were used anyway. Both keys required per entry; a half-written entry is dropped with a warning, never the document. Counted by `engmem telemetry` separately from search misses — a search that found nothing and a search that missed something present are different failures |
@@ -64,7 +64,7 @@ reasoning that governs every other field here.
 Spine completeness (`spine_complete` / the `partial spine` count) is measured over the
 fields that affect retrieval only — `id`, `title`, `date`, `task_date`, `status`, `tags`,
 `entities`. `backfilled`, `verified_at_commit`, `capture_minutes`, `author`, `repos`,
-`branch`, `pr`, `mode` and `baseline_unavailable` are excluded: nothing ranks, orders or filters on them, and a draft cannot know the commit it will be verified
+`branch`, `pr`, `mode` and `baseline_unavailable` are excluded: nothing ranks or orders on them, `repos` filters only a search that asks for a scope (a record about no repository is complete without it), and a draft cannot know the commit it will be verified
 at nor how long its own capture will take. Counting them flagged every draft the `/engmem`
 template creates as a partial spine, which trains the reader to ignore the signal.
 

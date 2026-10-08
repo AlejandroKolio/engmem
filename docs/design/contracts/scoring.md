@@ -96,9 +96,9 @@ terms that match nothing, and coverage counts them. The test pins the same top h
 as before, and scores equal to the same query with two unmatched ASCII words in place of the
 Greek ones.
 
-## Drafts are outside the ranking corpus (`_ranking_corpus`)
+## Drafts are outside the ranking corpus (`ranking_corpus`)
 
-`search` and `search_with_role_sections` rank over `_ranking_corpus(docs)`, which leaves every
+`search` and `search_with_role_sections` rank over `ranking_corpus(docs)`, which leaves every
 draft out before any statistic is taken: the section index, `n`, `avgdl`, document
 frequencies and so `DF_CEILING_RATIO`, `idf`, and the ambiguity clusters. Adding, editing or
 deleting a draft therefore cannot change the set, order or score of a published result; only
@@ -118,6 +118,49 @@ The successor lookup still sees the whole store (`_search_core`'s `store_docs`):
 document's `superseded_by` may name a draft, which `output.md` names but does not render.
 Once published (`draft -> active`) a document joins the corpus on the next search and is ranked
 exactly as one that was born active.
+
+## A repository scope narrows the corpus, before any statistic (US-09)
+
+`search(docs, query, scope)` and `search_with_role_sections` take an optional `Scope`: one
+repository (`Scope(repo=...)`, `engmem search --repo`, MCP `repo`) or the records linked to
+none (`Scope(unscoped=True)`, `--unscoped`, MCP `unscoped: true`). `None`, the default, is the
+whole store and ranks exactly as before the scope existed. A scope is applied in
+`ranking_corpus`, the same place a draft is left out, so `n`, `avgdl`, document frequencies,
+`DF_CEILING_RATIO` and the ambiguity clusters are all computed over the scope's records only. A
+scoped search ranks exactly like a store that holds only those records.
+
+Why before ranking and not after it. Ranking the whole store and dropping the other
+repositories' hits afterwards fails in the same two ways a draft did before US-01:
+
+- another repository's text moves a term past the DF ceiling — `flag` in 4 of 5 sections store
+  wide, 1 of 2 inside the scope — and the scope's only record that holds it is no longer found;
+- another repository's entity forms a second ambiguity cluster (`WidgetCache` here,
+  `WorkerCount` there, both `WC`), so a scoped short query is marked ambiguous and collapsed
+  over documents the reader never sees.
+
+The cost is that a score is comparable only within one scope; golden tests pin order and
+membership, never an absolute score, and nothing compares scores across searches.
+
+The link is the `repos` front-matter field and nothing else (`in_scope`). The repo name also
+sits in `tags` by convention (data-model.md), and a title often names it; neither counts, or a
+record about the repository would be indistinguishable from a record linked to it (AC-09.3).
+Names compare by `repo_key`: surrounding space and case do not count, because the same
+repository is written `platform-core` in one session and `Platform-Core` in the next, and
+Gate 1's dogfooding check already compares case-insensitively. Nothing else is normalised: a
+remote URL, a `.git` suffix or a path is a different name, and the hit's `repos:` line
+(`output.md`) shows the reader the spelling that did or did not match.
+
+`repos` is read once, by `spine.parse_document` (`Doc.repos`). A record whose `repos` is
+absent, empty or only blank names has no link; one whose value is neither a list nor a string
+(`repos: {a: b}`) has `Doc.repos = None` — its links are unknown — and loads with a warning,
+never dropped. Both are left out of every repository scope and found under `unscoped`.
+
+The successor of a superseded hit and a hit's `related` documents are still looked up in the
+whole store: they are pointers named by a record inside the scope, and the successor's own
+`repos:` line shows when it lives elsewhere.
+
+A search filter is not an access control: the tools, the store and every other repository's
+records stay readable, and `--repo` narrows only what one search ranks.
 
 ## `ID_SLUG_WEIGHT`
 
