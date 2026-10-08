@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from engmem.cache import identity_for
+from engmem.settings import Mode
 
 # Fields whose absence degrades retrieval: the scored fields plus the ones that order and filter
 # results.
@@ -109,6 +110,12 @@ class Doc:
     navigation_miss: list[NavigationMiss] = field(default_factory=list)
     degraded_fields: list[str] = field(default_factory=list)
     field_warnings: list[str] = field(default_factory=list)
+    # US-08: None = written before modes existed (legacy); otherwise as written, casefolded, so
+    # a misspelling stays visible to the count instead of reading as legacy
+    mode: str | None = None
+    # the stated reason a research session had no baseline; "(no reason stated)" when the field
+    # is present without one — see contracts/gate1.md, "Modes"
+    baseline_unavailable: str | None = None
 
 
 @dataclass
@@ -325,6 +332,32 @@ def _normalize_status(raw_value, field_warnings: list[str]) -> str:
     return normalized
 
 
+KNOWN_MODES = frozenset(Mode)
+NO_REASON_STATED = "(no reason stated)"
+
+
+def _coerce_mode(value, field_warnings: list[str]) -> str:
+    normalized = str(value).strip().casefold()
+    if normalized not in KNOWN_MODES:
+        field_warnings.append(
+            f"mode is not a recognized value ({value!r}) — one of {', '.join(Mode)}; "
+            "the Gate 1 count leaves this document out until it is corrected"
+        )
+    return normalized
+
+
+def _coerce_baseline_unavailable(value, field_warnings: list[str]) -> str:
+    """Any stated value marks the observation incomplete: reading `true` or a blank as "the
+    baseline was there" would put a session with no baseline into the valid group."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    field_warnings.append(
+        f"baseline_unavailable is {value!r}, not a reason — read as unavailable "
+        f"{NO_REASON_STATED}"
+    )
+    return NO_REASON_STATED
+
+
 def parse_document(path: Path) -> Doc:
     """One document, or `yaml.YAMLError`/`ValueError`/`OSError` — `load_store` is the path that
     reports those instead, and the only one that also checks ids across the store."""
@@ -388,6 +421,13 @@ def parse_document(path: Path) -> Doc:
                 f"read as {superseded_by!r}"
             )
 
+    mode = _coerce_mode(raw["mode"], field_warnings) if stated(raw, "mode") else None
+    baseline_unavailable = None
+    if stated(raw, "baseline_unavailable"):
+        baseline_unavailable = _coerce_baseline_unavailable(
+            raw["baseline_unavailable"], field_warnings
+        )
+
     return Doc(
         id=str(raw["id"]) if stated(raw, "id") else path.stem,
         title=str(raw["title"]) if stated(raw, "title") else _derive_title(body, path),
@@ -413,6 +453,8 @@ def parse_document(path: Path) -> Doc:
         degraded_fields=degraded,
         field_warnings=field_warnings,
         source_identity=identity,
+        mode=mode,
+        baseline_unavailable=baseline_unavailable,
     )
 
 
@@ -466,7 +508,9 @@ def load_store(sessions_dir: Path) -> LoadResult:
         for warning in doc.field_warnings:
             result.warnings.append(Problem(path=path, message=f"{path.name}: {warning}"))
 
-        if not doc.body.strip():
+        # a daily draft is front matter alone by design (US-08), so its empty body is not news
+        daily_draft = doc.status == "draft" and doc.mode == Mode.DAILY
+        if not doc.body.strip() and not daily_draft:
             result.warnings.append(
                 Problem(path=path, message=f"{path.name}: document is empty")
             )

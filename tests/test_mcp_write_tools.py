@@ -1084,7 +1084,7 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
     body = "x" * (2 * 1024 * 1024)
     content = (
         "---\nid: 20260101-widget-cache\ntitle: Widget cache\ndate: 2026-01-01\n"
-        f"status: draft\n---\n\n## Pre-reg\n\n{body}\n"
+        f"status: draft\nmode: daily\n---\n\n## Pre-reg\n\n{body}\n"
     )
 
     result, is_error = _call(

@@ -153,6 +153,54 @@ The three tools' own rules:
   byte-for-byte; retyping the whole document to flip two fields risks silent drift in
   everything else.
 
+### The mode a draft records (US-08)
+
+A session's mode is the condition the Gate 1 count reads (`contracts/gate1.md`, "Modes"), so the
+one tool that creates a session checks it, and the one that finishes a session keeps it.
+
+**`engmem_create_draft` takes the configured mode and no other** (`_mode_refusal`). The content's
+front matter must state `mode`, and it must equal the mode saved now (`settings.effective_mode`,
+read on every call, `daily` when nothing is saved). A missing `mode`, an unknown word, or the
+other mode is refused, and the refusal names the configured mode and `engmem mode set` — that is
+also how a client that never read the mode learns it, before anything is written or searched. A
+missing `mode` is refused rather than accepted as legacy: a daily user's session without one
+would otherwise enter the experiment as a legacy story. Its refusal also says that an installed
+template or skill may predate modes and names `engmem install --agent <agent>`: a template copied
+out before US-08 composes drafts without `mode`, and without the hint every draft it produces is
+refused with no pointer to the cause. A `research` draft must also carry the
+baseline before the first search: a `## Pre-reg` section, or `baseline_unavailable: <reason>` in
+the front matter (AC-08.2, AC-08.5). A `daily` draft needs neither. The success text ends with
+the recorded mode, after the version sentence, so the line a client parses for the version is
+unchanged.
+
+When the mode file cannot be read, a `daily` draft is still created and a `research` draft is
+refused with the file's error. A daily record can never be a wrong observation in the
+experiment, so the broken file blocks only the mode it could be hiding (AC-08.1: daily work is
+never blocked).
+
+**The shell path is unguarded.** A shell agent writes `sessions/<id>.md` itself, and nothing
+checks its `mode` at write time. The count guards that path on its own side: the template's
+placeholder `mode: <daily|research from step 0>`, copied as is, reads as an unrecognized mode,
+and a `mode: research` document with neither a Pre-reg nor `baseline_unavailable` is excluded as
+a missing baseline (`contracts/gate1.md`, "Modes"). A wrongly chosen but valid word — `daily`
+written by a research user, or the reverse with a Pre-reg — is not detectable afterwards.
+
+**`engmem_complete_draft` keeps the draft's condition** (`_refuse_a_changed_observation`). The
+content's `mode` must equal the draft's — both absent for a draft written before modes existed —
+and a draft's `baseline_unavailable` may not be dropped: a baseline cannot be supplied after the
+search, and dropping the field would move an incomplete observation into the valid group. A
+switch of the saved mode between the two calls does not matter here; the draft already
+recorded its mode (AC-08.4). Adding `baseline_unavailable` at completion is allowed, since it only
+moves the session out of the valid group.
+
+**The `engmem` prompt names the mode on its first line** (`_mode_line`), read on every
+`prompts/get`, because a client with no shell has no `engmem mode show` to run and the start
+template's step 0 must be answerable before the Pre-reg it decides. Only the start prompt gets
+the line; the save prompts copy the mode from the draft. An unreadable file reads there as
+`daily` with the error quoted, which is what the template tells a shell agent to do. The mode
+is not in `initialize`'s result: a server outlives many sessions, and a value read once at
+launch would ignore a later `engmem mode set`.
+
 ### `engmem_complete_draft`: Reuse Log rows — refuse, then warn
 
 The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SPEC.md` §11,

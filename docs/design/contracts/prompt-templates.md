@@ -17,13 +17,41 @@ is read only from sessions recording `pre-reg source: sub-agent`.
 
 ## The Pre-reg must never be asked of the human, and must never gate the answer
 
-It is obtained before any search, from a sub-agent that knows only the task description —
+In research mode it is obtained before any search, from a sub-agent that knows only the task description —
 or, failing that, written by the agent itself before it opens a single prior document.
 
 A template that prompts the user for it, waits on them, or refuses to proceed without it
 has broken the experiment twice over: it contaminates the baseline with the user's own
 thinking, and it turns the capture ritual into a precondition for getting an answer.
 Recording *which* source was used is what keeps the two cases distinguishable later.
+
+## The mode is read first, and recorded once (US-08)
+
+`engmem.start.md` opens with step 0, before the Pre-reg it decides: the mode comes from the first
+line of `engmem mode show`, from the first line of the `engmem` MCP prompt, or, with neither, from
+the one word in the mode file, `daily` when there is none. Numbered 0 so steps 1–6 keep the
+numbers other documents cite.
+
+- **daily** skips step 1 entirely: no Pre-reg, no baseline sub-agent, and the draft is the front
+  matter alone, `mode: daily`. AC-08.1 asks that ordinary work neither waits on nor pays for the
+  experiment, and a daily session is outside the count anyway (`contracts/gate1.md`, "Modes").
+- **research** runs step 1 exactly as before. When no uncontaminated baseline can be had before
+  the search, the agent writes none and records `baseline_unavailable: <reason>` instead. Search
+  and save continue; the report keeps the session apart (AC-08.5). A baseline written after a
+  store document was read would be counted as a real one, and that is worse than a recorded gap.
+- **unreadable** is told to the user and run as daily: a daily session cannot put a wrong
+  observation into the experiment, so it is the one safe guess.
+
+The draft's YAML shows `mode: <daily|research from step 0>`, not a real value: a shell agent's
+draft is not checked by any tool, and a placeholder that is a valid word would be copied as a
+claim. Copied literally, this one is an unrecognized mode and counts nowhere.
+
+The mode is written once, into the draft, and the save templates copy `mode` and
+`baseline_unavailable` unchanged — never added, edited or dropped, whatever the saved mode is by
+then. `engmem_complete_draft` enforces that for MCP clients; a shell save has the template's word
+for it, as it has for the Reuse Log rules. Both save templates carry the Pre-reg over only when
+the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
+short save is the daily path the story is about.
 
 ## Templates may not grow the tool
 

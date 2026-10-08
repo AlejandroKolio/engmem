@@ -53,6 +53,7 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
     stale_distant = sum(1 for r in distant if r.staleness == gate1.Staleness.CITED_SUPERSEDED)
     dogfooding_excluded = sum(1 for r in rows if r.dogfooding)
     status_excluded = sum(1 for r in rows if gate1.excluded_by_status(r) is not None)
+    observations = [gate1.observation_of(r.citing) for r in rows]
 
     lines = [
         f"rows: {len(rows)}",
@@ -72,13 +73,19 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
         "excluded from the count, by axis (a row may match more than one -- see the total "
         "above for the true count, not the sum of these): "
         f"{dogfooding_excluded} dogfooding (story about this repository), "
-        f"{status_excluded} citing document not active (draft/superseded)",
+        f"{status_excluded} citing document not active (draft/superseded), "
+        f"{observations.count(gate1.Observation.DAILY)} outside the experiment (mode: daily), "
+        f"{observations.count(gate1.Observation.INCOMPLETE)} incomplete observation "
+        "(baseline_unavailable), "
+        f"{observations.count(gate1.Observation.MISSING_BASELINE)} research without a baseline, "
+        f"{observations.count(gate1.Observation.UNRECOGNIZED)} mode not recognized",
         f"{len(valid)} valid (the last column above is theirs to fill), of which "
         f"{len(distant)} distant, {len(adjacent)} adjacent, {len(undecidable)} undecidable",
         f"of the {len(distant)} distant, {stale_distant} cite a superseded document "
         "(flagged, not excluded -- see the staleness column)",
         "ENGMEM-SPEC.md section 11's primary endpoint counts the distant figure above.",
-        f"documents reporting no reuse: {len(verdicts.none_reports)}",
+        f"documents reporting no reuse: {len(verdicts.none_reports)}"
+        + _kept_apart(len(verdicts.none_reports_kept_apart)),
     ]
     if verdicts.conflicts:
         lines.append("")
@@ -89,6 +96,17 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
         for conflict in verdicts.conflicts:
             lines.append(f"  {conflict.doc_id}: {conflict.row_count} row(s)")
     return lines
+
+
+def _kept_apart(count: int) -> str:
+    """The clause naming documents a story-level figure leaves out by mode, so it reads as a
+    choice and not as a gap (contracts/gate1.md, "Modes")."""
+    if not count:
+        return ""
+    return (
+        f" ({count} more kept apart by mode -- daily, incomplete, research without a baseline "
+        "or mode not recognized -- not counted)"
+    )
 
 
 def _missing_line(label: str, ids: list[str]) -> str:
@@ -117,6 +135,10 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
     invisible to the per-row table but is exactly the gap this block exists to name.
     contracts/gate1.md, "The audit coverage block."."""
     started = audit.draft_count + audit.active_count
+    kept_apart_by_mode = sum(len(ids) for ids in (
+        audit.daily_docs, audit.incomplete_docs, audit.missing_baseline_docs,
+        audit.unrecognized_mode_docs,
+    ))
     orphan_ids_suffix = " -- " + ", ".join(audit.orphan_session_ids) if audit.orphan_session_ids else ""
     unreconstructable_suffix = (
         " -- " + ", ".join(audit.unreconstructable_docs) if audit.unreconstructable_docs else ""
@@ -132,7 +154,8 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
         "a backfilled document never ran the ritual (ENGMEM-SPEC.md section 4: "
         "'docs written after the fact'); "
         f"{len(audit.no_prereg_docs)} document(s) with no Pre-reg section also counted in "
-        "neither figure -- written before the ritual existed, or outside it",
+        "neither figure -- written before the ritual existed, or outside it; "
+        f"{kept_apart_by_mode} document(s) kept apart by mode, listed below",
     ]
     if audit.telemetry_error is not None:
         lines.append(
@@ -145,10 +168,14 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
         f"{audit.telemetry_distinct_sessions} distinct session(s) -- both figures are named "
         "on purpose: rows-per-session is its own signal, never folded into one number",
     ))
-    lines.append(f"session documents with a Reuse Log section (any status): {audit.reuse_log_count}")
+    lines.append(
+        f"session documents with a Reuse Log section (any status): {audit.reuse_log_count}"
+        + _kept_apart(audit.reuse_log_kept_apart)
+    )
     lines.append(
         "session documents honestly reporting 'Prior docs used: none.': "
         f"{audit.none_report_count}"
+        + _kept_apart(audit.none_report_kept_apart)
     )
     lines.append(_missing_line("active documents missing a Reuse Log section", audit.active_missing_reuse))
     lines.append(_missing_line("active documents missing a Search Trace section", audit.active_missing_trace))
@@ -156,6 +183,23 @@ def _audit_lines(audit: gate1_audit.AuditReport) -> list[str]:
         "session documents with no Pre-reg section, excluded from the ritual population (any "
         "status; a backfilled document is counted on the backfilled figure instead)",
         audit.no_prereg_docs,
+    ))
+    lines.append(_missing_line(
+        "sessions outside the experiment (mode: daily), not in the ritual figures",
+        audit.daily_docs,
+    ))
+    lines.append(_missing_line(
+        "incomplete observations (baseline_unavailable), kept apart from the valid group and "
+        "the baseline comparison",
+        audit.incomplete_docs,
+    ))
+    lines.append(_missing_line(
+        "research sessions with no Pre-reg and no baseline_unavailable, kept apart like an "
+        "incomplete observation",
+        audit.missing_baseline_docs,
+    ))
+    lines.append(_missing_line(
+        "mode not recognized, excluded until corrected", audit.unrecognized_mode_docs
     ))
     lines.append(_telemetry_line(
         "telemetry rows whose session_id matches no document in this store", audit,

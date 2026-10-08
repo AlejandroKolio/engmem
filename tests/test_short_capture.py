@@ -26,7 +26,7 @@ TRANSCRIPT = ROOT / "docs" / "design" / "acceptance" / "us-07-short-capture.md"
 
 LABELS = ("Decision", "Reason", "Rejected alternative", "Source")
 ABSENT = "not stated in the available material."
-SHORT_RECORD_ROLES = {"prereg", "decisions", "primer", "reuse", "trace"}
+SHORT_RECORD_ROLES = {"decisions", "primer", "reuse", "trace"}
 EXAMPLE_ID = "20260101-export-retry"
 
 UNRELATED = (
@@ -52,9 +52,7 @@ OTHER_RECORD = (
     f"---\nid: {OTHER_ID}\ntitle: Ledger batches settle once a night\ndate: 2026-01-02\n"
     "task_date: 2026-01-02\nstatus: active\nsuperseded_by:\nbackfilled: false\n"
     "tags: [ledger]\nentities: [LedgerBatch]\nrelated: []\ncovers_files: []\n"
-    "verified_at_commit:\ncapture_minutes:\n---\n\n"
-    "## Pre-reg\n\nNaive baseline: settle each batch as it arrives.\n"
-    "pre-reg source: self (no sub-agent available)\n\n"
+    "verified_at_commit:\ncapture_minutes:\nmode: daily\n---\n\n"
     "## Decision Log\n\n"
     "- Decision: LedgerBatch settles once a night.\n"
     "- Reason: the clearing house accepts one file a day.\n"
@@ -68,10 +66,12 @@ OTHER_RECORD = (
 
 def _draft_of(record: str) -> str:
     """The draft `/engmem` would have left behind: the record's front matter as a draft, and
-    its Pre-reg only."""
+    its Pre-reg only, when the session had one."""
     front, body = split_front_matter(record)
-    prereg = next(s for s in split_sections(body) if s.canonical == "prereg")
+    prereg = next((s for s in split_sections(body) if s.canonical == "prereg"), None)
     front = front.replace("status: active", "status: draft")
+    if prereg is None:
+        return f"---\n{front}---\n"
     return f"---\n{front}---\n\n## Pre-reg\n\n{prereg.body}\n"
 
 
@@ -96,7 +96,9 @@ def _assert_is_a_short_record(record: str) -> None:
     _, body = split_front_matter(record)
     roles = {s.canonical for s in split_sections(body)}
     assert SHORT_RECORD_ROLES <= roles, f"missing sections: {SHORT_RECORD_ROLES - roles}"
-    assert roles <= SHORT_RECORD_ROLES | {"lessons"}, f"sections beyond the short record: {roles}"
+    assert roles <= SHORT_RECORD_ROLES | {"lessons", "prereg"}, (
+        f"sections beyond the short record: {roles}"
+    )
     blocks = _components(record)
     assert 1 <= len(blocks) <= 3
     for block in blocks:
@@ -176,8 +178,9 @@ def test_ac_07_1_the_template_names_each_component_line_and_the_primer():
         assert f"- {label}: <" in text, f"step 1 no longer shows the {label} line"
     assert "## Future LLM Context (cold-start primer)" in text
     assert (
-        "Besides Pre-reg, Reuse Log and Search Trace (steps 3–5), which every save carries, no "
-        "other section needs filling." in " ".join(text.split())
+        "Besides Reuse Log and Search Trace (steps 3–4), which every save carries, and the "
+        "draft's Pre-reg (step 5) when it has one, no other section needs filling."
+        in " ".join(text.split())
     )
     components = text[text.index("## The five components"):text.index("## Rules")]
     primer_step = text[text.index("2. Write `## Future LLM"):text.index("3. Write")]
@@ -241,10 +244,13 @@ def test_ac_07_3_the_prescribed_record_completes_with_no_warning_and_passes_the_
         f"{EXAMPLE_ID}.md"
     ]
     verdicts = gate1.evaluate(store)
-    assert EXAMPLE_ID in verdicts.none_reports and not verdicts.conflicts
+    # a clean "none" report, kept apart from the counted figure because the example is daily
+    assert EXAMPLE_ID in verdicts.none_reports_kept_apart and not verdicts.conflicts
+    assert EXAMPLE_ID not in verdicts.none_reports
     audit = gate1_audit.evaluate(store, verdicts)
     assert EXAMPLE_ID not in audit.active_missing_reuse + audit.active_missing_trace
     assert EXAMPLE_ID not in audit.no_prereg_docs + audit.unreconstructable_docs
+    assert audit.daily_docs == [EXAMPLE_ID], "a daily short record is outside the experiment"
     assert not audit.orphan_session_ids
 
 

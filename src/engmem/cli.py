@@ -44,6 +44,7 @@ from engmem.runtime import (
 from engmem.scoring import role_coverage
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
+from engmem.settings import Mode, ModeSettingError, mode_setting_file, save_mode, saved_mode
 from engmem.spine import Doc, LoadResult, load_store, sessions_dir_unreadable, stray_documents
 from engmem.telemetry import summarize as summarize_telemetry
 
@@ -405,6 +406,52 @@ def _cmd_store_set(args: argparse.Namespace) -> int:
     return 0
 
 
+_MODE_MEANING = {
+    Mode.DAILY: (
+        "daily: /engmem writes no Pre-reg and launches no baseline sub-agent; sessions are "
+        "recorded `mode: daily` and stay outside the Gate 1 experiment"
+    ),
+    Mode.RESEARCH: (
+        "research: /engmem runs the Gate 1 protocol — a Pre-reg baseline before the first "
+        "search, or `baseline_unavailable: <reason>` when none can be had"
+    ),
+}
+
+
+def _cmd_mode_show(args: argparse.Namespace) -> int:
+    """The mode the next session will record, and where it came from."""
+    setting = mode_setting_file()
+    mode = saved_mode()
+    print(f"mode: {mode or Mode.DAILY}")
+    if mode is None:
+        print(f"source: default (no saved choice in {setting})")
+    else:
+        print(f"source: saved choice ({setting})")
+    print(_MODE_MEANING[mode or Mode.DAILY])
+    return 0
+
+
+def _cmd_mode_set(args: argparse.Namespace) -> int:
+    """Saves the mode every session started from now on records; past sessions keep theirs."""
+    try:
+        mode = Mode(args.mode.strip().casefold())
+    except ValueError:
+        fail(f"engmem mode set: unknown mode {args.mode!r} — one of {', '.join(Mode)}")
+        return 2
+    try:
+        setting = save_mode(mode)
+    except OSError as exc:
+        fail(f"engmem mode set: cannot write {mode_setting_file()}: {exc}")
+        return 2
+    print(f"engmem mode: saved {mode} in {setting}")
+    print(_MODE_MEANING[mode])
+    print(
+        "note: the next session started with /engmem records this mode; sessions already "
+        "started keep the mode they recorded"
+    )
+    return 0
+
+
 _STORE_HELP = (
     "path to the engmem store (default: $ENGMEM_HOME, else the store saved by "
     "`engmem store set`, else ~/Developer/engmem)"
@@ -582,6 +629,30 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     store_set_parser.set_defaults(func=_cmd_store_set)
 
+    mode_parser = subparsers.add_parser(
+        "mode",
+        help="show or save whether sessions run in daily mode or research (Gate 1) mode",
+    )
+    mode_commands = mode_parser.add_subparsers(dest="mode_command", required=True)
+    mode_show_parser = mode_commands.add_parser(
+        "show", help="print the mode the next session will record, and where it came from"
+    )
+    mode_show_parser.set_defaults(func=_cmd_mode_show)
+    mode_set_parser = mode_commands.add_parser(
+        "set",
+        help=(
+            "save the mode for every session started from now on; sessions already "
+            "recorded keep theirs"
+        ),
+    )
+    mode_set_parser.add_argument(
+        "mode",
+        metavar="MODE",
+        # not argparse `choices=`: _cmd_mode_set names the cause on both streams itself
+        help=f"one of {', '.join(Mode)} (default when nothing is saved: daily)",
+    )
+    mode_set_parser.set_defaults(func=_cmd_mode_set)
+
     doctor_parser = subparsers.add_parser(
         "doctor",
         help=(
@@ -667,9 +738,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except StoreSettingError as exc:
-        # one place for every command: none of them may fall back to another store when the
-        # saved one cannot be read (contracts/runtime.md); `engmem mcp` handles its own
+    except (StoreSettingError, ModeSettingError) as exc:
+        # one place for every command: none of them may fall back to another store, or read a
+        # broken mode as daily (contracts/runtime.md); `engmem mcp` handles its own
         fail(f"engmem {args.command}: {exc}")
         return 2
 

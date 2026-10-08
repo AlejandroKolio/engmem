@@ -32,7 +32,8 @@ Everything else in this README is plumbing that exists so this loop can run.
 **1. Pre-register.** `/engmem <task>` writes a two-line naive plan *before* it searches
 anything — obtained from a sub-agent that knows only the task, so the baseline is not
 contaminated by what the store already told you. It never asks you for it and never waits
-on it.
+on it. This step runs in research mode only; in daily mode, the default, it is skipped
+(see "Daily or research mode" below).
 
 **2. Search, on the record.** `engmem search` is a bounded channel, not a better grep: its
 output is capped at 4 KB and every call writes a row to `telemetry.jsonl` — the query, what
@@ -122,9 +123,9 @@ it yourself if you want to. Running it twice is safe.
 
 The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` → the store saved
 with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents)
-and `telemetry.jsonl` (append-only search log). The one config file is
-`~/.config/engmem/store` (`$XDG_CONFIG_HOME/engmem/store`; `%APPDATA%\engmem\store` on
-Windows): one line, the store path, written only by `engmem store set`. `install --store PATH`
+and `telemetry.jsonl` (append-only search log). engmem has two one-line setting files, both in
+`~/.config/engmem/` (`$XDG_CONFIG_HOME/engmem/`; `%APPDATA%\engmem\` on Windows): `store`, the
+store path, written only by `engmem store set`, and `mode` (below). `install --store PATH`
 does not save it — `--store` always means "this command only" — and install says so when the
 store it just used is not the one later commands will find:
 
@@ -133,6 +134,26 @@ engmem store set ~/notes/engmem   # every command and installed template without
 engmem store show                 # the effective store, where it came from, and any MCP entry
                                   # (Claude Desktop, Codex) still pointing at a different store
 ```
+
+**Daily or research mode.** By default engmem runs in daily mode: `/engmem` writes no Pre-reg
+and launches no baseline sub-agent, and the session is kept outside the Gate 1 experiment.
+Research mode runs the full experimental protocol: a baseline before the first search, or a
+recorded `baseline_unavailable: <reason>` when none can be had.
+
+```bash
+engmem mode set research   # sessions started from now on run the Gate 1 protocol
+engmem mode show           # mode: daily|research, and where it came from
+```
+
+Each session records its mode in its draft (`mode: daily` or `mode: research`) and keeps it;
+switching applies to the next session. `tools/gate1_report.py` lists daily sessions as outside
+the experiment and research sessions without a baseline as incomplete observations; documents
+written before modes existed are counted as before. A mode file that cannot be read is named
+as an error, never read as daily.
+
+Upgrading from an engmem without modes: re-run `engmem install --agent <agent>` for every agent
+you installed. Templates and skills copied out by an older install write drafts without `mode`,
+and the MCP `engmem_create_draft` refuses those (its message says so).
 
 When an agent finds nothing and you cannot tell why, `engmem doctor --agent codex` (or any other
 `--agent`) checks that client's setup without changing it. It prints one line per check, marked

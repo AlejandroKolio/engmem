@@ -8,7 +8,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from engmem.staging import commit, discard, read_document, stage
+from engmem.settings import (
+    configured as _configured,
+    read_setting,
+    setting_file,
+    write_setting,
+)
 
 
 class StoreSource(enum.StrEnum):
@@ -30,12 +35,6 @@ class StoreSettingError(Exception):
 
 def default_store() -> Path:
     return _absolute(_expand_home(Path("~")) / "Developer" / "engmem")
-
-
-def _configured(value: str | None) -> str | None:
-    """A blank setting means "not set"; the value is never trimmed, so a directory whose name
-    really does end in a space still resolves to itself."""
-    return value if value and value.strip() else None
 
 
 def _expand_home(path: Path) -> Path:
@@ -63,38 +62,16 @@ def _absolute(path: Path) -> Path:
 
 
 def store_setting_file() -> Path:
-    """Where `engmem store set` saves the choice — see contracts/runtime.md for the location."""
-    xdg = _configured(os.environ.get("XDG_CONFIG_HOME"))
-    if xdg is not None and Path(xdg).is_absolute():
-        return Path(xdg) / "engmem" / "store"
-    if sys.platform == "win32":
-        appdata = _configured(os.environ.get("APPDATA"))
-        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-        return base / "engmem" / "store"
-    return Path.home() / ".config" / "engmem" / "store"
+    """Where `engmem store set` saves the choice."""
+    return setting_file("store")
 
 
 def saved_store() -> Path | None:
     """The saved choice, None when there is none; a file that exists but cannot be used raises
     `StoreSettingError` rather than reading as "no choice" (AC-05.3)."""
     setting = store_setting_file()
-    try:
-        text, _bom = read_document(setting)
-    except FileNotFoundError as exc:
-        if setting.is_symlink():
-            raise StoreSettingError(
-                f"{setting} is a symlink to a missing file — restore its target, or run "
-                f"`engmem store set PATH` to save the store again"
-            ) from exc
-        return None
-    except UnicodeDecodeError as exc:
-        raise StoreSettingError(
-            f"{setting} is not valid UTF-8 ({exc.reason} at byte {exc.start}) — run "
-            f"`engmem store set PATH` to rewrite it"
-        ) from exc
-    except OSError as exc:
-        raise StoreSettingError(f"cannot read {setting}: {exc.strerror or exc}") from exc
-    return _parse_setting(setting, text)
+    text = read_setting(setting, StoreSettingError, "engmem store set PATH", "the store")
+    return None if text is None else _parse_setting(setting, text)
 
 
 def _parse_setting(setting: Path, text: str) -> Path:
@@ -118,18 +95,8 @@ def _parse_setting(setting: Path, text: str) -> Path:
 
 
 def save_store(store: Path) -> Path:
-    """Writes `store` as the saved choice, atomically, and returns the file written; OSError and
-    UnicodeEncodeError reach the caller."""
-    setting = store_setting_file()
-    target = Path(os.path.realpath(setting)) if setting.is_symlink() else setting
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = stage(target, f"{store}\n".encode("utf-8"))
-    try:
-        commit(tmp_path, target)
-    except BaseException:
-        discard(tmp_path)
-        raise
-    return setting
+    """Writes `store` as the saved choice and returns the file written."""
+    return write_setting(store_setting_file(), str(store))
 
 
 def store_path_of(value: str | None) -> Path | None:

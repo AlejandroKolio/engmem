@@ -16,6 +16,7 @@ import yaml
 
 from engmem import __version__, gate1
 from engmem.cache import identity_for
+from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES, split_sections
 # imported, not reimplemented, so a document a write tool below produces is
@@ -93,9 +94,13 @@ CREATE_DRAFT_TOOL_DESCRIPTION = (
     "Create a new engmem session document as a draft — the first step of "
     "`/engmem` in a runtime with no shell access. Writes `sessions/<id>.md` "
     "with exactly the `content` given: the complete YAML front matter block "
-    "followed by the body (at minimum the `## Pre-reg` section). The front "
-    "matter's `status` MUST be `draft` and its `id` MUST equal the `id` "
-    "argument — this tool refuses to create anything else. NEVER overwrites: "
+    "followed by the body. The front matter's `status` MUST be `draft`, its "
+    "`id` MUST equal the `id` argument, and its `mode` MUST be the configured "
+    "mode (`daily` or `research`; the `engmem` prompt names it) — this tool "
+    "refuses to create anything else and names the configured mode when it does. "
+    "A `research` draft also carries the `## Pre-reg` baseline, or "
+    "`baseline_unavailable: <reason>` when none could be had; a `daily` draft "
+    "needs no Pre-reg. NEVER overwrites: "
     "if `sessions/<id>.md` already exists, the call fails and nothing is "
     "written, regardless of what the existing file contains. Use "
     "`engmem_complete_draft` to finish a draft this tool already created. The "
@@ -144,8 +149,9 @@ MARK_SUPERSEDED_TOOL_DESCRIPTION = (
 # prompt name -> source template filename under src/engmem/templates/ — the
 # same files install.py's _install_templates copies out; a second reader of
 # that one source of truth, not a fork of it
+START_PROMPT_NAME = "engmem"
 PROMPT_TEMPLATES = {
-    "engmem": "engmem.start.md",
+    START_PROMPT_NAME: "engmem.start.md",
     "engmem-save": "engmem.save.md",
     "engmem-save-quick": "engmem.save.quick.md",
 }
@@ -337,6 +343,64 @@ def _create_conflict(doc_id: str, detail: str | None = None) -> _ToolError:
     )
 
 
+def _mode_refusal(doc: Doc) -> str | None:
+    """Why `doc` may not start a session under the mode saved now, None when it may — see
+    contracts/mcp-server.md, "The mode a draft records"."""
+    setting = mode_setting_file()
+    try:
+        configured, unreadable = effective_mode(), None
+    except ModeSettingError as exc:
+        # a daily record is never a wrong observation, so only research waits for the repair
+        configured, unreadable = Mode.DAILY, exc
+    if doc.mode is None:
+        return (
+            f"content's front matter has no `mode` — state `mode: {configured}`, the "
+            f"configured mode (`engmem mode show`; saved in {setting}). If you followed an "
+            "installed engmem template or skill, it may predate modes: have the user run "
+            "`engmem install --agent <agent>` again to update it."
+        )
+    if doc.mode not in set(Mode):
+        return (
+            f"content's front matter mode {doc.mode!r} is not one of {', '.join(Mode)} — "
+            f"the configured mode is {configured} (`engmem mode show`)."
+        )
+    if unreadable is not None and doc.mode != Mode.DAILY:
+        return (
+            f"the saved mode cannot be read ({unreadable}), so a research session cannot be "
+            "confirmed — create this draft with `mode: daily`, or have the user repair the "
+            "file with `engmem mode set research` first."
+        )
+    if doc.mode != configured:
+        return (
+            f"content's front matter mode is {doc.mode}, but the configured mode is "
+            f"{configured} ({setting}) — record `mode: {configured}`, or have the user run "
+            f"`engmem mode set {doc.mode}` first if this session should be {doc.mode}."
+        )
+    has_prereg = any(s.canonical == "prereg" for s in split_sections(doc.body))
+    if doc.mode == Mode.RESEARCH and not has_prereg and doc.baseline_unavailable is None:
+        return (
+            "a research draft records its baseline before the first search — include the "
+            "`## Pre-reg` section, or state `baseline_unavailable: <reason>` in the front "
+            "matter when no uncontaminated baseline can be had (`engmem mode` decides "
+            "which protocol applies)."
+        )
+    return None
+
+
+def _mode_note(doc: Doc) -> str:
+    if doc.mode == Mode.DAILY:
+        return (
+            "Recorded mode: daily — no Pre-reg needed; this session stays outside the Gate 1 "
+            "experiment."
+        )
+    if doc.baseline_unavailable is not None:
+        return (
+            "Recorded mode: research, baseline_unavailable — search and save as usual; the "
+            "session is reported as an incomplete observation."
+        )
+    return "Recorded mode: research — the baseline is on disk before the first search."
+
+
 def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
@@ -362,6 +426,11 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
                     f"content's front matter status is {doc.status!r}, not "
                     f"'draft' — {CREATE_DRAFT_TOOL_NAME} only ever creates a draft."
                 )
+            mode_refusal = _mode_refusal(doc)
+            if mode_refusal is not None:
+                raise _ToolError(
+                    f"refusing to create sessions/{doc_id}.md: {mode_refusal}"
+                )
             try:
                 commit_new(tmp_path, target)
             except FileExistsError as exc:
@@ -381,7 +450,7 @@ def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
         f'Now pass session_id: "{doc_id}" on every {TOOL_NAME} and {ROLE_TOOL_NAME} call '
         "for the rest of this task — a search without it is logged unattributed "
         "and drops out of the analysis. Keep the version: pass it as expected_version "
-        f"to {COMPLETE_DRAFT_TOOL_NAME} when you finish this draft."
+        f"to {COMPLETE_DRAFT_TOOL_NAME} when you finish this draft. {_mode_note(doc)}"
     ), False
 
 
@@ -495,6 +564,7 @@ def _complete_draft_locked(
                 "'draft' and simply call this tool again later if the "
                 "document is not actually ready to finish yet."
             )
+        _refuse_a_changed_observation(existing, doc, doc_id)
         rejections = _reuse_log_rejections(doc)
         if rejections:
             raise _ToolError(
@@ -517,6 +587,29 @@ def _complete_draft_locked(
         discard(tmp_path)
         raise
     return doc
+
+
+def _mode_label(mode: str | None) -> str:
+    return "no mode (written before modes existed)" if mode is None else repr(mode)
+
+
+def _refuse_a_changed_observation(draft: Doc, content: Doc, doc_id: str) -> None:
+    """A session keeps the condition it started under (AC-08.4), and a missing baseline once
+    recorded cannot be dropped at save time (AC-08.5)."""
+    if content.mode != draft.mode:
+        raise _ToolError(
+            f"refusing to complete sessions/{doc_id}.md: content's mode is "
+            f"{_mode_label(content.mode)}, but the draft was started with "
+            f"{_mode_label(draft.mode)} — a session keeps the mode it started in; copy "
+            "`mode` from the draft unchanged."
+        )
+    if draft.baseline_unavailable is not None and content.baseline_unavailable is None:
+        raise _ToolError(
+            f"refusing to complete sessions/{doc_id}.md: the draft records "
+            f"baseline_unavailable ({draft.baseline_unavailable!r}) and the content drops it — "
+            "a baseline cannot be supplied after the search; copy `baseline_unavailable` "
+            "from the draft unchanged."
+        )
 
 
 _CLASSIFICATION_CHOICES = " / ".join(
@@ -1048,6 +1141,22 @@ def _handle_prompts_list(params: dict, store: Path) -> dict:
     }
 
 
+def _mode_line() -> str:
+    """The answer to the start template's step 0, read on every call so a server that outlives
+    a `engmem mode set` hands the next session the new mode."""
+    setting = mode_setting_file()
+    try:
+        mode = saved_mode()
+    except ModeSettingError as exc:
+        return (
+            f"engmem mode for this session: daily (the saved mode cannot be read: {exc} — "
+            "tell the user, as step 0 says)"
+        )
+    if mode is None:
+        return f"engmem mode for this session: daily (default — no saved choice in {setting})"
+    return f"engmem mode for this session: {mode} (saved choice in {setting})"
+
+
 def _handle_prompts_get(params: dict, store: Path) -> dict:
     if "name" not in params:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: missing required 'name' field")
@@ -1073,6 +1182,9 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
                 INVALID_PARAMS, f"invalid params: argument {arg_name!r} must be a string"
             )
         body = body.replace(_ARGUMENTS_PLACEHOLDER, value if value is not None else "")
+
+    if name == START_PROMPT_NAME:
+        body = f"{_mode_line()}\n\n{body}"
 
     return {
         "description": description,
