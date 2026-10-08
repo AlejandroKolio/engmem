@@ -147,8 +147,12 @@ mode: <daily|research from step 0>   # write the one word; left as is, it counts
 Search the whole store unless the user asks you to limit it to one repository: a story from
 another repository is often the one worth finding. When they do, add `--repo <name>` (MCP:
 `repo`) with the name their documents write in `repos`; `--unscoped` (MCP: `unscoped: true`)
-finds the records linked to no repository. A scoped result opens with a `scope:` line, and a
-miss under it says nothing about the rest of the store.
+finds the records linked to no repository. If they name several repositories, repeat
+`--repo` once per name (MCP: `repos: [<name>, <name>]`); if they want the whole store with
+each result's repository shown, add `--all-repos` (MCP: `all_repos: true`). Use these only
+when the user asks, for that one search; the next search goes back to the plain default. A
+scoped result opens with a `scope:` line, and a miss under it says nothing about the rest of
+the store.
 
 ## 4. Load what was found — and measure what it cost
 

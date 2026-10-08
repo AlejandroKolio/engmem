@@ -85,7 +85,30 @@ block, hit, successor and role hit alike, carries a `repos:` line after its `pat
 - Without a scope nothing changes: no lead, no `repos:` lines, byte for byte the earlier
   output. Showing links on every result would also have served US-10, but it would have moved
   `context_bytes` for every search already in the telemetry history (an owner decision left
-  open).
+  open). US-10 took the opt-in road instead: `--all-repos`, below.
+
+## Several repositories, and the whole store by choice (US-10)
+
+A scope of several repositories (`--repo a --repo b`, MCP `repos`) leads with
+`scope: repos <a>, <b> (<n> linked document(s) searched; records linked to no repository are
+left out)`; one repository keeps US-09's `scope: repo <name> (…)` byte for byte, so a single
+`--repo` result did not change. A record linked to two chosen repositories is one block whose
+`repos:` line names both (AC-10.2); the union is formed before ranking (`scoring.md`), so no
+renderer has to deduplicate.
+
+`--all-repos` (MCP `all_repos: true`) ranks the default's corpus and leads with
+`scope: all repositories (<n> document(s) searched; the whole store, records linked to no
+repository included)`, then shows every block's `repos:` like any scope (AC-10.3). It is the
+explicit cross-project view: the same records as a plain search, with the mode and each
+result's origin on the page, at the price of those lines in `context_bytes`. A plain search
+still prints neither, so its output and its telemetry history stay comparable.
+
+The names are typed by the caller, and a miss is never trimmed, so the list is bounded twice:
+each name to `SCOPE_NAME_DISPLAY_MAX` characters (US-09), and the names listed stop before the
+joined list passes `SCOPE_NAMES_DISPLAY_MAX` characters, the rest counted as `and <k> more`
+(`_scope_names`). The first name is always shown, so the line never lists nothing. With both
+caps the lead stays a few hundred characters whatever the caller passes, well inside the
+budget left after `SCOREBOARD_RESERVE`; the telemetry row keeps every name.
 
 ## One composed result for both channels
 

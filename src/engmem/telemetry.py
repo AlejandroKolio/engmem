@@ -35,13 +35,15 @@ def estimate_tokens(byte_count: int) -> int:
 
 
 def scope_row(scope: Scope | None, n_searched: int) -> dict | None:
-    """The row's `scope`: `None` for the whole store; a list of names so a multi-repo scope
-    later needs no new shape (ENGMEM-SPEC.md §5, 6b)."""
+    """The row's `scope`: `None` for the whole store searched without a flag (ENGMEM-SPEC.md
+    §5, 6b)."""
     if scope is None:
         return None
     if scope.unscoped:
         return {"unscoped": True, "n_searched": n_searched}
-    return {"repos": [scope.repo], "n_searched": n_searched}
+    if scope.all_repos:
+        return {"all_repos": True, "n_searched": n_searched}
+    return {"repos": list(scope.repos), "n_searched": n_searched}
 
 
 UNATTRIBUTED_CLI_NOTE = "note: unattributed search — pass --session <draft-id>"

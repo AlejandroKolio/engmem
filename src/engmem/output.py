@@ -28,8 +28,10 @@ SCOREBOARD_RESERVE = 128
 TRIM_MARKER = "[output trimmed to fit 4 KB]"
 SECTION_DISPLAY_MAX = 3  # sections named per hit; mirrors TOP_N's reasoning
 SECTION_SNIPPET_MAX_CHARS = 140
-# the scope's name is typed by the caller; a miss is never trimmed, so its lead line must be short
+# the scope's names are typed by the caller; a miss is never trimmed, so its lead line must be
+# short: each name is cut to the first cap, and the names listed stop at the second
 SCOPE_NAME_DISPLAY_MAX = 120
+SCOPE_NAMES_DISPLAY_MAX = 240
 
 # a primer heading spelled in words the canonical alias table does not carry, e.g. the
 # unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
@@ -144,15 +146,39 @@ def _repos_line(doc: Doc) -> str:
     return "repos: " + (", ".join(_escape_controls(name) for name in names) or "none")
 
 
+def _scope_name(name: str) -> str:
+    shown = _escape_controls(name)
+    if len(shown) > SCOPE_NAME_DISPLAY_MAX:
+        shown = shown[: SCOPE_NAME_DISPLAY_MAX - 1] + "…"
+    return shown
+
+
+def _scope_names(names: tuple[str, ...]) -> str:
+    """The chosen names that fit `SCOPE_NAMES_DISPLAY_MAX`, the first always, then a count."""
+    shown = [_scope_name(names[0])]
+    width = len(shown[0])
+    for name in names[1:]:
+        display = _scope_name(name)
+        if width + len(", ") + len(display) > SCOPE_NAMES_DISPLAY_MAX:
+            break
+        shown.append(display)
+        width += len(", ") + len(display)
+    rest = len(names) - len(shown)
+    return ", ".join(shown) + (f" and {rest} more" if rest else "")
+
+
 def scope_line(scope: Scope, n_searched: int) -> str:
     """The first line of a scoped result: a miss inside a scope is not a miss in the store."""
     if scope.unscoped:
         return f"scope: unscoped ({n_searched} document(s) linked to no repository searched)"
-    name = _escape_controls(scope.repo)
-    if len(name) > SCOPE_NAME_DISPLAY_MAX:
-        name = name[: SCOPE_NAME_DISPLAY_MAX - 1] + "…"
+    if scope.all_repos:
+        return (
+            f"scope: all repositories ({n_searched} document(s) searched; the whole store, "
+            f"records linked to no repository included)"
+        )
+    label = "repo" if len(scope.repos) == 1 else "repos"
     return (
-        f"scope: repo {name} ({n_searched} linked document(s) "
+        f"scope: {label} {_scope_names(scope.repos)} ({n_searched} linked document(s) "
         f"searched; records linked to no repository are left out)"
     )
 

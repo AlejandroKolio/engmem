@@ -114,8 +114,8 @@ search with and without an id logs the same value.
 
 ## `repo` / `unscoped`: the CLI's scope, refused rather than widened (US-09)
 
-Both search tools take the same optional scope as `engmem search --repo` / `--unscoped`
-(`_REPO_SCHEMA`, `_UNSCOPED_SCHEMA`, read by `_search_scope`) and hand it to
+Both search tools take the same optional scope as `engmem search --repo` / `--unscoped` /
+`--all-repos` (`_SCOPE_PROPERTIES`, read by `_search_scope`) and hand it to
 `search_report.compose`, so the scope rules, the `scope:` line and the telemetry row are the
 CLI's (`contracts/scoring.md`, `contracts/output.md`). The `--read-only` server lists and
 honours them unchanged: it filters tools, not arguments.
@@ -128,8 +128,23 @@ honours them unchanged: it filters tools, not arguments.
   absent would silently widen the search to every repository — the reader would take a
   whole-store result for the scoped one it asked for. The CLI refuses `--repo ""` the same way
   (exit 2).
-- One repository per call. A list would be the multi-repository search US-10 owns; the
-  telemetry row already records `repos` as a list so that search needs no new row shape.
+
+### `repos` and `all_repos` (US-10)
+
+- `repos` is a list of names, the MCP form of a repeated `--repo`; `repo` keeps US-09's
+  single string unchanged, and both together are joined into one union. A separate list
+  argument, not `repo` widened to "string or list": a `type` union or `anyOf` is the schema
+  shape MCP clients handle least consistently, while a plain string and a plain array of
+  strings are understood by all of them, and a call written for US-09 still reads the same.
+- `repos` that is not a list of strings, an empty `repos`, or a blank name inside it is
+  `-32602`, for the reason a blank `repo` is: read as absent or dropped, it would search more,
+  or other, repositories than the caller listed. Repeated and case-variant names collapse in
+  `Scope`, so `["a", "A"]` is the scope `repo: "a"` is.
+- `all_repos: true` is `--all-repos`; `false` and `null` mean "not passed". It, `unscoped: true`
+  and any repository name are three different scopes: two at once is `-32602` naming both.
+- Nothing about a scope outlives its call. `_search_scope` reads it from that call's arguments
+  and the server keeps no other state, so a call without a scope argument searches the whole
+  store whatever the call before it asked for (AC-10.4).
 
 ## Write tools: security contract
 

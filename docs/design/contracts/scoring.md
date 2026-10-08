@@ -121,10 +121,11 @@ exactly as one that was born active.
 
 ## A repository scope narrows the corpus, before any statistic (US-09)
 
-`search(docs, query, scope)` and `search_with_role_sections` take an optional `Scope`: one
-repository (`Scope(repo=...)`, `engmem search --repo`, MCP `repo`) or the records linked to
-none (`Scope(unscoped=True)`, `--unscoped`, MCP `unscoped: true`). `None`, the default, is the
-whole store and ranks exactly as before the scope existed. A scope is applied in
+`search(docs, query, scope)` and `search_with_role_sections` take an optional `Scope`: one or
+more repositories (`Scope(repos=(...))`, `engmem search --repo`, MCP `repo` / `repos`), the
+records linked to none (`Scope(unscoped=True)`, `--unscoped`, MCP `unscoped: true`), or every
+record (`Scope(all_repos=True)`, `--all-repos`, MCP `all_repos: true`; see below). `None`, the
+default, is the whole store and ranks exactly as before the scope existed. A scope is applied in
 `ranking_corpus`, the same place a draft is left out, so `n`, `avgdl`, document frequencies,
 `DF_CEILING_RATIO` and the ambiguity clusters are all computed over the scope's records only. A
 scoped search ranks exactly like a store that holds only those records.
@@ -161,6 +162,38 @@ whole store: they are pointers named by a record inside the scope, and the succe
 
 A search filter is not an access control: the tools, the store and every other repository's
 records stay readable, and `--repo` narrows only what one search ranks.
+
+## Several repositories are a union, and every record counts once (US-10)
+
+`Scope(repos=(a, b))` keeps a record linked to any of the chosen repositories (`in_scope`), so
+the ranking corpus is the union and each record enters it once, however many of the chosen
+repositories it names (AC-10.2): the corpus is a filter over the store's documents, never a
+concatenation of per-repository lists. Ranking still happens once, over that union, so a union
+search ranks exactly like a store holding only those records, for the same reasons a single
+repository does. Ranking each repository on its own and merging would give one record two
+scores and compare scores across corpora, which nothing here does.
+
+`Scope` collapses the names by `repo_key` when it is built (`_distinct_repos`): `a`, `A` and
+` a ` are one repository, kept in the order first given and spelled as first given, so the
+`scope:` line and the telemetry row show what the caller typed, once. A blank name among
+several is refused by both channels, never dropped: dropping it would search fewer
+repositories than the caller listed without saying so. A repository nobody links to is simply
+an empty part of the union.
+
+`--unscoped` stays its own scope rather than an addition to a list (no "a plus the unlinked
+records"). Nothing asked for it, and one scope per search keeps the `scope:` line a single
+statement of what was searched.
+
+`Scope(all_repos=True)` exists for AC-10.3: its corpus is the whole store, exactly the
+default's (`in_scope` is always true), so it ranks exactly as a search without a scope. The only
+difference is that it is a scope — the result names the mode and every block shows its links
+(`output.md`). It is opt-in because the default stays byte-identical to the output before
+US-09 (an owner decision recorded there).
+
+A scope belongs to one search. It is an argument of `search`, `compose` and the tool call,
+never stored: the section cache is keyed by a document's path and identity, not by a scope, and
+the MCP server keeps no state between calls, so the next search without a scope argument
+searches the whole store again (AC-10.4).
 
 ## `ID_SLUG_WEIGHT`
 
