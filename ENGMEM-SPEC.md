@@ -286,6 +286,28 @@ exits 0; it also prints the `mismatch:` lines the new choice causes. *(Owner dec
 2026-10-08: `install --store X` does not save X — its note points at `engmem store set X`; there
 is no `store unset` — deleting the file restores the default.)*
 
+### `engmem doctor [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--store PATH]`
+
+Owner-approved addition beyond §9 (US-06), which parked a `doctor` command until the owner
+asked for it. Checks why one client may not see its memory and changes nothing. The first line
+counts the results: `engmem doctor --agent A: E error(s), W warning(s), U unverified`. Then one
+`<status>: <subject>: <detail>` line per check, with status `ok`, `warning`, `error` or
+`unverified`. The checks: the effective store and its source (and the store a client without
+this shell's override would use); `sessions/` listed, its documents counted, and its
+writability probed with one file that is created and removed; this engmem's version and Python;
+the shell `engmem` the templates call (run as `engmem --version`); the client's templates or
+skills and their version stamps; the trigger rule; the MCP entry (Claude Desktop, Codex)
+compared with the CLI store, and its command (stat-checked, then run as
+`<command> -m engmem.cli --version` when it has the shape install writes). Each probe is
+time-bounded. Different CLI and MCP stores are a warning that names both paths and sources,
+never an error. An error line names the path, the error type and the fix. Access from inside a
+client's own sandbox is never `ok`: Codex's `sandbox_mode` and `writable_roots` are read, and
+every other client gets an `unverified` line. No probe runs anything from the directory doctor
+is started in. The report is on stdout only. Exit 0 with no error, 1 when any check is an error,
+2 on a usage error. Without `--agent` only claude is checked, the same default as install.
+*(Owner decisions, 2026-10-08: these exit codes and this default stay.)* See
+`docs/design/contracts/doctor.md`.
+
 ### `engmem mcp [--store PATH] [--read-only]`
 
 Author-approved addition beyond §9, which parks "MCP server" until the author asks for
@@ -580,8 +602,9 @@ Assertions (id → expected outcome):
 
 ## 9. Deliberately cut — DO NOT BUILD (parked for v0.2+)
 
-INDEX.md and any derived index · SQLite · vectors/embeddings · doctor/log/upgrade/index
-commands (`log` = grep, upgrade lives inside install) · FRESH/STALE checks via git diff
+INDEX.md and any derived index · SQLite · vectors/embeddings · log/upgrade/index
+commands (`log` = grep, upgrade lives inside install; `doctor` was parked here too, until the
+owner approved it for US-06, see §5) · FRESH/STALE checks via git diff
 (we write the anchor fields, not the check) · [Decisions]/[Landmines] annotation blocks ·
 a symptom layer · an aliases field · transliteration and stemming · config files (beyond the
 one-line store setting, §3) ·

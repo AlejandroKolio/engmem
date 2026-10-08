@@ -13,13 +13,16 @@ import yaml
 
 from engmem import __version__
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
+from engmem.doctor import cmd_doctor
 from engmem.install import (
     VALID_AGENTS,
     McpWiring,
+    WiringVerdict,
     cmd_install,
     cmd_uninstall,
     installed_mcp_wirings,
-    shell_argument,
+    rewire_action,
+    wiring_verdict,
 )
 from engmem.output import (
     render_backfill_proposal,
@@ -27,7 +30,6 @@ from engmem.output import (
     render_telemetry_summary,
 )
 from engmem.runtime import (
-    StoreChoice,
     StoreSettingError,
     StoreSource,
     fail,
@@ -36,6 +38,7 @@ from engmem.runtime import (
     resolve_store,
     save_store,
     saved_store,
+    source_description,
     store_setting_file,
 )
 from engmem.scoring import role_coverage
@@ -313,27 +316,28 @@ def _cmd_backfill(args: argparse.Namespace) -> int:
 
 def _wiring_line(wiring: McpWiring, store: Path) -> str:
     where = f"{wiring.agent}: {wiring.config}"
-    if wiring.store is None:
+    verdict = wiring_verdict(wiring, store)
+    if verdict is WiringVerdict.AT_LAUNCH:
         return (
             f"{where} launches the MCP server without --store — it resolves the store at "
             f"launch, from the client's own environment"
         )
-    if not wiring.store.is_absolute():
+    if verdict is WiringVerdict.NO_FIXED_BASE:
         return (
             f"{where} launches the MCP server with --store {wiring.store}, a relative path with "
             f"no fixed base — it names a different directory for every working directory the "
             f"client launches it from; make it absolute"
         )
-    if os.path.realpath(wiring.store) == os.path.realpath(store):
+    if verdict is WiringVerdict.MATCHES:
         return f"{where} launches the MCP server with --store {wiring.store} — matches"
-    target = shell_argument(str(store))
-    if wiring.managed:
-        action = f"run `engmem install --agent {wiring.agent} --store {target}` to rewire it"
-    else:
-        action = f"edit [mcp_servers.engmem] in {wiring.config} by hand to pass --store {target}"
+    if verdict is WiringVerdict.INVALID:
+        return (
+            f"mismatch: {where} launches the MCP server with --store {str(wiring.store)!r}, which "
+            f"is not a usable path (it contains a NUL byte) — {rewire_action(wiring, store)}"
+        )
     return (
         f"mismatch: {where} launches the MCP server with --store {wiring.store}, not {store} — "
-        f"{action}; no documents are moved either way"
+        f"{rewire_action(wiring, store)}; no documents are moved either way"
     )
 
 
@@ -347,20 +351,11 @@ def _wiring_lines(store: Path, *, mismatches_only: bool) -> list[str]:
     return lines + [f"warning: {problem}" for problem in problems]
 
 
-def _source_line(choice: StoreChoice) -> str:
-    setting = store_setting_file()
-    if choice.source is StoreSource.SAVED:
-        return f"source: saved choice ({setting})"
-    if choice.source is StoreSource.DEFAULT:
-        return f"source: default (no saved choice in {setting})"
-    return f"source: {choice.source}"
-
-
 def _cmd_store_show(args: argparse.Namespace) -> int:
     """The effective store, the setting it came from, and every MCP entry that records another."""
     choice = locate_store(args.store)
     print(f"store: {choice.path}")
-    print(_source_line(choice))
+    print(f"source: {source_description(choice)}")
     saved_error = None
     if choice.source in (StoreSource.FLAG, StoreSource.ENV):
         try:
@@ -586,6 +581,25 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
         help="the store directory; saved absolute, with a leading ~ expanded, as --store reads it",
     )
     store_set_parser.set_defaults(func=_cmd_store_set)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help=(
+            "check why an agent may not see its memory: the store and its source, the "
+            "executables, access to sessions/, and the agent's wiring — changes nothing"
+        ),
+    )
+    doctor_parser.add_argument(
+        "--agent",
+        default="claude",
+        # not argparse `choices=` — see `_validate_agent`
+        help=f"one of {', '.join(VALID_AGENTS)} (default: claude)",
+    )
+    doctor_parser.add_argument(
+        "--local", action="store_true", help="check the project-local install, as install --local"
+    )
+    _add_store_option(doctor_parser)
+    doctor_parser.set_defaults(func=cmd_doctor)
 
     telemetry_parser = subparsers.add_parser(
         "telemetry",

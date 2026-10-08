@@ -681,12 +681,46 @@ def _codex_mcp_block_present() -> bool:
 
 @dataclass(frozen=True)
 class McpWiring:
-    """One installed MCP entry for engmem, and the `--store` it launches the server with."""
+    """One installed MCP entry for engmem: the `--store` it launches the server with, and the
+    command line that launches it (empty when the entry's values are not all strings)."""
 
     agent: str
     config: Path
     store: Path | None
     managed: bool
+    command: str | None = None
+    args: tuple[str, ...] = ()
+
+
+class WiringVerdict(enum.StrEnum):
+    MATCHES = "matches"
+    MISMATCH = "mismatch"
+    AT_LAUNCH = "resolved at launch"
+    NO_FIXED_BASE = "no fixed base"
+    INVALID = "invalid"
+
+
+def wiring_verdict(wiring: McpWiring, store: Path) -> WiringVerdict:
+    """How the entry's `--store` compares with `store`, the one this shell resolves."""
+    if wiring.store is None:
+        return WiringVerdict.AT_LAUNCH
+    # a NUL byte, which a JSON or TOML string can carry and no path can; checked in the string
+    # because Windows' non-strict realpath returns such a path unchanged instead of raising
+    if "\0" in str(wiring.store):
+        return WiringVerdict.INVALID
+    if not wiring.store.is_absolute():
+        return WiringVerdict.NO_FIXED_BASE
+    if os.path.realpath(wiring.store) == os.path.realpath(store):
+        return WiringVerdict.MATCHES
+    return WiringVerdict.MISMATCH
+
+
+def rewire_action(wiring: McpWiring, store: Path) -> str:
+    """What points the entry at `store`: install for an entry install owns, a hand edit else."""
+    target = shell_argument(str(store))
+    if wiring.managed:
+        return f"run `engmem install --agent {wiring.agent} --store {target}` to rewire it"
+    return f"edit [mcp_servers.engmem] in {wiring.config} by hand to pass --store {target}"
 
 
 def _store_argument(args: object) -> Path | None:
@@ -705,6 +739,13 @@ def _store_argument(args: object) -> Path | None:
     return store_path_of(value)
 
 
+def _launch(entry: dict) -> tuple[str | None, tuple[str, ...]]:
+    command = entry.get("command")
+    args = entry.get("args", [])
+    strings = isinstance(args, list) and all(isinstance(arg, str) for arg in args)
+    return (command if isinstance(command, str) else None), (tuple(args) if strings else ())
+
+
 def _desktop_wiring() -> McpWiring | None:
     path = _claude_desktop_config_path()
     mcp_servers = _load_json_object(path).get("mcpServers")
@@ -712,7 +753,9 @@ def _desktop_wiring() -> McpWiring | None:
     if not isinstance(entry, dict):
         return None
     # install rewrites `mcpServers.engmem` whatever wrote it, so it is always install's to fix
-    return McpWiring("claude-desktop", path, _store_argument(entry.get("args")), managed=True)
+    return McpWiring(
+        "claude-desktop", path, _store_argument(entry.get("args")), True, *_launch(entry)
+    )
 
 
 def _codex_wiring() -> McpWiring | None:
@@ -724,7 +767,20 @@ def _codex_wiring() -> McpWiring | None:
     if not isinstance(entry, dict):
         return None
     managed = _split_codex_block(path, text) is not None
-    return McpWiring("codex", path, _store_argument(entry.get("args")), managed)
+    return McpWiring("codex", path, _store_argument(entry.get("args")), managed, *_launch(entry))
+
+
+# the clients whose MCP entry lives in a config on this machine, and where that config is
+MCP_CONFIGS = {
+    "claude-desktop": (_claude_desktop_config_path, _desktop_wiring),
+    "codex": (_codex_config_path, _codex_wiring),
+}
+
+
+def mcp_wiring(agent: str) -> McpWiring | None:
+    """`agent`'s engmem MCP entry, None when there is none; `_SetupError` names a config that
+    cannot be read. Reading only."""
+    return MCP_CONFIGS[agent][1]()
 
 
 def installed_mcp_wirings() -> tuple[list[McpWiring], list[str]]:
@@ -732,9 +788,9 @@ def installed_mcp_wirings() -> tuple[list[McpWiring], list[str]]:
     only — `engmem store show` reports, and never rewrites or migrates (AC-05.4)."""
     wirings: list[McpWiring] = []
     problems: list[str] = []
-    for agent, find in (("claude-desktop", _desktop_wiring), ("codex", _codex_wiring)):
+    for agent in MCP_CONFIGS:
         try:
-            wiring = find()
+            wiring = mcp_wiring(agent)
         except _SetupError as exc:
             problems.append(f"{agent}: cannot check the MCP entry: {exc}")
             continue
