@@ -82,14 +82,42 @@ to either constant fails a test rather than silently moving the goalposts.
 
 ## `--store` is used once, and said to be used once
 
-No config files is a hard constraint, so `install --store X` creates and initialises `X` and
-writes it nowhere the installed templates read: they resolve `$ENGMEM_HOME`, else
-`~/Developer/engmem`, each time they run. For the template agents, when `X` differs from what
-they will resolve, install prints a second stdout line naming both and the `ENGMEM_HOME=` to
-set. Before it did, install printed `store=X` and said nothing else, and every later draft,
-search and telemetry row went to a different store than the one just created — or failed with
-"store not found" — splitting documents from their telemetry. `claude-desktop` prints no
-such line: its MCP entry records the store path itself.
+`install --store X` creates and initialises `X` and saves it nowhere: `--store` means "this
+command only" on every subcommand, and AC-05.2 forbids an override rewriting the saved choice.
+Making install the one command where the flag also persists would give the same flag two
+meanings, and a test install (`--store /tmp/scratch`) would silently retarget every later
+command. Saving is its own command, `engmem store set X` (`contracts/runtime.md`). Owner decision
+(2026-10-08): install does not save, not even when no choice is saved yet.
+
+So when `X` is not the store that commands run without `--store` will resolve, install prints a
+second stdout line naming that store, where it came from, and the action: `engmem store set X`,
+or `ENGMEM_HOME=X` when the environment variable is what decides. Before any note existed,
+install printed `store=X` and said nothing else, and every later draft, search and telemetry row
+went to a different store than the one just created — or failed with "store not found".
+`claude-desktop` gets the note too since US-05: its MCP entry records `X`, but the CLI does not
+read that entry, so without the note Desktop and the shell would search different memories.
+`chatgpt` prints its tunnel steps instead. A saved choice that cannot be read is named in the
+note rather than raised: the install itself used `--store` and succeeded.
+
+Without `--store`, install resolves the saved choice like every other command; a broken one
+stops install (and uninstall) before anything is written or removed.
+
+## Checking the wiring: `engmem store show`
+
+The MCP entries install writes (`claude_desktop_config.json`, Codex's block) record the store
+they were installed with, so a later `engmem store set` can leave them pointing elsewhere.
+`installed_mcp_wirings` reads both configs — read only, through the same `_load_json_object` and
+`_parse_toml` install uses — and `store show` prints one line per entry: matching, `mismatch:`
+with the install command that rewires it, or, for a Codex entry the user wrote, the table to
+edit by hand. The entry's `--store` is read the way `engmem mcp` will read it, through
+`runtime.store_path_of`: the last occurrence wins, a blank value is no `--store` at all (the
+server resolves at launch), and a leading `~` is expanded — neither client runs the args
+through a shell, so the server expands it itself, and comparing the raw spelling reported a
+false mismatch. A value still relative after that has no fixed base (it depends on the cwd the
+client launches from) and is reported as such, never as a match or a mismatch. A config it cannot parse is a `warning:` line, not a failure: the effective store
+is still the answer the user asked for. Nothing is rewritten and no document is moved; which
+store holds the user's documents is their call (AC-05.4). This is the minimal check US-05 needs,
+not the diagnostics US-06 describes.
 
 ## Every failure is a diagnosis, never a traceback
 

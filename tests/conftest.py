@@ -73,6 +73,12 @@ _REAL_HOME = Path(os.path.expanduser("~"))
 # resolved the way cache.cache_root() does: hardcoding ~/.cache would watch a directory the
 # product never touches on any machine that sets XDG_CACHE_HOME
 _REAL_CACHE_ROOT = Path(os.environ.get("XDG_CACHE_HOME") or _REAL_HOME / ".cache") / "engmem"
+# every place `runtime.store_setting_file()` can land on this machine, whichever env it sees
+_REAL_CONFIG_ROOTS = {
+    Path(os.environ.get("XDG_CONFIG_HOME") or _REAL_HOME / ".config") / "engmem",
+    _REAL_HOME / ".config" / "engmem",
+    Path(os.environ.get("APPDATA") or _REAL_HOME / "AppData" / "Roaming") / "engmem",
+}
 
 
 def _real_user_paths() -> dict[Path, bytes | None]:
@@ -86,6 +92,7 @@ def _real_user_paths() -> dict[Path, bytes | None]:
         _REAL_HOME / ".claude" / "CLAUDE.md",
         _REAL_HOME / ".codex" / "AGENTS.md",
         _REAL_HOME / ".codex" / "config.toml",
+        *(root / "store" for root in _REAL_CONFIG_ROOTS),
     ):
         try:
             snapshot[path] = hashlib.sha256(path.read_bytes()).digest()
@@ -98,6 +105,7 @@ def _real_user_paths() -> dict[Path, bytes | None]:
         _REAL_HOME / ".copilot" / "skills",
         _REAL_HOME / ".agents" / "skills",
         _REAL_CACHE_ROOT,
+        *_REAL_CONFIG_ROOTS,
     ):
         try:
             names = "\n".join(sorted(entry.name for entry in path.iterdir()))
@@ -128,6 +136,9 @@ def _isolated_cache_root(tmp_path_factory, monkeypatch):
     """The body cache lives outside the store (XDG, not the store path), so sandboxing the store
     alone still leaves a test writing to and pruning the developer's own `~/.cache/engmem`."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("xdg-cache")))
+    # the saved store choice is read by every command run without --store; the developer's own
+    # would otherwise redirect a test's default store, and `engmem store set` would overwrite it
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
     monkeypatch.delenv("ENGMEM_HOME", raising=False)
 
 on_a_shared_runner = pytest.mark.skipif(

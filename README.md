@@ -120,14 +120,26 @@ the counts, and **never touches the store** — those are your documents, and th
 readable as plain markdown without the tool. It prints the store path so you can remove
 it yourself if you want to. Running it twice is safe.
 
-The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` →
-`~/Developer/engmem`. It holds `sessions/*.md` (the documents) and `telemetry.jsonl`
-(append-only search log). No config files — which also means `install --store PATH` is not
-remembered: the installed templates resolve `$ENGMEM_HOME`, else the default, every time
-they run. Install says so when the two differ; set `ENGMEM_HOME` to the store you want the
-agent to use. `--agent claude-desktop` and `--agent chatgpt` are the exception, since their
-MCP command records the path itself; `codex`'s MCP entry does too, but its skills still run
-the CLI.
+The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` → the store saved
+with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents)
+and `telemetry.jsonl` (append-only search log). The one config file is
+`~/.config/engmem/store` (`$XDG_CONFIG_HOME/engmem/store`; `%APPDATA%\engmem\store` on
+Windows): one line, the store path, written only by `engmem store set`. `install --store PATH`
+does not save it — `--store` always means "this command only" — and install says so when the
+store it just used is not the one later commands will find:
+
+```bash
+engmem store set ~/notes/engmem   # every command and installed template without --store uses it
+engmem store show                 # the effective store, where it came from, and any MCP entry
+                                  # (Claude Desktop, Codex) still pointing at a different store
+```
+
+If the saved file is unreadable or the store it names is missing, commands stop and name the
+path; they never fall back to another store. `--agent claude-desktop` and `--agent codex`
+record the store in their MCP entry at install time, so after a `store set` re-run the install
+for those agents (`store show` prints the exact command); ChatGPT's `tunnel-client` profile
+records it too, and `store show` does not inspect that profile. No documents are ever moved
+for you.
 
 ## Usage
 

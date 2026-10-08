@@ -13,11 +13,19 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Iterable
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 from engmem import __version__
-from engmem.runtime import default_store, fail, resolve_store
+from engmem.runtime import (
+    StoreSettingError,
+    StoreSource,
+    fail,
+    locate_store,
+    resolve_store,
+    store_path_of,
+)
 from engmem.staging import commit, discard, newline_of, read_document, stage
 
 
@@ -671,6 +679,74 @@ def _codex_mcp_block_present() -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class McpWiring:
+    """One installed MCP entry for engmem, and the `--store` it launches the server with."""
+
+    agent: str
+    config: Path
+    store: Path | None
+    managed: bool
+
+
+def _store_argument(args: object) -> Path | None:
+    """The store the entry's `engmem mcp` will be handed, read the way the server reads it: the
+    last `--store` wins, as in argparse, and a blank one counts as none."""
+    if not isinstance(args, list):
+        return None
+    value = None
+    for i, arg in enumerate(args):
+        if not isinstance(arg, str):
+            continue
+        if arg == "--store" and i + 1 < len(args) and isinstance(args[i + 1], str):
+            value = args[i + 1]
+        elif arg.startswith("--store="):
+            value = arg.removeprefix("--store=")
+    return store_path_of(value)
+
+
+def _desktop_wiring() -> McpWiring | None:
+    path = _claude_desktop_config_path()
+    mcp_servers = _load_json_object(path).get("mcpServers")
+    entry = mcp_servers.get("engmem") if isinstance(mcp_servers, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    # install rewrites `mcpServers.engmem` whatever wrote it, so it is always install's to fix
+    return McpWiring("claude-desktop", path, _store_argument(entry.get("args")), managed=True)
+
+
+def _codex_wiring() -> McpWiring | None:
+    path = _codex_config_path()
+    if not path.is_file():
+        return None
+    text, _ = _read_user_file(path)
+    entry = _engmem_mcp_server(_parse_toml(path, text))
+    if not isinstance(entry, dict):
+        return None
+    managed = _split_codex_block(path, text) is not None
+    return McpWiring("codex", path, _store_argument(entry.get("args")), managed)
+
+
+def installed_mcp_wirings() -> tuple[list[McpWiring], list[str]]:
+    """Every engmem MCP entry found, plus one line per config that could not be read; reading
+    only — `engmem store show` reports, and never rewrites or migrates (AC-05.4)."""
+    wirings: list[McpWiring] = []
+    problems: list[str] = []
+    for agent, find in (("claude-desktop", _desktop_wiring), ("codex", _codex_wiring)):
+        try:
+            wiring = find()
+        except _SetupError as exc:
+            problems.append(f"{agent}: cannot check the MCP entry: {exc}")
+            continue
+        if wiring is not None:
+            wirings.append(wiring)
+    return wirings, problems
+
+
+def shell_argument(value: str) -> str:
+    return subprocess.list2cmdline([value]) if sys.platform == "win32" else shlex.quote(value)
+
+
 def _shell_quoted_mcp_command(store: Path) -> str:
     """The launch line as one shell argument, quoted for the shell the user will paste it into."""
     entry = _stdio_mcp_entry(store)
@@ -800,6 +876,9 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     if _cwd_is_repo_scoped(args) and not (Path.cwd() / ".git").is_dir():
         return _reject_non_repo_cwd("uninstall")
 
+    # resolved before anything is removed: a saved choice that cannot be read stops the command
+    # while there is still nothing to report half-done
+    store = resolve_store(args.store)
     template_paths, instructions = _agent_targets(args)
 
     entries_removed = entries_failed = 0
@@ -816,7 +895,6 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
     rule_lines, rule_failed = _remove_trigger_rule_reporting_failure(instructions)
 
-    store = resolve_store(args.store)
     incomplete = bool(failed or entries_failed) or rule_failed
     # the verb itself must carry the outcome for a reader who stops at line one
     summary_verb = "engmem uninstall incomplete" if incomplete else "engmem uninstalled"
@@ -913,12 +991,29 @@ def _run_install(args: argparse.Namespace) -> int:
     if args.agent == "chatgpt":
         _print_chatgpt_steps(store)
         return 0
-    # the templates resolve the store at run time and `--store` is written nowhere they read
-    # (no config files); Desktop is the exception, its MCP entry records the path itself.
-    # Compared resolved: two spellings of one directory are the store the templates will find
-    if args.agent != "claude-desktop" and store.resolve() != resolve_store(None).resolve():
-        print(
-            f"note: installed templates resolve $ENGMEM_HOME, else {default_store()}; --store "
-            f"is not written into them — set ENGMEM_HOME={store} to use this store"
-        )
+    note = _store_note(store, args.agent)
+    if note is not None:
+        print(note)
     return 0
+
+
+def _store_note(store: Path, agent: str) -> str | None:
+    """`--store` is a one-off override and is saved nowhere, so say where the commands run
+    without it will look instead — see contracts/install.md."""
+    who = (
+        "engmem commands run without --store"
+        if agent == "claude-desktop"
+        else "the installed templates and engmem commands run without --store"
+    )
+    try:
+        later = locate_store(None)
+    except StoreSettingError as exc:
+        return f"note: {who} will stop with an error until the saved choice is fixed: {exc}"
+    # compared resolved: two spellings of one directory are the store they will find
+    if store.resolve() == later.path.resolve():
+        return None
+    if later.source is StoreSource.ENV:
+        action = f"set ENGMEM_HOME={store} to use this store"
+    else:
+        action = f"run `engmem store set {shell_argument(str(store))}` to make it their store"
+    return f"note: --store is used by this install only — {who} use {later.path} ({later.source}); {action}"

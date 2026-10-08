@@ -172,7 +172,7 @@ The engineer's full collection of Engineering Session Documents.
 
 | Attribute | Description |
 |---|---|
-| location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → default `~/Developer/engmem` |
+| location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → the choice saved by `engmem store set` → default `~/Developer/engmem` |
 | contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) |
 | persistence | a git repository (created by `install` if it doesn't exist); no other database or cache |
 | scope | machine-wide default, or single-project if `--local` was used at install time (`ENGMEM-SPEC.md` §5, `engmem install`) |

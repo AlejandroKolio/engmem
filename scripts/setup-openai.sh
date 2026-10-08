@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/setup-openai.sh [options]
 
-  --store PATH          engmem store (default: $ENGMEM_HOME, else ~/Developer/engmem)
+  --store PATH          engmem store (default: the one `engmem store show` names)
   --no-codex-install    do not install the Codex CLI when it is missing
   --no-sandbox-root     do not add the store to Codex's [sandbox_workspace_write] writable_roots
   --skip-codex          skip the Codex wiring
@@ -18,7 +18,7 @@ the tunnel profile `engmem` is initialised too; otherwise the steps are printed.
 EOF
 }
 
-STORE="${ENGMEM_HOME:-$HOME/Developer/engmem}"
+STORE=""
 INSTALL_CODEX=1
 SANDBOX_ROOT=1
 DO_CODEX=1
@@ -37,7 +37,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STORE="$(mkdir -p "$STORE" && cd "$STORE" && pwd)"
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 
@@ -57,6 +56,12 @@ command -v engmem >/dev/null 2>&1 || die "engmem is not on PATH — run \`uv too
 ENGMEM_PY="$(head -n 1 "$(command -v engmem)" | sed 's/^#!//')"
 "$ENGMEM_PY" -c 'import tomllib, engmem' 2>/dev/null \
   || die "cannot find the Python that runs engmem (tried $ENGMEM_PY)"
+
+# the store every command without --store uses: ENGMEM_HOME, else the saved choice, else the default
+DEFAULT_STORE="$(engmem store show | sed -n '1s/^store: //p')"
+[[ -n "$DEFAULT_STORE" ]] || die "\`engmem store show\` named no store"
+STORE="${STORE:-$DEFAULT_STORE}"
+STORE="$(mkdir -p "$STORE" && cd "$STORE" && pwd)"
 
 verify_mcp() {
   local reply
@@ -157,7 +162,8 @@ if [[ $DO_CHATGPT -eq 1 ]]; then
 fi
 
 step "Done"
-[[ "$STORE" != "$HOME/Developer/engmem" ]] && echo "    add to your shell profile: export ENGMEM_HOME=\"$STORE\""
+[[ "$STORE" != "$(cd "$DEFAULT_STORE" 2>/dev/null && pwd)" ]] \
+  && echo "    to make it the store every command uses: engmem store set \"$STORE\""
 [[ $DO_CODEX -eq 1 ]] && echo "    Codex: run \`codex\`, check /mcp lists engmem, then try \`\$engmem <task>\`"
 [[ $DO_CHATGPT -eq 1 ]] && echo "    ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, Create app, Connection: Tunnel"
 exit 0

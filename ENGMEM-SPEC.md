@@ -103,11 +103,19 @@ directory changes nothing observable except latency; it is disposable, reconstru
 and never consulted as an authority independent of the markdown files it was derived from.
 That is what makes it a pure function of file bytes rather than an index.
 
-**Store** resolves in this order: the `--store PATH` flag → the `ENGMEM_HOME` env var →
-default `~/Developer/engmem`. A blank setting is skipped as if it were unset, and the answer is
-always absolute — `install --agent claude-desktop` writes it into a config file another process
-reads back from a working directory of its own; see `contracts/runtime.md`. Inside:
-`sessions/*.md` + `telemetry.jsonl`. No config files.
+**Store** resolves in this order: the `--store PATH` flag → the `ENGMEM_HOME` env var → the
+choice saved by `engmem store set` → default `~/Developer/engmem`. A blank setting is skipped as
+if it were unset, and the answer is always absolute — `install --agent claude-desktop` writes it
+into a config file another process reads back from a working directory of its own; see
+`contracts/runtime.md`. Inside: `sessions/*.md` + `telemetry.jsonl`.
+
+One config file, one line, only the store path: `$XDG_CONFIG_HOME/engmem/store` (default
+`~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows). *(2026-10-07, owner decision,
+US-05: "no config files" is relaxed to exactly this file, because without it `install --store`
+was forgotten and the CLI, the installed templates and the MCP entry could each use a different
+store without saying so.)* An override never rewrites it; a file that exists but cannot be used
+stops the command with a named cause instead of falling back to the default; no file at all is
+the behaviour from before. Nothing else is configurable through it.
 
 ## 4. Document schema (front matter + sections)
 
@@ -261,6 +269,23 @@ Idempotent (re-running = upgrade, nothing breaks):
    machine, and uninstall prints where the connector is removed. engmem itself still makes
    no network call (`tunnel-client` does). ChatGPT rejects `--local`.
 
+### `engmem store show [--store PATH]` / `engmem store set PATH`
+
+Added by US-05. `store set` saves `PATH`, made absolute the way `--store` is, as the one line of
+the setting file (§3), atomically; it does not create the store (`engmem install` does, and
+`set` says so when `sessions/` is missing) and it names an `ENGMEM_HOME` that still takes
+precedence in the current shell. `store show` prints `store: <path>` on its first line — the
+line the `engmem.start` template reads before writing a draft — then `source:` (`--store`,
+`ENGMEM_HOME`, `saved choice (<file>)` or `default`), a note when an override hides a saved
+choice, and one line per installed MCP entry (Claude Desktop, Codex): matching, or `mismatch:`
+with the command that rewires it. It reads only; no config is rewritten and no document moves.
+A setting file that cannot be used exits 2 with a named cause on both streams from `store show`,
+with or without an override (after the lines above), and from every other command run without
+an override. `store set` never reads the file: it is the repair, overwrites an unusable one and
+exits 0; it also prints the `mismatch:` lines the new choice causes. *(Owner decisions,
+2026-10-08: `install --store X` does not save X — its note points at `engmem store set X`; there
+is no `store unset` — deleting the file restores the default.)*
+
 ### `engmem mcp [--store PATH] [--read-only]`
 
 Author-approved addition beyond §9, which parks "MCP server" until the author asks for
@@ -270,7 +295,8 @@ Desktop, wired up by `engmem install --agent claude-desktop`) can call it direct
 instead of a human pasting `engmem search` output across the paste-bridge.
 
 1. Resolves the store the same way `search` does (`--store`, then `ENGMEM_HOME`, then
-   the default) and runs the protocol loop until stdin closes; the exit code is
+   the saved choice, then the default; a saved choice that cannot be read exits 2 with the
+   cause on stderr only) and runs the protocol loop until stdin closes; the exit code is
    whatever the loop returns. `--read-only` lists only the two search tools and refuses
    the write tools as unknown, for a server reachable from outside this machine.
 2. On this path, **stdout carries the MCP JSON-RPC protocol and nothing else** — no
@@ -557,7 +583,8 @@ Assertions (id → expected outcome):
 INDEX.md and any derived index · SQLite · vectors/embeddings · doctor/log/upgrade/index
 commands (`log` = grep, upgrade lives inside install) · FRESH/STALE checks via git diff
 (we write the anchor fields, not the check) · [Decisions]/[Landmines] annotation blocks ·
-a symptom layer · an aliases field · transliteration and stemming · config files ·
+a symptom layer · an aliases field · transliteration and stemming · config files (beyond the
+one-line store setting, §3) ·
 pre-commit hooks · brew · extraction of de-grounded patterns · any cloud interaction.
 
 **Built after all, and why** — two entries left this list rather than being quietly
