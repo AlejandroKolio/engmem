@@ -515,8 +515,9 @@ def test_show_flags_a_codex_block_engmem_wrote_with_the_install_command(home, se
 def test_show_flags_a_codex_entry_the_user_wrote_without_offering_install(home, setting, tmp_path, capsys):
     codex = home / ".codex"
     codex.mkdir(parents=True)
+    args = json.dumps(["mcp", f"--store={tmp_path / 'wired'}"])
     (codex / "config.toml").write_text(
-        f'[mcp_servers.engmem]\ncommand = "engmem"\nargs = {json.dumps(["mcp", f"--store={tmp_path / "wired"}"])}\n',
+        f'[mcp_servers.engmem]\ncommand = "engmem"\nargs = {args}\n',
         encoding="utf-8",
     )
 
