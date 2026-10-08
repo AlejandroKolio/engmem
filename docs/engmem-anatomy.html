@@ -882,11 +882,11 @@ answer_tokens:   9600   # только если рантайм реально е
           <div class="io-k">Вход</div>
           <div class="io-v"><pre><code>["search", "ResponseCacheController ETAG revalidation"]</code></pre></div>
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p><code>resolve_store()</code> берёт первый источник из трёх, в строгом порядке: <code>--store</code>, <code>ENGMEM_HOME</code>, <code>~/Developer/engmem</code>. Тильду разворачивает сам код (<code>Path.expanduser()</code>): в кавычках она попадает в <code>argv</code> буквально.</p></div>
+          <div class="io-v"><p><code>resolve_store()</code> берёт первый источник из четырёх, в строгом порядке: <code>--store</code>, <code>ENGMEM_HOME</code>, путь из <code>~/.config/engmem/store</code> (его пишет <code>engmem store set</code>), <code>~/Developer/engmem</code>. Если этот файл есть, но прочитать его нельзя, команда останавливается с ошибкой и не уходит в хранилище по умолчанию. Тильду разворачивает сам код (<code>Path.expanduser()</code>): в кавычках она попадает в <code>argv</code> буквально.</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><p><code>sessions_dir.is_dir()</code> ложно — <code>fail(...)</code> и код 2, не доходя до <code>load_store</code>:</p>
             <pre><code>error: store not found: /Users/…/sessions does not exist
-(run `engmem install` to create the store, or check --store/ENGMEM_HOME)</code></pre></div>
+(run `engmem install` to create the store, or `engmem store show` to see which setting chose this path)</code></pre></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p><code>fail()</code> печатает эту строку в оба потока, потому что агент читает только <code>stdout</code>: сбой, видимый лишь в <code>stderr</code>, для него неотличим от пустого прогона, а раньше отсутствие хранилища молча значило «ничего не найдено».</p></div>
         </div>
@@ -1886,11 +1886,11 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
           <div class="io-k">Input</div>
           <div class="io-v"><pre><code>["search", "ResponseCacheController ETAG revalidation"]</code></pre></div>
           <div class="io-k">What runs</div>
-          <div class="io-v"><p><code>resolve_store()</code> takes the first of three sources, in strict order: <code>--store</code>, <code>ENGMEM_HOME</code>, <code>~/Developer/engmem</code>. The tilde is expanded by the code itself (<code>Path.expanduser()</code>): quoted, it reaches <code>argv</code> literally.</p></div>
+          <div class="io-v"><p><code>resolve_store()</code> takes the first of four sources, in strict order: <code>--store</code>, <code>ENGMEM_HOME</code>, the path in <code>~/.config/engmem/store</code> (written by <code>engmem store set</code>), <code>~/Developer/engmem</code>. If that file exists but cannot be read, the command stops with an error rather than falling back to the default store. The tilde is expanded by the code itself (<code>Path.expanduser()</code>): quoted, it reaches <code>argv</code> literally.</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><p><code>sessions_dir.is_dir()</code> false — <code>fail(...)</code> and exit 2, without ever reaching <code>load_store</code>:</p>
             <pre><code>error: store not found: /Users/…/sessions does not exist
-(run `engmem install` to create the store, or check --store/ENGMEM_HOME)</code></pre></div>
+(run `engmem install` to create the store, or `engmem store show` to see which setting chose this path)</code></pre></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p><code>fail()</code> prints that line to both streams because the agent reads only <code>stdout</code>: a failure visible on <code>stderr</code> alone is indistinguishable to it from a silent empty run, and a missing store used to mean "nothing found".</p></div>
         </div>

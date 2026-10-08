@@ -1,8 +1,66 @@
 # Contract: store resolution and failure reporting
 
 Source: `src/engmem/runtime.py`. The store resolves `--store PATH`, then `ENGMEM_HOME`, then
-`~/Developer/engmem` (`ENGMEM-SPEC.md` §3). This file records what that order leaves open:
-what counts as a setting, what shape the answer takes, and why a failure is printed twice.
+the choice saved by `engmem store set`, then `~/Developer/engmem` (`ENGMEM-SPEC.md` §3). This
+file records what that order leaves open: what counts as a setting, what shape the answer takes,
+where the saved choice lives and what happens when it cannot be read, and why a failure is
+printed twice.
+
+## The saved choice: one file, one line (US-05, owner decision 2026-10-07)
+
+Before US-05 engmem had no config file at all, and `install --store X` was used once and
+forgotten: the installed templates, every later shell command and the MCP entry each resolved
+their own store, and CLI and MCP could work with different memories without saying so. The
+owner relaxed "no config files" to exactly one exception: a file holding one line, the absolute
+store path, and nothing else. A second setting would need its own decision; this file is not a
+place to grow one.
+
+**Where.** `$XDG_CONFIG_HOME/engmem/store`, default `~/.config/engmem/store`, the same XDG
+family as the cache (`contracts/cache.md`). `XDG_CONFIG_HOME` is honoured on every platform when
+it is an absolute path; a relative one is ignored, as the XDG spec requires, because it would
+make the choice depend on each command's working directory. On Windows without it, the file is
+`%APPDATA%\engmem\store` (`~/AppData/Roaming` when `APPDATA` is unset) — where Windows keeps
+roaming per-user settings and where `_claude_desktop_config_path` already looks, so a Windows
+user finds it next to the client config it has to agree with; `~/.config` is not a place a
+Windows user ever looks. The default store itself stays the same on every platform (below):
+moving it would point existing installs at an empty directory, and the setting file is new, so
+there is nothing to move.
+
+**Read lazily, in fourth place.** `locate_store` reads the file only when neither `--store` nor
+`ENGMEM_HOME` names a store. An override is a one-off: it never writes the file, and a broken
+file does not stop a command that does not use it, so a user can still work with
+`--store` while repairing the saved choice. `engmem store show` reads it either way and names a
+saved choice the override is hiding.
+
+**What the line may hold.** One line, with or without its line ending (LF or CRLF) and with a
+UTF-8 byte-order mark tolerated, because Notepad writes one. The path is never trimmed, for the
+same reason as the blank rule below. A leading `~` is expanded, and the result must be absolute:
+a relative path has no fixed base (each command has its own cwd), and resolving it against the
+file's own directory would be a rule nobody guesses. `engmem store set` always writes the
+absolute path, so only a hand edit can produce one.
+
+**An unusable file is an error, never "no choice".** Empty or blank, more than one line, a NUL
+byte, invalid UTF-8, a relative path, a directory or an unreadable file at that path, and a
+symlink whose target is gone all raise `StoreSettingError` with the file and the reason. A
+command stops with exit 2 (`cli.main` turns the error into `fail` in one place; `engmem mcp`
+writes it to stderr only). Falling back to `~/Developer/engmem` would search and write a
+different memory while reporting nothing wrong — exactly the failure US-05 removes (AC-05.3).
+Only a file that does not exist (and is not a dangling link) means "no saved choice", and then
+the behaviour is the one from before US-05, byte for byte.
+
+**A saved store that does not exist** is not this module's error: `resolve_store` stays pure and
+the commands name `store/sessions` as missing, as they do for a mistyped `--store`, now with a
+pointer to `engmem store show` to see which setting chose the path. Neither the CLI nor the MCP
+write tools look anywhere else.
+
+**No `store unset`** (owner decision, 2026-10-08): deleting the file is the way back to the
+default, and `store show` prints its path. **Install never saves** either (`contracts/install.md`).
+
+**Writing it.** `save_store` stages a sibling temp file and replaces atomically (`staging`), so
+a crash leaves the old choice or the new one, never half a path. A symlinked setting file is
+written through, like the user files install edits (`contracts/install.md`). A path with a line
+break, or one that cannot be encoded as UTF-8, is refused rather than written as something the
+reader would reject.
 
 ## A blank setting is not a setting
 
@@ -79,4 +137,4 @@ if the module so much as imports `fail`.
 is quoted verbatim in `ENGMEM-SPEC.md` §3, `README.md`, `docs/design/data-model.md`, the
 `--store` help text and the `engmem.start` template; a store is a git repository the user
 already has, so moving the default would silently point an existing install at an empty
-directory to buy a platform nicety `ENGMEM_HOME` already provides.
+directory to buy a platform nicety `ENGMEM_HOME` and `engmem store set` already provide.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Container
 from pathlib import Path
@@ -12,13 +13,31 @@ import yaml
 
 from engmem import __version__
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
-from engmem.install import VALID_AGENTS, cmd_install, cmd_uninstall
+from engmem.install import (
+    VALID_AGENTS,
+    McpWiring,
+    cmd_install,
+    cmd_uninstall,
+    installed_mcp_wirings,
+    shell_argument,
+)
 from engmem.output import (
     render_backfill_proposal,
     render_scoreboard,
     render_telemetry_summary,
 )
-from engmem.runtime import fail, force_utf8_streams, resolve_store
+from engmem.runtime import (
+    StoreChoice,
+    StoreSettingError,
+    StoreSource,
+    fail,
+    force_utf8_streams,
+    locate_store,
+    resolve_store,
+    save_store,
+    saved_store,
+    store_setting_file,
+)
 from engmem.scoring import role_coverage
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
@@ -52,7 +71,8 @@ def _read_sessions(store: Path) -> tuple[LoadResult | None, int]:
     if not sessions_dir.is_dir():
         fail(
             f"store not found: {sessions_dir} does not exist "
-            f"(run `engmem install` to create the store, or check --store/ENGMEM_HOME)"
+            f"(run `engmem install` to create the store, or `engmem store show` to see which "
+            f"setting chose this path)"
         )
         return None, 2
     result = load_store(sessions_dir)
@@ -107,7 +127,11 @@ def _cmd_search(args: argparse.Namespace) -> int:
 def _cmd_mcp(args: argparse.Namespace) -> int:
     # stdout here is MCP JSON-RPC only — fail() (both streams) must never be called from this
     # function.
-    store = resolve_store(args.store)
+    try:
+        store = resolve_store(args.store)
+    except StoreSettingError as exc:
+        print(f"error: engmem mcp: {exc}", file=sys.stderr)
+        return 2
     from engmem.mcp_server import serve
 
     return serve(store, read_only=args.read_only)
@@ -287,7 +311,109 @@ def _cmd_backfill(args: argparse.Namespace) -> int:
     return 2 if failed else 0
 
 
-_STORE_HELP = "path to the engmem store (default: $ENGMEM_HOME, else ~/Developer/engmem)"
+def _wiring_line(wiring: McpWiring, store: Path) -> str:
+    where = f"{wiring.agent}: {wiring.config}"
+    if wiring.store is None:
+        return (
+            f"{where} launches the MCP server without --store — it resolves the store at "
+            f"launch, from the client's own environment"
+        )
+    if not wiring.store.is_absolute():
+        return (
+            f"{where} launches the MCP server with --store {wiring.store}, a relative path with "
+            f"no fixed base — it names a different directory for every working directory the "
+            f"client launches it from; make it absolute"
+        )
+    if os.path.realpath(wiring.store) == os.path.realpath(store):
+        return f"{where} launches the MCP server with --store {wiring.store} — matches"
+    target = shell_argument(str(store))
+    if wiring.managed:
+        action = f"run `engmem install --agent {wiring.agent} --store {target}` to rewire it"
+    else:
+        action = f"edit [mcp_servers.engmem] in {wiring.config} by hand to pass --store {target}"
+    return (
+        f"mismatch: {where} launches the MCP server with --store {wiring.store}, not {store} — "
+        f"{action}; no documents are moved either way"
+    )
+
+
+def _wiring_lines(store: Path, *, mismatches_only: bool) -> list[str]:
+    wirings, problems = installed_mcp_wirings()
+    lines = [_wiring_line(wiring, store) for wiring in wirings]
+    if mismatches_only:
+        lines = [line for line in lines if line.startswith("mismatch:")]
+    elif not wirings and not problems:
+        lines.append("mcp wiring: none found (claude-desktop, codex)")
+    return lines + [f"warning: {problem}" for problem in problems]
+
+
+def _source_line(choice: StoreChoice) -> str:
+    setting = store_setting_file()
+    if choice.source is StoreSource.SAVED:
+        return f"source: saved choice ({setting})"
+    if choice.source is StoreSource.DEFAULT:
+        return f"source: default (no saved choice in {setting})"
+    return f"source: {choice.source}"
+
+
+def _cmd_store_show(args: argparse.Namespace) -> int:
+    """The effective store, the setting it came from, and every MCP entry that records another."""
+    choice = locate_store(args.store)
+    print(f"store: {choice.path}")
+    print(_source_line(choice))
+    saved_error = None
+    if choice.source in (StoreSource.FLAG, StoreSource.ENV):
+        try:
+            saved = saved_store()
+        except StoreSettingError as exc:
+            saved, saved_error = None, exc
+        if saved is not None and os.path.realpath(saved) != os.path.realpath(choice.path):
+            print(
+                f"note: {choice.source} overrides the saved choice {saved} "
+                f"({store_setting_file()}) for this command only; the saved choice is unchanged"
+            )
+    if not (choice.path / "sessions").is_dir():
+        print(f"warning: {choice.path / 'sessions'} does not exist — run `engmem install` to create it")
+    for line in _wiring_lines(choice.path, mismatches_only=False):
+        print(line)
+    if saved_error is not None:
+        fail(f"engmem store show: {saved_error}")
+        return 2
+    return 0
+
+
+def _cmd_store_set(args: argparse.Namespace) -> int:
+    """Saves the store every command and template without an override will use from now on."""
+    if not args.path.strip():
+        fail("engmem store set: PATH is blank — name the store directory to save")
+        return 2
+    store = resolve_store(args.path)
+    if "\n" in str(store) or "\r" in str(store):
+        fail(f"engmem store set: {store!r} contains a line break, which a one-line setting cannot hold")
+        return 2
+    try:
+        setting = save_store(store)
+    except (OSError, UnicodeEncodeError) as exc:
+        fail(f"engmem store set: cannot write {store_setting_file()}: {exc}")
+        return 2
+    print(f"engmem store: saved {store} in {setting}")
+    if not (store / "sessions").is_dir():
+        print(f"note: {store / 'sessions'} does not exist yet — run `engmem install` to create it")
+    env = os.environ.get("ENGMEM_HOME")
+    if env and env.strip():
+        print(
+            f"note: ENGMEM_HOME={env} is set here and takes precedence over the saved choice — "
+            f"unset it for the saved store to apply"
+        )
+    for line in _wiring_lines(store, mismatches_only=True):
+        print(line)
+    return 0
+
+
+_STORE_HELP = (
+    "path to the engmem store (default: $ENGMEM_HOME, else the store saved by "
+    "`engmem store set`, else ~/Developer/engmem)"
+)
 
 
 class _Parser(argparse.ArgumentParser):
@@ -434,6 +560,33 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     _add_store_option(mcp_parser)
     mcp_parser.set_defaults(func=_cmd_mcp)
 
+    store_parser = subparsers.add_parser(
+        "store", help="show which store is used and why, or save the one to use by default"
+    )
+    store_commands = store_parser.add_subparsers(dest="store_command", required=True)
+    store_show_parser = store_commands.add_parser(
+        "show",
+        help=(
+            "print the effective store, the setting it came from, and any installed MCP "
+            "entry that points at a different store"
+        ),
+    )
+    _add_store_option(store_show_parser)
+    store_show_parser.set_defaults(func=_cmd_store_show)
+    store_set_parser = store_commands.add_parser(
+        "set",
+        help=(
+            "save PATH as the store used by every command and installed template run without "
+            "--store or ENGMEM_HOME"
+        ),
+    )
+    store_set_parser.add_argument(
+        "path",
+        metavar="PATH",
+        help="the store directory; saved absolute, with a leading ~ expanded, as --store reads it",
+    )
+    store_set_parser.set_defaults(func=_cmd_store_set)
+
     telemetry_parser = subparsers.add_parser(
         "telemetry",
         help=(
@@ -498,7 +651,13 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser(argv)
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except StoreSettingError as exc:
+        # one place for every command: none of them may fall back to another store when the
+        # saved one cannot be read (contracts/runtime.md); `engmem mcp` handles its own
+        fail(f"engmem {args.command}: {exc}")
+        return 2
 
 
 if __name__ == "__main__":

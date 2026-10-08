@@ -50,7 +50,13 @@ documents are read, the baseline measures nothing at all.
 
 ## 2. Create the draft immediately
 
-The engmem store resolves in this order: `$ENGMEM_HOME` if set, otherwise
+The engmem store is the path on the first line of `engmem store show` (`store: <path>`);
+run it once before you write. When the first line is `store:`, use that path, and report any
+`error:` line further down to the user. When the first line is `error:`, report it and write
+the draft nowhere — another directory is another store, and the draft would be lost to every
+later search. Without a shell, the store resolves in this order: `$ENGMEM_HOME` if
+set, otherwise the one path saved in `$XDG_CONFIG_HOME/engmem/store` (default
+`~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file exists, otherwise
 `~/Developer/engmem`. As soon as you have the baseline text, compose the draft: the
 **complete** front matter below — placeholder values, but every field present, so the
 document is valid to the parser from the moment it exists — followed by a `## Pre-reg`

@@ -954,9 +954,9 @@ def test_the_sandbox_home_is_actually_where_the_code_looks(env):
     )
 
 
-# --- --store is not persisted into the installed templates: say so when it matters ---
+# --- --store is a one-off override, saved nowhere: say so when it matters ---
 
-STORE_NOTE = "note: installed templates resolve $ENGMEM_HOME"
+STORE_NOTE = "note: --store is used by this install only"
 
 
 @pytest.mark.parametrize("agent", ["claude", "copilot-ide", "copilot-cli"])
@@ -973,7 +973,7 @@ def test_a_store_the_templates_will_not_find_is_named_on_stdout(env, tmp_path, m
 
     assert lines[0].startswith(f"engmem installed: store={store}, agent={agent}")
     notes = [line for line in lines if line.startswith(STORE_NOTE)]
-    assert len(notes) == 1 and f"ENGMEM_HOME={store}" in notes[0], lines
+    assert len(notes) == 1 and f"engmem store set {store}" in notes[0], lines
 
 
 def test_a_store_matching_engmem_home_prints_no_store_note(env, tmp_path, monkeypatch, capsys):
@@ -993,13 +993,17 @@ def test_the_default_store_prints_no_store_note(env, monkeypatch, capsys):
     assert STORE_NOTE not in capsys.readouterr().out
 
 
-def test_claude_desktop_persists_its_store_and_prints_no_store_note(env, tmp_path, monkeypatch, capsys):
-    """Desktop writes the store into its own MCP config, so nothing is lost."""
+def test_claude_desktop_names_the_store_its_cli_commands_will_use_instead(env, tmp_path, monkeypatch, capsys):
+    """Desktop records the store in its own MCP entry, but the CLI does not read that entry: left
+    unsaid, the two would search different memories (US-05)."""
     monkeypatch.delenv("ENGMEM_HOME", raising=False)
+    store = tmp_path / "elsewhere"
 
-    assert _run_install("--agent", "claude-desktop", "--store", str(tmp_path / "elsewhere")) == 0
+    assert _run_install("--agent", "claude-desktop", "--store", str(store)) == 0
 
-    assert STORE_NOTE not in capsys.readouterr().out
+    notes = [l for l in capsys.readouterr().out.splitlines() if l.startswith(STORE_NOTE)]
+    assert len(notes) == 1 and f"engmem store set {store}" in notes[0], notes
+    assert "templates" not in notes[0]
 
 
 def test_a_store_other_than_engmem_home_is_named_on_stdout(env, tmp_path, monkeypatch, capsys):
