@@ -157,6 +157,16 @@ def locate_store(explicit: str | None) -> StoreChoice:
     return StoreChoice(default_store(), StoreSource.DEFAULT)
 
 
+def source_description(choice: StoreChoice) -> str:
+    """Where `choice` came from, naming the setting file for the two answers it decides."""
+    setting = store_setting_file()
+    if choice.source is StoreSource.SAVED:
+        return f"saved choice ({setting})"
+    if choice.source is StoreSource.DEFAULT:
+        return f"default (no saved choice in {setting})"
+    return str(choice.source)
+
+
 def resolve_store(explicit: str | None) -> Path:
     return locate_store(explicit).path
 

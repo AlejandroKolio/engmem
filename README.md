@@ -134,6 +134,14 @@ engmem store show                 # the effective store, where it came from, and
                                   # (Claude Desktop, Codex) still pointing at a different store
 ```
 
+When an agent finds nothing and you cannot tell why, `engmem doctor --agent codex` (or any other
+`--agent`) checks that client's setup without changing it. It prints one line per check, marked
+`ok`, `warning`, `error` or `unverified`. It covers the store and where it came from, whether
+`sessions/` can be read and written, the `engmem` command and the MCP entry's Python, the
+installed templates and their versions, the trigger rule, and whether the CLI and the MCP entry
+use the same store. What the client's own sandbox allows is marked `unverified`: doctor runs
+outside it. The exit code is 1 when any line is an `error`.
+
 If the saved file is unreadable or the store it names is missing, commands stop and name the
 path; they never fall back to another store. `--agent claude-desktop` and `--agent codex`
 record the store in their MCP entry at install time, so after a `store set` re-run the install

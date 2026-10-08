@@ -116,8 +116,9 @@ through a shell, so the server expands it itself, and comparing the raw spelling
 false mismatch. A value still relative after that has no fixed base (it depends on the cwd the
 client launches from) and is reported as such, never as a match or a mismatch. A config it cannot parse is a `warning:` line, not a failure: the effective store
 is still the answer the user asked for. Nothing is rewritten and no document is moved; which
-store holds the user's documents is their call (AC-05.4). This is the minimal check US-05 needs,
-not the diagnostics US-06 describes.
+store holds the user's documents is their call (AC-05.4). The comparison itself is
+`wiring_verdict` and the fix `rewire_action`, shared with `engmem doctor`, which checks the rest
+of one client's wiring (`contracts/doctor.md`).
 
 ## Every failure is a diagnosis, never a traceback
 

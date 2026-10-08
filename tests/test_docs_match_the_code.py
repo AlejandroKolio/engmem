@@ -77,6 +77,7 @@ STATED_VALUES = [
     ("scoring", "FIELD_WEIGHTS", "id", "caps a token at {value}", "scoring.md"),
     ("staging", "_LOCK_WAIT_SECONDS", None, "`_LOCK_WAIT_SECONDS` ({value})", "mcp-server.md"),
     ("staging", "_VERSION_HEX_DIGITS", None, "first {value} hex digits", "mcp-server.md"),
+    ("doctor", "_PROBE_SECONDS", None, "`_PROBE_SECONDS` ({value})", "doctor.md"),
 ]
 
 
