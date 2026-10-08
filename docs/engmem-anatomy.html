@@ -312,32 +312,32 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
     <h3>Цикл целиком: четыре такта</h3>
     <p>Порядок обязателен для свидетельства, а не для работы. Пропущенный или переставленный такт не ломает ни задачу, ни разбор: разбор пройдёт по тому, что записано. Он лишь перестаёт быть доказательством — наивный план, написанный после чтения документов, уже ничего не доказывает.</p>
     <ol>
-      <li><strong>Пре-регистрация.</strong> Отдельный под-агент, которому дана только формулировка задачи, пишет наивный план до всякого поиска, и план уходит в черновик документа. Порядок здесь и есть измерение: план, написанный после чтения документов, свидетельством уже не будет.</li>
+      <li><strong>Пре-регистрация.</strong> Отдельный под-агент, которому дана только формулировка задачи, пишет наивный план до всякого поиска, и план уходит в черновик документа. Порядок здесь и есть измерение: план, написанный после чтения документов, свидетельством уже не будет. Этот такт идёт только в исследовательском режиме (<code>engmem mode set research</code>). По умолчанию тул работает в дневном: пре-регистрации нет, и сессия в разбор не попадает.</li>
       <li><strong>Работа.</strong> Поиск отдаёт адреса разделов, агент читает найденное, задача делается обычным образом. В середине engmem не участвует вовсе.</li>
       <li><strong>Строка журнала с дословной цитатой.</strong> На каждый повлиявший документ — строка: что процитировано, что в итоге изменилось, какого рода влияние: <code>reuse</code> — пошли за документом, <code>anti-reuse</code> — сознательно против него, <code>harmful</code> — документ увёл не туда. Строка без цитаты недействительна; если не пригодилось ничего — пишется ровно <code>Prior docs used: none.</code></li>
       <li><strong>Разбор (Gate 1).</strong> Строки со всего хранилища сводятся в одну таблицу и читаются по правилу, записанному заранее. Документ, который не удалось прочитать, называется по имени в самом начале вывода: в таблицу он не попадает, но и не пропадает молча.</li>
     </ol>
-    <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на всём наборе из 4–5 межрепозиторных историй — одно на набор, а не на каждую историю. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний автор, скорее всего, вспомнил бы и сам — кредит за него слою поиска не полагается.</p>
-    <p>Механическую часть каждой строки решает один общий модуль, <code>src/engmem/gate1.py</code>: целостность цитаты, дистанцию и устарелость; классификацию он не решает, а читает — её ставит автор. <code>tools/verify_citations.py</code> и <code>tools/gate1_report.py</code> читают один и тот же вердикт, а не проверяют независимо — расходятся они только кодом выхода: <code>verify_citations.py</code> падает на непроверяемой цитате и на документе, который не удалось прочитать, <code>gate1_report.py</code> не падает никогда и сводит все четыре оси в таблицу для человека. Пустая колонка — единственное, чего машина решить не может: изменила ли цитата решение. В счёт идут только строки, классифицированные <code>reuse</code>: <code>anti-reuse</code> и <code>harmful</code> печатаются в таблице, но из подсчёта исключаются — как и строка без цитаты, и строка из черновика. Туда же уходят строки из историй про сам engmem — в выдаче это ось <code>dogfooding</code>: разработка инструмента не может служить доказательством его пользы.</p>
+    <p>Что именно записано заранее — в <code>ENGMEM-SPEC.md</code> §11. Основная контрольная точка: хотя бы одно <em>дальнее</em> событие переиспользования на всём наборе из 4–5 межрепозиторных историй — одно на набор, а не на каждую историю. «Дальнее» определено механически, а не на глаз: цитируемый документ считается <em>ближним</em>, если делит с цитирующим репозиторий или тег либо связан с ним ребром <code>related</code>; иначе — дальним. Ближний документ вы, скорее всего, вспомнили бы и сами — кредит за него слою поиска не полагается.</p>
+    <p>Механическую часть каждой строки решает один общий модуль, <code>src/engmem/gate1.py</code>: целостность цитаты, дистанцию и устарелость; классификацию он не решает, а читает — её ставит тот, кто сохраняет документ. <code>tools/verify_citations.py</code> и <code>tools/gate1_report.py</code> читают один и тот же вердикт, а не проверяют независимо — расходятся они только кодом выхода: <code>verify_citations.py</code> падает на непроверяемой цитате и на документе, который не удалось прочитать, <code>gate1_report.py</code> не падает никогда и сводит все четыре оси в таблицу для человека. Пустая колонка — единственное, чего машина решить не может: изменила ли цитата решение. В счёт идут только строки, классифицированные <code>reuse</code>: <code>anti-reuse</code> и <code>harmful</code> печатаются в таблице, но из подсчёта исключаются — как и строка без цитаты, и строка из черновика. Туда же уходят строки из историй про сам engmem — в выдаче это ось <code>dogfooding</code>: разработка инструмента не может служить доказательством его пользы. Отдельно держатся и сессии, прошедшие без протокола: дневные (<code>mode: daily</code>) и исследовательские без наивного плана. Их строки в счёт не идут, а в итогах они стоят отдельным числом. В примере ниже так учтён один дневной документ, честно написавший <code>Prior docs used: none.</code></p>
 <pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
 |---|---|---|---|---|---|---|---|
-| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries the freshness data | verified | reuse | distant | cited_active |  |
 
 rows: 1
 citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
 classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
 rows excluded from the count: 0
-excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded)
+excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded), 0 outside the experiment (mode: daily), 0 incomplete observation (baseline_unavailable), 0 research without a baseline, 0 mode not recognized
 1 valid (the last column above is theirs to fill), of which 1 distant, 0 adjacent, 0 undecidable
 of the 1 distant, 0 cite a superseded document (flagged, not excluded -- see the staleness column)
 ENGMEM-SPEC.md section 11's primary endpoint counts the distant figure above.
-documents reporting no reuse: 1
+documents reporting no reuse: 1 (1 more kept apart by mode -- daily, incomplete, research without a baseline or mode not recognized -- not counted)
 The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
 <p>Полный прогон печатает под этим ещё один блок — контроль полноты выборки, а не второй гейт. Инструмент сам называет две его оговорки. <code>--session</code> нарочно не проверяется, поэтому строка про «осиротевшие» записи считает и опечатки, и загрязнение из чужого хранилища, а не только настоящие пробелы. А <code>telemetry.jsonl</code> ведётся только дозаписью, без ротации, так что строки до Gate 1 и тестовые неотличимы от экспериментальных в пределах любого окна. Остальное — в <code>docs/design/contracts/gate1.md</code>, раздел «The audit coverage block».</p>
     <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1. Если не читается сам документ со ссылкой, его имя стоит в первой строке вывода, и код выхода тот же.</p>
-<pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+<pre><code>2000002-widget-cache.md:32: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>Толкование результата тоже зафиксировано до данных. Если основная точка не взята, а вторичные взяты, вывод звучит так: хранилище как сжатый контекст себя оправдало, измерительная надстройка — нет, и надстройку сворачивают. Промах — это результат, а не повод смягчить критерий и попробовать ещё раз.</p>
   </div>
@@ -392,7 +392,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
     <ul>
       <li><strong>Хранилище</strong> — папка markdown-файлов под git. Никакой базы, сервера и облака. Файл можно открыть, прочитать, поправить руками, посмотреть историю через <code>git log</code>.</li>
       <li><strong>Поиск</strong> — команда <code>engmem search</code>. Детерминированный, без ML: одинаковый запрос всегда даёт одинаковый ответ, объём выдачи ограничен сверху, и каждый вызов оставляет строку телеметрии с точной ценой в байтах. Перечитывает шапки всех документов при каждом вызове.</li>
-      <li><strong>Три команды-шаблона</strong> для агента: <code>/engmem</code> в начале задачи, <code>/engmem.save</code> в конце, <code>/engmem.save.quick</code> — короткий документ без раунда проверки, когда нет сил её делать. Это markdown-инструкции, а не код — поэтому работают в любом агенте.</li>
+      <li><strong>Три команды-шаблона</strong> для агента: <code>/engmem</code> в начале задачи, <code>/engmem.save</code> в конце, <code>/engmem.save.quick</code> — короткая запись без раунда проверки: решение, причина, отвергнутый вариант, источник и пара строк для следующей задачи. Это markdown-инструкции, а не код — поэтому работают в любом агенте.</li>
     </ul>
   </div>
 
@@ -426,7 +426,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </figure>
 
   <div class="prose">
-    <p>Маховик выше — это цикл для одного документа. Если отступить на шаг, хранилище — граф, который становится всё связнее. В нём два вида связей: те, что вписал автор, и те, что не писал никто. Вторые канал выдачи проводит сам — по сущностям, совпавшим у двух документов. Правило разбора считает такие пары <em>дальними</em>: ни общего репозитория, ни общего тега, ни ребра <code>related</code> — и только на них слой поиска вправе претендовать.</p>
+    <p>Маховик выше — это цикл для одного документа. Если отступить на шаг, хранилище — граф, который становится всё связнее. В нём два вида связей: те, что вписали вы, и те, что не писал никто. Вторые канал выдачи проводит сам — по сущностям, совпавшим у двух документов. Правило разбора считает такие пары <em>дальними</em>: ни общего репозитория, ни общего тега, ни ребра <code>related</code> — и только на них слой поиска вправе претендовать.</p>
   </div>
 
 </section>
@@ -436,7 +436,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   <p class="part">Часть 4 · Путь одной задачи</p>
   <h2>Что происходит от постановки до сохранения</h2>
   <div class="prose">
-    <p><em>Роль в цикле:</em> здесь память наполняется — документ попадает в хранилище, и вместе с ним у измерения появляется предмет. Шаги 01 и 07 и есть измерительные такты (пре-регистрация и строка журнала с цитатой); всё между ними — обычная работа.</p>
+    <p><em>Роль в цикле:</em> здесь память наполняется — документ попадает в хранилище, и вместе с ним у измерения появляется предмет. Шаги 01 и 07 и есть измерительные такты (пре-регистрация и строка журнала с цитатой); всё между ними — обычная работа. Путь показан в исследовательском режиме; в дневном шага 01 нет.</p>
     <p><strong>Печатать вам не придётся ничего: агент проходит путь от наивного плана до готового документа, а вы подтверждаете шапку и отвечаете, отменяет ли эта работа прошлое решение.</strong> Полный <code>save</code> просит ещё сверить цитаты — цену этого шага страница называет прямо на 07. Ниже — по шагам: что делает инструмент, <strong>что физически попадает в контекст модели</strong> и что остаётся после. Задача: «Добавить кеширование ответов для нового эндпоинта»; похожая работа велась три месяца назад, но вы этого уже не помните. Значения сняты с прогона на тестовом хранилище.</p>
   </div>
 
@@ -509,10 +509,12 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
       <div class="step-body" hidden>
         <div class="prose"><p>Наивный план пишет отдельный под-агент до всякого поиска — иначе потом нельзя честно сказать, что в плане изменила память.</p></div>
         <div class="io">
+          <div class="io-k">Сначала режим</div>
+          <div class="io-v"><p>Первым делом агент узнаёт режим: с shell — через <code>engmem mode show</code>, а клиент без shell, который ходит через MCP (Claude Desktop, ChatGPT, Codex там, где у него нет shell), видит режим в первой строке промпта: <code>engmem mode for this session: …</code>. В дневном режиме, который стоит по умолчанию, этот шаг пропускается целиком: ни плана, ни под-агента, черновик сразу пишется с <code>mode: daily</code>. Дальше — исследовательский режим.</p></div>
           <div class="io-k">Команда</div>
           <div class="io-v"><pre><code>/engmem добавить кеширование ответов для нового эндпоинта</code></pre></div>
           <div class="io-k">Что происходит</div>
-          <div class="io-v"><p>Под-агент получает только формулировку задачи: ни хранилища, ни поиска, ни упоминания engmem. Если запустить его нечем, агент пишет эти 2–3 строки сам, но <strong>до</strong> первого поиска.</p></div>
+          <div class="io-v"><p>Под-агент получает только формулировку задачи: ни хранилища, ни поиска, ни упоминания engmem. Если запустить его нечем, агент пишет эти 2–3 строки сам, но <strong>до</strong> первого поиска. Так бывает в Claude Desktop, и тогда последняя строка — <code>pre-reg source: self (no sub-agent available)</code>. Если и это поздно, потому что документ из хранилища уже прочитан, план не пишется вовсе: в шапку черновика идёт <code>baseline_unavailable: &lt;причина&gt;</code>, поиск и сохранение работают как обычно, а в разборе сессия стоит отдельно.</p></div>
           <div class="io-k">Что получается</div>
           <div class="io-v"><pre><code>Добавлю кеш перед новым эндпоинтом, заведу
 свою таблицу с метаданными свежести — так
@@ -556,6 +558,7 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
+mode: research
 ---
 
 ## Pre-reg
@@ -567,6 +570,7 @@ capture_minutes:
           <div class="io-v"><ul>
             <li><code>status: draft</code> держит документ вне поиска: незаконченное не должно выдавать себя за знание.</li>
             <li><code>backfilled: false</code> означает, что документ написан по ходу работы. Старые задачи можно занести в хранилище задним числом — такие помечаются <code>backfilled: true</code>, ищутся наравне со всеми и не попадают в цифры аудита о ритуале: ритуал на них не проводился. Из главной метрики Gate 1 их строки пока не исключены — спецификация (§11) оставила этот вопрос открытым намеренно.</li>
+            <li><code>mode: research</code> пишется один раз, при создании черновика, и потом не меняется: если переключить режим посреди задачи, это подействует со следующей сессии.</li>
             <li>Спайн пишется целиком не ради парсера (тот достроит недостающее сам, см. T2), а потому что это ровно те поля, по которым работает поиск.</li>
           </ul></div>
         </div>
@@ -586,7 +590,7 @@ capture_minutes:
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
             <p>Ключевые слова агент собирает сам — из формулировки задачи и имён классов рядом в коде.</p></div>
           <div class="io-k">Что получается</div>
-          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.8)
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.7)
 path: /Users/…/sessions/1000001-response-cache.md
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
@@ -594,7 +598,7 @@ matched: entities=responsecachecontroller,response,cache,controller,etag; §4-co
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
 ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
 
-### ttl-etag-revalidation-v2 (score: 16.5)
+### ttl-etag-revalidation-v2 (score: 16.3)
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
   §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
@@ -602,11 +606,13 @@ matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=resp
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
-docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
+note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
-              <li>Разрыв 20.8 против 16.5 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: пятью словами, а не одним.</li>
+              <li>Разрыв 20.7 против 16.3 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: пятью словами, а не одним.</li>
               <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт.</li>
               <li>Футер — состояние памяти: 7 документов, среди них черновик из шага 02 (восьмой файл не прочитался и в счёт не вошёл), последний написан 19 дней назад.</li>
+              <li>Последняя строка — напоминание: поиск без <code>--session</code> не привязан к черновику. По шаблону агент передаёт id черновика, и тогда этой строки нет.</li>
             </ul></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p>Вывод урезан до 4 КБ — это условие измерения: у канала фиксированный потолок, поэтому его цену можно занести в телеметрию и сравнить с базовым уровнем. Показаны всегда те же три документа, сколько бы ни подошло: тридцать подошедших дают те же три блока плюс одну строку «ещё N». А <code>(1 failed to load)</code> идёт в stdout, а не в stderr: агент читает только stdout, и семь документов вместо восьми выглядели бы для него полным ответом.</p></div>
@@ -732,12 +738,13 @@ pr:                        # PR ещё не открыт — поле остаё
 ## Search Trace                ← как искалось в этой сессии</code></pre>
             <ul>
               <li>Необязательных разделов нет: разделу, которому нечего сказать, положена честная строка «нечего».</li>
-              <li>Нумерация 1–16 унаследована от формата базы знаний, который автор вёл отдельно, — чтобы оба потока искались как один корпус.</li>
+              <li>Нумерация 1–16 унаследована от формата базы знаний, который вёлся отдельно, — чтобы оба потока искались как один корпус.</li>
               <li>Номер 17 дописан в конец, а не вставлен по смыслу: другие документы ссылаются на «раздел 13 — праймер».</li>
             </ul></div>
           <div class="io-k">Чего это стоит</div>
           <div class="io-v"><p>Полный save требует сверить YAML, сверить цитаты и вспомнить хранилище ради вопроса про отмену; <code>/engmem.save.quick</code> снимает все три требования и оставляет одно <code>ok</code>.</p>
-            <p>Цена настоящая: документ выйдет короче — пять разделов без номеров, — праймер не пишется вовсе, поэтому превью в будущей выдаче не будет, а вопрос про отмену останется без ответа. Это аварийный режим.</p></div>
+            <p>Документ выйдет коротким, но главное в нём есть. В <code>## Decision Log</code> — четыре строки с метками: решение, причина, отвергнутый вариант, источник. В праймере — 2–4 строки для следующей задачи, и первые две станут превью в выдаче поиска. Чего в сессии не было, агент не придумывает: строка остаётся и говорит <code>not stated in the available material.</code> Всё это показывается одним сообщением и публикуется после одного подтверждения; откажетесь — ничего не опубликуется, и черновик останется вне поиска.</p>
+            <p>Цена в другом: вопроса про отмену нет, так что старый документ, который это решение отменило, будет всплывать как действующий, пока его не пометят, а журнал переиспользования с вами не сверяется.</p></div>
         </div>
       </div>
     </article>
@@ -797,7 +804,7 @@ answer_tokens:   9600   # только если рантайм реально е
   <h2>Три пути через код</h2>
   <div class="prose">
     <p><em>Роль в цикле:</em> это код самой памяти — через который запрос превращается в ограниченную выдачу и в строку телеметрии, и которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
-    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI семь подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для Claude Desktop. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
+    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI десять подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для клиентов, которые ходят через MCP: Claude Desktop, Codex, ChatGPT. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
   </div>
 
   <h3>Путь 1 — <code>engmem search</code>: от команды до вывода</h3>
@@ -933,8 +940,8 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
 тело  = BM25 лучшего раздела (k1 1.2, b 0.6)
 
 спайн = (3+3+3+3+3) × 5/7 = 15 × 0.714 = 10.71
-тело  = 10.13                     →  score 20.8</code></pre>
-            <p>Множитель покрытия наказывает частичные совпадения — он и опускает спайн второго документа до 6.86: четыре токена из семи (итог 16.5 — остальное дало тело).</p></div>
+тело  = 10.02                     →  score 20.7</code></pre>
+            <p>Множитель покрытия наказывает частичные совпадения — он и опускает спайн второго документа до 6.86: четыре токена из семи (итог 16.3 — остальное дало тело).</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><ul>
             <li><code>draft</code> — сюда не доходит: черновик убирают из поиска ещё до подсчёта, и на статистику и чужие баллы он не влияет. В скорборде его по-прежнему считают.</li>
@@ -977,13 +984,13 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
 
   </div>
 
-  <h3>Путь 2 — <code>engmem install</code> / <code>uninstall</code>: четыре режима агента</h3>
+  <h3>Путь 2 — <code>engmem install</code> / <code>uninstall</code>: шесть режимов агента</h3>
   <div class="prose">
-    <p>Единственный путь, который трогает файлы за пределами хранилища. Развилка одна на обе команды: <code>--agent</code> выбирает один из четырёх режимов, у каждого свой каталог и свой формат следа.</p>
+    <p>Единственный путь, который трогает файлы за пределами хранилища. Развилка одна на обе команды: <code>--agent</code> выбирает один из шести режимов, у каждого свой каталог и свой формат следа.</p>
   </div>
 
 <figure class="scroll-x">
-    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install и uninstall: страж репозитория, затем развилка на четыре режима агента, у каждого свой след на диске">
+    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install и uninstall: страж репозитория, затем развилка на шесть режимов агента, у каждого свой след на диске">
       <g fill="none" stroke-width="1.4">
         <rect x="390" y="15" width="260" height="50" rx="9" style="stroke: var(--accent)"/>
       </g>
@@ -997,33 +1004,43 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
       </g>
 
       <g stroke="currentColor" stroke-width="1.3" fill="none">
-        <path d="M520,65 L520,90 L125,90 L125,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L385,90 L385,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L645,90 L645,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L905,90 L905,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L90,90 L90,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L262,90 L262,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L434,90 L434,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L606,90 L606,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L778,90 L778,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L950,90 L950,140" marker-end="url(#ar)"/>
       </g>
 
       <g fill="none" stroke="currentColor" stroke-width="1.4">
-        <rect x="10" y="140" width="230" height="46" rx="9"/>
-        <rect x="270" y="140" width="230" height="46" rx="9"/>
-        <rect x="530" y="140" width="230" height="46" rx="9"/>
-        <rect x="790" y="140" width="230" height="46" rx="9"/>
+        <rect x="10" y="140" width="160" height="46" rx="9"/>
+        <rect x="182" y="140" width="160" height="46" rx="9"/>
+        <rect x="354" y="140" width="160" height="46" rx="9"/>
+        <rect x="526" y="140" width="160" height="46" rx="9"/>
+        <rect x="698" y="140" width="160" height="46" rx="9"/>
+        <rect x="870" y="140" width="160" height="46" rx="9"/>
       </g>
-      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle">
-        <text x="125" y="167">agent=claude</text>
-        <text x="385" y="167">agent=copilot-ide</text>
-        <text x="645" y="167">agent=copilot-cli</text>
-        <text x="905" y="167">agent=claude-desktop</text>
+      <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle">
+        <text x="90" y="167">agent=claude</text>
+        <text x="262" y="167">agent=copilot-ide</text>
+        <text x="434" y="167">agent=copilot-cli</text>
+        <text x="606" y="167">agent=claude-desktop</text>
+        <text x="778" y="167">agent=codex</text>
+        <text x="950" y="167">agent=chatgpt</text>
       </g>
-      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity=".65" text-anchor="middle">
-        <text x="125" y="205">~/.claude/commands +</text>
-        <text x="125" y="219">CLAUDE.md, сентинел-правило</text>
-        <text x="385" y="205">.github/prompts/*.prompt.md +</text>
-        <text x="385" y="219">copilot-instructions.md</text>
-        <text x="645" y="205">~/.copilot/skills/*/SKILL.md</text>
-        <text x="645" y="219">правило не пишется</text>
-        <text x="905" y="205">claude_desktop_config.json</text>
-        <text x="905" y="219">слияние mcpServers.engmem</text>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="9.4" fill="currentColor" opacity=".65" text-anchor="middle">
+        <text x="90" y="205">~/.claude/commands +</text>
+        <text x="90" y="219">CLAUDE.md, сентинел-правило</text>
+        <text x="262" y="205">.github/prompts/*.prompt.md +</text>
+        <text x="262" y="219">copilot-instructions.md</text>
+        <text x="434" y="205">~/.copilot/skills/*/SKILL.md</text>
+        <text x="434" y="219">правило не пишется</text>
+        <text x="606" y="205">claude_desktop_config.json</text>
+        <text x="606" y="219">слияние mcpServers.engmem</text>
+        <text x="778" y="205">~/.agents/skills + AGENTS.md</text>
+        <text x="778" y="219">блок в config.toml</text>
+        <text x="950" y="205">на диск не пишет</text>
+        <text x="950" y="219">печатает шаги туннеля</text>
       </g>
     </svg>
     <figcaption>Uninstall проходит той же развилкой и тем же стражем каталога, но снимает ровно то, что установил install — вплоть до узкого совпадения сентинела, а не широкого маркера, которым install решает, добавлять ли правило.</figcaption>
@@ -1038,14 +1055,14 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T5</span>
-        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: страж, затем один из четырёх следов</span><span class="step-s">install.py · единственный путь, который пишет за пределы хранилища</span></span>
+        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: страж, затем один из шести следов</span><span class="step-s">install.py · единственный путь, который пишет за пределы хранилища</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>Команда, которая пишет за пределы хранилища, начинается не с записи, а со стража каталога.</p></div>
         <div class="io">
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p>Две проверки до всего остального: <code>--local</code> вместе с <code>claude-desktop</code> или <code>copilot-cli</code> — отказ (их файлы всегда под <code>$HOME</code>), режим, привязанный к каталогу, без <code>.git</code> в текущей папке — отказ с кодом 2. Затем <code>_ensure_store()</code> создаёт <code>sessions/</code> и вызывает <code>git init</code>, только если хранилище ещё не репозиторий.</p></div>
+          <div class="io-v"><p>Две проверки до всего остального: <code>--local</code> вместе с <code>claude-desktop</code>, <code>copilot-cli</code>, <code>codex</code> или <code>chatgpt</code> — отказ (их файлы живут не в проекте), режим, привязанный к каталогу, без <code>.git</code> в текущей папке — отказ с кодом 2. Затем <code>_ensure_store()</code> создаёт <code>sessions/</code> и вызывает <code>git init</code>, только если хранилище ещё не репозиторий.</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><p>Каталоги — на схеме выше; здесь важны подводные камни каждого режима.</p>
             <ul>
@@ -1053,6 +1070,8 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
             <li><strong>copilot-ide</strong> — те же шаблоны, но с расширением <code>.prompt.md</code>: плагин Copilot игнорирует одинарное <code>.md</code>.</li>
             <li><strong>copilot-cli</strong> — точки в именах навыков запрещены, поэтому <code>/engmem.save</code> переписывается в <code>/engmem-save</code> — с более длинного паттерна первым, иначе <code>/engmem.save.quick</code> распадётся на <code>/engmem-save.quick</code>.</li>
             <li><strong>claude-desktop</strong> — конфиг не перезаписывается, если он не парсится или <code>mcpServers</code> не объект; добавляется один ключ, остальной файл остаётся как был.</li>
+            <li><strong>codex</strong> — три навыка в <code>~/.agents/skills/</code>, где команды становятся <code>$engmem</code>, <code>$engmem-save</code> и <code>$engmem-save-quick</code>, правило в <code>$CODEX_HOME/AGENTS.md</code> и запись сервера в <code>config.toml</code>. Писателя TOML в стандартной библиотеке нет, поэтому запись — блок строк между двумя комментариями-метками, и он принадлежит engmem; чужой <code>[mcp_servers.engmem]</code> не трогается. Конфиг пишется первым: на этом шаге install может отказаться, и тогда на диске ничего не меняется.</li>
+            <li><strong>chatgpt</strong> — вне хранилища не пишет ничего. Локальный MCP-сервер ChatGPT сам не запускает, поэтому install печатает команды Secure MCP Tunnel. Если вместо туннеля стоит публичный мост, сервер за ним запускают как <code>engmem mcp --read-only</code>: по утёкшему адресу хранилище можно читать, но не менять.</li>
           </ul></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p>Молчаливый no-op хуже отказа: команда, промахнувшаяся каталогом, замусорит чужой репозиторий незаметно. Повтор при этом безопасен — правило не дублируется, потому что проверка идёт по широкому маркеру <code>`engmem search</code>, годному <em>только</em> для решения «пропустить», никогда для «что удалить».</p></div>
@@ -1070,17 +1089,19 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
         <div class="prose"><p>Uninstall снимает ровно то, что написал install, но сравнивает узко — потому что широкое сравнение однажды снесло чужую строку.</p></div>
         <div class="io">
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p>Обе проверки T5 повторяются, цели считает <code>_agent_targets()</code>: файлы шаблонов плюс файл инструкций — или <code>None</code> для <code>copilot-cli</code> и <code>claude-desktop</code>, у которых общего файла с правилом нет.</p></div>
+          <div class="io-v"><p>Обе проверки T5 повторяются, цели считает <code>_agent_targets()</code>: файлы шаблонов плюс файл инструкций — или <code>None</code> вместо файла для <code>copilot-cli</code>, <code>claude-desktop</code> и <code>chatgpt</code>, у которых файла с правилом нет.</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><ul>
-            <li><strong>copilot-cli</strong> — папка навыка убирается только если после удаления <code>SKILL.md</code> она пуста.</li>
+            <li><strong>copilot-cli / codex</strong> — папка навыка убирается только если после удаления <code>SKILL.md</code> она пуста.</li>
             <li><strong>claude-desktop</strong> — удаляется ровно ключ <code>mcpServers.engmem</code>; остальные серверы нетронуты.</li>
+            <li><strong>codex</strong> — ещё удаляются ровно блок между метками в <code>config.toml</code> и правило из <code>AGENTS.md</code>.</li>
+            <li><strong>chatgpt</strong> — снимать на машине нечего: команда напоминает остановить <code>tunnel-client</code> и удалить приложение engmem в настройках ChatGPT.</li>
             <li><strong>claude / copilot-ide</strong> — неудаляемый файл попадает в отчёт, а не прерывает цикл.</li>
           </ul></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p><code>_remove_trigger_rule()</code> ищет сентинел и строку правила сразу под ним, а не широкий маркер, которым install решал, пропускать ли запись: удаление по широкому маркеру однажды снесло чужую строку пользователя, которая просто упоминала <code>engmem search</code> в своём тексте.</p></div>
           <div class="io-k">Чем это грозит</div>
-          <div class="io-v"><p>Ложным выводом «engmem никогда не ставился» — против него <code>_other_agents_with_files_present()</code> при нулевом счётчике проверяет три <em>других</em> режима и предлагает другой <code>--agent</code>. Хранилище не трогается никогда:</p>
+          <div class="io-v"><p>Ложным выводом «engmem никогда не ставился» — против него <code>_other_agents_with_files_present()</code> при нулевом счётчике проверяет <em>другие</em> режимы, у которых есть след на диске, и предлагает другой <code>--agent</code>. Хранилище не трогается никогда:</p>
             <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
 store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre></div>
         </div>
@@ -1089,9 +1110,9 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
 
   </div>
 
-  <h3>Путь 3 — сессия MCP: <code>engmem mcp</code>, вход для Claude Desktop</h3>
+  <h3>Путь 3 — сессия MCP: <code>engmem mcp</code>, вход для MCP-клиентов</h3>
   <div class="prose">
-    <p>Тот же поиск, что в пути 1, но по протоколу, где <code>stdout</code> — не текст для человека, а кадры JSON-RPC. Поиск здесь только часть входа: сервер отдаёт пять инструментов, три из них пишут в хранилище (создать черновик, закрыть его, пометить документ устаревшим), и три промпта, по одному на шаблон.</p>
+    <p>Тот же поиск, что в пути 1, но по протоколу, где <code>stdout</code> — не текст для человека, а кадры JSON-RPC. Поиск здесь только часть входа: сервер отдаёт пять инструментов, три из них пишут в хранилище (создать черновик, закрыть его, пометить документ устаревшим), и три промпта, по одному на шаблон. Промпт <code>engmem</code> на каждом вызове начинается со строки <code>engmem mode for this session: …</code>, а <code>engmem_create_draft</code> отказывает черновику, чей <code>mode</code> расходится с настроенным. Файл режима перечитывается на каждый вызов, так что <code>engmem mode set</code> подхватывается без перезапуска; новый код engmem клиент получит, только когда запустит сервер заново. С флагом <code>--read-only</code> сервер отдаёт лишь два инструмента поиска — это для сервера, до которого можно достучаться снаружи машины.</p>
   </div>
 
 <figure class="scroll-x">
@@ -1177,7 +1198,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
           <div class="io-k">Что делает</div>
           <div class="io-v"><p>Читает <code>stdin</code> построчно: пустая строка — пропуск; при <code>JSONDecodeError</code> сразу пишется <code>_error_response(None, PARSE_ERROR, …)</code>, и цикл продолжается, не доходя до <code>_dispatch</code>.</p></div>
           <div class="io-k">Развилка</div>
-          <div class="io-v"><p><code>_dispatch()</code> отличает запрос от уведомления по наличию <code>id</code>: уведомление не получит ответа вовсе, даже при ошибке — так требует JSON-RPC. Метод ищется в таблице <code>_METHODS</code>: шесть обработчиков со схемы плюс <code>ping</code>. Исключения ловятся на двух уровнях: <code>_ProtocolError</code> становится ответом с его кодом, голый <code>Exception</code> — <code>INTERNAL_ERROR</code> с диагностикой в <code>stderr</code>.</p></div>
+          <div class="io-v"><p><code>_dispatch()</code> отличает запрос от уведомления по наличию <code>id</code>: уведомление не получит ответа вовсе, даже при ошибке — так требует JSON-RPC. Метод ищется в таблице <code>_METHODS</code>: шесть обработчиков со схемы плюс <code>ping</code>. С флагом <code>--read-only</code> — в <code>_READ_ONLY_METHODS</code>: таблица та же, но <code>tools/list</code> и <code>tools/call</code> знают только два инструмента поиска. Исключения ловятся на двух уровнях: <code>_ProtocolError</code> становится ответом с его кодом, голый <code>Exception</code> — <code>INTERNAL_ERROR</code> с диагностикой в <code>stderr</code>.</p></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p><code>_write()</code> — единственный писатель в <code>stdout</code>, и строка <code>error: …</code> посреди кадров порвала бы следующий и оборвала сессию клиента. Один и тот же приём правильный на пути 1 и катастрофический здесь — потому что у путей разные читатели <code>stdout</code>.</p></div>
         </div>
@@ -1214,10 +1235,10 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
   <p class="part">Часть 6 · Установка и удаление</p>
   <h2>Две команды поставить, одна убрать</h2>
   <div class="prose">
-    <p><em>Роль в цикле:</em> установка — то, чем цикл переносится на новую машину. Она кладёт шаблоны, которые печатают пре-регистрацию и журнал переиспользования, и правило, обязывающее агента пройти измеряемый канал до того, как он предложит план.</p>
+    <p><em>Роль в цикле:</em> установка — то, чем цикл переносится на новую машину. Она кладёт шаблоны, которые пишут журнал переиспользования, а в исследовательском режиме ещё и пре-регистрацию, и правило, обязывающее агента пройти измеряемый канал до того, как он предложит план.</p>
     <p>Первая команда ставит сам пакет, вторая подключает его к вашему агенту:</p>
 <pre><code>uv tool install --editable .     # или: pipx install .
-engmem install --agent claude    # или copilot-ide / copilot-cli</code></pre>
+engmem install --agent claude    # или copilot-ide / copilot-cli / claude-desktop / codex / chatgpt</code></pre>
     <p>Инструменты разбора из <code>tools/</code> в пакет не входят. Они лежат в клоне репозитория и запускаются из любой папки через него:</p>
 <pre><code>uv run --project &lt;engmem-checkout&gt; python &lt;engmem-checkout&gt;/tools/verify_citations.py --store &lt;store&gt;</code></pre>
     <p>Так что на новую машину установка переносит первые шаги цикла, а для разбора нужен ещё и клон.</p>
@@ -1230,6 +1251,9 @@ engmem install --agent claude    # или copilot-ide / copilot-cli</code></pre>
   <tr><td><code>claude</code></td><td><code>~/.claude/commands/engmem.md</code></td><td>Claude Code. Имя файла становится именем команды — отсюда <code>/engmem</code>. С флагом <code>--local</code> — в текущий репозиторий (нужен уже существующий <code>.git</code> в этой папке, иначе выход с кодом 2).</td></tr>
   <tr><td><code>copilot-ide</code></td><td><code>.github/prompts/engmem.prompt.md</code></td><td>Плагин Copilot в VS Code, Visual Studio, JetBrains. Он распознаёт только двойное расширение <code>.prompt.md</code>, обычный <code>.md</code> молча игнорирует. Тоже пишет в текущий репозиторий — нужен <code>.git</code> здесь, иначе выход с кодом 2.</td></tr>
   <tr><td><code>copilot-cli</code></td><td><code>~/.copilot/skills/engmem/SKILL.md</code></td><td>Терминальный <code>copilot</code>. Он не читает <code>.github/prompts/</code> вообще, только навыки. Точки в именах запрещены, поэтому команды здесь <code>/engmem-save</code>, а не <code>/engmem.save</code>.</td></tr>
+  <tr><td><code>claude-desktop</code></td><td><code>claude_desktop_config.json</code>, ключ <code>mcpServers.engmem</code></td><td>Приложение Claude Desktop. Shell у него нет, поэтому и шаблонов нет: engmem подключается как MCP-сервер, и те же команды приходят промптами. После обновления engmem приложение нужно закрыть совсем и открыть заново.</td></tr>
+  <tr><td><code>codex</code></td><td><code>~/.agents/skills/engmem/SKILL.md</code>, <code>~/.codex/AGENTS.md</code>, <code>~/.codex/config.toml</code></td><td>Codex: CLI, расширение для IDE и приложение. Ставит оба канала сразу: навыки <code>$engmem</code>, <code>$engmem-save</code>, <code>$engmem-save-quick</code> для shell и MCP-сервер там, где shell нет. Песочница Codex по умолчанию не даёт CLI писать в хранилище вне репозитория: добавьте его в <code>writable_roots</code> или подтверждайте каждую запись.</td></tr>
+  <tr><td><code>chatgpt</code></td><td>ничего на диске</td><td>ChatGPT. Печатает команды Secure MCP Tunnel, через которые ChatGPT достаёт до <code>engmem mcp</code> на вашей машине.</td></tr>
   </tbody>
   </table></div>
   <div class="prose">
@@ -1239,9 +1263,18 @@ engmem install --agent claude    # или copilot-ide / copilot-cli</code></pre>
       <li><strong>хранилище</strong> (<code>~/Developer/engmem</code> по умолчанию): папка <code>sessions/</code> и <code>git init</code>, если репозитория ещё нет. Существующее не трогается;</li>
       <li><strong>три файла шаблонов</strong> в каталоге агента из таблицы выше;</li>
       <li><strong>штамп версии</strong> первой строкой после YAML-шапки каждого шаблона — по нему видно, какая версия установлена;</li>
-      <li><strong>триггер-правило</strong> в <code>CLAUDE.md</code> или <code>.github/copilot-instructions.md</code> — на самом деле две строки: сентинел-комментарий <code>&lt;!-- engmem-trigger-rule --&gt;</code> и сама строка правила сразу под ним: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;" --session &lt;draft-id&gt;` (the draft `/engmem` just created; without it the search is unattributed)</code>. Сентинел здесь не для красоты — именно по нему <code>uninstall</code> потом находит и убирает ровно эти две строки и ничего больше. Для <code>copilot-cli</code> этот шаг пропускается — глобального файла инструкций у него нет, навыки вызываются вручную.</li>
+      <li><strong>триггер-правило</strong> в <code>CLAUDE.md</code>, <code>.github/copilot-instructions.md</code> или, у Codex, в <code>AGENTS.md</code> — на самом деле две строки: сентинел-комментарий <code>&lt;!-- engmem-trigger-rule --&gt;</code> и сама строка правила сразу под ним: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;" --session &lt;draft-id&gt;` (the draft `/engmem` just created; without it the search is unattributed)</code>. Сентинел здесь не для красоты — именно по нему <code>uninstall</code> потом находит и убирает ровно эти две строки и ничего больше. Для <code>copilot-cli</code> этот шаг пропускается — глобального файла инструкций у него нет, навыки вызываются вручную; у <code>claude-desktop</code> и <code>chatgpt</code> файла с правилом тоже нет.</li>
     </ul>
     <p>Повторный запуск — это upgrade: хранилище не пересоздаётся, шаблоны перезаписываются свежей версией, правило не дублируется (проверка идёт по маркеру <code>engmem search</code>, так что даже переформулированное вами правило распознаётся).</p>
+
+    <h3>Режим, хранилище и проверка</h3>
+    <p>У тула два однострочных файла настроек, оба в <code>~/.config/engmem/</code> (<code>$XDG_CONFIG_HOME/engmem/</code>, в Windows — <code>%APPDATA%\engmem\</code>): <code>store</code> — путь к хранилищу, его пишет только <code>engmem store set</code>, и <code>mode</code> — режим, его пишет только <code>engmem mode set</code>. <code>install</code> не пишет ни тот, ни другой. Удалили файл — настройка вернулась к умолчанию.</p>
+<pre><code>engmem mode set research   # следующие сессии идут по протоколу Gate 1
+engmem mode show           # режим и откуда он взят
+engmem store show          # какое хранилище в работе и куда смотрят MCP-записи</code></pre>
+    <p>По умолчанию режим дневной: <code>/engmem</code> не пишет пре-регистрацию, не запускает под-агента, и сессия в разбор не попадает. Исследовательский режим — это цикл из части 1 целиком. Режим записывается в черновик и потом не меняется, так что переключение действует со следующей сессии. Если файл режима не читается, молча это не проходит: <code>engmem mode show</code> выходит с кодом 2 и называет файл, агент говорит вам об ошибке, и сессия идёт в дневном режиме, единственном, который не может испортить эксперимент. Пока файл не исправлен (<code>engmem mode set daily|research</code>), MCP-инструмент принимает только дневные черновики. После обновления с версии без режимов install нужно запустить заново для каждого агента: старые шаблоны пишут черновик без <code>mode</code>, и MCP-инструмент его не примет.</p>
+    <p>У Claude Desktop нет shell, поэтому режим ставят один раз из терминала. Переменные из профиля shell приложение не видит: если <code>XDG_CONFIG_HOME</code> задан только в терминале, <code>mode set</code> запишет файл, который сервер Desktop не прочитает.</p>
+    <p>Если агент не видит память и непонятно почему, <code>engmem doctor --agent &lt;агент&gt;</code> проверяет установку этого клиента и ничего не меняет: хранилище и откуда оно взято, чтение и запись в <code>sessions/</code> (одним пробным файлом, который сразу удаляется), команду <code>engmem</code> и Python из MCP-записи, шаблоны и их версии, правило и то, смотрят ли CLI и MCP в одно хранилище. На каждую проверку строка: <code>ok</code>, <code>warning</code>, <code>error</code> или <code>unverified</code>. Песочницу самого клиента doctor изнутри не видит, поэтому <code>ok</code> про неё не бывает. Код выхода 1, если нашлась хоть одна <code>error</code>.</p>
 
     <h3>Удаление</h3>
     <p>Зеркальная команда с тем же <code>--agent</code>:</p>
@@ -1256,9 +1289,10 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
       <li><strong>не удаляет чужое.</strong> Каталог навыка Copilot сносится, только если после удаления <code>SKILL.md</code> он пуст; посторонние строки в <code>CLAUDE.md</code> сохраняются, сам файл не удаляется, даже если опустел;</li>
       <li><strong>не удаляет сам пакет</strong> — команда <code>engmem</code> остаётся в PATH.</li>
     </ul>
-    <p>Поэтому полное удаление — три шага, и только первый обязателен для того, чтобы агент перестал звать несуществующую команду:</p>
+    <p>Поэтому полное удаление — четыре шага, и только первый обязателен для того, чтобы агент перестал звать несуществующую команду:</p>
 <pre><code>engmem uninstall --agent claude   # шаблоны и триггер-правило
 uv tool uninstall engmem          # сам пакет и команда в PATH
+rm -rf ~/.config/engmem           # настройки store и mode (в Windows — %APPDATA%\engmem)
 rm -rf ~/Developer/engmem         # ваши документы — только если точно не нужны</code></pre>
   </div>
 </section>
@@ -1316,32 +1350,32 @@ rm -rf ~/Developer/engmem         # ваши документы — только
     <h3>The loop end to end: four beats</h3>
     <p>The order is required for the evidence, not for the work. A skipped or reordered beat breaks neither the task nor the review — the review runs on whatever was recorded. It simply stops proving anything: a naive plan written after reading the documents proves nothing.</p>
     <ol>
-      <li><strong>Pre-registration.</strong> A separate sub-agent, given nothing but the task statement, writes the naive plan before any search runs, and the plan goes into the draft document. The order <em>is</em> the measurement: a plan written after the documents are read is no longer evidence.</li>
+      <li><strong>Pre-registration.</strong> A separate sub-agent, given nothing but the task statement, writes the naive plan before any search runs, and the plan goes into the draft document. The order <em>is</em> the measurement: a plan written after the documents are read is no longer evidence. This beat runs in research mode only (<code>engmem mode set research</code>). By default the tool runs in daily mode: no pre-registration, and the session stays out of the review.</li>
       <li><strong>The work.</strong> Search hands back section addresses, the agent reads what it found, the task proceeds as it normally would. In the middle, engmem takes no part at all.</li>
       <li><strong>A Reuse Log row with a verbatim quote.</strong> One row per influencing document: what was quoted, what changed as a result, and what kind of influence it was: <code>reuse</code> — the work followed the document, <code>anti-reuse</code> — it deliberately went against it, <code>harmful</code> — the document led it astray. A row without a quote is invalid; if nothing was of use, the line written is exactly <code>Prior docs used: none.</code></li>
       <li><strong>The review (Gate 1).</strong> Rows from the whole store are collected into one table and read against a rule written down in advance. A document that could not be read is named at the very top of the output: it gets no row, and it does not vanish quietly either.</li>
     </ol>
-    <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across a set of 4–5 cross-repository stories — one across the set, not one per story. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one the author would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
-    <p>One shared module, <code>src/engmem/gate1.py</code>, decides the mechanical part of every row — citation integrity, distance and staleness; classification it does not decide but reads, since the author sets it. <code>tools/verify_citations.py</code> and <code>tools/gate1_report.py</code> read that same verdict rather than checking independently; they differ only in what happens with it — <code>verify_citations.py</code> fails the run on an unverifiable quote and on a document it could not read, <code>gate1_report.py</code> never fails and renders all four axes into a table for the human. Its empty column is the one thing a machine cannot decide: whether the quote changed a decision. Only rows classified <code>reuse</code> reach the count: <code>anti-reuse</code> and <code>harmful</code> are printed in the table but excluded from it, as are a row without a quote and a row from a draft. So are rows from stories about engmem itself — the <code>dogfooding</code> axis in the output: building the tool cannot be evidence that the tool helps.</p>
+    <p>What was written down in advance lives in <code>ENGMEM-SPEC.md</code> §11. The primary endpoint: at least one <em>distant</em> reuse event across a set of 4–5 cross-repository stories — one across the set, not one per story. "Distant" is defined mechanically rather than felt: a cited document is <em>adjacent</em> if it shares a repository or a tag with the citing one, or is reachable from it through one <code>related</code> edge; otherwise it is distant. An adjacent document is one you would plausibly have remembered anyway — the retrieval layer gets no credit for it.</p>
+    <p>One shared module, <code>src/engmem/gate1.py</code>, decides the mechanical part of every row — citation integrity, distance and staleness; classification it does not decide but reads, since whoever saves the document sets it. <code>tools/verify_citations.py</code> and <code>tools/gate1_report.py</code> read that same verdict rather than checking independently; they differ only in what happens with it — <code>verify_citations.py</code> fails the run on an unverifiable quote and on a document it could not read, <code>gate1_report.py</code> never fails and renders all four axes into a table for the human. Its empty column is the one thing a machine cannot decide: whether the quote changed a decision. Only rows classified <code>reuse</code> reach the count: <code>anti-reuse</code> and <code>harmful</code> are printed in the table but excluded from it, as are a row without a quote and a row from a draft. So are rows from stories about engmem itself — the <code>dogfooding</code> axis in the output: building the tool cannot be evidence that the tool helps. Sessions that ran without the protocol are kept apart as well: daily ones (<code>mode: daily</code>) and research ones without a naive plan. Their rows are not counted, and the summary shows them as a separate figure. In the sample below that is one daily document that honestly wrote <code>Prior docs used: none.</code></p>
 <pre><code>| story | cited | quote | integrity | classification | distance | staleness | changed a decision? |
 |---|---|---|---|---|---|---|---|
-| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries freshness data | verified | reuse | distant | cited_active |  |
+| 2000002-widget-cache | 1000001-response-cache | rejected the separate table because the response already carries the freshness data | verified | reuse | distant | cited_active |  |
 
 rows: 1
 citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
 classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
 rows excluded from the count: 0
-excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded)
+excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded), 0 outside the experiment (mode: daily), 0 incomplete observation (baseline_unavailable), 0 research without a baseline, 0 mode not recognized
 1 valid (the last column above is theirs to fill), of which 1 distant, 0 adjacent, 0 undecidable
 of the 1 distant, 0 cite a superseded document (flagged, not excluded -- see the staleness column)
 ENGMEM-SPEC.md section 11's primary endpoint counts the distant figure above.
-documents reporting no reuse: 1
+documents reporting no reuse: 1 (1 more kept apart by mode -- daily, incomplete, research without a baseline or mode not recognized -- not counted)
 The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
 <p>The full run prints a second block beneath this one — sample-completeness audit coverage, not another gate. The tool states two standing caveats of its own. <code>--session</code> is deliberately unvalidated, so the orphan-row figure also counts typos and cross-store contamination, not only genuine gaps. And <code>telemetry.jsonl</code> is append-only with no rotation, so pre-Gate-1 and testing rows are indistinguishable from experimental ones within whatever window is in force. See <code>docs/design/contracts/gate1.md</code>, "The audit coverage block," for the rest.</p>
     <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1. If the citing document itself cannot be read, its name is the first line of the output, with the same exit code.</p>
-<pre><code>2000002-widget-cache.md:23: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+<pre><code>2000002-widget-cache.md:32: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>The reading of the result is fixed in advance too. If the primary endpoint is missed while the secondaries hold, the verdict reads: the store as compressed context earned its keep, the measurement superstructure did not — and the superstructure gets wound down. A miss is a result, not grounds for softening the criterion and trying again.</p>
   </div>
@@ -1396,7 +1430,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
     <ul>
       <li><strong>The store</strong> — a folder of markdown files under git. No database, no server, no cloud. You can open a file, read it, fix it by hand, inspect its history with <code>git log</code>.</li>
       <li><strong>The search</strong> — the <code>engmem search</code> command. Deterministic, no ML: the same query always yields the same answer, the result has a fixed ceiling, and every call leaves a telemetry line carrying its exact cost in bytes. It re-reads every document's header on every call.</li>
-      <li><strong>Three template commands</strong> for the agent: <code>/engmem</code> at the start of a task, <code>/engmem.save</code> at the end, <code>/engmem.save.quick</code> for a short document with no review round, when there's no attention left for one. They're markdown instructions rather than code — which is why they work in any agent.</li>
+      <li><strong>Three template commands</strong> for the agent: <code>/engmem</code> at the start of a task, <code>/engmem.save</code> at the end, <code>/engmem.save.quick</code> for a short record with no review round: the decision, its reason, the rejected alternative, the source and a few lines for the next task. They're markdown instructions rather than code — which is why they work in any agent.</li>
     </ul>
   </div>
 
@@ -1430,7 +1464,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   </figure>
 
   <div class="prose">
-    <p>The flywheel above traces the loop for one document. Zoom out, and the store is a graph that keeps getting more connected. Two kinds of edge sit side by side in it: the ones an author wrote, and the ones nobody wrote. The retrieval channel carries the second kind on its own, through entities two documents happen to share. The review rule counts such a pair as <em>distant</em> — no shared repository, no shared tag, no <code>related</code> edge — and those are the only ones the retrieval layer may claim credit for.</p>
+    <p>The flywheel above traces the loop for one document. Zoom out, and the store is a graph that keeps getting more connected. Two kinds of edge sit side by side in it: the ones you wrote, and the ones nobody wrote. The retrieval channel carries the second kind on its own, through entities two documents happen to share. The review rule counts such a pair as <em>distant</em> — no shared repository, no shared tag, no <code>related</code> edge — and those are the only ones the retrieval layer may claim credit for.</p>
   </div>
 
 </section>
@@ -1440,7 +1474,7 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
   <p class="part">Part 4 · One task, end to end</p>
   <h2>From the ask to the saved document</h2>
   <div class="prose">
-    <p><em>Its role in the loop:</em> this is how the memory fills up — a document reaches the store, and with it the measurement acquires something to measure. Steps 01 and 07 are the measuring beats themselves (pre-registration and the quoted Reuse Log row); everything between them is ordinary work.</p>
+    <p><em>Its role in the loop:</em> this is how the memory fills up — a document reaches the store, and with it the measurement acquires something to measure. Steps 01 and 07 are the measuring beats themselves (pre-registration and the quoted Reuse Log row); everything between them is ordinary work. The path is shown in research mode; in daily mode there is no step 01.</p>
     <p><strong>You type nothing: the agent walks the path from the naive plan to the finished document, and you confirm the header and answer whether this work supersedes an earlier decision.</strong> A full <code>save</code> also asks you to check the quotes — step 07 names the cost of that plainly. Below, step by step: what the tool does, <strong>what physically lands in the model's context</strong>, and what remains afterwards. The task: "Add response caching for a new endpoint"; similar work happened three months ago, but you no longer remember it. Every value was captured from a live run against a test store.</p>
   </div>
 
@@ -1513,10 +1547,12 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
       <div class="step-body" hidden>
         <div class="prose"><p>A separate sub-agent writes the naive plan before any search runs — otherwise nobody can honestly say later what memory changed.</p></div>
         <div class="io">
+          <div class="io-k">Mode first</div>
+          <div class="io-v"><p>The agent's first move is to learn the mode: with a shell, through <code>engmem mode show</code>; a client without one that comes in over MCP (Claude Desktop, ChatGPT, Codex where it has no shell) sees it in the prompt's first line: <code>engmem mode for this session: …</code>. In daily mode, the default, this whole step is skipped: no plan, no sub-agent, and the draft is written straight away with <code>mode: daily</code>. What follows is research mode.</p></div>
           <div class="io-k">Command</div>
           <div class="io-v"><pre><code>/engmem add response caching for a new endpoint</code></pre></div>
           <div class="io-k">What happens</div>
-          <div class="io-v"><p>The sub-agent gets only the task description: no store, no search, no mention that engmem exists. If nothing can be spawned, the agent writes those 2–3 lines itself, but strictly <strong>before</strong> the first search.</p></div>
+          <div class="io-v"><p>The sub-agent gets only the task description: no store, no search, no mention that engmem exists. If nothing can be spawned, the agent writes those 2–3 lines itself, but strictly <strong>before</strong> the first search. That is the case in Claude Desktop, and the last line then reads <code>pre-reg source: self (no sub-agent available)</code>. If even that is too late, because a store document has already been read, no plan is written at all: the draft's front matter gets <code>baseline_unavailable: &lt;reason&gt;</code>, search and save work as usual, and the review keeps the session apart.</p></div>
           <div class="io-k">What comes back</div>
           <div class="io-v"><pre><code>Add a cache in front of the new endpoint, with
 its own freshness-metadata table — easier to
@@ -1560,6 +1596,7 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
+mode: research
 ---
 
 ## Pre-reg
@@ -1571,6 +1608,7 @@ control invalidation that way.</code></pre></div>
           <div class="io-v"><ul>
             <li><code>status: draft</code> keeps the document out of search: unfinished work must not pass itself off as knowledge.</li>
             <li><code>backfilled: false</code> means the document was written alongside the work. Older tasks can be entered into the store after the fact — those carry <code>backfilled: true</code>, are searched like any other, and stay out of the audit's ritual figures, since the ritual was never run on them. Their rows still count toward the Gate 1 primary endpoint for now — the spec (§11) leaves that question open on purpose.</li>
+            <li><code>mode: research</code> is written once, when the draft is created, and never changes after: switching mode mid-task takes effect from the next session.</li>
             <li>The spine is written in full not for the parser (it derives what's missing on its own, see T2) but because these are exactly the fields search ranks on.</li>
           </ul></div>
         </div>
@@ -1590,7 +1628,7 @@ control invalidation that way.</code></pre></div>
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
             <p>The agent assembles the keywords itself — from your phrasing and the class names it sees nearby in the code.</p></div>
           <div class="io-k">What comes back</div>
-          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.8)
+          <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.7)
 path: /Users/…/sessions/1000001-response-cache.md
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
@@ -1598,7 +1636,7 @@ matched: entities=responsecachecontroller,response,cache,controller,etag; §4-co
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
 ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
 
-### ttl-etag-revalidation-v2 (score: 16.5)
+### ttl-etag-revalidation-v2 (score: 16.3)
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
   §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
@@ -1606,11 +1644,13 @@ matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=resp
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
-docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
+docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
+note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
-              <li>The gap between 20.8 and 16.5 separates a direct hit from a tangential one, and <code>matched</code> shows by what: five words, not one.</li>
+              <li>The gap between 20.7 and 16.3 separates a direct hit from a tangential one, and <code>matched</code> shows by what: five words, not one.</li>
               <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes.</li>
               <li>The footer is the state of the memory: 7 documents, the draft from step 02 among them (an eighth file failed to load and is not counted), the newest written 19 days ago.</li>
+              <li>The last line is a reminder: a search without <code>--session</code> is tied to no draft. Following the template, the agent passes the draft id, and then the line is gone.</li>
             </ul></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p>The 4 KB cap is a condition of measurement: the channel's ceiling is fixed, so its cost can be written to telemetry and compared against a baseline. The same three documents are shown however many matched — thirty matches yield the same three blocks plus a single "N more" line. And <code>(1 failed to load)</code> goes to stdout rather than stderr: the agent reads only stdout, so seven documents instead of eight would look to it like a complete answer.</p></div>
@@ -1736,12 +1776,13 @@ Confirm? (y / edits)</code></pre>
 ## Search Trace                ← how this session's retrieval went</code></pre>
             <ul>
               <li>No section is optional: one with nothing to report gets one honest line saying so.</li>
-              <li>The numbering 1–16 is inherited from a knowledge-base format the author kept separately — so both feed one searchable corpus.</li>
+              <li>The numbering 1–16 is inherited from a knowledge-base format kept separately — so both feed one searchable corpus.</li>
               <li>Number 17 was appended rather than inserted where it belongs by meaning: other documents already cite "section 13 — the primer".</li>
             </ul></div>
           <div class="io-k">What it costs</div>
           <div class="io-v"><p>A full save asks you to check the YAML, check the quotes, and recall the store for the overturn question; <code>/engmem.save.quick</code> removes all three demands and leaves a single <code>ok</code>.</p>
-            <p>The price is real: the document comes out shorter — five sections, none numbered — the primer is never written, so there will be no preview in future results, and the overturn question goes unanswered. That makes it the emergency path.</p></div>
+            <p>The document comes out short, but the core is there. <code>## Decision Log</code> holds four labelled lines: decision, reason, rejected alternative, source. The primer holds 2–4 lines for the next task, and the first two become the preview in search results. What the session did not contain, the agent does not invent: the line stays and says <code>not stated in the available material.</code> It is all shown in one message and published after one confirmation; if you decline, nothing is published and the draft stays out of search.</p>
+            <p>The price lies elsewhere: there is no overturn question, so an old document this decision overturned keeps surfacing as current until someone marks it, and the Reuse Log is not checked with you.</p></div>
         </div>
       </div>
     </article>
@@ -1801,7 +1842,7 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
   <h2>Three paths through the code</h2>
   <div class="prose">
     <p><em>Its role in the loop:</em> this is the memory's own code — what turns a query into a bounded result and a telemetry line, and what puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
-    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has seven subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for Claude Desktop. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
+    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has ten subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for clients that come in over MCP: Claude Desktop, Codex, ChatGPT. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
   </div>
 
   <h3>Path 1 — <code>engmem search</code>: from the command to the output</h3>
@@ -1937,8 +1978,8 @@ spine = Σ max(weight of the field where the token matched) × (matched / total)
 body  = BM25 of the best section (k1 1.2, b 0.6)
 
 spine = (3+3+3+3+3) × 5/7 = 15 × 0.714 = 10.71
-body  = 10.13                    →  score 20.8</code></pre>
-            <p>The coverage multiplier punishes partial hits — it's what drops the second document's spine to 6.86: four tokens out of seven (16.5 in total — the body supplied the rest).</p></div>
+body  = 10.02                    →  score 20.7</code></pre>
+            <p>The coverage multiplier punishes partial hits — it's what drops the second document's spine to 6.86: four tokens out of seven (16.3 in total — the body supplied the rest).</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><ul>
             <li><code>draft</code> — never gets this far: it is left out of the ranking corpus before scoring and takes no part in the statistics, though it still counts toward the scoreboard.</li>
@@ -1981,13 +2022,13 @@ body  = 10.13                    →  score 20.8</code></pre>
 
   </div>
 
-  <h3>Path 2 — <code>engmem install</code> / <code>uninstall</code>: four agent modes</h3>
+  <h3>Path 2 — <code>engmem install</code> / <code>uninstall</code>: six agent modes</h3>
   <div class="prose">
-    <p>The only path that touches files outside the store. Both commands share one fork: <code>--agent</code> picks one of four modes, each with its own directory and its own trace shape.</p>
+    <p>The only path that touches files outside the store. Both commands share one fork: <code>--agent</code> picks one of six modes, each with its own directory and its own trace shape.</p>
   </div>
 
 <figure class="scroll-x">
-    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install and uninstall: a repo-scope guard, then a fork into four agent modes, each leaving its own trace on disk">
+    <svg viewBox="0 0 1040 230" role="img" aria-label="engmem install and uninstall: a repo-scope guard, then a fork into six agent modes, each leaving its own trace on disk">
       <g fill="none" stroke-width="1.4">
         <rect x="390" y="15" width="260" height="50" rx="9" style="stroke: var(--accent)"/>
       </g>
@@ -2001,33 +2042,43 @@ body  = 10.13                    →  score 20.8</code></pre>
       </g>
 
       <g stroke="currentColor" stroke-width="1.3" fill="none">
-        <path d="M520,65 L520,90 L125,90 L125,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L385,90 L385,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L645,90 L645,140" marker-end="url(#ar)"/>
-        <path d="M520,65 L520,90 L905,90 L905,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L90,90 L90,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L262,90 L262,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L434,90 L434,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L606,90 L606,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L778,90 L778,140" marker-end="url(#ar)"/>
+        <path d="M520,65 L520,90 L950,90 L950,140" marker-end="url(#ar)"/>
       </g>
 
       <g fill="none" stroke="currentColor" stroke-width="1.4">
-        <rect x="10" y="140" width="230" height="46" rx="9"/>
-        <rect x="270" y="140" width="230" height="46" rx="9"/>
-        <rect x="530" y="140" width="230" height="46" rx="9"/>
-        <rect x="790" y="140" width="230" height="46" rx="9"/>
+        <rect x="10" y="140" width="160" height="46" rx="9"/>
+        <rect x="182" y="140" width="160" height="46" rx="9"/>
+        <rect x="354" y="140" width="160" height="46" rx="9"/>
+        <rect x="526" y="140" width="160" height="46" rx="9"/>
+        <rect x="698" y="140" width="160" height="46" rx="9"/>
+        <rect x="870" y="140" width="160" height="46" rx="9"/>
       </g>
-      <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor" text-anchor="middle">
-        <text x="125" y="167">agent=claude</text>
-        <text x="385" y="167">agent=copilot-ide</text>
-        <text x="645" y="167">agent=copilot-cli</text>
-        <text x="905" y="167">agent=claude-desktop</text>
+      <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="middle">
+        <text x="90" y="167">agent=claude</text>
+        <text x="262" y="167">agent=copilot-ide</text>
+        <text x="434" y="167">agent=copilot-cli</text>
+        <text x="606" y="167">agent=claude-desktop</text>
+        <text x="778" y="167">agent=codex</text>
+        <text x="950" y="167">agent=chatgpt</text>
       </g>
-      <g font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity=".65" text-anchor="middle">
-        <text x="125" y="205">~/.claude/commands +</text>
-        <text x="125" y="219">CLAUDE.md, sentinel rule</text>
-        <text x="385" y="205">.github/prompts/*.prompt.md +</text>
-        <text x="385" y="219">copilot-instructions.md</text>
-        <text x="645" y="205">~/.copilot/skills/*/SKILL.md</text>
-        <text x="645" y="219">no trigger rule written</text>
-        <text x="905" y="205">claude_desktop_config.json</text>
-        <text x="905" y="219">merges mcpServers.engmem</text>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="9.4" fill="currentColor" opacity=".65" text-anchor="middle">
+        <text x="90" y="205">~/.claude/commands +</text>
+        <text x="90" y="219">CLAUDE.md, sentinel rule</text>
+        <text x="262" y="205">.github/prompts/*.prompt.md +</text>
+        <text x="262" y="219">copilot-instructions.md</text>
+        <text x="434" y="205">~/.copilot/skills/*/SKILL.md</text>
+        <text x="434" y="219">no trigger rule written</text>
+        <text x="606" y="205">claude_desktop_config.json</text>
+        <text x="606" y="219">merges mcpServers.engmem</text>
+        <text x="778" y="205">~/.agents/skills + AGENTS.md</text>
+        <text x="778" y="219">a block in config.toml</text>
+        <text x="950" y="205">writes nothing to disk</text>
+        <text x="950" y="219">prints the tunnel steps</text>
       </g>
     </svg>
     <figcaption>Uninstall walks the same fork and the same directory guard, but removes exactly what install wrote — down to the narrow sentinel match, not the broad marker install uses to decide whether to add the rule.</figcaption>
@@ -2042,14 +2093,14 @@ body  = 10.13                    →  score 20.8</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T5</span>
-        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: a guard, then one of four traces</span><span class="step-s">install.py · the only path that writes outside the store</span></span>
+        <span class="step-titles"><span class="step-t"><code>cmd_install</code>: a guard, then one of six traces</span><span class="step-s">install.py · the only path that writes outside the store</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>The one command that writes outside the store starts with a directory guard, not with a write.</p></div>
         <div class="io">
           <div class="io-k">What runs</div>
-          <div class="io-v"><p>Two checks before anything else: <code>--local</code> together with <code>claude-desktop</code> or <code>copilot-cli</code> is rejected (their files always live under <code>$HOME</code>), and a directory-scoped mode with no <code>.git</code> in the current folder is rejected with exit 2. Then <code>_ensure_store()</code> creates <code>sessions/</code> and runs <code>git init</code>, but only if the store isn't already a repository.</p></div>
+          <div class="io-v"><p>Two checks before anything else: <code>--local</code> together with <code>claude-desktop</code>, <code>copilot-cli</code>, <code>codex</code> or <code>chatgpt</code> is rejected (their files never live in a project), and a directory-scoped mode with no <code>.git</code> in the current folder is rejected with exit 2. Then <code>_ensure_store()</code> creates <code>sessions/</code> and runs <code>git init</code>, but only if the store isn't already a repository.</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><p>The directories are on the diagram above; what matters here is each mode's trap.</p>
             <ul>
@@ -2057,6 +2108,8 @@ body  = 10.13                    →  score 20.8</code></pre>
             <li><strong>copilot-ide</strong> — the same templates, but with a <code>.prompt.md</code> extension: the Copilot plugin ignores a plain <code>.md</code>.</li>
             <li><strong>copilot-cli</strong> — dots are illegal in skill names, so <code>/engmem.save</code> is rewritten to <code>/engmem-save</code> — longer pattern first, or <code>/engmem.save.quick</code> would decay into <code>/engmem-save.quick</code>.</li>
             <li><strong>claude-desktop</strong> — the config is not overwritten if it doesn't parse or if <code>mcpServers</code> isn't an object; one key is added and the rest of the file stays as it was.</li>
+            <li><strong>codex</strong> — three skills in <code>~/.agents/skills/</code>, where the commands become <code>$engmem</code>, <code>$engmem-save</code> and <code>$engmem-save-quick</code>, the rule in <code>$CODEX_HOME/AGENTS.md</code>, and a server entry in <code>config.toml</code>. The standard library has no TOML writer, so the entry is a block of lines between two marker comments, owned by engmem; an <code>[mcp_servers.engmem]</code> engmem did not write is left untouched. The config goes first: install may refuse at that step, and then nothing on disk changes.</li>
+            <li><strong>chatgpt</strong> — writes nothing outside the store. ChatGPT runs no local MCP server itself, so install prints the Secure MCP Tunnel commands. With a public bridge in place of the tunnel, the server behind it runs as <code>engmem mcp --read-only</code>: a leaked URL can read the store but not change it.</li>
           </ul></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p>A silent no-op is worse than an error: a command that misses its directory litters someone else's repository unnoticed. A re-run is safe all the same — the rule isn't duplicated, because detection goes by the broad <code>`engmem search</code> marker, which is fit <em>only</em> for the "skip" decision, never for "what to delete".</p></div>
@@ -2074,17 +2127,19 @@ body  = 10.13                    →  score 20.8</code></pre>
         <div class="prose"><p>Uninstall removes exactly what install wrote, but matches narrowly — because matching broadly once destroyed a line that wasn't engmem's.</p></div>
         <div class="io">
           <div class="io-k">What runs</div>
-          <div class="io-v"><p>Both of T5's checks are repeated, and <code>_agent_targets()</code> computes the targets: template files plus an instructions file — or <code>None</code> for <code>copilot-cli</code> and <code>claude-desktop</code>, which have no shared file carrying the rule.</p></div>
+          <div class="io-v"><p>Both of T5's checks are repeated, and <code>_agent_targets()</code> computes the targets: template files plus an instructions file — or <code>None</code> in its place for <code>copilot-cli</code>, <code>claude-desktop</code> and <code>chatgpt</code>, which have no file carrying the rule.</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><ul>
-            <li><strong>copilot-cli</strong> — the skill folder is pruned only if it's empty after <code>SKILL.md</code> is deleted.</li>
+            <li><strong>copilot-cli / codex</strong> — the skill folder is pruned only if it's empty after <code>SKILL.md</code> is deleted.</li>
             <li><strong>claude-desktop</strong> — exactly the <code>mcpServers.engmem</code> key is removed; every other server is untouched.</li>
+            <li><strong>codex</strong> — also removes exactly the block between the markers in <code>config.toml</code> and the rule in <code>AGENTS.md</code>.</li>
+            <li><strong>chatgpt</strong> — there is nothing on the machine to remove: the command reminds you to stop <code>tunnel-client</code> and delete the engmem app in ChatGPT's settings.</li>
             <li><strong>claude / copilot-ide</strong> — a file that can't be removed lands in the report rather than aborting the loop.</li>
           </ul></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p><code>_remove_trigger_rule()</code> keys off the sentinel and the rule line right after it, not the broad marker install used to decide whether to skip writing: deleting on the broad marker once destroyed a user's own line that simply happened to mention <code>engmem search</code> in its text.</p></div>
           <div class="io-k">What it costs</div>
-          <div class="io-v"><p>A false conclusion that engmem was never installed — against which <code>_other_agents_with_files_present()</code>, on a zero count, checks the three <em>other</em> modes and suggests a different <code>--agent</code>. The store is never touched:</p>
+          <div class="io-v"><p>A false conclusion that engmem was never installed — against which <code>_other_agents_with_files_present()</code>, on a zero count, checks the <em>other</em> modes that leave something on disk and suggests a different <code>--agent</code>. The store is never touched:</p>
             <pre><code>engmem uninstalled: 3 template file(s) removed, 2 trigger rule line(s) removed, agent=claude
 store left untouched: /Users/…/Developer/engmem  (your documents — remove it yourself if you want)</code></pre></div>
         </div>
@@ -2093,9 +2148,9 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
 
   </div>
 
-  <h3>Path 3 — an MCP session: <code>engmem mcp</code>, the Claude Desktop entry point</h3>
+  <h3>Path 3 — an MCP session: <code>engmem mcp</code>, the entry point for MCP clients</h3>
   <div class="prose">
-    <p>The same search as path 1, but over a protocol where <code>stdout</code> isn't text for a human — it's JSON-RPC frames. Search is only part of this entry point: the server exposes five tools, three of which write to the store (create a draft, complete it, mark a document superseded), and three prompts, one per template.</p>
+    <p>The same search as path 1, but over a protocol where <code>stdout</code> isn't text for a human — it's JSON-RPC frames. Search is only part of this entry point: the server exposes five tools, three of which write to the store (create a draft, complete it, mark a document superseded), and three prompts, one per template. The <code>engmem</code> prompt opens with <code>engmem mode for this session: …</code> on every call, and <code>engmem_create_draft</code> refuses a draft whose <code>mode</code> differs from the configured one. The mode file is read again on every call, so <code>engmem mode set</code> takes effect without a restart; new engmem code reaches the client only when it starts the server again. With <code>--read-only</code> the server exposes just the two search tools — meant for a server reachable from outside the machine.</p>
   </div>
 
 <figure class="scroll-x">
@@ -2181,7 +2236,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
           <div class="io-k">What runs</div>
           <div class="io-v"><p>It reads <code>stdin</code> line by line: a blank line is skipped; on <code>JSONDecodeError</code> it writes <code>_error_response(None, PARSE_ERROR, …)</code> immediately and keeps reading, without ever reaching <code>_dispatch</code>.</p></div>
           <div class="io-k">The branch</div>
-          <div class="io-v"><p><code>_dispatch()</code> tells a request from a notification by whether <code>id</code> is present: a notification gets no reply at all, even on failure — that is JSON-RPC itself. The method is looked up in the <code>_METHODS</code> table: the six handlers on the diagram plus <code>ping</code>. Exceptions are caught at two levels: <code>_ProtocolError</code> becomes a response carrying that error's code, a bare <code>Exception</code> becomes <code>INTERNAL_ERROR</code> with a diagnostic on <code>stderr</code>.</p></div>
+          <div class="io-v"><p><code>_dispatch()</code> tells a request from a notification by whether <code>id</code> is present: a notification gets no reply at all, even on failure — that is JSON-RPC itself. The method is looked up in the <code>_METHODS</code> table: the six handlers on the diagram plus <code>ping</code>. Under <code>--read-only</code> it is <code>_READ_ONLY_METHODS</code> instead: the same table, except that <code>tools/list</code> and <code>tools/call</code> know only the two search tools. Exceptions are caught at two levels: <code>_ProtocolError</code> becomes a response carrying that error's code, a bare <code>Exception</code> becomes <code>INTERNAL_ERROR</code> with a diagnostic on <code>stderr</code>.</p></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p><code>_write()</code> is the only writer to <code>stdout</code>, and a line like <code>error: …</code> in the middle of a stream of frames would tear the next one and end the client's session. The same technique is correct on path 1 and catastrophic here — because the two paths have different readers of <code>stdout</code>.</p></div>
         </div>
@@ -2218,10 +2273,10 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
   <p class="part">Part 6 · Install and removal</p>
   <h2>Two commands to set up, one to undo</h2>
   <div class="prose">
-    <p><em>Its role in the loop:</em> installation is how the loop travels to a new machine. It lays down the templates that print the pre-registration and the Reuse Log, and the rule that obliges the agent to go through the measured channel before it proposes a plan.</p>
+    <p><em>Its role in the loop:</em> installation is how the loop travels to a new machine. It lays down the templates that write the Reuse Log, and in research mode the pre-registration too, and the rule that obliges the agent to go through the measured channel before it proposes a plan.</p>
     <p>The first command installs the package itself; the second wires it into your agent:</p>
 <pre><code>uv tool install --editable .     # or: pipx install .
-engmem install --agent claude    # or copilot-ide / copilot-cli</code></pre>
+engmem install --agent claude    # or copilot-ide / copilot-cli / claude-desktop / codex / chatgpt</code></pre>
     <p>The review tools in <code>tools/</code> are not part of the package. They live in the repository checkout and run from any directory through it:</p>
 <pre><code>uv run --project &lt;engmem-checkout&gt; python &lt;engmem-checkout&gt;/tools/verify_citations.py --store &lt;store&gt;</code></pre>
     <p>Installing carries the first steps of the loop to a new machine; the review needs the checkout as well.</p>
@@ -2234,6 +2289,9 @@ engmem install --agent claude    # or copilot-ide / copilot-cli</code></pre>
   <tr><td><code>claude</code></td><td><code>~/.claude/commands/engmem.md</code></td><td>Claude Code. The file name becomes the command name — hence <code>/engmem</code>. With <code>--local</code>, into the current repository instead (needs an existing <code>.git</code> there already, or it exits 2).</td></tr>
   <tr><td><code>copilot-ide</code></td><td><code>.github/prompts/engmem.prompt.md</code></td><td>The Copilot plugin in VS Code, Visual Studio, JetBrains. It only recognizes the double extension <code>.prompt.md</code>; a plain <code>.md</code> is silently ignored. Also writes into the current repository — needs a <code>.git</code> here, or it exits 2.</td></tr>
   <tr><td><code>copilot-cli</code></td><td><code>~/.copilot/skills/engmem/SKILL.md</code></td><td>The terminal <code>copilot</code>. It doesn't read <code>.github/prompts/</code> at all, only skills. Dots are illegal in skill names, so the commands there are <code>/engmem-save</code>, not <code>/engmem.save</code>.</td></tr>
+  <tr><td><code>claude-desktop</code></td><td><code>claude_desktop_config.json</code>, key <code>mcpServers.engmem</code></td><td>The Claude Desktop app. It has no shell, so there are no templates either: engmem connects as an MCP server, and the same commands arrive as prompts. After upgrading engmem, quit the app completely and reopen it.</td></tr>
+  <tr><td><code>codex</code></td><td><code>~/.agents/skills/engmem/SKILL.md</code>, <code>~/.codex/AGENTS.md</code>, <code>~/.codex/config.toml</code></td><td>Codex: the CLI, the IDE extension and the app. Wires both channels at once: the skills <code>$engmem</code>, <code>$engmem-save</code>, <code>$engmem-save-quick</code> for the shell, and the MCP server where there is none. Codex's default sandbox keeps the CLI from writing to a store outside the repository: add the store to <code>writable_roots</code>, or approve each write.</td></tr>
+  <tr><td><code>chatgpt</code></td><td>nothing on disk</td><td>ChatGPT. Prints the Secure MCP Tunnel commands through which ChatGPT reaches <code>engmem mcp</code> on your machine.</td></tr>
   </tbody>
   </table></div>
   <div class="prose">
@@ -2243,9 +2301,18 @@ engmem install --agent claude    # or copilot-ide / copilot-cli</code></pre>
       <li><strong>the store</strong> (<code>~/Developer/engmem</code> by default): a <code>sessions/</code> folder and <code>git init</code> if it isn't a repository yet. An existing one is left alone;</li>
       <li><strong>three template files</strong> in the agent directory from the table above;</li>
       <li><strong>a version stamp</strong> on the first line after each template's YAML front matter — that's how you see which version is installed;</li>
-      <li><strong>the trigger rule</strong> in <code>CLAUDE.md</code> or <code>.github/copilot-instructions.md</code> — actually two lines: a <code>&lt;!-- engmem-trigger-rule --&gt;</code> sentinel comment, then the rule itself right below it: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;" --session &lt;draft-id&gt;` (the draft `/engmem` just created; without it the search is unattributed)</code>. The sentinel is not decoration — it is exactly what <code>uninstall</code> later matches to remove precisely those two lines and nothing else. <code>copilot-cli</code> skips this step — it has no global instructions file, and skills are invoked by hand.</li>
+      <li><strong>the trigger rule</strong> in <code>CLAUDE.md</code>, <code>.github/copilot-instructions.md</code> or, for Codex, <code>AGENTS.md</code> — actually two lines: a <code>&lt;!-- engmem-trigger-rule --&gt;</code> sentinel comment, then the rule itself right below it: <code>Before proposing a plan, run `engmem search "&lt;key terms for the task&gt;" --session &lt;draft-id&gt;` (the draft `/engmem` just created; without it the search is unattributed)</code>. The sentinel is not decoration — it is exactly what <code>uninstall</code> later matches to remove precisely those two lines and nothing else. <code>copilot-cli</code> skips this step — it has no global instructions file, and skills are invoked by hand; <code>claude-desktop</code> and <code>chatgpt</code> have no rule file either.</li>
     </ul>
     <p>A repeat run is an upgrade: the store isn't recreated, templates are overwritten with the fresh version, and the rule isn't duplicated (detection goes by the <code>engmem search</code> marker, so even a rule you reworded is recognized).</p>
+
+    <h3>Mode, store and checking the setup</h3>
+    <p>The tool has two one-line setting files, both in <code>~/.config/engmem/</code> (<code>$XDG_CONFIG_HOME/engmem/</code>; <code>%APPDATA%\engmem\</code> on Windows): <code>store</code>, the store path, written only by <code>engmem store set</code>, and <code>mode</code>, written only by <code>engmem mode set</code>. <code>install</code> writes neither. Delete a file and that setting returns to its default.</p>
+<pre><code>engmem mode set research   # sessions from now on run the Gate 1 protocol
+engmem mode show           # the mode, and where it came from
+engmem store show          # the store in use, and where the MCP entries point</code></pre>
+    <p>The default mode is daily: <code>/engmem</code> writes no pre-registration, launches no sub-agent, and the session stays out of the review. Research mode is the whole loop from part 1. The mode is written into the draft and never changes after, so a switch applies from the next session. A mode file that cannot be read never passes silently: <code>engmem mode show</code> exits 2 and names the file, the agent tells you about the error, and the session runs in daily mode, the one mode that cannot spoil the experiment. Until the file is fixed (<code>engmem mode set daily|research</code>), the MCP tool accepts only daily drafts. After upgrading from a version without modes, re-run install for every agent: old templates write a draft without <code>mode</code>, and the MCP tool refuses it.</p>
+    <p>Claude Desktop has no shell, so the mode is set once from a terminal. The app does not see variables from your shell profile: if <code>XDG_CONFIG_HOME</code> is set only in the terminal, <code>mode set</code> writes a file the Desktop server never reads.</p>
+    <p>When an agent does not see its memory and you cannot tell why, <code>engmem doctor --agent &lt;agent&gt;</code> checks that client's setup and changes nothing: the store and where it came from, reading and writing <code>sessions/</code> (with one probe file, removed at once), the <code>engmem</code> command and the MCP entry's Python, the templates and their versions, the rule, and whether the CLI and MCP look at the same store. One line per check: <code>ok</code>, <code>warning</code>, <code>error</code> or <code>unverified</code>. Doctor cannot see the client's own sandbox from the inside, so that line is never <code>ok</code>. The exit code is 1 when any line is an <code>error</code>.</p>
 
     <h3>Removal</h3>
     <p>The mirror command, with the same <code>--agent</code>:</p>
@@ -2260,9 +2327,10 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
       <li><strong>never removes what isn't its own.</strong> A Copilot skill directory is pruned only if it's empty after its <code>SKILL.md</code> goes; unrelated lines in <code>CLAUDE.md</code> survive, and the file itself is never deleted even if it ends up empty;</li>
       <li><strong>doesn't remove the package</strong> — the <code>engmem</code> command stays on your PATH.</li>
     </ul>
-    <p>So a full removal is three steps, and only the first is required to stop agents calling a command that no longer exists:</p>
+    <p>So a full removal is four steps, and only the first is required to stop agents calling a command that no longer exists:</p>
 <pre><code>engmem uninstall --agent claude   # templates and the trigger rule
 uv tool uninstall engmem          # the package and the PATH command
+rm -rf ~/.config/engmem           # the store and mode settings (%APPDATA%\engmem on Windows)
 rm -rf ~/Developer/engmem         # your documents — only if you're sure</code></pre>
   </div>
 </section>

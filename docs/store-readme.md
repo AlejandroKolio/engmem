@@ -42,4 +42,7 @@ decisions into new tasks pays off. The decision point is the Gate 1 review
 (`<date: ~3–4 weeks from when population began>`). Depending on its outcome, the
 store either keeps living on ordinary terms, or gets archived/deleted entirely.
 Until Gate 1, delete nothing from it — the log and the documents are the
-experiment's data.
+experiment's data. Only research sessions with a recorded baseline, and documents
+written before modes existed, are counted; `mode: daily` sessions (the default) and
+research sessions without a baseline are kept outside the count but are still
+searched like any other document.

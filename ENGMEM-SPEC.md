@@ -70,7 +70,7 @@ rest of the list is unchanged and still in force.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): seven subcommands, no thinking.    │
+│ CLI `engmem` (Python): ten subcommands, no thinking.      │
 ├──────────────────────────────────────────────────────────┤
 │ Prompt templates (all the intelligence, agent-agnostic    │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
