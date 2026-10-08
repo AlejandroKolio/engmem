@@ -159,7 +159,7 @@ The daily loop runs through three agent slash commands installed above:
 - `/engmem.save` — finish a task: drafts the full document metadata from the diff and
   conversation for one-round approval, fills in decisions, rejected alternatives,
   lessons learned, and a Reuse Log of which prior documents actually influenced the work.
-- `/engmem.save.quick` — save without the review round: no YAML check, no supersede question, and no quote review with the user (the MCP path still refuses a Reuse Log row without a quote); a single `ok` produces a minimal but valid document.
+- `/engmem.save.quick` — save the useful core of a decision: one preview with the decision, its reason, the rejected alternative, the source and a short context for the next task. Anything the session did not contain is marked as absent, never invented. A single `ok` publishes one valid, searchable document; declining publishes nothing and leaves the draft out of search. No YAML check, no supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row without a quote).
 
 Direct search from the shell:
 

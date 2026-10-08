@@ -67,3 +67,69 @@ The Search Trace records how the search was *executed*, not how it travelled. An
 calling the `engmem_search` MCP tool ran the search itself, and writes the same telemetry
 line as a shell invocation, so both are `shell`. Only a human pasting output back is
 `paste`, and only a search that never happened is `miss`.
+
+## The short capture keeps the schema it has
+
+`engmem.save.quick.md` is the short capture (US-07): the decision, its reason, the rejected
+alternative, the source and a short context for the next task, in one preview. It replaced
+the earlier quick save, which wrote three unstructured bullets and no primer, so its records
+showed no preview line in search. One command stays one command: a second short-save template
+would leave two near-identical paths to keep in step, and the story asks for one preview,
+not one more choice.
+
+The five components map onto roles that already exist. The first four are labelled lines of
+`## Decision Log` (`decisions`), the fifth is `## Future LLM Context (cold-start primer)`
+(`primer`). No front matter field and no canonical role was added. A new role would grow
+`sections.CANONICAL_ALIASES`, the `--role` vocabulary and the role count the docs quote, and
+it would split one decision across sections that search scores separately; a document scores
+by its single best section (`contracts/scoring.md`). Kept together, the decision and its
+reason sit in one section, and a query naming either finds it. Lessons Learned is written only
+for a pitfall actually hit, so the record holds nothing that was filled in for form's sake.
+
+The record is a valid `active` document for every existing check, with no new code:
+`spine.load_store` reads it without a warning when `entities` is filled, which the template
+asks for; `engmem_complete_draft` completes it under `expected_version`; `gate1.evaluate`
+counts its `Prior docs used: none.` as a clean none report; and `gate1_audit` finds its
+Pre-reg, Reuse Log and Search Trace. `tests/test_short_capture.py` runs the template's own
+example record through all of them, and checks that every installed copy (claude, copilot-ide,
+copilot-cli, codex) and the `engmem-save-quick` MCP prompt carry that example unchanged.
+
+### Absence is written, in one fixed wording
+
+A component the session's material (the conversation, the diff, the git history) does not
+contain keeps its label and reads `not stated in the available material.` A dropped line
+cannot be told apart from a forgotten one, and a filled-in guess is the invention AC-07.2
+forbids; a Source in particular is copied as written, never built from a pattern. One wording
+for every absent component keeps the marker a single phrase that a reader and a test both
+recognise. Search reads it as ordinary body text, and has no stopword list to do otherwise: a
+query that contains `available` or `material` matches the marker like any other prose, at the
+low weight words shared by many records get. What the marker never carries is a decision
+term, so a query naming one record's decision still ranks that record first
+(`test_ac_07_2_marker_and_label_words_do_not_outrank_the_decision`). The labels are indexed
+body text too, shared by every short record: a query made only of label words
+(`decision reason`, `rejected alternative`) matches all of them alike. Handling such a weak
+match is US-14's question, not this template's.
+
+### One confirmation, and a decline publishes nothing
+
+The preview is the finished document. A confirmation publishes it as shown; edits are applied
+and published without showing it again, since asking twice about the same data is the cost
+this path removes. The one second showing is a refused `expected_version`: the document then
+changed under the agent, and what gets published is no longer what the user saw.
+
+A decline, or a reply the agent cannot read as confirmation or edits, publishes nothing: an
+unconfirmed document is harder to undo than a draft left in place. The draft is kept, not
+removed. It is outside search already (US-01, `contracts/scoring.md`), and it is the document
+this session's search rows are attributed to: removing it would turn them into
+`gate1_audit` orphans (`orphan_session_ids`). `/engmem.save` or `/engmem.save.quick` can
+finish it later.
+
+### What the acceptance transcript proves
+
+`docs/design/acceptance/us-07-short-capture.md` is a scripted session, a confirmed and a
+declined preview, that `tests/test_short_capture.py` replays against a fresh store through the
+MCP server. It proves the tool side: the calls the template prescribes succeed in that order,
+the published content is the confirmed preview, nothing is published after a decline, and the
+declined record is not found. The agent's turns are written by hand, so it does not prove that
+a real agent produces them from the template; that recorded session is owner-side acceptance
+(E-05).
