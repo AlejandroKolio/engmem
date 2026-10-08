@@ -197,12 +197,16 @@ Criteria Analysis, 6. System Architecture, 7. Code Implementation, 8. Decision L
 9. Production Considerations, 10. Testing Knowledge, 11. Lessons Learned, 12. Knowledge
 Graph, 13. Future LLM Context (cold-start primer), 14. Search Keywords, 15. One-Page Cheat
 Sheet, 16. Reuse Log, 17. Status at a Glance — and `## Search Trace` last.
-`/engmem.save.quick` writes five, unnumbered: Pre-reg, Decision Log, Lessons Learned, Reuse
-Log and Search Trace. The thin core, with each section's role (`/engmem.save.quick` omits 4):
+`/engmem.save.quick` writes the short record, five unnumbered: Pre-reg, Decision Log (one
+labelled line each for the decision, its reason, the rejected alternative and the source),
+Future LLM Context (cold-start primer), Reuse Log and Search Trace; it adds Lessons Learned
+only when a pitfall was actually hit. The thin core, with each section's role
+(`/engmem.save.quick` writes 3 only for a pitfall hit):
 1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store
 2. `## Decision Log` — decisions + rejected alternatives with reasons
 3. `## Lessons Learned` — pitfalls hit along the way
-4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-start agent
+4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-start agent; 2–4 in
+   the short record of `/engmem.save.quick`, whose first two are the search preview
 5. `## Reuse Log` — see §6
 6. `## Search Trace` — `shell | paste | miss`
 
@@ -529,11 +533,16 @@ navigation misses recorded in the store's own documents.
    known (otherwise leave it blank — "never measured"), fill in `verified_at_commit`
    (current HEAD).
 
-### `/engmem.save.quick` (save without review)
+### `/engmem.save.quick` (short capture)
 
-Zero questions: 3 bullets (decisions/pitfalls) from the diff → Decision Log and Lessons Learned
-sections, Reuse Log with an "ok" confirmation, front matter filled automatically, status →
-active. That's it. This degrades the doc's completeness, not the experiment's ritual.
+One preview, one confirmation: the decision, its reason, the rejected alternative and the
+source as labelled lines of the Decision Log, plus 2–4 lines of cold-start primer as the
+context for the next task; Reuse Log, Search Trace and Pre-reg as for any save; front matter
+filled automatically, status → active. A component the session's material does not contain
+is written as `not stated in the available material.`, never invented. Confirmed or edited →
+published once, no second round. Declined → nothing published; the draft stays a draft. No
+supersede question. This degrades the doc's completeness, not its validity or the
+experiment's ritual. Constraints: `docs/design/contracts/prompt-templates.md`.
 
 ## 7. Scoring (deterministic, no ML)
 
