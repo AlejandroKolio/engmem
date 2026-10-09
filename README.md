@@ -198,6 +198,7 @@ uv run python tools/gate1_report.py --store ~/Developer/engmem --since 2026-10-0
 uv run python tools/verify_citations.py --store ~/Developer/engmem   # exit 1 on a quote that does not match
 engmem telemetry                                                     # searches, hit rate, context spent
 engmem feedback summary                                              # finds, user assessments, unknown influence
+engmem cost summary --session <session-id>                           # what engmem delivered to one session
 ```
 
 `/engmem.save` asks you once whether the documents your searches showed helped, did not apply,
@@ -207,6 +208,18 @@ or did harm, and records only your answer. You can also record one yourself:
 influence, never as a success or a failure, and only `helped` counts as positive reuse. These
 are your assessments, not a causal measurement, and the Gate 1 count does not read them. The
 report prints the same summary at the end.
+
+`engmem cost summary --session <session-id>` shows what one session's work with memory cost,
+as far as engmem saw it. It counts the bytes of every response engmem delivered: each search
+and each document read through `engmem read <doc-id> [--role decisions] --session <session-id>`
+(MCP: `engmem_read`), apart and in total. Reading the same text twice counts twice. A document
+opened as a file is not observed, and the report says so. Tokens are only estimated from bytes
+(`ceil(bytes / 3.5)`) and labelled as an estimate. The baseline call's tokens or duration appear
+only when your client reported them and they were recorded with `engmem cost record-baseline
+<session-id> --tokens N [--seconds T] [--call-id ID]` (MCP: `engmem_record_baseline`);
+otherwise they are listed as missing. The report never claims a saving: nobody did the task
+again without memory, so there is nothing measured to compare with. The 4 KB cap is the size
+of one search result, not the budget of a task.
 
 When an agent finds nothing and you cannot tell why, `engmem doctor --agent codex` (or any other
 `--agent`) checks that client's setup without changing it. It prints one line per check, marked
@@ -417,6 +430,11 @@ app's config. `engmem uninstall` removes exactly what it added and never touches
 The files engmem edits but does not own — your instructions file and those configs, which hold every other
 MCP server you configured — are replaced atomically, through any symlink rather than over
 it, so a failed write leaves them exactly as they were.
+
+**Two more logs beside `telemetry.jsonl`.** `feedback.jsonl` holds your assessments, and
+`cost.jsonl` one line per search or `engmem read` response (its byte count, never its text) and
+per baseline figure your client reported. A read, like a search, keeps a copy of the version it
+showed under `versions/` and prints the `cite as` reference for it. A `--read-only` MCP server writes neither.
 
 One thing to know: `engmem search` prints matched document text to stdout. In a shared
 terminal or a logged CI job, that text goes wherever the output goes.

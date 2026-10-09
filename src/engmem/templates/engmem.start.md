@@ -60,7 +60,11 @@ group and from every baseline comparison.
 
 If the sub-agent's token usage is reported back to you, note it too —
 `baseline_tokens: <n>` — this is the one cost of the no-memory path that is genuinely
-measured rather than guessed, so never estimate it: omit the line if you cannot see it.
+measured rather than guessed, so never estimate it: omit the line if you cannot see it. Once
+the draft exists (step 2), also record what was reported, tokens and/or seconds, with
+`engmem cost record-baseline <draft id> --tokens <n> --seconds <s> --call-id <the runtime's id
+for the call, if it shows one>` (MCP: `engmem_record_baseline`), leaving out what was not
+reported. Nothing reported means nothing to record.
 
 **Why this exists** (so you do not "optimise" it away): the experiment compares this
 uncontaminated baseline against the plan produced *after* prior documents are loaded.
@@ -160,9 +164,19 @@ From the search results, load at most 3 documents, plus each of their `related` 
 at depth 1 only (do not follow related-of-related). "Load" means read enough of each
 document to actually use it — at minimum its Cold-start primer and Decision Log.
 
-Keep the result's `cite as (Reuse Log prior-doc):` line: `/engmem.save` cites each document
-you use by the `<id>@<version>` it gives, the version engmem kept a copy of when it showed
-you the document.
+Read them through engmem, so the read is counted toward this session's cost: run
+`engmem read <id> --role <role> --session <the draft id from step 2>` (for example
+`--role primer`, then `--role decisions`; leave `--role` out for the whole document), or call
+the `engmem_read` MCP tool with `id`, `role` and `session_id`. If step 2 could not create the
+draft, leave out `--session` / `session_id`, as in step 3: never pass an id whose document was
+never written. A document you open as a file instead is not observed, and the cost report will
+say that reading is missing.
+
+Keep the `cite as (Reuse Log prior-doc):` line of every search and every read: `/engmem.save`
+cites each quote by the `<id>@<version>` of the response the quoted text came from — the read's
+line when you quote what a read returned, the search's when you quote the search result. That
+is the version engmem kept a copy of when it showed you the text; a document edited between the
+search and the read has a different version, and only the read's matches what you read.
 
 **Read sections, not whole files.** A prior document can be tens of kilobytes; the part
 that answers the current task is usually one section. Pulling the whole file in is the
@@ -172,7 +186,9 @@ Then note three numbers for `/engmem.save` — they are the evidence for whether
 cheaper than rediscovery:
 
 - `context_bytes: <n>` — bytes of prior-document text you actually pulled into context
-  (search output plus the parts of documents you read). Count it; do not estimate.
+  (search output plus the parts of documents you read). Count it; do not estimate. This is your
+  own count, not engmem's measurement; `engmem cost summary --session <draft id>` shows what
+  engmem measured of it.
 - `answer_steps: <n>` — how many tool calls you needed **after** the search to reach the
   answer. If the recovered context answered it outright, this is near zero, and that is
   precisely the saving being measured.

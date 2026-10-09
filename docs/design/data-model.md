@@ -34,7 +34,7 @@ YAML front matter + a fixed set of markdown body sections.
 | `mode` | `daily` \| `research` | no | automatic, when the draft is created | the mode the session was started in (US-08), from `engmem mode show`; copied unchanged at save. Absent = written before modes existed (legacy), counted by Gate 1 exactly as before. `daily` keeps the document outside the experiment; another value loads with a warning and is excluded from the count until corrected (contracts/gate1.md, "Modes") |
 | `baseline_unavailable` | string | no | agent, before the first search | research mode only: why no uncontaminated baseline could be had. Present, the session is an incomplete observation, kept apart from the valid group and the baseline comparison; a value that is not a reason (`true`, `''`) still marks it, with a warning |
 | `baseline_tokens` | number | no | automatic | tokens the no-memory sub-agent consumed producing the Pre-reg baseline; omitted when the runtime does not report it |
-| `context_bytes` | number | no | automatic | bytes of prior-document text pulled into context this session |
+| `context_bytes` | number | no | automatic | the agent's own count of prior-document text pulled into context this session; not a measurement — `engmem cost summary` shows what engmem measured (US-16) |
 | `answer_steps` | number | no | automatic | tool calls needed *after* the search to reach the answer |
 | `answer_tokens` | number | no | automatic | tokens for the answering pass, only when the runtime really reports it |
 
@@ -181,7 +181,7 @@ The engineer's full collection of Engineering Session Documents.
 | Attribute | Description |
 |---|---|
 | location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → the choice saved by `engmem store set` → default `~/Developer/engmem` |
-| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) + `feedback.jsonl` (append-only user assessments of finds — US-15, see **Usefulness Assessment** below) + `versions/<id>/<version>.md` (the exact bytes of each document version a search showed, kept so a Reuse Log quote can be checked against the version it cites — US-13) |
+| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) + `feedback.jsonl` (append-only user assessments of finds — US-15, see **Usefulness Assessment** below) + `cost.jsonl` (append-only delivery and baseline records — US-16, see **Cost Record** below) + `versions/<id>/<version>.md` (the exact bytes of each document version a search showed, kept so a Reuse Log quote can be checked against the version it cites — US-13) |
 | persistence | a git repository (created by `install` if it doesn't exist); no other database or cache |
 | scope | machine-wide default, or single-project if `--local` was used at install time (`ENGMEM-SPEC.md` §5, `engmem install`) |
 
@@ -191,7 +191,8 @@ this is a hard invariant, not an optimization detail (`ENGMEM-SPEC.md` §3).
 store — once its document is edited, the copy is the only record of the text a quote was
 taken from — so it is evidence, like `telemetry.jsonl`, not a derived index. It is never
 read as a document and never searched (`contracts/gate1.md`, "Versioned citations").
-`feedback.jsonl` is not derived either: it holds assessments nothing else in the store records.
+`feedback.jsonl` is not derived either: it holds assessments nothing else in the store records,
+and `cost.jsonl` holds byte counts and client reports nothing else records.
 
 ## Entity: Usefulness Assessment
 
@@ -212,6 +213,27 @@ to a session showed (US-15; `contracts/gate1.md`, "Usefulness feedback").
 A pair can be re-recorded: the latest line for a (session, document) pair is the one every figure reads. A find with no
 line has unknown influence, which is neither a success nor a failure. No session document and
 no Gate 1 figure reads this file.
+
+## Entity: Cost Record
+
+One line of `cost.jsonl`: one response engmem delivered, or one baseline figure the client
+reported (US-16; `contracts/output.md`, "Observed cost").
+
+| Field | Description |
+|---|---|
+| `ts` | when it was recorded, UTC |
+| `op_id` | a fresh uuid4 hex per operation; the reader counts each `op_id` once per session |
+| `op` | `search` \| `read` \| `baseline` |
+| `session_id` | the session the operation was attributed to, `null` when unattributed; a `baseline` always names a session document |
+| `channel` | `cli` or `mcp` |
+| `bytes` | `search` and `read`: UTF-8 bytes of the whole response text delivered, transport excluded |
+| `doc_id`, `role` | `read` only: the document read, and the role asked for (`null` for the whole document) |
+| `tokens`, `seconds` | `baseline` only: what the client reported for the call, each above zero, at least one present |
+| `call_id` | `baseline` only: the client's id for the call, ≤ 200 characters, `null` when not given; a later line with the same id replaces the earlier one |
+| `reported_by` | `baseline` only: always `client` — engmem measures no baseline itself |
+
+No text of a delivery is kept, only its size. No Gate 1 figure and no session document reads
+this file.
 
 ## Entity: Search Result Set
 

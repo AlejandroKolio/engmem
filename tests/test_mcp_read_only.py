@@ -29,6 +29,12 @@ WRITE_CALLS = [
         {"session_id": "20260101-widget-cache", "doc_id": "20260102-new", "assessment": "helped"},
         id="record_feedback",
     ),
+    pytest.param("engmem_read", {"id": "20260101-widget-cache"}, id="read"),
+    pytest.param(
+        "engmem_record_baseline",
+        {"session_id": "20260101-widget-cache", "tokens": 100},
+        id="record_baseline",
+    ),
 ]
 
 

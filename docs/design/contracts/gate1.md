@@ -349,7 +349,12 @@ at depth 1; a superseded one is shown as its successor, so the successor is the 
 copied to `versions/<id>/<version>.md` — bytes untouched, 0600, published with
 `staging.commit_new` so a copy is never half-written — and the result's
 `cite as (Reuse Log prior-doc): <id>@<version>, ...` line offers the reference only once an
-intact copy exists. An entry already at that name is trusted only after it is checked: a regular
+intact copy exists. *(US-16, 2026-10-09)* A read through `engmem read` / `engmem_read` is the
+second route: it retains the document it delivers the same way, through the same
+`search_report.cite_lines`, and ends with its own `cite as` line naming the whole document's
+version, even for a `--role` read. A quote is cited by the reference of the response it came
+from, so a document edited between a search and a read is cited at the version the read
+delivered. An entry already at that name is trusted only after it is checked: a regular
 file whose bytes hash to the version is kept; a regular file with other bytes is replaced
 atomically by the bytes just read, which provably are that version, so the copy is repaired rather
 than reported forever; anything else there (a directory, a symlink, dangling or not) and a create
@@ -408,13 +413,14 @@ when such a row exists, so a store without `@` reports byte-identically but for 
 `version references:` line. Every message naming the cited document uses `cited_as_written`, the
 cell as the row states it.
 
-What this does not cover: a document reached only by a route the result gave no path for — a
-`related` link of a related document, a `related` entry past the `+N more` cut, a document found
-by grep — has no reference offered for it unless a search showed the same bytes, and neither does
-a draft; such a row stays legacy. A result trimmed to its byte budget can offer a reference for a
+What this does not cover: a document opened as a file — found by grep, or reached through a
+`related` link of a related document or a `related` entry past the `+N more` cut — has no
+reference offered for it unless a search or an `engmem read` delivered the same bytes, and
+neither does a draft (`engmem read` refuses one); such a row stays legacy. Reading those
+documents through `engmem read` closes the gap. A result trimmed to its byte budget can offer a reference for a
 document whose block the trim cut. The copies live in the store and are as private as it is; deleting a document
 does not delete its copies, so removing a fact from the store means removing `versions/<id>/` too.
-`versions/` grows by one copy per distinct version a search shows, not per search.
+`versions/` grows by one copy per distinct version a search or a read shows, not per call.
 
 ## The audit coverage block
 

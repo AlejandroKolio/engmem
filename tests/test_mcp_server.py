@@ -218,8 +218,8 @@ def test_tools_list_exposes_engmem_search_first(store):
     assert "search" in tool["description"].lower()
 
 
-def test_tools_list_exposes_exactly_the_six_documented_tools(store):
-    """A closed inventory, so a stray seventh tool or a silently dropped one fails loudly rather
+def test_tools_list_exposes_exactly_the_eight_documented_tools(store):
+    """A closed inventory, so a stray ninth tool or a silently dropped one fails loudly rather
     than passing by omission. Role-addressed retrieval is a second named tool of its own, not a
     parameter bolted onto the first."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
@@ -234,6 +234,8 @@ def test_tools_list_exposes_exactly_the_six_documented_tools(store):
         "engmem_complete_draft",
         "engmem_mark_superseded",
         "engmem_record_feedback",
+        "engmem_read",
+        "engmem_record_baseline",
     }
 
 

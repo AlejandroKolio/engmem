@@ -14,8 +14,9 @@ from typing import Any, TextIO
 
 import yaml
 
-from engmem import __version__, feedback, gate1
+from engmem import __version__, cost, feedback, gate1
 from engmem.cache import identity_for
+from engmem.read_report import ReadError, compose_read
 from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
 from engmem.scoring import Scope
 from engmem.search_report import compose
@@ -161,6 +162,27 @@ RECORD_FEEDBACK_TOOL_DESCRIPTION = (
 )
 
 
+READ_TOOL_NAME = "engmem_read"
+READ_TOOL_DESCRIPTION = (
+    "Read one published engmem session document by id -- the whole body, or with `role` only "
+    "its sections of that role (e.g. 'decisions'). Use it to load a document a search showed: "
+    "the text it returns is counted toward this session's observed cost, while a document "
+    "opened any other way is not observed. Refuses a draft and an id with no document. "
+    "Whenever a draft session document exists for the current task, pass its id as "
+    "`session_id`, as on `engmem_search`."
+)
+
+RECORD_BASELINE_TOOL_NAME = "engmem_record_baseline"
+RECORD_BASELINE_TOOL_DESCRIPTION = (
+    "Record the tokens and/or seconds your runtime REPORTED for the no-memory baseline call of "
+    "this session (the sub-agent of the Pre-reg step), with the runtime's id for that call when "
+    "it gives one. Only figures the runtime reported -- never an estimate or a count of your "
+    "own; with nothing reported, do not call it, and the cost summary shows the baseline as "
+    "missing. Refuses unless `session_id` names a session document in the store. Appends to "
+    "the store's cost log; no session document is changed."
+)
+
+
 # prompt name -> source template filename under src/engmem/templates/ — the
 # same files install.py's _install_templates copies out; a second reader of
 # that one source of truth, not a fork of it
@@ -273,7 +295,7 @@ def _run_search_for_tool(
     session_id: str | None = None,
     role: str | None = None,
     scope: Scope | None = None,
-    retain_versions: bool = True,
+    read_only: bool = False,
 ) -> tuple[str, bool]:
     """`(text, is_error)`: the composed result the CLI prints, carried in the tool result."""
     try:
@@ -287,7 +309,7 @@ def _run_search_for_tool(
     # telemetry.jsonl; compose writes the row, so the MCP path is never invisible to Gate 1
     text = compose(
         store, result, strays, stray_scan_errors, query, role, session_id, "mcp", scope,
-        retain_versions,
+        retain_versions=not read_only, record_cost=not read_only,
     )
     return text, False
 
@@ -852,6 +874,44 @@ def _handle_record_feedback(arguments: object, store: Path) -> tuple[str, bool]:
     return feedback.confirmation(entry), False
 
 
+def _optional_number(arguments: dict, field_name: str, *, integer: bool) -> object:
+    value = arguments.get(field_name)
+    allowed = (int,) if integer else (int, float)
+    if value is not None and (isinstance(value, bool) or not isinstance(value, allowed)):
+        kind = "an integer" if integer else "a number"
+        raise _ProtocolError(INVALID_PARAMS, f"invalid params: {field_name!r} must be {kind}")
+    return value
+
+
+def _handle_record_baseline(arguments: object, store: Path) -> tuple[str, bool]:
+    tokens = _optional_number(arguments, "tokens", integer=True)
+    seconds = _optional_number(arguments, "seconds", integer=False)
+    try:
+        result, _, _ = _load_store_for_tool(store)
+        entry = cost.record_baseline(
+            store, {d.id for d in result.docs}, session_id=arguments["session_id"],
+            tokens=tokens, seconds=seconds, call_id=arguments.get("call_id"), channel="mcp",
+        )
+    except (_StoreLoadError, cost.CostError) as exc:
+        return str(exc), True
+    return cost.confirmation(entry), False
+
+
+def _handle_read(arguments: object, store: Path) -> tuple[str, bool]:
+    role = arguments.get("role")
+    if role is not None and role not in CANONICAL_ROLES:
+        raise _ProtocolError(
+            INVALID_PARAMS,
+            f"invalid params: 'role' must be one of: {', '.join(CANONICAL_ROLES)} (got {role!r})",
+        )
+    session_id = (arguments.get("session_id") or "").strip() or None
+    try:
+        result, _, _ = _load_store_for_tool(store)
+        return compose_read(store, result.docs, arguments["id"], role, session_id, "mcp"), False
+    except (_StoreLoadError, ReadError) as exc:
+        return str(exc), True
+
+
 def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> str:
     """Rewrites exactly one `key:` line, or appends it. Raises `_ToolError` when the key
     appears more than once, when the front matter is a flow mapping, and — for a key that is
@@ -1184,20 +1244,87 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                     "required": ["session_id", "doc_id", "assessment"],
                 },
             },
+            {
+                "name": READ_TOOL_NAME,
+                "description": READ_TOOL_DESCRIPTION,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "The id of the document to read, as a search showed it.",
+                        },
+                        "role": {
+                            "type": "string",
+                            "enum": list(CANONICAL_ROLES),
+                            "description": (
+                                "Optional: return only the document's sections of this role."
+                            ),
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": (
+                                "The id of the draft session document this read belongs to, "
+                                "as on `engmem_search`. Omitted, the read is counted "
+                                "unattributed and in no session's cost."
+                            ),
+                        },
+                    },
+                    "required": ["id"],
+                },
+            },
+            {
+                "name": RECORD_BASELINE_TOOL_NAME,
+                "description": RECORD_BASELINE_TOOL_DESCRIPTION,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "The session document the baseline call belongs to.",
+                        },
+                        "tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Tokens the runtime reported for the call.",
+                        },
+                        "seconds": {
+                            "type": "number",
+                            "exclusiveMinimum": 0,
+                            "description": "Duration the runtime reported for the call.",
+                        },
+                        "call_id": {
+                            "type": "string",
+                            "description": (
+                                "Optional: the runtime's id for that call, at most "
+                                f"{cost.CALL_ID_MAX} characters; a later report with the same "
+                                "id replaces this one."
+                            ),
+                        },
+                    },
+                    "required": ["session_id"],
+                },
+            },
         ]
     }
 
 
+# every tool but the two searches, each one outside `_SEARCH_TOOL_NAMES` and so off a --read-only
+# server; `engmem_read` writes no document, only its row in `cost.jsonl`
 _WRITE_TOOL_REQUIRED_STRING_ARGS = {
     CREATE_DRAFT_TOOL_NAME: ("id", "content"),
     COMPLETE_DRAFT_TOOL_NAME: ("id", "content"),
     MARK_SUPERSEDED_TOOL_NAME: ("id", "superseded_by"),
     RECORD_FEEDBACK_TOOL_NAME: ("session_id", "doc_id", "assessment"),
+    READ_TOOL_NAME: ("id",),
+    RECORD_BASELINE_TOOL_NAME: ("session_id",),
 }
 
 _WRITE_TOOL_OPTIONAL_STRING_ARGS = {
     COMPLETE_DRAFT_TOOL_NAME: ("expected_version",),
     RECORD_FEEDBACK_TOOL_NAME: ("decision", "source"),
+    READ_TOOL_NAME: ("role", "session_id"),
+    RECORD_BASELINE_TOOL_NAME: ("call_id",),
 }
 
 _WRITE_TOOL_HANDLERS = {
@@ -1205,6 +1332,8 @@ _WRITE_TOOL_HANDLERS = {
     COMPLETE_DRAFT_TOOL_NAME: _handle_complete_draft,
     MARK_SUPERSEDED_TOOL_NAME: _handle_mark_superseded,
     RECORD_FEEDBACK_TOOL_NAME: _handle_record_feedback,
+    READ_TOOL_NAME: _handle_read,
+    RECORD_BASELINE_TOOL_NAME: _handle_record_baseline,
 }
 
 
@@ -1272,7 +1401,7 @@ def _search_scope(arguments: object) -> Scope | None:
     return Scope(repos=tuple(names))
 
 
-def _handle_tools_call(params: dict, store: Path, retain_versions: bool = True) -> dict:
+def _handle_tools_call(params: dict, store: Path, read_only: bool = False) -> dict:
     if "name" not in params:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: missing required 'name' field")
     name = params.get("name")
@@ -1334,11 +1463,11 @@ def _handle_tools_call(params: dict, store: Path, retain_versions: bool = True) 
                 + (f" (got {role!r})" if role is not None else " (missing)"),
             )
         text, is_error = _run_search_for_tool(
-            store, query, session_id, role, scope, retain_versions
+            store, query, session_id, role, scope, read_only
         )
     else:
         text, is_error = _run_search_for_tool(
-            store, query, session_id, scope=scope, retain_versions=retain_versions
+            store, query, session_id, scope=scope, read_only=read_only
         )
 
     result: dict = {"content": [{"type": "text", "text": text}]}
@@ -1452,8 +1581,9 @@ def _handle_read_only_tools_call(params: dict, store: Path) -> dict:
             INVALID_PARAMS, f"unknown tool: {name!r} — this server runs with --read-only"
         )
     # D2: a read-only server keeps no version copies and offers no reference — a client behind a
-    # bridge cannot save a Reuse Log, and the store is not written for it (contracts/mcp-server.md)
-    return _handle_tools_call(params, store, retain_versions=False)
+    # bridge cannot save a Reuse Log, and the store is not written for it — and, for the same
+    # reason, records no delivery in cost.jsonl (contracts/mcp-server.md)
+    return _handle_tools_call(params, store, read_only=True)
 
 
 # `engmem mcp --read-only`: the two search tools and nothing that writes a document

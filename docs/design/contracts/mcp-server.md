@@ -27,8 +27,13 @@ What it does not stop: a search still appends a row to `telemetry.jsonl`, becaus
 measurement engmem exists for, so a URL holder can grow that file; and the documents themselves
 are readable. A read-only search writes nothing else (owner decision D2, 2026-10-09): it keeps no
 copy under `versions/` and prints no `cite as` line, because a client behind a bridge cannot save
-a Reuse Log. `_handle_read_only_tools_call` passes `retain_versions=False` down to
-`search_report.compose` (`contracts/gate1.md`, "Versioned citations"). Prompts are still served, on purpose: `/engmem` is useful for its search step,
+a Reuse Log. For the same reason it records no delivery in `cost.jsonl`, and offers neither
+`engmem_read` nor `engmem_record_baseline`, so its searches show up in `engmem cost summary` as
+telemetry rows with no delivery record (US-16; `contracts/output.md`, "Observed cost"). Offering
+`engmem_read` there would hand a URL holder every published document whole, not the excerpts a
+search shows. `_handle_read_only_tools_call` passes `read_only=True`, which reaches
+`search_report.compose` as `retain_versions=False, record_cost=False` (`contracts/gate1.md`,
+"Versioned citations"). Prompts are still served, on purpose: `/engmem` is useful for its search step,
 and the save prompts reach their write calls and get the `--read-only` refusal by name. A
 bridge stays a test setup; the tunnel is the way to keep a store private.
 
@@ -336,6 +341,27 @@ description asks for the user's assessment only, never the agent's: the line is 
 `"assessed_by": "user"`, and that marker is only as true as the caller. The summary therefore shows
 `via mcp` beside each line this tool wrote. Its success text is `feedback.confirmation`, the
 CLI's, with every id escaped. No MCP tool reads finds back; a refusal lists the session's finds.
+
+### `engmem_read` and `engmem_record_baseline`: observed cost (US-16)
+
+An MCP-only client had no way to read a found document in full; `engmem_read` is that way, and
+the CLI's `engmem read` twin, both through `read_report.compose_read`. `id` must be a non-empty
+string, `role` one of the canonical roles and `session_id` a string when given, or the call is
+`-32602`; an unknown id, a draft or a missing section is `isError`. It writes no document: only
+its row in `<store>/cost.jsonl` and the retained copy of the version it delivered under
+`versions/` (the search's `cite as` mechanism, `contracts/gate1.md`), paths fixed by the store. It reads the document the loader
+already parsed, so it opens no path the caller names.
+
+`engmem_record_baseline` is `engmem cost record-baseline` for a client with no shell, through
+`cost.record_baseline`. `session_id` is a required non-empty string and `call_id` a string when
+given; `tokens` must be a JSON integer and `seconds` a number, a boolean being neither, or the
+call is `-32602`. A schema-valid call with neither figure, a figure not above zero, or a session
+with no document is `isError` and writes nothing. The description asks for figures the runtime
+reported, never an estimate; the line is marked `"reported_by": "client"`, and that marker is
+only as true as the caller.
+
+Both sit in the `_WRITE_TOOL_*` tables, which list every tool but the two searches, so neither is
+in `_SEARCH_TOOL_NAMES` and a `--read-only` server lists and runs neither.
 
 ### `engmem_mark_superseded`: two reads of one document
 
