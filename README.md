@@ -197,7 +197,16 @@ of the audit-coverage block printed below them:
 uv run python tools/gate1_report.py --store ~/Developer/engmem --since 2026-10-01   # telemetry since that date
 uv run python tools/verify_citations.py --store ~/Developer/engmem   # exit 1 on a quote that does not match
 engmem telemetry                                                     # searches, hit rate, context spent
+engmem feedback summary                                              # finds, user assessments, unknown influence
 ```
+
+`/engmem.save` asks you once whether the documents your searches showed helped, did not apply,
+or did harm, and records only your answer. You can also record one yourself:
+`engmem feedback record <session-id> <doc-id> helped --decision "kept the warm-up step" --source
+"PR 12"` (or `not-applicable`, `harmful`). A found document you never assess counts as unknown
+influence, never as a success or a failure, and only `helped` counts as positive reuse. These
+are your assessments, not a causal measurement, and the Gate 1 count does not read them. The
+report prints the same summary at the end.
 
 When an agent finds nothing and you cannot tell why, `engmem doctor --agent codex` (or any other
 `--agent`) checks that client's setup without changing it. It prints one line per check, marked

@@ -606,3 +606,112 @@ a substitute.
    telemetry-derived figure including the cross-check, and the window in force is always the
    first line printed, so a quoted figure is never separated from its scope. An unparseable
    `--since` does not fail the run: it falls back to all-time and says so in the window line.
+
+## Usefulness feedback (US-15, 2026-10-09)
+
+Source: `src/engmem/feedback.py`, written by `engmem feedback record` and the MCP tool
+`engmem_record_feedback`, read by `engmem feedback summary` and by the block `gate1_report.py`
+prints last. A retrieval hit and a verified quote say a document was shown and quoted, not
+whether the task went better. This lets the engineer say so: `helped`, `not-applicable` or
+`harmful`, optionally with the decision it changed and where that can be seen.
+
+Owner decisions, 2026-10-09: (US-15 D1) assessments live in the separate append-only `feedback.jsonl`,
+with no new Reuse Log classification; (US-15 D2) `/engmem.save` asks one optional usefulness question
+after the write, and `/engmem.save.quick` asks none. Coordinator defaults the owner may
+override: (US-15 D3) the summary names the channel that wrote each line; (US-15 D4) an assessment and a
+Reuse Log row are not cross-checked; (US-15 D5) there is no MCP tool that reads finds; (US-15 D6) pruning
+telemetry leaves earlier assessments matching no find. Each is explained below.
+
+### Not the Reuse Log
+
+An assessment is one JSON line in the store's `feedback.jsonl`, never a Reuse Log row. The
+Reuse Log does not fit it. A row exists only for a document that was opened and influenced the
+work, and it needs a verbatim quote, so a document that did not apply has no row to write.
+`anti-reuse` is not "did not apply" either: it means the work deliberately went the other way
+*because of* the document, a better outcome (`templates/engmem.save.md`). The agent writes the
+Reuse Log, and `/engmem.save.quick` publishes it with no review, so a row cannot say the user
+judged it. And rewriting a session document to add an assessment would change its version and
+the text search reads. A fourth classification would have touched
+`gate1.VALID_CLASSIFICATIONS`, the refusal tier of `engmem_complete_draft` and the §11 count,
+none of which this story needs.
+
+Every line carries `"assessed_by": "user"`. The record command and the tool are the user's
+channel: the save template asks the user and records only the answer, and the tool's
+description says never to record an agent's own judgement. Nothing mechanical can tell a
+user's words from an agent's claim of them, so the marker records whose assessment the line
+claims to be, not proof of it. (US-15 D3) The summary therefore names the channel next to the
+label, `(user assessment, via cli)` or `(user assessment, via mcp)`: an MCP line is an agent
+saying the user said it. A line with no readable `channel` shows `via unknown`.
+
+The two `harmful`s are different signals. A Reuse Log `harmful` is the agent's
+classification of a quoted row, read by `gate1.py` and inside §11's population rules; a user
+`harmful` is a line in `feedback.jsonl`, outside §11 entirely. (US-15 D4) They are not cross-checked:
+a user `harmful` or `not-applicable` for a (session, document) whose Reuse Log row says
+`reuse` is not flagged, and neither changes the other's figure.
+
+### What a find is
+
+A find is a pair (session, document): a document in `surfaced` of a telemetry row whose
+`session_id` is that session. `hits` is never read: it is the ranking, which can name documents
+the trim kept off the screen, and a row written before `surfaced` existed contributes no find.
+A session is never its own find, even if a row names it. The
+reader is `telemetry.read_session_rows`, the audit block's, widened by `surfaced` and
+`weak_only` with defaults, so the audit, which reads only `session_id` and `ts`, is unchanged.
+A weak candidate is a find too, marked `[weak candidate]` when every row that showed it was
+`weak_only`. A mixed row does not say which of its documents were weak, so a document shown by
+one counts as a reliable find. A row with no `session_id` finds nothing for anyone.
+
+Finds of a `session_id` that names no document in the store are named on their own line and
+counted in no figure. A mistyped `--session` would otherwise leave finds nobody can assess,
+and `record` refuses an id with no document.
+
+### What `record` refuses
+
+Nothing is written when the assessment is not one of the three (case-insensitive), when the
+session names no loaded document, when no search attributed to the session showed the
+document, when `telemetry.jsonl` cannot be read or decoded, or when `decision` or `source`
+exceeds `TEXT_MAX` characters (refused, not cut: the words are the user's). So every recorded
+assessment was a find when it was recorded. The line is appended in one write, like a
+telemetry row. When the file's last byte is not a newline (a torn append, a hand edit), the
+write starts with one, so the new line is never swallowed into the torn one, which stays one
+unreadable line. A later line for the same pair replaces the earlier one in every figure, so an
+assessment can be corrected. Earlier lines stay in the file.
+
+### The summary
+
+Store-wide, or with `--session` for one session, which also lists that session's unassessed
+finds. Each figure is on its own line: finds and sessions; assessed, split by helped, not
+applicable and harmful; influence unknown; positive reuse, which is `helped` only; weak
+candidates among the finds. Each assessed find is then listed under its own label, followed by
+`(user assessment, via <channel>)`, with its decision and source.
+
+- **Unknown is neither a success nor a failure.** A find with no assessment is counted only
+  under "influence unknown", and the line says so.
+- **Not applicable and harmful are never positive reuse.** They are listed apart, and the
+  positive figure counts `helped` alone.
+- **An assessment that matches no find** is counted on its own line and in no figure. (US-15 D6)
+  This is the intended lifetime of an assessment: rotating, pruning or replacing
+  `telemetry.jsonl` removes the finds, and the assessments of them then read "matching no find,
+  not counted" rather than being kept as finds with nothing behind them. A line that is not an assessment is counted as
+  unreadable and skipped, like a bad telemetry row.
+- **No causal claim.** The last line says a user assessment records what the engineer saw, not
+  what caused it, and is no A/B result. Human influence does not replace a causal comparison.
+
+Recorded text, and every id read back from `telemetry.jsonl` or `feedback.jsonl`, is escaped
+with `output._escape_controls` wherever it is printed: the summary, the refusal that lists a
+session's finds, and the confirmation both channels share (`feedback.confirmation`). A decision
+or a tampered id cannot forge a line (`contracts/output.md`, "Nothing untrusted may forge a
+line").
+
+(US-15 D5) No MCP tool reads finds or the summary. An MCP-only client knows what its own searches
+showed from its context, and a refused record lists the session's finds.
+
+### Outside the Gate 1 count
+
+`gate1.py` does not read `feedback.jsonl`, and no §11 figure moves with it. The report prints
+the block after the audit block, so every line above it is byte-identical to the output before
+the block existed (pinned by recording a `harmful` assessment of a counted `reuse` row and
+comparing the report before and after). The block is all-time: `--since` narrows only the
+audit block. If a log cannot be read, the block says UNMEASURED and the report still exits 0.
+`engmem feedback summary` exits 2 instead, as `engmem telemetry` does: an unreadable log is not
+a store with no finds.

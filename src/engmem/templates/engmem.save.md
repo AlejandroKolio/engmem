@@ -282,6 +282,23 @@ yes:
     without reading what changed. Leave `expected_version` out only if you no longer
     have it; the call then cannot tell that the draft changed.
 
+### Usefulness feedback (optional)
+
+After the document is written, ask the user once, naming the documents this session's
+searches showed: *"did any of these help, not apply, or do harm?"* `engmem feedback summary
+--session <id>` lists them. For each document the user assesses, record exactly what they said:
+
+- With a shell: `engmem feedback record <id> <doc-id> helped|not-applicable|harmful`, adding
+  `--decision "<the decision it changed>"` and `--source "<commit, PR or review>"` when the
+  user names them.
+- Through MCP: call `engmem_record_feedback` with `session_id`, `doc_id`, `assessment`, and
+  `decision` / `source` when given.
+
+The record says the assessment is the user's, so never record your own judgement, never fill
+in a document the user did not assess, and record nothing if the user does not answer. A
+document left unassessed is reported as unknown influence, which is not a failure. This is not
+the Reuse Log and changes nothing in it.
+
 ## 5. Navigation misses — the other half of the retrieval instrument
 
 If at any point in this session you used a store document that `engmem search` did **not**

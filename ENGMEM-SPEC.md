@@ -613,6 +613,24 @@ only when there are any.
   the bullet above, only louder. The distinction the two bullets draw is byte versus row:
   a bad byte invalidates every offset in the file, a bad row does not.
 
+### `engmem feedback record SESSION_ID DOC_ID helped|not-applicable|harmful [--decision TEXT] [--source TEXT]` / `engmem feedback summary [--session ID]`
+
+*(US-15)* A hit and a verified quote say a document was shown and quoted, not whether the task
+went better. `record` appends the user's assessment of one find (a document a search attributed
+to `SESSION_ID` showed) to the store's `feedback.jsonl`, marked `"assessed_by": "user"`, with the
+decision it changed and where that can be seen when given. It refuses, writing nothing, an
+assessment outside the three, a session id naming no document, a document no search of that
+session showed, and a text over 1000 characters. The MCP tool `engmem_record_feedback` does the
+same for a client with no shell; a `--read-only` server does not offer it. `summary` prints the
+finds, how many the user assessed (helped / not applicable / harmful), how many have unknown
+influence, and positive reuse, which counts `helped` only. Unknown is neither a success nor a
+failure, and not applicable and harmful are listed apart from positive reuse. A user assessment
+is not a causal result and is not part of the Gate 1 count (§11). Owner decisions of 2026-10-09:
+assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and only the full
+`/engmem.save` asks the question. `tools/gate1_report.py`
+prints the same summary after its audit block. Rules: `docs/design/contracts/gate1.md`,
+"Usefulness feedback".
+
 ## 6. Prompt templates — behavior specification
 
 ### `/engmem <task description>` (start)
@@ -667,6 +685,10 @@ only when there are any.
    known (otherwise leave it blank — "never measured"), fill in `verified_at`: for each
    repository in `repos`, `git -C <its checkout> rev-parse HEAD`; a repository with no
    checkout or no shell at hand is left out, never guessed.
+6. *(US-15, optional)* Ask the user once whether the documents this session's searches showed
+   helped, did not apply, or did harm. Record only what the user answers (`engmem feedback
+   record`, or `engmem_record_feedback`); no answer is recorded as nothing, and the find stays
+   unknown. Never record an assessment the user did not give.
 
 ### `/engmem.save.quick` (short capture)
 

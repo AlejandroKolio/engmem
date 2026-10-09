@@ -182,7 +182,7 @@ path that creates a document, so it alone sets a new document's mode: it keeps t
 `0600`, and `engmem_complete_draft` restores whatever it finds, so an MCP-authored document
 stays `0600` for life.
 
-The three tools' own rules:
+The three document tools' own rules (`engmem_record_feedback` writes no document, below):
 - `engmem_create_draft` never overwrites: fails if the target exists, including when another
   creator takes the id while the call is running.
 - `engmem_complete_draft` requires the existing file to be `status: draft` and the new
@@ -316,6 +316,26 @@ refusing over them would block a save on state the tool cannot prove wrong. The 
 fail" shape is the one `search_report.compose` already uses for its `telemetry not recorded`
 note; here the callee's own failure is caught explicitly because `gate1.evaluate` has no
 error-return shape.
+
+### `engmem_record_feedback`: the one write outside `sessions/` (US-15)
+
+An MCP-only client has no shell for `engmem feedback record`, so this tool is its way to record
+the user's assessment of a find (`contracts/gate1.md`, "Usefulness feedback"). It goes through
+the same dispatch as the other write tools: `session_id`, `doc_id` and `assessment` must be
+non-empty strings and `decision`/`source` strings when given, or the call is `-32602`. It is
+not in `_SEARCH_TOOL_NAMES`, so a `--read-only` server neither lists nor runs it.
+
+It writes no document. It appends one line to `<store>/feedback.jsonl` through
+`feedback.record`, the function the CLI calls, with `channel: "mcp"`, so both channels write
+the same line except for `channel`. The path is fixed by the store and never taken from the
+caller, so the `sessions/` containment rules above have nothing to contain. The file is
+appended like `telemetry.jsonl`, which every search already writes. A refusal (an assessment
+outside the three, a session with no document, a document no search of that session showed,
+unreadable telemetry, text over `feedback.TEXT_MAX`) is `isError` and writes nothing. The
+description asks for the user's assessment only, never the agent's: the line is marked
+`"assessed_by": "user"`, and that marker is only as true as the caller. The summary therefore shows
+`via mcp` beside each line this tool wrote. Its success text is `feedback.confirmation`, the
+CLI's, with every id escaped. No MCP tool reads finds back; a refusal lists the session's finds.
 
 ### `engmem_mark_superseded`: two reads of one document
 

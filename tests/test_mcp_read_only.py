@@ -24,6 +24,11 @@ WRITE_CALLS = [
         {"id": "20260101-widget-cache", "superseded_by": "20260102-new"},
         id="mark_superseded",
     ),
+    pytest.param(
+        "engmem_record_feedback",
+        {"session_id": "20260101-widget-cache", "doc_id": "20260102-new", "assessment": "helped"},
+        id="record_feedback",
+    ),
 ]
 
 

@@ -181,7 +181,7 @@ The engineer's full collection of Engineering Session Documents.
 | Attribute | Description |
 |---|---|
 | location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → the choice saved by `engmem store set` → default `~/Developer/engmem` |
-| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) + `versions/<id>/<version>.md` (the exact bytes of each document version a search showed, kept so a Reuse Log quote can be checked against the version it cites — US-13) |
+| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) + `feedback.jsonl` (append-only user assessments of finds — US-15, see **Usefulness Assessment** below) + `versions/<id>/<version>.md` (the exact bytes of each document version a search showed, kept so a Reuse Log quote can be checked against the version it cites — US-13) |
 | persistence | a git repository (created by `install` if it doesn't exist); no other database or cache |
 | scope | machine-wide default, or single-project if `--local` was used at install time (`ENGMEM-SPEC.md` §5, `engmem install`) |
 
@@ -191,6 +191,27 @@ this is a hard invariant, not an optimization detail (`ENGMEM-SPEC.md` §3).
 store — once its document is edited, the copy is the only record of the text a quote was
 taken from — so it is evidence, like `telemetry.jsonl`, not a derived index. It is never
 read as a document and never searched (`contracts/gate1.md`, "Versioned citations").
+`feedback.jsonl` is not derived either: it holds assessments nothing else in the store records.
+
+## Entity: Usefulness Assessment
+
+One line of `feedback.jsonl`: the user's assessment of a find, a document a search attributed
+to a session showed (US-15; `contracts/gate1.md`, "Usefulness feedback").
+
+| Field | Description |
+|---|---|
+| `ts` | when it was recorded, UTC |
+| `session_id` | the session document whose search showed the document; must name a document in the store |
+| `doc_id` | the document shown (in `surfaced`, never only in `hits`); must be in that session's finds when recorded, and is never the session itself |
+| `assessment` | `helped` \| `not-applicable` \| `harmful` |
+| `assessed_by` | always `user`: the line claims to be the user's assessment; a line written through MCP is an agent's claim that the user said it, which is why `channel` is shown beside it |
+| `decision` | optional, the decision the document changed, ≤ 1000 characters, `null` when not given |
+| `source` | optional, where that can be seen (commit, PR, review), ≤ 1000 characters, `null` when not given |
+| `channel` | `cli` or `mcp` |
+
+A pair can be re-recorded: the latest line for a (session, document) pair is the one every figure reads. A find with no
+line has unknown influence, which is neither a success nor a failure. No session document and
+no Gate 1 figure reads this file.
 
 ## Entity: Search Result Set
 

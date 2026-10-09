@@ -11,7 +11,7 @@ from typing import NoReturn
 
 import yaml
 
-from engmem import __version__
+from engmem import __version__, feedback
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.doctor import cmd_doctor
 from engmem.install import (
@@ -207,6 +207,42 @@ def _cmd_telemetry(args: argparse.Namespace) -> int:
         return failure
     misses = sum(len(d.navigation_miss) for d in result.docs)
     print(render_telemetry_summary(summary, misses))
+    return 0
+
+
+def _cmd_feedback_record(args: argparse.Namespace) -> int:
+    """Appends the user's assessment of one find of a session (US-15)."""
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    try:
+        entry = feedback.record(
+            store, {d.id for d in result.docs},
+            session_id=args.session_id, doc_id=args.doc_id, assessment=args.assessment,
+            decision=args.decision, source=args.source, channel="cli",
+        )
+    except feedback.FeedbackError as exc:
+        fail(f"engmem feedback record: {exc}")
+        return 2
+    print(f"engmem feedback: {feedback.confirmation(entry)}")
+    return 0
+
+
+def _cmd_feedback_summary(args: argparse.Namespace) -> int:
+    """Finds, user assessments and unknown influence, per store or for one session."""
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    session_id = _session_id(args.session)
+    try:
+        summary = feedback.summarize(store, {d.id for d in result.docs}, session_id)
+    except (OSError, UnicodeDecodeError) as exc:
+        # an unreadable log is not a store with no finds -- the reasoning `_cmd_telemetry` gives
+        fail(f"engmem feedback summary: cannot read the store's logs ({exc})")
+        return 2
+    print(feedback.render_summary(summary, session_id))
     return 0
 
 
@@ -727,6 +763,54 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(telemetry_parser)
     telemetry_parser.set_defaults(func=_cmd_telemetry)
+
+    feedback_parser = subparsers.add_parser(
+        "feedback",
+        help=(
+            "record the user's assessment of a document a session's search showed -- helped, "
+            "not-applicable or harmful -- or summarize finds, assessments and unknown influence"
+        ),
+    )
+    feedback_commands = feedback_parser.add_subparsers(dest="feedback_command", required=True)
+    feedback_record_parser = feedback_commands.add_parser(
+        "record",
+        help=(
+            "append the user's assessment of one find; only what the user said, never an "
+            "agent's own judgement"
+        ),
+    )
+    feedback_record_parser.add_argument(
+        "session_id", metavar="SESSION_ID", help="the session document whose search showed it"
+    )
+    feedback_record_parser.add_argument(
+        "doc_id", metavar="DOC_ID", help="the document the search showed"
+    )
+    feedback_record_parser.add_argument(
+        "assessment",
+        metavar="ASSESSMENT",
+        # not argparse `choices=`: `feedback.record` names the three on both streams itself
+        help=f"one of {feedback.ASSESSMENT_CHOICES}",
+    )
+    feedback_record_parser.add_argument(
+        "--decision", default=None, help="the decision the document changed, in the user's words"
+    )
+    feedback_record_parser.add_argument(
+        "--source", default=None, help="where that can be seen, e.g. a commit, PR or review"
+    )
+    _add_store_option(feedback_record_parser)
+    feedback_record_parser.set_defaults(func=_cmd_feedback_record)
+    feedback_summary_parser = feedback_commands.add_parser(
+        "summary",
+        help=(
+            "count finds, user assessments and finds whose influence is unknown; not part of "
+            "the Gate 1 count"
+        ),
+    )
+    feedback_summary_parser.add_argument(
+        "--session", default=None, help="only this session, listing its unassessed finds too"
+    )
+    _add_store_option(feedback_summary_parser)
+    feedback_summary_parser.set_defaults(func=_cmd_feedback_summary)
 
     backfill_parser = subparsers.add_parser(
         "backfill",
