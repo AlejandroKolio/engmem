@@ -141,7 +141,7 @@ entities: [ResponseCacheController, ResponseCache, ETAG, TTL]
 related:
   - ttl-etag-revalidation-v2       # ids of other docs; the reason goes in a comment
 covers_files: [ResponseCacheController.java]
-verified_at_commit: abc1234
+verified_at: {platform-core: 9c1d2e4}  # per repository: the commit it was checked at (US-11)
 capture_minutes: 12               # minutes the save ritual took; blank unless a real start time is known
 author: A. Engineer               # git config user.name
 repos: [platform-core]            # repositories the work touched; `search --repo` filters on it
@@ -152,7 +152,7 @@ baseline_unavailable:             # research only: why no baseline could be had;
 ---
 ```
 
-Manually filled fields — **zero**: id/date/verified_at_commit/author/branch are computed
+Manually filled fields — **zero**: id/date/verified_at/author/branch are computed
 automatically; title/tags/entities/related/covers_files/repos/pr are drafted by the agent
 from the diff and transcript, and the human replies "y". `capture_minutes` is filled by the
 agent only when a real start time is known, and left blank otherwise. `mode` is written into the
@@ -169,7 +169,7 @@ instantaneous"). A key written with no value states nothing and is treated exact
 missing key. Such a document is flagged degraded, and **the number of incomplete spines is
 printed on stdout** in the search footer. Completeness is measured over the retrieval
 fields only (`id`, `title`, `date`, `task_date`, `status`, `tags`, `entities`); ritual
-telemetry (`backfilled`, `verified_at_commit`, `capture_minutes`) is excluded, since a
+telemetry (`backfilled`, `verified_at`, `capture_minutes`) is excluded, since a
 draft cannot know those values yet.
 
 Spine validation: **error** (document excluded) — duplicate id, invalid YAML, front matter
@@ -433,6 +433,17 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    format is paste-able markdown (for the paste bridge).
 3a. If more documents matched than the three shown, a final line states how many were
    withheld.
+3b. *(US-11)* Each block of a record with an anchor or a repository link carries a
+   `snapshot:` line: per repository, the recorded `verified_at` commit next to the `HEAD` of
+   the git checkout the search runs in (matched by directory name), as `same commit as HEAD`,
+   `HEAD is now <sha>, re-check`, or `unknown, <reason>` (no anchor, no checkout of that
+   repository here, git unavailable, …). It states a commit fact and never that the text is
+   true; a difference asks for a re-check and changes no rank. A legacy `verified_at_commit`
+   counts as the anchor of the record's one linked repository, and otherwise stays an
+   unattributed unknown. git runs at most once per search (`git rev-parse`, bounded, never
+   from the working directory's PATH entry) and only when a shown record has an anchor to
+   compare. This line is in the plain output too, so it changes it for such records
+   (`docs/design/contracts/provenance.md`).
 4. No matches → prints `prior context: none found` (exit code 0).
 5. Scoreboard footer, always printed: `docs: N | drafts: N | last doc: Nd ago`. The count
    carries a parenthetical for anything the store is not fully serving —
@@ -610,8 +621,9 @@ navigation misses recorded in the store's own documents.
 4. Ask: "does this work supersede a decision from some prior doc?" → if yes, set that
    doc's `status: superseded` and `superseded_by`.
 5. Flip `status: draft → active`, set `capture_minutes` only when a real start time is
-   known (otherwise leave it blank — "never measured"), fill in `verified_at_commit`
-   (current HEAD).
+   known (otherwise leave it blank — "never measured"), fill in `verified_at`: for each
+   repository in `repos`, `git -C <its checkout> rev-parse HEAD`; a repository with no
+   checkout or no shell at hand is left out, never guessed.
 
 ### `/engmem.save.quick` (short capture)
 

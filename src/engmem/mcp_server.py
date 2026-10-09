@@ -524,7 +524,7 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
         return str(exc), True
 
     message = f"completed sessions/{doc_id}.md (status: draft -> active)"
-    for note in _citation_notes(store, doc):
+    for note in [*_snapshot_notes(doc), *_citation_notes(store, doc)]:
         message += f"\n{note}"
     return message, False
 
@@ -650,6 +650,16 @@ def _reuse_log_rejections(doc: Doc) -> list[str]:
                     f"{_CLASSIFICATION_CHOICES}: {line}"
                 )
     return rejections
+
+
+def _snapshot_notes(doc: Doc) -> list[str]:
+    """A malformed anchor, named once at capture and never a refusal; see contracts/provenance.md,
+    "Recorded at capture"."""
+    return [
+        f"warning: sessions/{doc.id}.md: {warning}"
+        for warning in doc.field_warnings
+        if warning.startswith("verified_at")
+    ]
 
 
 def _citation_notes(store: Path, doc: Doc) -> list[str]:

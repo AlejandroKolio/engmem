@@ -78,6 +78,9 @@ STATED_VALUES = [
     ("staging", "_LOCK_WAIT_SECONDS", None, "`_LOCK_WAIT_SECONDS` ({value})", "mcp-server.md"),
     ("staging", "_VERSION_HEX_DIGITS", None, "first {value} hex digits", "mcp-server.md"),
     ("doctor", "_PROBE_SECONDS", None, "`_PROBE_SECONDS` ({value})", "doctor.md"),
+    ("provenance", "GIT_LOOKUP_SECONDS", None, "`GIT_LOOKUP_SECONDS` ({value})", "provenance.md"),
+    ("output", "COMMIT_DISPLAY_CHARS", None, "`COMMIT_DISPLAY_CHARS` characters ({value}",
+     "provenance.md"),
 ]
 
 

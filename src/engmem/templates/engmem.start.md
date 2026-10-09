@@ -104,7 +104,7 @@ tags: []
 entities: []
 related: []
 covers_files: []
-verified_at_commit:
+verified_at:                     # left empty: filled per repository at save
 capture_minutes:                 # left empty: a draft has measured nothing yet
 mode: <daily|research from step 0>   # write the one word; left as is, it counts nowhere
 ---

@@ -15,6 +15,7 @@ from engmem.output import (
     scope_line,
     select_role_hits,
 )
+from engmem.provenance import SessionCheckout
 from engmem.scoring import (
     Scope,
     SearchOutcome,
@@ -46,20 +47,27 @@ class RenderedResult:
 
 
 def render_result(
-    docs: list[Doc], query: str, role: str | None, scope: Scope | None = None
+    docs: list[Doc],
+    query: str,
+    role: str | None,
+    scope: Scope | None = None,
+    checkout: SessionCheckout | None = None,
 ) -> RenderedResult:
-    """The ranked result for one query, with no I/O: what a search shows, before any store note."""
+    """The ranked result for one query, before any store note. Its one I/O is `checkout`'s git
+    lookup, made only when a shown record has an anchor to compare (contracts/provenance.md)."""
     n_searched = len(ranking_corpus(docs, scope))
     lead = scope_line(scope, n_searched) if scope is not None else None
     if role is not None:
         outcome, role_map = search_with_role_sections(docs, query, scope)
         role_hits, _matched_role_total = select_role_hits(outcome, role_map, role)
-        text = render_role_search_results(outcome, role_map, role, lead)
+        text = render_role_search_results(outcome, role_map, role, lead, checkout)
         return RenderedResult(text, bool(role_hits), outcome, role_hits, n_searched)
 
     outcome = search(docs, query, scope)
     surfaced = bool(outcome.hits or outcome.superseded_notes)
-    text = render_search_results(outcome, docs, lead) if surfaced else render_no_match(lead)
+    text = (
+        render_search_results(outcome, docs, lead, checkout) if surfaced else render_no_match(lead)
+    )
     return RenderedResult(text, surfaced, outcome, None, n_searched)
 
 
@@ -89,7 +97,8 @@ def compose(
         lines.append(f"error: {loaded.scan_error.message}")
     lines += [f"warning: {scan_error}" for scan_error in stray_scan_errors]
 
-    rendered = render_result(loaded.docs, query, role, scope)
+    # a new lookup per search: an MCP server outlives a checkout's HEAD moving
+    rendered = render_result(loaded.docs, query, role, scope, SessionCheckout())
     lines.append(rendered.text)
     # store housekeeping, deliberately outside `rendered.text` and so outside `context_bytes`
     if not rendered.surfaced_anything and strays:

@@ -22,7 +22,7 @@ Generate a **complete** draft of every front-matter field from the code diff and
 conversation:
 
 `id`, `title`, `date`, `task_date`, `status`, `superseded_by`, `backfilled`, `tags`,
-`entities`, `related`, `covers_files`, `verified_at_commit`, `capture_minutes`, `author`,
+`entities`, `related`, `covers_files`, `verified_at`, `capture_minutes`, `author`,
 `repos`, `branch`, `pr`, `mode`
 
 `mode`, and `baseline_unavailable` when the draft has it, are copied from the draft unchanged —
@@ -247,8 +247,13 @@ yes:
   started — a time you recorded, not the draft's `date:`, which has day resolution. Otherwise
   leave it blank: blank means "never measured", and a guess corrupts the cost side of the
   experiment.
-- Set `verified_at_commit` to the current git `HEAD` — run `git rev-parse HEAD` if you
-  have a shell; leave the field blank if you don't (never guess a commit sha).
+- Set `verified_at` to the commit each repository in `repos` was checked at, one entry per
+  repository: `verified_at: {platform-core: <sha>}`, the sha from
+  `git -C <that repository's checkout> rev-parse HEAD`. Leave a repository out when you have
+  no shell or no checkout of it, and leave the field blank when you have neither; never guess
+  a sha. It records which code the decision was checked against, not that the text is true;
+  a search later shows each entry next to that checkout's current `HEAD`. Do not write the
+  older single `verified_at_commit`.
 - Write the finished document:
   - If you can write files directly: replace `sessions/<id>.md` with the complete
     document (finalised front matter from step 1 plus all body sections from step 2).
