@@ -43,6 +43,7 @@ from engmem.staging import (
     stage,
     version_of,
 )
+from engmem.versions import is_version, split_reference
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -259,6 +260,7 @@ def _run_search_for_tool(
     session_id: str | None = None,
     role: str | None = None,
     scope: Scope | None = None,
+    retain_versions: bool = True,
 ) -> tuple[str, bool]:
     """`(text, is_error)`: the composed result the CLI prints, carried in the tool result."""
     try:
@@ -271,7 +273,8 @@ def _run_search_for_tool(
     # channel="mcp" keeps a Desktop search and a terminal search distinguishable in
     # telemetry.jsonl; compose writes the row, so the MCP path is never invisible to Gate 1
     text = compose(
-        store, result, strays, stray_scan_errors, query, role, session_id, "mcp", scope
+        store, result, strays, stray_scan_errors, query, role, session_id, "mcp", scope,
+        retain_versions,
     )
     return text, False
 
@@ -572,7 +575,7 @@ def _complete_draft_locked(
                 "document is not actually ready to finish yet."
             )
         _refuse_a_changed_observation(existing, doc, doc_id)
-        rejections = _reuse_log_rejections(doc)
+        rejections = _reuse_log_rejections(doc, target.parent)
         if rejections:
             raise _ToolError(
                 "\n".join(
@@ -624,15 +627,28 @@ _CLASSIFICATION_CHOICES = " / ".join(
 )
 
 
-def _reuse_log_rejections(doc: Doc) -> list[str]:
-    """Row-shape defects decidable from the content alone, checked before the commit; see
-    contracts/mcp-server.md, "Reuse Log rows — refuse, then warn"."""
+def _reuse_log_rejections(doc: Doc, sessions_dir: Path) -> list[str]:
+    """Row-shape defects decidable from the content, checked before the commit; the store is read
+    only to spare an existing id spelled with `@` (contracts/mcp-server.md, "Reuse Log rows —
+    refuse, then warn")."""
     rejections: list[str] = []
+    existing_ids: set[str] | None = None
     for section in split_sections(doc.body):
         if section.canonical != "reuse":
             continue
         for row in gate1.reuse_log_rows(section.body):
             line = row.line.strip()
+            reference = row.cells[0].strip("[] `")
+            _cited_id, version = split_reference(reference)
+            if version is not None and not is_version(version) and existing_ids is None:
+                existing_ids = {d.id for d in load_store(sessions_dir).docs}
+            # `gate1.cited_reference`'s rule: a cell naming an existing id exactly is that id
+            if version is not None and not is_version(version) and reference not in existing_ids:
+                rejections.append(
+                    f"Reuse Log row rejected — version {version!r} is not one a search showed "
+                    "(prior-doc is <id> or <id>@<16 lowercase hex digits>, copied from the "
+                    f"search result's `cite as` line): {line}"
+                )
             if not gate1.quotes_in(row.cells[1]):
                 rejections.append(
                     "Reuse Log row rejected — no quoted span of four or more characters: "
@@ -680,22 +696,40 @@ def _citation_notes(store: Path, doc: Doc) -> list[str]:
         return notes
 
     problems: list[str] = []
+    legacy: list[str] = []
     for row in verdicts.rows:
         if row.citing.id != doc.id:
             continue
-        if row.integrity == gate1.Integrity.CITED_MISSING:
+        if gate1.checked_against_current_text(row):
+            legacy.append(row.source)
+        if row.integrity == gate1.Integrity.VERSION_UNAVAILABLE:
             problems.append(
-                f"{row.source}: cited document {row.cited_id} is not in the store — "
-                "prior-doc takes the document's id, not its filename"
+                f"{row.source}: cited version {gate1.cited_as_written(row)} cannot be "
+                f"checked — {row.version_problem}"
+            )
+        elif row.integrity == gate1.Integrity.CITED_MISSING:
+            problems.append(
+                f"{row.source}: cited document {gate1.cited_as_written(row)} is not in the "
+                "store — prior-doc takes the document's id, not its filename"
             )
         elif row.integrity == gate1.Integrity.QUOTE_NOT_FOUND:
             for quote in row.unfound_quotes:
-                problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
+                problems.append(
+                    f'{row.source}: quote not found in {gate1.cited_as_written(row)} — "{quote}"'
+                )
     if problems:
         notes.append(
             f"warning: {len(problems)} Reuse Log citation problem(s) — run the engmem "
             "checkout's checker, uv run --project <engmem-checkout> python "
             "<engmem-checkout>/tools/verify_citations.py --store <store>: " + "; ".join(problems)
+        )
+    if legacy:
+        notes.append(
+            f"note: {len(legacy)} Reuse Log row(s) name no version, so their quotes are checked "
+            "against the cited document's current text, which can change later: "
+            + ", ".join(legacy)
+            + f" — next time cite the `<id>@<version>` the {TOOL_NAME} result's `cite as` "
+            "line gives"
         )
     return notes
 
@@ -1168,7 +1202,7 @@ def _search_scope(arguments: object) -> Scope | None:
     return Scope(repos=tuple(names))
 
 
-def _handle_tools_call(params: dict, store: Path) -> dict:
+def _handle_tools_call(params: dict, store: Path, retain_versions: bool = True) -> dict:
     if "name" not in params:
         raise _ProtocolError(INVALID_PARAMS, "invalid params: missing required 'name' field")
     name = params.get("name")
@@ -1229,9 +1263,13 @@ def _handle_tools_call(params: dict, store: Path) -> dict:
                 + ", ".join(CANONICAL_ROLES)
                 + (f" (got {role!r})" if role is not None else " (missing)"),
             )
-        text, is_error = _run_search_for_tool(store, query, session_id, role, scope)
+        text, is_error = _run_search_for_tool(
+            store, query, session_id, role, scope, retain_versions
+        )
     else:
-        text, is_error = _run_search_for_tool(store, query, session_id, scope=scope)
+        text, is_error = _run_search_for_tool(
+            store, query, session_id, scope=scope, retain_versions=retain_versions
+        )
 
     result: dict = {"content": [{"type": "text", "text": text}]}
     if is_error:
@@ -1343,7 +1381,9 @@ def _handle_read_only_tools_call(params: dict, store: Path) -> dict:
         raise _ProtocolError(
             INVALID_PARAMS, f"unknown tool: {name!r} — this server runs with --read-only"
         )
-    return _handle_tools_call(params, store)
+    # D2: a read-only server keeps no version copies and offers no reference — a client behind a
+    # bridge cannot save a Reuse Log, and the store is not written for it (contracts/mcp-server.md)
+    return _handle_tools_call(params, store, retain_versions=False)
 
 
 # `engmem mcp --read-only`: the two search tools and nothing that writes a document

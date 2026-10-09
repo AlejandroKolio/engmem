@@ -164,8 +164,13 @@ whole is not bounded. The caps are far above real use and the marks are additive
 ## One composed result for both channels
 
 `search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/`
-line, stray-scan warnings, the ranked result, the stray note, the scoreboard, the telemetry
-note and the channel's unattributed note, in that order, and it writes the one telemetry row.
+line, stray-scan warnings, the ranked result, the stray note, the `cite as` line and any
+`version ... not retained` notes (US-13, `contracts/gate1.md`, "Versioned citations"), the
+scoreboard, the telemetry note and the channel's unattributed note, in that order, and it writes
+the one telemetry row. The `cite as` line is housekeeping like the stray note: it is outside
+`render_result`'s text, so `context_bytes` and every rendered-result test are unchanged by it.
+It names what `surfaced_ids` selected, so after a trim it can name a document whose block was
+cut, the same limit noted below. `engmem mcp --read-only` prints no `cite as` line.
 The scope is one more argument to it, so CLI and MCP cannot apply different scope rules
 (AC-09.4); the row's `scope` field records it (`ENGMEM-SPEC.md` §5, search step 6b).
 `engmem search` prints the string; `engmem_search` and `engmem_search_by_role` return it as the

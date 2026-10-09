@@ -10,8 +10,11 @@ responsible for it, what's in here, who's allowed to read it, and how long it li
 
 Personal engineering memory: one markdown document per closed task (decisions and
 their reasons, rejected alternatives, landmines), plus a search log,
-`telemetry.jsonl`. It's populated by the engmem tool
-(https://github.com/AlejandroKolio/engmem) at the end of each task and
+`telemetry.jsonl`, and under `versions/` an exact copy of each document version a search
+showed, so a quote can later be checked against the text it was taken from (delete a
+document's `versions/<id>/` too when you remove a fact from the store; keep
+`versions/.gitattributes`, which stops git from rewriting the copies' line endings). It's populated by
+the engmem tool (https://github.com/AlejandroKolio/engmem) at the end of each task and
 read back by it at the start of the next one.
 
 ## Owner

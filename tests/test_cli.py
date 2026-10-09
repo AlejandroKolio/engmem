@@ -289,6 +289,10 @@ def _engmem_calls(store: Path, cache_home: Path, monkeypatch, capsys) -> int:
     """Python-level calls into engmem during one cold search: a count, so the same code gives the
     same number on any machine under any load."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_home))
+    # a search retains each shown version once (US-13): a first, unmeasured search keeps that
+    # one-time write out of the count, and the cache it warmed is dropped so the count stays cold
+    main(["search", "platform", "--store", str(store)])
+    shutil.rmtree(cache_home, ignore_errors=True)
     calls = 0
 
     def count(frame, event, _arg):

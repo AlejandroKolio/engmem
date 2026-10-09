@@ -160,6 +160,10 @@ From the search results, load at most 3 documents, plus each of their `related` 
 at depth 1 only (do not follow related-of-related). "Load" means read enough of each
 document to actually use it — at minimum its Cold-start primer and Decision Log.
 
+Keep the result's `cite as (Reuse Log prior-doc):` line: `/engmem.save` cites each document
+you use by the `<id>@<version>` it gives, the version engmem kept a copy of when it showed
+you the document.
+
 **Read sections, not whole files.** A prior document can be tens of kilobytes; the part
 that answers the current task is usually one section. Pulling the whole file in is the
 single biggest way engmem can cost more context than it saves.

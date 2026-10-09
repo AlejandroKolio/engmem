@@ -21,7 +21,7 @@ def _quote(row: gate1.RowVerdict) -> str:
 def _row_line(row: gate1.RowVerdict) -> str:
     cells = [
         row.citing.id,
-        row.cited_id,
+        gate1.cited_as_written(row),
         _quote(row),
         row.integrity,
         row.classification,
@@ -61,7 +61,9 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
         f"{_count(rows, 'integrity', gate1.Integrity.VERIFIED)} verified, "
         f"{_count(rows, 'integrity', gate1.Integrity.NO_QUOTE)} no quote, "
         f"{_count(rows, 'integrity', gate1.Integrity.CITED_MISSING)} cited doc not in store, "
-        f"{_count(rows, 'integrity', gate1.Integrity.QUOTE_NOT_FOUND)} quote not found",
+        f"{_count(rows, 'integrity', gate1.Integrity.QUOTE_NOT_FOUND)} quote not found"
+        + _version_unavailable_clause(rows),
+        _version_line(rows),
         "classification: "
         f"{_count(rows, 'classification', gate1.Classification.REUSE)} reuse, "
         f"{_count(rows, 'classification', gate1.Classification.ANTI_REUSE)} anti-reuse, "
@@ -96,6 +98,24 @@ def _summary(verdicts: gate1.Verdicts) -> list[str]:
         for conflict in verdicts.conflicts:
             lines.append(f"  {conflict.doc_id}: {conflict.row_count} row(s)")
     return lines
+
+
+def _version_unavailable_clause(rows: list[gate1.RowVerdict]) -> str:
+    """Present only when a row has the state, so a store of legacy rows reads as it always did."""
+    count = _count(rows, "integrity", gate1.Integrity.VERSION_UNAVAILABLE)
+    return f", {count} cited version unavailable" if count else ""
+
+
+def _version_line(rows: list[gate1.RowVerdict]) -> str:
+    """AC-13.5: how many rows cite a version, and how many were checked only against the current
+    text (contracts/gate1.md, "Versioned citations")."""
+    versioned = sum(1 for r in rows if r.cited_version is not None)
+    legacy = sum(1 for r in rows if gate1.checked_against_current_text(r))
+    return (
+        f"version references: {versioned} row(s) cite a version and are checked against it, "
+        f"{legacy} legacy row(s) cite none and are checked against the cited document's "
+        "current text, which may have changed since the quote was taken"
+    )
 
 
 def _kept_apart(count: int) -> str:

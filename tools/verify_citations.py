@@ -11,26 +11,51 @@ from engmem import gate1
 from engmem.runtime import force_utf8_streams
 
 
-def verify(store: Path) -> tuple[list[str], list[str], list[str], list[str]]:
-    """`(load_errors, problems, stale, conflicts)` — the first two decide the exit code."""
+def _accuracy(row: gate1.RowVerdict) -> str:
+    """AC-13.4: the quote's standing against the cited version, beside the source's status now."""
+    if row.cited_version is None:
+        return ""
+    return f" (quote {row.integrity} against that version)"
+
+
+def verify(store: Path) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+    """`(load_errors, problems, stale, conflicts, legacy)`; the first two decide the exit code."""
     verdicts = gate1.evaluate(store)
     problems: list[str] = []
     stale: list[str] = []
+    legacy: list[str] = []
 
     for row in verdicts.rows:
         if row.integrity == gate1.Integrity.NO_QUOTE:
-            problems.append(f"{row.source}: no quote in the `taken` cell (cites {row.cited_id})")
+            problems.append(
+                f"{row.source}: no quote in the `taken` cell (cites {gate1.cited_as_written(row)})"
+            )
         elif row.integrity == gate1.Integrity.CITED_MISSING:
-            problems.append(f"{row.source}: cited document {row.cited_id} is not in the store")
+            problems.append(
+                f"{row.source}: cited document {gate1.cited_as_written(row)} is not in the store"
+            )
+        elif row.integrity == gate1.Integrity.VERSION_UNAVAILABLE:
+            problems.append(
+                f"{row.source}: cited version {gate1.cited_as_written(row)} cannot be checked — "
+                f"{row.version_problem}; unverified, and the current text is not used instead"
+            )
         elif row.integrity == gate1.Integrity.QUOTE_NOT_FOUND:
             for quote in row.unfound_quotes:
-                problems.append(f'{row.source}: quote not found in {row.cited_id} — "{quote}"')
+                problems.append(
+                    f'{row.source}: quote not found in {gate1.cited_as_written(row)} — "{quote}"'
+                )
 
         # a genuine quote from a document that has since been replaced: not a fabrication, but
         # reuse of stale knowledge — and after the session ends the two read the same
         if row.staleness == gate1.Staleness.CITED_SUPERSEDED:
             successor = row.cited.superseded_by or "(no successor recorded)"
-            stale.append(f"{row.source}: cites {row.cited_id}, superseded by {successor}")
+            stale.append(
+                f"{row.source}: cites {gate1.cited_as_written(row)}{_accuracy(row)}, "
+                f"superseded by {successor}"
+            )
+
+        if gate1.checked_against_current_text(row):
+            legacy.append(row.source)
 
     conflicts = [
         # neither skipped nor silently resolved: every row above was still checked on its own
@@ -40,7 +65,7 @@ def verify(store: Path) -> tuple[list[str], list[str], list[str], list[str]]:
         for conflict in verdicts.conflicts
     ]
 
-    return [p.message for p in verdicts.load_errors], problems, stale, conflicts
+    return [p.message for p in verdicts.load_errors], problems, stale, conflicts, legacy
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     force_utf8_streams()
 
-    load_errors, problems, stale, conflicts = verify(Path(args.store).expanduser())
+    load_errors, problems, stale, conflicts, legacy = verify(Path(args.store).expanduser())
     for load_error in load_errors:
         print(f"error: {load_error}")
     for problem in problems:
@@ -58,6 +83,13 @@ def main(argv: list[str] | None = None) -> int:
         print(note)
     for conflict in conflicts:
         print(conflict)
+    if legacy:
+        # AC-13.5: the limitation is named, and the current text is never presented as the
+        # version that was quoted
+        print(
+            f"{len(legacy)} row(s) carry no version reference (legacy): checked against the "
+            "cited document's current text, which may have changed since the quote was taken"
+        )
     print(
         f"verify_citations: {len(problems)} unverifiable citation(s), "
         f"{len(stale)} citing a superseded document, "

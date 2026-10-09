@@ -712,20 +712,27 @@ def test_compare_covered_never_asks_git_without_two_commit_ids(
 # AC-12.4 ---------------------------------------------------------------------------------------
 
 
+def _stored_files(store: Path) -> list[str]:
+    """What a search may leave behind besides its telemetry row and the shown versions it
+    retains (US-13): a copy of a record's bytes, never a verdict about them."""
+    return sorted(
+        p.name for p in store.rglob("*")
+        if p.name != "telemetry.jsonl" and "versions" not in p.relative_to(store).parts
+    )
+
+
 def test_ac_12_4_finding_the_record_again_does_not_clear_the_review(store, moved, capsys):
     _, anchor, head = moved({"src/a.py": "a = 2\n"})
     _add(store, "1501-alpha", anchor, "[src/a.py]")
     review = f"{_moved(anchor, head)}, covered file changed: src/a.py, re-check"
-    before = sorted(p.name for p in store.rglob("*") if p.name != "telemetry.jsonl")
+    before = _stored_files(store)
 
     lines = [_line(_cli(store, capsys), "1501-alpha") for _ in range(2)]
     _, responses, _ = _run(store, _tools_call_msg(1, arguments={"query": QUERY}),
                            _tools_call_msg(2, arguments={"query": QUERY}))
     lines += [_line(_text(response["result"]), "1501-alpha") for response in responses]
     assert lines == [review] * 4
-    assert sorted(p.name for p in store.rglob("*") if p.name != "telemetry.jsonl") == before, (
-        "no verdict is stored anywhere"
-    )
+    assert _stored_files(store) == before, "no verdict is stored anywhere"
 
     _add(store, "1501-alpha", head, "[src/a.py]")
     assert _line(_cli(store, capsys), "1501-alpha") == (

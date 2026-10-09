@@ -188,9 +188,14 @@ One row per prior document that **actually influenced** this work:
 |---|---|---|---|
 
 - `prior-doc` is the cited document's id — its front-matter `id`, else its filename
-  **stem**. Never the filename as written on disk: a `.md` suffix will not resolve, and
-  the row is reported as citing a document that is not in the store and dropped from the
-  Gate 1 count.
+  **stem** — followed by `@` and the version you read: copy `<id>@<version>` exactly as the
+  search result's `cite as (Reuse Log prior-doc):` line gives it. Never the filename as
+  written on disk: a `.md` suffix will not resolve, and the row is reported as citing a
+  document that is not in the store and dropped from the Gate 1 count. Never compute or
+  guess a version: engmem kept a copy of exactly that version when the search showed it,
+  and the quote is checked against that copy later, whatever the document says by then. If
+  no search showed you the document (you opened it some other way), write the bare id; the
+  row is then checked against the document's current text and reported as legacy.
 - `taken` must name a concrete artifact (a class, contract, decision, or pitfall) **and**
   include a direct quote from that prior document. A row without a quote is invalid —
   do not write one. The quote is **verbatim**: copied character for character out of the
@@ -202,16 +207,18 @@ One row per prior document that **actually influenced** this work:
   An approximate quote reads as a fabricated one.
 - `classification` is one of `reuse`, `anti-reuse`, `harmful` — exactly that spelling,
   lower case, nothing else in the cell.
-- `engmem_complete_draft` refuses the whole document when any row has no quoted span or a
-  classification outside those three, and returns each offending row; fix the row and call
-  it again. A shell save has no such gate, so check the two rules yourself before writing
+- `engmem_complete_draft` refuses the whole document when any row has no quoted span, a
+  classification outside those three, or a `prior-doc` version that is not one a search
+  showed, and returns each offending row; fix the row and call it again. A shell save has
+  no such gate, so check the three rules yourself before writing
   the file; the checkout's report shows what the count will do with it:
   `uv run --project <engmem-checkout> python <engmem-checkout>/tools/gate1_report.py --store <store>`.
-- A row that passes both rules, cited by id, quote copied out of the prior document:
+- A row that passes all three rules, cited by the `cite as` reference, quote copied out of the
+  prior document:
 
   | prior-doc | taken | impact | classification |
   |---|---|---|---|
-  | 20260101-widget-cache | `CacheWarmer` ordering: "CacheWarmer must run before WidgetCache accepts traffic" | kept the warm-up step in the rollout plan | reuse |
+  | 20260101-widget-cache@3f9a0c1b2d4e5f60 | `CacheWarmer` ordering: "CacheWarmer must run before WidgetCache accepts traffic" | kept the warm-up step in the rollout plan | reuse |
 - Classify a row `anti-reuse` if the prior document was opened and quoted, and the
   decision it caused was to deliberately go the other way — the new work departs from
   what the document records, and that document is the reason the departure was a

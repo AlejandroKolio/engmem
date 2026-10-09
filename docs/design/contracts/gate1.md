@@ -44,9 +44,10 @@ A single `status` enum collapses states that are reachable two different ways or
 row can be `verified` and `harmful` at once, and a `no_quote` row can never be `reuse` whatever
 its classification cell says. `RowVerdict` keeps five independent fields:
 
-- **A — citation integrity** (`integrity`): `no_quote` -> `cited_missing` -> `quote_not_found`
-  -> `verified`, in that order because it is the only order in which each check has the data it
-  needs.
+- **A — citation integrity** (`integrity`): `no_quote` -> `cited_missing` ->
+  `version_unavailable` -> `quote_not_found` -> `verified`, in that order because it is the only
+  order in which each check has the data it needs. `version_unavailable` is reachable only for a
+  row that cites a version (see "Versioned citations").
 - **B — classification** (`classification`): the author-declared `reuse` / `anti-reuse` /
   `harmful`, plus `missing` (blank cell, or a table with fewer than four columns) and
   `unrecognized` (present but misspelled). The two derived values are separate counters so a typo
@@ -316,13 +317,104 @@ are independent per-row facts and can all hold for one row, so the per-axis figu
 do not sum to the rows excluded. The summary prints the true total, `len(rows) - len(valid)`,
 before the breakdown, and the breakdown line says its figures may overlap.
 
-## Deliberate limitation: current-text verification only
+## Versioned citations (US-13, 2026-10-09)
 
-`verify_citations.py` checks a quote against the cited document's **current** body, so an edit
-that removes the quoted passage makes a previously verified citation fail on the next run.
-Verifying against history would need old revisions readable outside git or a git diff, both cut
-by `ENGMEM-SPEC.md` §9. This is not stale-detection: a superseded document's current text is what
-axis D already covers.
+Before this, a quote was checked against the cited document's **current** body, so an edit made
+after the quote was taken changed historical evidence: a removed passage turned a genuine citation
+into `quote_not_found`, and a passage added later could verify a quote the author never saw. A row
+can now name the version it quoted, and the quote is checked against exactly those bytes.
+
+Owner decisions, 2026-10-09: (D1) the bytes are engmem's own content-addressed copies under
+`versions/`, with no fallback to the store's git history; (D2) `engmem mcp --read-only` keeps no
+copies and offers no reference; (D3) this is an approved exception to the §9 measurement freeze;
+(D4) the §11 amendment below is ratified; (D5) a versioned row whose cited id is gone stays
+`cited_missing`; (D6) a row without a version is noted on the MCP path, never refused.
+
+**The reference.** The `prior-doc` cell is `<id>@<version>`, the version being
+`staging.version_of` of the document's exact bytes (16 lowercase hex digits, the same identity
+`engmem_complete_draft`'s `expected_version` uses). A bare `<id>` is a legacy row. A new column
+was the other candidate and was rejected: an older engmem reads a fifth cell as nothing, so it
+would check a versioned row against the current text and report success — the silent
+substitution AC-13.2 forbids. An older engmem reads `<id>@<version>` as an id that is not in the
+store and fails it loudly instead. `cited_reference` keeps every row that resolved before
+versions existed resolving the same way: a cell that names an existing id exactly is that id,
+even when the id contains `@`; only a cell that resolves to nothing is split at its last `@`.
+
+**Where the version comes from.** The agent cannot be trusted to hash a file, and engmem never
+commits to the store's git repository, so the bytes of an edited version exist nowhere unless
+engmem keeps them. A search does: every document whose text its result shows (`surfaced_ids`, or
+the role hits — but not a superseded document a redirect line only names, since none of its
+text was shown) and every document a hit's `related:` line gives a path for (`/engmem` loads those
+at depth 1; a superseded one is shown as its successor, so the successor is the one kept) is
+copied to `versions/<id>/<version>.md` — bytes untouched, 0600, published with
+`staging.commit_new` so a copy is never half-written — and the result's
+`cite as (Reuse Log prior-doc): <id>@<version>, ...` line offers the reference only once an
+intact copy exists. An entry already at that name is trusted only after it is checked: a regular
+file whose bytes hash to the version is kept; a regular file with other bytes is replaced
+atomically by the bytes just read, which provably are that version, so the copy is repaired rather
+than reported forever; anything else there (a directory, a symlink, dangling or not) and a create
+refused by a lock an interrupted create left behind (`staging._commit_new_under_lock`, on a
+filesystem without hard links) offer no reference and print a `note:` instead. That is the version the agent was shown, which is what "the used version" can mean
+mechanically; a reference computed at save time would name whatever the source was by then. A
+draft is never retained (it is never shown, and it changes on every edit). A document re-read for
+the copy must have the identity it was parsed with, else it is not retained and a `note:` line
+says so: a copy of other bytes than the ones shown would mislabel the evidence. The copy is
+refused through a symlinked `versions/` or `versions/<id>/`, and for an id `validate_doc_id`
+rejects. The `cite as` line is outside `render_result`'s text, like the stray note, so
+`context_bytes` is unchanged by it. A failure with one cause — an unwritable store fails every
+shown document the same way — is one `note:` naming every document it hit. Under
+`engmem mcp --read-only` (D2) none of this runs: no copy is written and no `cite as` line printed,
+because a client behind a bridge cannot save a Reuse Log, and the read-only server does not
+write the store for it beyond the telemetry row.
+
+**Line endings.** The store is a git repository, and Git for Windows clones with
+`core.autocrlf=true`, which would rewrite every copy to CRLF and fail every versioned citation's
+integrity check. When `versions/` is first used, `versions/.gitattributes` is written once with
+`* -text` (atomically, by `commit_new`); a file already there is the user's and is never
+overwritten or checked. `-text` rather than `binary` keeps the copies diffable.
+
+`versions/` is outside `sessions/`, so `load_store` never
+reads it and a search never finds an old text there; `stray_documents` scans only the store root
+and `sessions/`, so it is not reported as strays either.
+
+**How the check reads it.** For a row with a version, `_quoted_body` asks
+`versions.retained_body`, which returns the body only when the copy exists, re-hashes to the
+version it is named by, and parses. Anything else is `version_unavailable` with its reason in
+`RowVerdict.version_problem` — not retained, unreadable, failing its integrity check, not a
+version at all — and the current text is never used in its place: a fallback would report the
+success AC-13.3 forbids. The reason is carried into `exclusion_reason`'s verdict cell. A versioned
+row whose cited id is not in the store at all stays `cited_missing`, checked before the version,
+because distance needs the cited document's front matter; the copy would still verify the quote,
+and keeping the row excluded is the conservative reading (D5).
+
+**Accuracy and standing are two facts.** Staleness (axis D) still reads the cited document as it is
+now, so a quote verified against V1 of a document since superseded is `verified` and
+`cited_superseded` at once; `verify_citations.py` names both on one line ("quote verified against
+that version, superseded by ..."). Distance and dogfooding are unchanged and read current front
+matter.
+
+**Legacy rows and the count.** A row without a version is checked exactly as before, against the
+current body, and counted exactly as before; nothing assigns it the current version.
+`checked_against_current_text` names those rows (a bare id, quotes compared with a text), and
+every tool marks them: `verify_citations.py` prints one count line, `gate1_report.py` one
+`version references:` summary line, and `engmem_complete_draft` a `note:`. No row written before
+2026-10-09 can carry a valid version whose copy exists, because nothing kept copies before then,
+so no such row can become valid, and the valid and distant figures over the existing store are
+unchanged. The other figures are unchanged for a store whose `prior-doc` cells contain no `@`.
+One that does is read differently: a cell `<existing-id>@<anything>` that did not resolve as a
+whole was `cited_missing` and is now split, so it reaches `version_unavailable` (still excluded)
+and gains a staleness value. The integrity summary gains a `cited version unavailable` clause only
+when such a row exists, so a store without `@` reports byte-identically but for the added
+`version references:` line. Every message naming the cited document uses `cited_as_written`, the
+cell as the row states it.
+
+What this does not cover: a document reached only by a route the result gave no path for — a
+`related` link of a related document, a `related` entry past the `+N more` cut, a document found
+by grep — has no reference offered for it unless a search showed the same bytes, and neither does
+a draft; such a row stays legacy. A result trimmed to its byte budget can offer a reference for a
+document whose block the trim cut. The copies live in the store and are as private as it is; deleting a document
+does not delete its copies, so removing a fact from the store means removing `versions/<id>/` too.
+`versions/` grows by one copy per distinct version a search shows, not per search.
 
 ## The audit coverage block
 
