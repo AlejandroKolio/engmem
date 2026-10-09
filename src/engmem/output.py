@@ -7,9 +7,10 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from engmem.provenance import RepoSnapshot, SessionCheckout, SnapshotState, snapshots
 from engmem.scoring import Scope, SearchOutcome, SectionHit
 from engmem.sections import Section, split_sections
-from engmem.spine import Doc, linked_repos
+from engmem.spine import Doc, is_commit_id, linked_repos
 
 if TYPE_CHECKING:
     # deferred to avoid a circular import (telemetry.py imports surfaced_ids
@@ -32,6 +33,9 @@ SECTION_SNIPPET_MAX_CHARS = 140
 # short: each name is cut to the first cap, and the names listed stop at the second
 SCOPE_NAME_DISPLAY_MAX = 120
 SCOPE_NAMES_DISPLAY_MAX = 240
+# a commit is shown as git abbreviates it; an anchor that is not one is shown to the second cap
+COMMIT_DISPLAY_CHARS = 7
+ANCHOR_DISPLAY_MAX = 40
 
 # a primer heading spelled in words the canonical alias table does not carry, e.g. the
 # unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
@@ -146,6 +150,40 @@ def _repos_line(doc: Doc) -> str:
     return "repos: " + (", ".join(_escape_controls(name) for name in names) or "none")
 
 
+def _anchor_shown(anchor: str) -> str:
+    if is_commit_id(anchor):
+        return anchor.strip().casefold()[:COMMIT_DISPLAY_CHARS]
+    shown = _escape_controls(anchor.strip())
+    return shown if len(shown) <= ANCHOR_DISPLAY_MAX else shown[: ANCHOR_DISPLAY_MAX - 1] + "…"
+
+
+def _snapshot_part(snapshot: RepoSnapshot) -> str:
+    """Says which commit matches which, and never that the text is true (AC-11.1)."""
+    if snapshot.legacy:
+        subject = "verified_at_commit"
+        if snapshot.anchor:
+            subject += f" {_anchor_shown(snapshot.anchor)}"
+    elif not snapshot.repo:
+        subject = "verified_at"
+    else:
+        subject = _escape_controls(snapshot.repo)
+        if snapshot.anchor:
+            subject += f" {_anchor_shown(snapshot.anchor)}"
+    if snapshot.state is SnapshotState.MATCH:
+        return f"{subject}: same commit as HEAD"
+    if snapshot.state is SnapshotState.DIFFERS:
+        current = (snapshot.current or "")[:COMMIT_DISPLAY_CHARS]
+        return f"{subject}: HEAD is now {current}, re-check"
+    return f"{subject}: unknown, {_escape_controls(snapshot.reason)}"
+
+
+def _snapshot_line(doc: Doc, checkout: SessionCheckout | None) -> str:
+    """One part per repository, so a check of one never reads as a check of another (AC-11.4);
+    nothing for a record that names no repository and carries no anchor."""
+    parts = [_snapshot_part(snapshot) for snapshot in snapshots(doc, checkout)]
+    return "snapshot: " + " | ".join(parts) if parts else ""
+
+
 def _scope_name(name: str) -> str:
     shown = _escape_controls(name)
     if len(shown) > SCOPE_NAME_DISPLAY_MAX:
@@ -215,10 +253,14 @@ def _hit_block(
     why: str = "",
     section_hits: list[SectionHit] | None = None,
     show_repos: bool = False,
+    checkout: SessionCheckout | None = None,
 ) -> str:
     lines = [header, f"path: {_escape_controls(doc.path)}"]
     if show_repos:
         lines.append(_repos_line(doc))
+    snapshot = _snapshot_line(doc, checkout)
+    if snapshot:
+        lines.append(snapshot)
     if why:
         lines.append(f"matched: {why}")
     for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
@@ -255,10 +297,13 @@ def surfaced_ids(outcome: SearchOutcome) -> list[str]:
 
 
 def render_search_results(
-    outcome: SearchOutcome, docs: list[Doc], scope_lead: str | None = None
+    outcome: SearchOutcome,
+    docs: list[Doc],
+    scope_lead: str | None = None,
+    checkout: SessionCheckout | None = None,
 ) -> str:
     """`scope_lead` is set for a scoped search: it leads the result, and every block then names
-    its repository links."""
+    its repository links. `checkout` is what each block's snapshot line compares against."""
     docs_by_id = {d.id: d for d in docs}
     blocks: list[str] = [scope_lead] if scope_lead else []
     show_repos = bool(scope_lead)
@@ -270,7 +315,8 @@ def render_search_results(
         header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
         blocks.append(
             _hit_block(
-                hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits, show_repos
+                hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits, show_repos,
+                checkout,
             )
         )
 
@@ -312,7 +358,11 @@ def render_search_results(
         blocks.append(f"{safe_id}: superseded by {safe_superseded_by}")
         if note.successor.id not in shown_ids:
             header = f"### {_escape_controls(note.successor.id)} (successor)"
-            blocks.append(_hit_block(note.successor, docs_by_id, header, show_repos=show_repos))
+            blocks.append(
+                _hit_block(
+                    note.successor, docs_by_id, header, show_repos=show_repos, checkout=checkout
+                )
+            )
 
     # names how many were left out, so a tie cut mid-list doesn't look decisive
     withheld = len(outcome.hits) - len(shown_hits)
@@ -372,7 +422,12 @@ def select_role_hits(
     return kept, n_with_role
 
 
-def _role_hit_block(role_hit: RoleHit, role: str, show_repos: bool = False) -> str:
+def _role_hit_block(
+    role_hit: RoleHit,
+    role: str,
+    show_repos: bool = False,
+    checkout: SessionCheckout | None = None,
+) -> str:
     # tagged on the header itself so a lone block (after a 4 KB trim) still
     # can't be mistaken for an ordinary best-word-match result
     header = (
@@ -383,6 +438,9 @@ def _role_hit_block(role_hit: RoleHit, role: str, show_repos: bool = False) -> s
     lines = [header, f"path: {_escape_controls(role_hit.doc.path)}"]
     if show_repos:
         lines.append(_repos_line(role_hit.doc))
+    snapshot = _snapshot_line(role_hit.doc, checkout)
+    if snapshot:
+        lines.append(snapshot)
     lines.append(_section_line(section_hit))
     return "\n".join(lines)
 
@@ -392,6 +450,7 @@ def render_role_search_results(
     role_map: dict[str, dict[str, Section]],
     role: str,
     scope_lead: str | None = None,
+    checkout: SessionCheckout | None = None,
 ) -> str:
     """A `--role` result: "nothing matched" and "matched, but none has this role" stay distinct."""
     kept, n_with_role = select_role_hits(outcome, role_map, role)
@@ -406,7 +465,7 @@ def render_role_search_results(
             f"matched the query, but none has a '{role}' section"
         )
 
-    blocks = [lead] + [_role_hit_block(rh, role, show_repos) for rh in kept]
+    blocks = [lead] + [_role_hit_block(rh, role, show_repos, checkout) for rh in kept]
     withheld = n_with_role - len(kept)
     withheld_line = (
         f"({withheld} more document(s) have a '{role}' section but rank below the "

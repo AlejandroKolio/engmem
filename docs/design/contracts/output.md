@@ -83,7 +83,8 @@ block, hit, successor and role hit alike, carries a `repos:` line after its `pat
   not trimmed, so the scope's name is shown to `SCOPE_NAME_DISPLAY_MAX` characters and cut
   with `…`: a caller-typed name must not be able to carry the output past the cap.
 - Without a scope nothing changes: no lead, no `repos:` lines, byte for byte the earlier
-  output. Showing links on every result would also have served US-10, but it would have moved
+  output (US-11's `snapshot:` line, below, is the one later addition to it). Showing links
+  on every result would also have served US-10, but it would have moved
   `context_bytes` for every search already in the telemetry history (an owner decision left
   open). US-10 took the opt-in road instead: `--all-repos`, below.
 
@@ -111,6 +112,21 @@ caps the lead stays a few hundred characters whatever the caller passes, well in
 budget left after `SCOREBOARD_RESERVE`. The telemetry row keeps more, but not without bound:
 up to `SCOPE_NAMES_RECORD_MAX` names, each to `SCOPE_NAME_RECORD_MAX` characters, and the query
 to `QUERY_RECORD_MAX` characters; a capped row says so (`ENGMEM-SPEC.md` §5, search step 6c).
+
+## Each block shows its snapshot anchors (US-11)
+
+Every hit, successor and `--role` block of a record that carries an anchor or a repository link
+has a `snapshot:` line after `path:` (and after `repos:` when scoped): per repository, the
+recorded commit next to the current checkout's `HEAD`, as `same commit as HEAD`,
+`HEAD is now <sha>, re-check`, or `unknown, <reason>` (`_snapshot_line`; the rules are
+`contracts/provenance.md`). A record with neither gets no line.
+
+This is the first change to a plain search's output since the scope work kept it
+byte-identical: the line is not behind a flag, so a record with an anchor or a link now costs
+one more line, and `context_bytes` grows with it for those records. A plain search remains
+unscoped and still prints no `scope:` or `repos:` line. Owner decision (2026-10-09): the line is
+shown in the default search output, always; recorded in
+`contracts/provenance.md`, "Where it is shown".
 
 ## Query and scope names are bounded in the telemetry row, and a capped row says so
 

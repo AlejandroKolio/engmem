@@ -273,6 +273,18 @@ search never inherits the previous one's scope. The MCP search tools take the sa
 `repo`, `repos` (a list), `unscoped` and `all_repos`. It narrows a search; it does not restrict
 access.
 
+Each hit also shows which code the record was checked against. The save templates record
+`verified_at: {platform-core: <sha>}` per repository, and a search compares that with the
+`HEAD` of the checkout you run it in:
+
+```
+snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, re-check | widget-cache-client: unknown, no anchor recorded
+```
+
+`same commit as HEAD` means the code has not moved since; it does not mean the text is right.
+A repository you are not in reads `unknown`, with the reason. An older single
+`verified_at_commit` counts only when the record names exactly one repository.
+
 Two more commands:
 
 ```bash
@@ -356,6 +368,11 @@ instead of replacing newer text.
 written only by `engmem store set` and `engmem mode set`, each holding one line. Neither
 `install` nor any other command writes them. Deleting a file returns that setting to its
 default.
+
+**`engmem search` runs `git rev-parse` once.** When a hit has an anchor to compare, the
+search runs `git rev-parse --show-toplevel HEAD` in its working directory: read-only, bounded
+to 5 seconds, with git taken from an absolute `PATH` entry, never from the project directory.
+It does not run `git status`, so uncommitted changes are not seen.
 
 **`engmem doctor` changes nothing.** It reads configs and templates, runs `engmem --version`
 and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into `sessions/`,

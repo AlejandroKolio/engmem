@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 
 from engmem.output import surfaced_ids
+from engmem.provenance import SessionCheckout
 from engmem.runtime import fail, force_utf8_streams
 from engmem.search_report import render_result, stray_note
 from engmem.spine import load_store, sessions_dir_unreadable, stray_documents
@@ -64,9 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         problems.append(f"warning: {stray_note(len(strays))}")
     problems += [f"warning: {scan_error}" for scan_error in stray_scan_errors]
 
+    checkout = SessionCheckout()
     total, found = 0, 0
     for query, expected in pairs:
-        rendered = render_result(loaded.docs, query, None)
+        rendered = render_result(loaded.docs, query, None, checkout=checkout)
         tokens = estimate_tokens(len(rendered.text.encode("utf-8")))
         # the ids actually shown, as telemetry records them: a substring of the text would count
         # `widget-cache` found whenever `widget-cache-v2` or a related line mentions it

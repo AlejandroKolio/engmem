@@ -23,7 +23,8 @@ YAML front matter + a fixed set of markdown body sections.
 | `entities` | list[string] | no (empty — warning) | agent draft, human confirms | real classes/endpoints/terms/synonyms this doc concerns; no separate `aliases` field |
 | `related` | list[string] (ids) | no | agent draft, human confirms | ids of other documents this one relates to |
 | `covers_files` | list[string] | no | agent draft, human confirms | files touched by the underlying work |
-| `verified_at_commit` | string (git sha) | no | automatic | HEAD at the moment of save |
+| `verified_at` | mapping repository → commit | no | automatic at save (`git -C <checkout> rev-parse HEAD` per repository) | the commit each repository was checked at (US-11). Names spelled like `repos`; a value is 7–64 hex characters. A search shows each entry next to the session's checkout `HEAD` as same / differs / unknown with a reason, never as proof the text is true. A malformed value or field is a warning, never a load failure (contracts/provenance.md) |
+| `verified_at_commit` | string (git sha) | no | legacy | the single commit older templates recorded. Read as the anchor of the record's one linked repository; with no link or several it stays an unattributed legacy anchor shown as unknown, never guessed onto one. Ignored when `verified_at` has entries; no longer written |
 | `author` | string | no | automatic (`git config user.name`) | who did the work; constant in a single-author store, kept for parity with hand-written knowledge-base documents |
 | `repos` | list[string] | no | agent draft, human confirms / backfill | repositories the work touched, by name (the repository's directory name, e.g. `platform-core`). The same names also appear in `tags`, deliberately: `tags` is scored and `repos` is not, so the tag copy is what makes a repo findable. `repos` is the explicit link a `--repo` search filters on (US-09; contracts/scoring.md) — the tag copy and the title never stand in for it. A scalar degrades to a one-element list with a warning; a value of another type (`repos: {a: b}`) does not cost the document — it loads with a warning, its links unknown, and only an `--unscoped` search finds it |
 | `branch` | string | no | automatic (`git rev-parse --abbrev-ref HEAD`) | branch the work was done on |
@@ -63,7 +64,7 @@ reasoning that governs every other field here.
 
 Spine completeness (`spine_complete` / the `partial spine` count) is measured over the
 fields that affect retrieval only — `id`, `title`, `date`, `task_date`, `status`, `tags`,
-`entities`. `backfilled`, `verified_at_commit`, `capture_minutes`, `author`, `repos`,
+`entities`. `backfilled`, `verified_at`, `verified_at_commit`, `capture_minutes`, `author`, `repos`,
 `branch`, `pr`, `mode` and `baseline_unavailable` are excluded: nothing ranks or orders on them, `repos` filters only a search that asks for a scope (a record about no repository is complete without it), and a draft cannot know the commit it will be verified
 at nor how long its own capture will take. Counting them flagged every draft the `/engmem`
 template creates as a partial spine, which trains the reader to ignore the signal.
@@ -195,7 +196,7 @@ telemetry.
 | Attribute | Description |
 |---|---|
 | results | top 3 matching **active** documents, ranked by score (`ENGMEM-SPEC.md` §7) |
-| per-result fields | id, path, score, why-matched (which query tokens matched which fields), first 2 lines of Cold-start primer, its `related` (id + path only, depth 1) |
+| per-result fields | id, path, score, why-matched (which query tokens matched which fields), first 2 lines of Cold-start primer, its `related` (id + path only, depth 1), and a `snapshot:` line per record with an anchor or a repository link (US-11; contracts/provenance.md) |
 | ambiguous flag | set when a short/numeric query token matches entities across distinct clusters; one representative per cluster is returned instead of a single top result |
 | scoreboard footer | always present: `docs: N | drafts: N | last doc: Nd ago`; `N` in `last doc` is clamped to `0` for a future-dated newest document (typo, timezone skew, a `task_date` copied forward), since `Nd ago` cannot express a negative count |
 | size constraint | total rendered output ≤ 4 KB (`output.MAX_OUTPUT_BYTES`; `ENGMEM-SPEC.md` §5, `engmem search`) |

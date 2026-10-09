@@ -86,7 +86,9 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    with gaps where sections were dropped, which is exactly what this path does not claim.
    The sections this path writes are listed in `ENGMEM-SPEC.md` §4.
 6. Generate the complete front matter automatically (same fields as `/engmem.save`, with
-   `verified_at_commit` from `HEAD`, blank if you have no shell to get it, and
+   `verified_at` holding, for each repository in `repos`, the sha from
+   `git -C <its checkout> rev-parse HEAD` (`verified_at: {platform-core: <sha>}`; a repository
+   with no checkout or no shell at hand is left out, never guessed), and
    `capture_minutes` blank unless you know when the save really started; the draft's
    `date:` has day resolution and is no anchor; `mode`, and `baseline_unavailable` if the
    draft has it, copied from the draft unchanged), and set `status: active`. Name the
@@ -129,7 +131,7 @@ tags: [export]
 entities: [ExportJob, RetryPolicy]
 related: []
 covers_files: [src/export/ExportJob.java]
-verified_at_commit:
+verified_at:
 capture_minutes:
 author:
 repos: [platform-core]

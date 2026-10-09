@@ -99,7 +99,8 @@ class Doc:
     entities: list[str]
     related: list[str]
     covers_files: list[str]
-    verified_at_commit: str
+    # "" when blank; None when written but not as text (contracts/provenance.md)
+    verified_at_commit: str | None
     capture_minutes: int | None
     path: Path
     body: str
@@ -119,6 +120,9 @@ class Doc:
     # US-09: the repositories this record is explicitly linked to, as written; None when the
     # value could not be read, so "unknown" never reads as "linked to none" (contracts/gate1.md)
     repos: list[str] | None = field(default_factory=list)
+    # US-11: repository name -> the commit it was checked at, as written; a value is None when it
+    # was not text, and the whole field None when it was not a mapping (contracts/provenance.md)
+    verified_at: dict[str, str | None] | None = field(default_factory=dict)
 
 
 def linked_repos(doc: Doc) -> list[str]:
@@ -265,6 +269,70 @@ def _coerce_repos(value) -> tuple[list[str] | None, str | None]:
         return _coerce_list_field("repos", value)
     except ValueError as exc:
         return None, f"{exc} — its repository links are unknown, so a --repo search leaves it out"
+
+
+COMMIT_ID_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def is_commit_id(value: str) -> bool:
+    """An abbreviated or full git object name, SHA-1 or SHA-256, in either case."""
+    return bool(COMMIT_ID_RE.match(value.strip().casefold()))
+
+
+def _coerce_verified_at(value) -> tuple[dict[str, str | None] | None, list[str]]:
+    """A bad entry costs that repository its anchor and a bad field costs the record its anchors,
+    never the record itself — see contracts/provenance.md."""
+    if value is None:
+        return {}, []
+    if not isinstance(value, dict):
+        return None, [
+            f"verified_at is not a mapping of repository to commit: {value!r} — its "
+            "snapshot anchors are unknown"
+        ]
+    anchors: dict[str, str | None] = {}
+    seen: set[str] = set()
+    warnings: list[str] = []
+    for raw_name, raw_anchor in value.items():
+        name = "" if raw_name is None else str(raw_name).strip()
+        # the key `scoring.repo_key` compares repository names by
+        key = name.casefold()
+        if not name:
+            warnings.append(
+                f"verified_at has an entry with no repository name: {raw_anchor!r} — ignored"
+            )
+            continue
+        if key in seen:
+            warnings.append(f"verified_at names {name!r} twice — the first anchor is kept")
+            continue
+        seen.add(key)
+        if raw_anchor is None or isinstance(raw_anchor, str):
+            anchor = (raw_anchor or "").strip()
+            anchors[name] = anchor
+            if anchor and not is_commit_id(anchor):
+                warnings.append(
+                    f"verified_at {name!r} is {anchor!r}, not a commit id — a search shows that "
+                    "anchor as unknown"
+                )
+            continue
+        # unquoted, an all-digit sha is an int and one with a leading zero is read as octal, so
+        # the number YAML hands over may no longer be the commit that was written
+        anchors[name] = None
+        warnings.append(
+            f"verified_at {name!r} is {raw_anchor!r}, not text — quote the commit id; its "
+            "anchor is unknown"
+        )
+    return anchors, warnings
+
+
+def _legacy_anchor(value, field_warnings: list[str]) -> str | None:
+    """The old single field, with the rule `verified_at` applies to a value YAML did not read
+    as text."""
+    if value is None or isinstance(value, str):
+        return value or ""
+    field_warnings.append(
+        f"verified_at_commit is {value!r}, not text — quote the commit id; its anchor is unknown"
+    )
+    return None
 
 
 def _coerce_bool(field_name: str, value) -> tuple[bool, str | None]:
@@ -414,6 +482,8 @@ def parse_document(path: Path) -> Doc:
     repos, repos_warning = _coerce_repos(raw.get("repos"))
     if repos_warning:
         field_warnings.append(repos_warning)
+    verified_at, verified_at_warnings = _coerce_verified_at(raw.get("verified_at"))
+    field_warnings.extend(verified_at_warnings)
     navigation_miss, nav_warnings = _coerce_navigation_miss(raw.get("navigation_miss"))
     field_warnings.extend(nav_warnings)
 
@@ -465,7 +535,7 @@ def parse_document(path: Path) -> Doc:
         related=related,
         covers_files=covers_files,
         navigation_miss=navigation_miss,
-        verified_at_commit=str(raw.get("verified_at_commit") or ""),
+        verified_at_commit=_legacy_anchor(raw.get("verified_at_commit"), field_warnings),
         capture_minutes=capture_minutes,
         path=path,
         body=body,
@@ -476,6 +546,7 @@ def parse_document(path: Path) -> Doc:
         mode=mode,
         baseline_unavailable=baseline_unavailable,
         repos=repos,
+        verified_at=verified_at,
     )
 
 
