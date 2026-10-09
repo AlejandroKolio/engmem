@@ -73,6 +73,8 @@ def _kb(value: int) -> list[str]:
 STATED_VALUES = [
     ("scoring", "BM25_K1", None, "`k1 = {value}`", "scoring.md"),
     ("scoring", "BM25_B", None, "`b = {value}`", "scoring.md"),
+    ("scoring", "MIN_COVERED_WORDS", None, "`MIN_COVERED_WORDS` ({value})", "scoring.md"),
+    ("scoring", "SHORT_WORD_MAX_CHARS", None, "`SHORT_WORD_MAX_CHARS` ({value})", "scoring.md"),
     ("scoring", "FIELD_WEIGHTS", "entities", "returns `{value}.0,", "scoring.md"),
     ("scoring", "FIELD_WEIGHTS", "id", "caps a token at {value}", "scoring.md"),
     ("staging", "_LOCK_WAIT_SECONDS", None, "`_LOCK_WAIT_SECONDS` ({value})", "mcp-server.md"),

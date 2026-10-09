@@ -1,0 +1,340 @@
+{
+  "version": 1,
+  "corpus": "sessions",
+  "queries": [
+    {
+      "id": "weak-policy",
+      "covers": [
+        "AC-14.1",
+        "AC-14.4"
+      ],
+      "query": "database migration transactional rollback policy",
+      "expected": [
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "the audit case: a logo note shares one word, policy, with a question about migrations",
+      "known_limit": false
+    },
+    {
+      "id": "exact-entity",
+      "covers": [
+        "AC-14.2"
+      ],
+      "query": "LedgerReplayGuard flaky failover",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        }
+      ],
+      "reason": "one word of three, but it is an entity the record declares",
+      "known_limit": false
+    },
+    {
+      "id": "exact-entity-typed-lowercase",
+      "covers": [
+        "AC-14.2"
+      ],
+      "query": "ledgerreplayguard flaky failover",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        }
+      ],
+      "reason": "the entity typed without its capitals is still the entity the record declares",
+      "known_limit": false
+    },
+    {
+      "id": "exact-numeric-id",
+      "covers": [
+        "AC-14.2"
+      ],
+      "query": "4711",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        }
+      ],
+      "reason": "the record's own ticket number",
+      "known_limit": false
+    },
+    {
+      "id": "body-identifier",
+      "covers": [
+        "AC-14.2"
+      ],
+      "query": "JitterSource seeding",
+      "expected": [
+        {
+          "doc": "export-retry-backoff",
+          "strength": "strong",
+          "relevant": true
+        }
+      ],
+      "reason": "a CamelCase identifier the body names, matched whole",
+      "known_limit": false
+    },
+    {
+      "id": "no-answer",
+      "covers": [
+        "AC-14.3"
+      ],
+      "query": "kubernetes autoscaling quota",
+      "expected": [],
+      "reason": "no record holds any of the words; nothing is picked to fill the top 3",
+      "known_limit": false
+    },
+    {
+      "id": "strong-multi-term",
+      "covers": [],
+      "query": "export retry backoff jitter",
+      "expected": [
+        {
+          "doc": "export-retry-backoff",
+          "strength": "strong",
+          "relevant": true
+        }
+      ],
+      "reason": "four of four words",
+      "known_limit": false
+    },
+    {
+      "id": "mixed",
+      "covers": [
+        "AC-14.1"
+      ],
+      "query": "ledger replay policy deploy",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        },
+        {
+          "doc": "cache-warmup-order",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "one reliable find, two records sharing a single word each",
+      "known_limit": false
+    },
+    {
+      "id": "weak-outscores-strong",
+      "covers": [
+        "AC-14.1"
+      ],
+      "query": "4711 themes",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        },
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "the weak candidate has the higher score and is still listed after the reliable find; the query asks about ticket 4711, themes is incidental",
+      "known_limit": false
+    },
+    {
+      "id": "borderline-two-of-five",
+      "covers": [],
+      "query": "deploy order canary metrics dashboard",
+      "expected": [
+        {
+          "doc": "cache-warmup-order",
+          "strength": "strong",
+          "relevant": false
+        }
+      ],
+      "reason": "known limit: two shared words, deploy and order, make the warm-up note reliable for a question about canary dashboards it does not answer",
+      "known_limit": true
+    },
+    {
+      "id": "borderline-title-word",
+      "covers": [],
+      "query": "cache eviction",
+      "expected": [
+        {
+          "doc": "cache-warmup-order",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "boundary: one word of two, in the title and the id slug; neither field makes it an identifier",
+      "known_limit": false
+    },
+    {
+      "id": "borderline-entity-fragment",
+      "covers": [],
+      "query": "ledger audit trail",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "boundary: ledger is a fragment of the entity LedgerReplayGuard, not the entity itself",
+      "known_limit": false
+    },
+    {
+      "id": "borderline-single-word",
+      "covers": [],
+      "query": "policy",
+      "expected": [
+        {
+          "doc": "logo-colour-policy",
+          "strength": "strong",
+          "relevant": false
+        }
+      ],
+      "reason": "known limit: a one-word query matched in full is reliable; the rule does not judge how common the word is, so the logo note is a reliable find for policy",
+      "known_limit": true
+    },
+    {
+      "id": "function-word-for",
+      "covers": [
+        "AC-14.1"
+      ],
+      "query": "rollback policy for database migrations",
+      "expected": [
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "export-retry-backoff",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "for is a word of three characters and no identifier, so policy is the logo note's only counted word; export-retry-backoff shares only for",
+      "known_limit": false
+    },
+    {
+      "id": "function-word-and",
+      "covers": [
+        "AC-14.1"
+      ],
+      "query": "migrations and rollback policy",
+      "expected": [
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "cache-warmup-order",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "and does not count; policy alone is one word",
+      "known_limit": false
+    },
+    {
+      "id": "function-words-only",
+      "covers": [
+        "AC-14.1",
+        "AC-14.4"
+      ],
+      "query": "what is the policy for migrations",
+      "expected": [
+        {
+          "doc": "export-retry-backoff",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "no reliable hit: every hit is a weak candidate, so the result opens with the no-reliable-match line; is, the and for do not count",
+      "known_limit": false
+    },
+    {
+      "id": "function-words-roll-back",
+      "covers": [
+        "AC-14.1"
+      ],
+      "query": "how to roll back a migration policy",
+      "expected": [
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "cache-warmup-order",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "export-retry-backoff",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "to and a do not count; policy alone is one word",
+      "known_limit": false
+    },
+    {
+      "id": "short-entity-control",
+      "covers": [
+        "AC-14.2"
+      ],
+      "query": "WAL for migrations",
+      "expected": [
+        {
+          "doc": "4711-ledger-replay",
+          "strength": "strong",
+          "relevant": true
+        },
+        {
+          "doc": "export-retry-backoff",
+          "strength": "weak",
+          "relevant": false
+        },
+        {
+          "doc": "logo-colour-policy",
+          "strength": "weak",
+          "relevant": false
+        }
+      ],
+      "reason": "control: a word of three characters that is an entity the record declares is an identifier; the two notes sharing only for are weak",
+      "known_limit": false
+    }
+  ]
+}

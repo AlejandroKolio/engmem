@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from engmem.provenance import (
@@ -16,7 +16,7 @@ from engmem.provenance import (
     SnapshotState,
     snapshots,
 )
-from engmem.scoring import Scope, SearchOutcome, SectionHit
+from engmem.scoring import SHORT_WORD_MAX_CHARS, Scope, SearchOutcome, SectionHit, Strength
 from engmem.sections import Section, split_sections
 from engmem.spine import Doc, is_commit_id, linked_repos
 
@@ -35,6 +35,8 @@ PRIMER_MAX_CHARS = 240
 RELATED_MAX = 3
 SCOREBOARD_RESERVE = 128
 TRIM_MARKER = "[output trimmed to fit 4 KB]"
+WEAK_TAG = "  [weak candidate]"
+NO_RELIABLE_MATCH = "prior context: no reliable match — only weak candidates below"
 SECTION_DISPLAY_MAX = 3  # sections named per hit; mirrors TOP_N's reasoning
 SECTION_SNIPPET_MAX_CHARS = 140
 # the scope's names are typed by the caller; a miss is never trimmed, so its lead line must be
@@ -290,6 +292,7 @@ def _hit_block(
     section_hits: list[SectionHit] | None = None,
     show_repos: bool = False,
     checkout: SessionCheckout | None = None,
+    strength: Strength | None = None,
 ) -> str:
     lines = [header, f"path: {_escape_controls(doc.path)}"]
     if show_repos:
@@ -299,6 +302,8 @@ def _hit_block(
         lines.append(snapshot)
     if why:
         lines.append(f"matched: {why}")
+    if strength is not None and strength.weak:
+        lines.append(_weak_line(strength))
     for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
         lines.append(_section_line(section_hit))
     primer = _primer_excerpt(doc)
@@ -310,14 +315,40 @@ def _hit_block(
     return "\n".join(lines)
 
 
+def _rank(hit_or_note) -> tuple[bool, float]:
+    """The order `scoring` ranks by: reliable finds first, then by score."""
+    return hit_or_note.weak, -hit_or_note.score
+
+
 def _selected(outcome: SearchOutcome) -> tuple[list, set[str], list]:
     """Top-N hits plus the superseded redirects outranking them, so the renderers cannot drift."""
     shown_hits = outcome.hits[:TOP_N]
     shown_ids = {h.doc.id for h in shown_hits}
     # a redirect applies only to a doc that would have WON a top-3 place
-    cutoff = shown_hits[-1].score if len(shown_hits) == TOP_N else None
-    notes = [n for n in outcome.superseded_notes if cutoff is None or n.score > cutoff]
+    cutoff = _rank(shown_hits[-1]) if len(shown_hits) == TOP_N else None
+    notes = [n for n in outcome.superseded_notes if cutoff is None or _rank(n) < cutoff]
     return shown_hits, shown_ids, notes
+
+
+def only_weak_shown(outcome: SearchOutcome) -> bool:
+    """Something was shown, and every hit and redirect shown is a weak candidate (US-14)."""
+    shown_hits, _, notes = _selected(outcome)
+    shown = [*shown_hits, *notes]
+    return bool(shown) and all(item.weak for item in shown)
+
+
+def _weak_line(strength: Strength) -> str:
+    """Why a hit is only a weak candidate, from the words it matched; never a likelihood."""
+    covered = ", ".join(_escape_controls(word) for word in strength.covered)
+    short = (
+        f"; words of {SHORT_WORD_MAX_CHARS} characters or fewer count only as identifiers"
+        if strength.counted != strength.covered
+        else ""
+    )
+    return (
+        f"weak candidate: matched {len(strength.covered)} of {strength.n_words} query words "
+        f"({covered}{short}) and no identifier — check it before relying on it"
+    )
 
 
 def surfaced_ids(outcome: SearchOutcome) -> list[str]:
@@ -345,19 +376,24 @@ def render_search_results(
     show_repos = bool(scope_lead)
 
     shown_hits, shown_ids, notes = _selected(outcome)
+    if only_weak_shown(outcome):
+        # right under the scope line, as `render_no_match` puts `none found`
+        blocks = [f"{scope_lead}\n{NO_RELIABLE_MATCH}"] if scope_lead else [NO_RELIABLE_MATCH]
 
     for hit in shown_hits:
         tag = "  [ambiguous]" if hit.ambiguous else ""
+        tag += WEAK_TAG if hit.weak else ""
         header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
         blocks.append(
             _hit_block(
                 hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits, show_repos,
-                checkout,
+                checkout, hit.strength,
             )
         )
 
     for note in notes:
-        safe_id = _escape_controls(note.doc.id)
+        # every redirect form below starts with this, so a weak one is marked whichever it is
+        safe_id = _escape_controls(note.doc.id) + (WEAK_TAG if note.weak else "")
         if not note.doc.superseded_by:
             blocks.append(f"{safe_id}: superseded (no successor recorded)")
             continue
@@ -439,6 +475,11 @@ class RoleHit:
     doc: Doc
     score: float
     section: Section
+    strength: Strength = field(default_factory=lambda: Strength(False, (), 0))
+
+    @property
+    def weak(self) -> bool:
+        return self.strength.weak
 
 
 def select_role_hits(
@@ -454,7 +495,9 @@ def select_role_hits(
             continue
         n_with_role += 1
         if len(kept) < ROLE_TOP_N:
-            kept.append(RoleHit(doc=hit.doc, score=hit.score, section=section))
+            kept.append(
+                RoleHit(doc=hit.doc, score=hit.score, section=section, strength=hit.strength)
+            )
     return kept, n_with_role
 
 
@@ -468,7 +511,7 @@ def _role_hit_block(
     # can't be mistaken for an ordinary best-word-match result
     header = (
         f"### {_escape_controls(role_hit.doc.id)} (score: {role_hit.score:.1f})"
-        f"  [role: {role}]"
+        f"  [role: {role}]" + (WEAK_TAG if role_hit.weak else "")
     )
     section_hit = SectionHit(section=role_hit.section, score=0.0, matched_tokens=[])
     lines = [header, f"path: {_escape_controls(role_hit.doc.path)}"]
@@ -477,6 +520,8 @@ def _role_hit_block(
     snapshot = _snapshot_line(role_hit.doc, checkout)
     if snapshot:
         lines.append(snapshot)
+    if role_hit.weak:
+        lines.append(_weak_line(role_hit.strength))
     lines.append(_section_line(section_hit))
     return "\n".join(lines)
 
@@ -501,6 +546,8 @@ def render_role_search_results(
             f"matched the query, but none has a '{role}' section"
         )
 
+    if all(rh.weak for rh in kept):
+        lead += f"\n{NO_RELIABLE_MATCH}"
     blocks = [lead] + [_role_hit_block(rh, role, show_repos, checkout) for rh in kept]
     withheld = n_with_role - len(kept)
     withheld_line = (
@@ -532,6 +579,16 @@ def _navigation_miss_line(count: int) -> str:
     return f"\nnavigation misses recorded in documents: {count}"
 
 
+def _weak_only_line(overall: "ChannelTotals") -> str:
+    # only when there are any, like the navigation-miss line: rows before US-14 have none
+    if not overall.weak_only:
+        return ""
+    return (
+        f"\nweak-only hits: {overall.weak_only} of {overall.hits} hit(s) showed only weak "
+        f"candidates — counted as hits above, not as reliable finds"
+    )
+
+
 def render_telemetry_summary(summary: "TelemetrySummary", navigation_misses: int = 0) -> str:
     """`engmem telemetry`'s reading surface: totals, hit rate and context spent."""
     unreadable_note = (
@@ -545,7 +602,10 @@ def render_telemetry_summary(summary: "TelemetrySummary", navigation_misses: int
     for bucket in summary.by_channel:
         lines.append(_telemetry_channel_line(bucket))
     lines.append(_telemetry_channel_line(summary.overall, label="overall"))
-    return "\n".join(lines) + _navigation_miss_line(navigation_misses)
+    return (
+        "\n".join(lines) + _weak_only_line(summary.overall)
+        + _navigation_miss_line(navigation_misses)
+    )
 
 
 # a whole `Search Keywords` section can yield hundreds of terms; the preview is what a human
