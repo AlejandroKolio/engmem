@@ -1,7 +1,7 @@
 # Contract: snapshot anchors and the current checkout
 
 Source: `src/engmem/provenance.py`, rendered by `src/engmem/output.py` (`_snapshot_line`). Added
-by US-11. Before it, a record carried one `verified_at_commit`. That field could not say which
+by US-11; the covered-files check by US-12. Before it, a record carried one `verified_at_commit`. That field could not say which
 repository it belonged to once a story touched two. It was also never compared with anything,
 so a search showed a three-month-old decision exactly like one checked this morning.
 
@@ -116,9 +116,104 @@ someone else owns is the user's call, not one engmem's output should prompt.
 Commits are shown abbreviated to `COMMIT_DISPLAY_CHARS` characters (7, git's default); an
 anchor that is not a commit id is shown escaped and cut at `ANCHOR_DISPLAY_MAX`.
 
-US-12 refines `DIFFERS` with a check of the covered files. The state and `RepoSnapshot.current`
-are kept as values for that reason, and the commit difference stays a visible fact next to
-whatever that check concludes.
+US-12 refines `DIFFERS` with a check of the covered files (next section). The commit
+difference stays a visible fact next to whatever that check concludes (AC-11.2).
+
+## The covered files (US-12)
+
+A commit difference alone asks for a re-check on every new commit, most of which never touch
+the code a decision rests on. So when a repository is `DIFFERS` and the record lists
+`covers_files`, those files are compared between the anchor and the checkout's `HEAD`, and the
+result (`RepoSnapshot.covered`, a `CoveredCheck`) replaces the bare `re-check`:
+
+- `UNCHANGED`: every covered path was found at the anchor and has the same mode and object id
+  at `HEAD`. A mode is compared as the octal number git reads, not as its text: older tools
+  wrote a directory as `040000` instead of `40000`, and the same subtree under either spelling
+  is the same directory. A mode that is not octal makes the answer unreadable. Shown as `HEAD is now <head>, covered files unchanged`, with no `re-check`: a
+  change in another file is no signal (AC-12.1). It says the files are byte-identical, not
+  that the decision holds.
+- `CHANGED`: a covered path has another object id or mode at `HEAD`, or a tree that was read
+  no longer has it. Shown as `covered file changed: src/a.py, re-check`, a deleted one as
+  `src/b.py (deleted)`, in `covers_files` order, at most `COVERED_DISPLAY_MAX` (3) named and
+  then `and N more` (AC-12.2). A rename reads as the old path deleted. The record keeps its rank;
+  nothing on the line says it is false.
+- `UNKNOWN`: `covered files not checked: <reason>, re-check` (AC-12.3). No fresh check is
+  claimed, so the re-check stays.
+
+A change wins over an unknown: when one file changed and another could not be compared, the
+change is what the reader must look at, and review is asked for either way.
+
+**Which repository the paths belong to.** `covers_files` is one flat list and stays one; a
+per-repository mapping would make every engmem that predates it fail to load the record
+(`_coerce_list_field` refuses a mapping). So the paths are read as files of the record's one
+repository: the repositories named in `repos` and `verified_at`, compared by `repo_key`. With
+two or more the check is not run, `covers_files does not say which of the record's N
+repositories each file is in`; with unreadable links, `its repository links cannot be read`.
+Like the legacy anchor, a file is never guessed onto the checkout at hand. A repository that
+is not this session's checkout is `UNKNOWN` already and is never compared.
+
+**A path is a name looked up in git's trees, nothing more.** Each entry, stripped (a blank
+one is no entry), is a path from the top-level directory, `/`-separated, as `git ls-files`
+prints it. It is never a pathspec (so `src/*.py` and `:(glob)…` are literal names) and never
+touched on disk. An entry that is absolute, has an empty, `.` or `..` component, or holds a
+control character is `covered file <path> is not a path inside the repository`
+(`_is_repository_path`) and is not sent to git: `<rev>:./x` and `<rev>:../x` are read relative
+to the working directory, and a line break would split one request into two. A directory
+entry is compared as its tree, so any change below it is a change. More than
+`MAX_COVERED_FILES` (100) entries are not checked at all.
+
+**A deletion is claimed only where absence was seen.** git reports an object it cannot read
+(a loose object it may not open, a partial clone's missing tree) exactly as it reports a path
+that is not there: `missing`, with exit code 0. So the check never asks git for the file. It
+asks for every directory on the way to each covered path at both commits, and walks them
+itself (`_entry`): a path is absent only when a tree that *was* read lacks the next name, or
+names a file where a directory should be. A tree that was named by its parent and could not be
+read is `<dir> cannot be read at commit <sha>`, never a deletion. At the anchor, absence is
+`<path> is not in commit <anchor>`: a bare file name (`WidgetCache.java` for
+`src/.../WidgetCache.java`), a typo, or a file added later are all unknown, because the anchor
+is the version the decision was checked against and it has no such file.
+
+**One git call, which runs nothing the repository configures.** For each `DIFFERS` block with
+covered files, one `git cat-file --batch` (`_run_cat_file`) is fed `<anchor>^{commit}` and then
+`<commit>^{tree}` / `<commit>:<dir>` for every directory needed at both commits; the answers are
+parsed as git's binary tree format (`_tree_entries`). It reads commits and trees only, never a
+blob, so a blobless clone (`--filter=blob:none`) is checked without fetching. Chosen over
+`git diff`/`git diff-tree` because those read the index, and reading the index runs a
+repository's `core.fsmonitor` program: a probe repository configured with a marker script ran
+it on a plain `git diff-tree <a> <b> -- <path>`. `cat-file` without `--textconv`/`--filters`
+consults no diff driver, filter, pager, hook or fsmonitor; the test configures all of them to a
+marker and asserts it never runs. A partial clone lacking a tree would lazily fetch it over a
+transport its own config names (`core.sshCommand`, `ext::`, `uploadpack`), so the environment
+carries `GIT_NO_LAZY_FETCH=1` and an empty `GIT_ALLOW_PROTOCOL`. From git 2.44 the first keeps
+the tree missing, and it reads `the top-level directory cannot be read at commit <sha>` (or the
+directory's name). An older git (Ubuntu 22.04 ships 2.34, Debian 12 2.39) ignores it; there the
+empty allow-list alone refuses the transport before anything connects, and the line reads `git
+cat-file failed: fatal: transport '<name>' not allowed`. Either way nothing is fetched and no
+configured program runs; the tests pin each variable on its own. Same as the lookup: absolute-PATH git, repository-locating variables
+removed, `LC_ALL=C`, `GIT_LOOKUP_SECONDS`, files instead of pipes, git's error line only
+(`git cat-file failed: <line>`). `compare_covered` refuses an anchor or a `HEAD` that is not a
+commit id before asking git: an empty one would make `<commit>:<dir>` the index path `:<dir>`,
+and reading the index is what runs `core.fsmonitor`.
+
+**Bounded per search.** A `cat-file` runs for each shown block in `DIFFERS` with covered files:
+hits, successors and `--role` blocks, so up to a few per search. A git that times out or cannot
+start is remembered in `SessionCheckout` for the rest of that search, and every later block gets
+the same reason without another call. A stalled git therefore costs one `GIT_LOOKUP_SECONDS`
+for the lookup and at most one more for the covered files; a git that is merely slow, but
+answers inside the bound, is asked once per block.
+
+The answer is checked before it is believed: `commit <anchor> is not in this checkout` (a
+shallow clone, another history, a fake sha), `the anchor <a> is ambiguous in this checkout`, `the
+anchor <a> names a branch or tag here, not a commit` (git resolves a short hex name to a branch of
+that name before the commit; the resolved commit must start with the anchor), `git printed
+output engmem cannot read` (a record that does not parse, or bytes after the last one), and
+`the covered directories are too large to compare` past `_COVERED_OUTPUT_BYTES` (8388608 bytes, 8 MiB).
+
+**Only a new anchor clears a review (AC-12.4).** Nothing is stored: the state is computed from
+the anchor, `HEAD` and `covers_files` on every search, so finding or reading the record again
+shows the same `re-check`. It goes away when the file is back to its anchored content, or when
+someone re-checks the decision and writes the new commit into `verified_at`, which then reads
+`same commit as HEAD`.
 
 ## Where it is shown
 
@@ -152,6 +247,8 @@ telemetry rows written before. Records with neither are byte-identical. Owner de
 `repos`, each from `git -C <that checkout> rev-parse HEAD`. A repository with no checkout or no
 shell at hand is left out, and a sha is never guessed. `/engmem` writes the draft with
 `verified_at:` empty.
+Both templates ask for `covers_files` as paths from the repository's top-level directory, the
+way `git ls-files` prints them, and say that a record of several repositories is not compared.
 
 `engmem_complete_draft` never refuses a record over its anchors. Each `verified_at` and
 `verified_at_commit` load warning is named in the result as `warning: sessions/<id>.md: <load
@@ -159,6 +256,15 @@ warning>` (`_snapshot_notes`), worded for its own case: a value that is not a co
 text says the search shows it as unknown, a duplicate says the first anchor is kept, a nameless
 entry says it is ignored. A missing anchor is not warned about: leaving it out is what the
 templates prescribe without a shell, and the search shows it.
+
+## Owner decisions for US-12 (2026-10-09)
+
+- A record linked to several repositories stays `covered files not checked`; `covers_files`
+  stays a flat list, and binding files to repositories is a later story.
+- A bare file name in an older record (`WidgetCache.java`) reads as unknown, `<name> is not in
+  commit <sha>`, and is never searched for elsewhere in the tree.
+- A deletion is shown in the changed list as `<path> (deleted)`, under one label.
+- One `git cat-file` per block that needs it, not one per search.
 
 ## Known limits
 
@@ -176,5 +282,11 @@ templates prescribe without a shell, and the search shows it.
   the anchored commit reads `same commit as HEAD`, which the wording claims and no more.
 - **A short anchor is compared as a prefix.** Two commits sharing their first seven characters
   in one repository would read as a match.
+- **Covered files are compared between commits.** An uncommitted edit to a covered file is
+  not seen, for the same `core.fsmonitor` reason.
+- **One repository per record for covered files.** A record linked to two repositories gets
+  `covered files not checked`; a per-repository form of `covers_files` is a later slice.
+- **Only the listed files.** A dependency, a caller or a config the decision also rests on is
+  not compared unless it is listed; whether the decision still holds is never judged.
 - **The number of repositories on the line is not capped.** The 4 KB budget trims a block like
   any other; a record linked to dozens of repositories spends that budget on this line.

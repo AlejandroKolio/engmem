@@ -7,7 +7,15 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from engmem.provenance import RepoSnapshot, SessionCheckout, SnapshotState, snapshots
+from engmem.provenance import (
+    COMMIT_DISPLAY_CHARS,
+    CoveredCheck,
+    CoveredState,
+    RepoSnapshot,
+    SessionCheckout,
+    SnapshotState,
+    snapshots,
+)
 from engmem.scoring import Scope, SearchOutcome, SectionHit
 from engmem.sections import Section, split_sections
 from engmem.spine import Doc, is_commit_id, linked_repos
@@ -33,9 +41,11 @@ SECTION_SNIPPET_MAX_CHARS = 140
 # short: each name is cut to the first cap, and the names listed stop at the second
 SCOPE_NAME_DISPLAY_MAX = 120
 SCOPE_NAMES_DISPLAY_MAX = 240
-# a commit is shown as git abbreviates it; an anchor that is not one is shown to the second cap
-COMMIT_DISPLAY_CHARS = 7
+# a commit is shown to provenance.COMMIT_DISPLAY_CHARS; an anchor that is not one, to this cap
 ANCHOR_DISPLAY_MAX = 40
+# changed covered files named per repository, and each one's length, cut from the front
+COVERED_DISPLAY_MAX = 3
+COVERED_PATH_DISPLAY_MAX = 60
 
 # a primer heading spelled in words the canonical alias table does not carry, e.g. the
 # unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
@@ -173,8 +183,34 @@ def _snapshot_part(snapshot: RepoSnapshot) -> str:
         return f"{subject}: same commit as HEAD"
     if snapshot.state is SnapshotState.DIFFERS:
         current = (snapshot.current or "")[:COMMIT_DISPLAY_CHARS]
-        return f"{subject}: HEAD is now {current}, re-check"
+        return f"{subject}: HEAD is now {current}, {_covered_part(snapshot.covered)}"
     return f"{subject}: unknown, {_escape_controls(snapshot.reason)}"
+
+
+def _covered_path_shown(path: str) -> str:
+    shown = _escape_controls(path)
+    if len(shown) <= COVERED_PATH_DISPLAY_MAX:
+        return shown
+    return "…" + shown[-(COVERED_PATH_DISPLAY_MAX - 1):]
+
+
+def _covered_part(covered: CoveredCheck | None) -> str:
+    """Whether the covered files changed between the two commits (US-12); a change asks for a
+    review and never says the decision no longer holds."""
+    if covered is None:
+        return "re-check"
+    if covered.state is CoveredState.UNCHANGED:
+        return "covered files unchanged"
+    if covered.state is CoveredState.UNKNOWN:
+        return f"covered files not checked: {_escape_controls(covered.reason)}, re-check"
+    named = [
+        _covered_path_shown(change.path) + (" (deleted)" if change.deleted else "")
+        for change in covered.changes[:COVERED_DISPLAY_MAX]
+    ]
+    more = len(covered.changes) - len(named)
+    label = "covered file changed" if len(covered.changes) == 1 else "covered files changed"
+    listed = ", ".join(named) + (f" and {more} more" if more else "")
+    return f"{label}: {listed}, re-check"
 
 
 def _snapshot_line(doc: Doc, checkout: SessionCheckout | None) -> str:
