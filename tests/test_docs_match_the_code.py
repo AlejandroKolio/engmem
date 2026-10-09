@@ -87,6 +87,8 @@ STATED_VALUES = [
     ("provenance", "MAX_COVERED_FILES", None, "`MAX_COVERED_FILES` ({value})", "provenance.md"),
     ("provenance", "_COVERED_OUTPUT_BYTES", None, "`_COVERED_OUTPUT_BYTES` ({value} bytes",
      "provenance.md"),
+    ("feedback", "TEXT_MAX", None, "≤ {value} characters", "data-model.md"),
+    ("feedback", "TEXT_MAX", None, "a text over {value} characters", "ENGMEM-SPEC.md"),
 ]
 
 

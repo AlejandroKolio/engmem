@@ -292,6 +292,9 @@ class SessionRow:
     # `None` when the row has no `ts`, or one this reader cannot parse — excluded from any
     # `--since` window rather than guessed into it (see `gate1_audit._parse_since`)
     ts: datetime | None
+    # what the row's search showed, for the usefulness summary's finds (US-15)
+    surfaced: tuple[str, ...] = ()
+    weak_only: bool = False
 
 
 def _parse_ts(raw: object) -> datetime | None:
@@ -333,5 +336,19 @@ def read_session_rows(jsonl_path: Path) -> list[SessionRow]:
             session_id = session_id.strip()
             if not session_id:
                 continue
-            rows.append(SessionRow(session_id=session_id, ts=_parse_ts(record.get("ts"))))
+            rows.append(SessionRow(
+                session_id=session_id,
+                ts=_parse_ts(record.get("ts")),
+                surfaced=_shown_ids(record),
+                weak_only=record.get("weak_only") is True,
+            ))
     return rows
+
+
+def _shown_ids(record: dict) -> tuple[str, ...]:
+    """`surfaced`, what the reader was shown; never `hits`, the ranking, which can name documents
+    that were not shown. An id that is not a non-blank string is dropped, never coerced."""
+    surfaced = record.get("surfaced")
+    if not isinstance(surfaced, list):
+        return ()
+    return tuple(c.strip() for c in surfaced if isinstance(c, str) and c.strip())

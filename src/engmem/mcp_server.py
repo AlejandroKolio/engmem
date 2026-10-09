@@ -14,7 +14,7 @@ from typing import Any, TextIO
 
 import yaml
 
-from engmem import __version__, gate1
+from engmem import __version__, feedback, gate1
 from engmem.cache import identity_for
 from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
 from engmem.scoring import Scope
@@ -145,6 +145,19 @@ MARK_SUPERSEDED_TOOL_DESCRIPTION = (
     "a draft, never an already-superseded document, and never itself: `id` and "
     "`superseded_by` must differ). This does not require `superseded_by` to "
     "already exist as a document — it is fine to mark the earlier document first."
+)
+
+
+RECORD_FEEDBACK_TOOL_NAME = "engmem_record_feedback"
+RECORD_FEEDBACK_TOOL_DESCRIPTION = (
+    "Record the USER's assessment of one document a search showed in this session: "
+    "`helped`, `not-applicable` or `harmful`, optionally with the decision it changed and "
+    "where that can be seen. Call it only with an assessment the user stated in this "
+    "conversation -- never your own judgement, and never to fill in one the user did not "
+    "give; an unassessed find is reported as unknown influence, which is not a failure. "
+    "Refuses unless `session_id` names a session document in the store and a search "
+    "attributed to it showed `doc_id`. Appends to the store's feedback log; no session "
+    "document is changed and the Gate 1 count does not read it."
 )
 
 
@@ -825,6 +838,20 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
         raise
 
 
+def _handle_record_feedback(arguments: object, store: Path) -> tuple[str, bool]:
+    try:
+        result, _, _ = _load_store_for_tool(store)
+        entry = feedback.record(
+            store, {d.id for d in result.docs},
+            session_id=arguments["session_id"], doc_id=arguments["doc_id"],
+            assessment=arguments["assessment"], decision=arguments.get("decision"),
+            source=arguments.get("source"), channel="mcp",
+        )
+    except (_StoreLoadError, feedback.FeedbackError) as exc:
+        return str(exc), True
+    return feedback.confirmation(entry), False
+
+
 def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> str:
     """Rewrites exactly one `key:` line, or appends it. Raises `_ToolError` when the key
     appears more than once, when the front matter is a flow mapping, and — for a key that is
@@ -1117,6 +1144,46 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                     "required": ["id", "superseded_by"],
                 },
             },
+            {
+                "name": RECORD_FEEDBACK_TOOL_NAME,
+                "description": RECORD_FEEDBACK_TOOL_DESCRIPTION,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": (
+                                "The session document whose search showed the document -- "
+                                "the id passed as `session_id` on that search."
+                            ),
+                        },
+                        "doc_id": {
+                            "type": "string",
+                            "description": "The id of the document the search showed.",
+                        },
+                        "assessment": {
+                            "type": "string",
+                            "enum": list(feedback.Assessment),
+                            "description": "The user's assessment, as the user gave it.",
+                        },
+                        "decision": {
+                            "type": "string",
+                            "description": (
+                                "Optional: the decision the document changed, in the "
+                                f"user's words, at most {feedback.TEXT_MAX} characters."
+                            ),
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": (
+                                "Optional: where that can be seen, e.g. a commit, PR or "
+                                f"review, at most {feedback.TEXT_MAX} characters."
+                            ),
+                        },
+                    },
+                    "required": ["session_id", "doc_id", "assessment"],
+                },
+            },
         ]
     }
 
@@ -1125,16 +1192,19 @@ _WRITE_TOOL_REQUIRED_STRING_ARGS = {
     CREATE_DRAFT_TOOL_NAME: ("id", "content"),
     COMPLETE_DRAFT_TOOL_NAME: ("id", "content"),
     MARK_SUPERSEDED_TOOL_NAME: ("id", "superseded_by"),
+    RECORD_FEEDBACK_TOOL_NAME: ("session_id", "doc_id", "assessment"),
 }
 
 _WRITE_TOOL_OPTIONAL_STRING_ARGS = {
     COMPLETE_DRAFT_TOOL_NAME: ("expected_version",),
+    RECORD_FEEDBACK_TOOL_NAME: ("decision", "source"),
 }
 
 _WRITE_TOOL_HANDLERS = {
     CREATE_DRAFT_TOOL_NAME: _handle_create_draft,
     COMPLETE_DRAFT_TOOL_NAME: _handle_complete_draft,
     MARK_SUPERSEDED_TOOL_NAME: _handle_mark_superseded,
+    RECORD_FEEDBACK_TOOL_NAME: _handle_record_feedback,
 }
 
 

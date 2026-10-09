@@ -161,3 +161,13 @@ the published content is the confirmed preview, nothing is published after a dec
 declined record is not found. The agent's turns are written by hand, so it does not prove that
 a real agent produces them from the template; that recorded session is owner-side acceptance
 (E-05).
+
+## The usefulness question is the full save's, asked once (US-15)
+
+`/engmem.save` asks the user once, after the document is written, whether the documents the
+session's searches showed helped, did not apply or did harm, and records only the answers given
+(`contracts/gate1.md`, "Usefulness feedback"). It comes last, so declining it costs the save
+nothing, and an unanswered question records nothing: the find stays unknown, which is not a
+failure. `/engmem.save.quick` does not ask. Its contract is one preview and one confirmation,
+and a second question would break it. The user can still record an assessment later with
+`engmem feedback record`.

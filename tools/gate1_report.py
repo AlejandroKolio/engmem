@@ -7,7 +7,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from engmem import gate1, gate1_audit
+from engmem import feedback, gate1, gate1_audit
+from engmem.spine import load_store
 from engmem.runtime import force_utf8_streams
 
 HEADER = ["story", "cited", "quote", "integrity", "classification", "distance", "staleness",
@@ -281,7 +282,22 @@ def main(argv: list[str] | None = None) -> int:
     print("=== Audit coverage (sample completeness -- not a schema gate; see contracts/gate1.md) ===")
     for audit_line in _audit_lines(audit):
         print(audit_line)
+    print()
+    print("=== Usefulness feedback (user assessments, all-time -- outside the Gate 1 count; "
+          "see contracts/gate1.md) ===")
+    print(_feedback_block(store))
     return 0
+
+
+def _feedback_block(store: Path) -> str:
+    """US-15, after everything above, so no line above it moves; an unreadable log is named
+    UNMEASURED like the audit block's, and the run still exits 0."""
+    known_ids = {doc.id for doc in load_store(store / "sessions").docs}
+    try:
+        summary = feedback.summarize(store, known_ids)
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"usefulness feedback: UNMEASURED -- a log is unreadable ({exc}), not zero"
+    return feedback.render_summary(summary)
 
 
 if __name__ == "__main__":
