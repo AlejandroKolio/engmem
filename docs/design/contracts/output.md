@@ -121,6 +121,13 @@ recorded commit next to the current checkout's `HEAD`, as `same commit as HEAD`,
 `HEAD is now <sha>, re-check`, or `unknown, <reason>` (`_snapshot_line`; the rules are
 `contracts/provenance.md`). A record with neither gets no line.
 
+When the commits differ and the record lists `covers_files`, US-12 replaces the bare
+`re-check` with the result of comparing those files (`_covered_part`): `covered files
+unchanged`, `covered file(s) changed: <path>[ (deleted)], … and N more, re-check` (at most
+`COVERED_DISPLAY_MAX` paths named, each cut to `COVERED_PATH_DISPLAY_MAX` characters from the
+front), or `covered files not checked: <reason>, re-check`. The commit difference stays on the
+line in every case.
+
 This is the first change to a plain search's output since the scope work kept it
 byte-identical: the line is not behind a flag, so a record with an anchor or a link now costs
 one more line, and `context_bytes` grows with it for those records. A plain search remains

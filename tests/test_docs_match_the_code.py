@@ -79,7 +79,11 @@ STATED_VALUES = [
     ("staging", "_VERSION_HEX_DIGITS", None, "first {value} hex digits", "mcp-server.md"),
     ("doctor", "_PROBE_SECONDS", None, "`_PROBE_SECONDS` ({value})", "doctor.md"),
     ("provenance", "GIT_LOOKUP_SECONDS", None, "`GIT_LOOKUP_SECONDS` ({value})", "provenance.md"),
-    ("output", "COMMIT_DISPLAY_CHARS", None, "`COMMIT_DISPLAY_CHARS` characters ({value}",
+    ("provenance", "COMMIT_DISPLAY_CHARS", None, "`COMMIT_DISPLAY_CHARS` characters ({value}",
+     "provenance.md"),
+    ("output", "COVERED_DISPLAY_MAX", None, "`COVERED_DISPLAY_MAX` ({value})", "provenance.md"),
+    ("provenance", "MAX_COVERED_FILES", None, "`MAX_COVERED_FILES` ({value})", "provenance.md"),
+    ("provenance", "_COVERED_OUTPUT_BYTES", None, "`_COVERED_OUTPUT_BYTES` ({value} bytes",
      "provenance.md"),
 ]
 

@@ -88,7 +88,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
 6. Generate the complete front matter automatically (same fields as `/engmem.save`, with
    `verified_at` holding, for each repository in `repos`, the sha from
    `git -C <its checkout> rev-parse HEAD` (`verified_at: {platform-core: <sha>}`; a repository
-   with no checkout or no shell at hand is left out, never guessed), and
+   with no checkout or no shell at hand is left out, never guessed), `covers_files` as paths
+   from the repository's top-level directory the way `git ls-files` prints them, and
    `capture_minutes` blank unless you know when the save really started; the draft's
    `date:` has day resolution and is no anchor; `mode`, and `baseline_unavailable` if the
    draft has it, copied from the draft unchanged), and set `status: active`. Name the

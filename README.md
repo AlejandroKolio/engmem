@@ -285,6 +285,18 @@ snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, re-check | widget-cache-cl
 A repository you are not in reads `unknown`, with the reason. An older single
 `verified_at_commit` counts only when the record names exactly one repository.
 
+When `HEAD` has moved and the record lists `covers_files`, the search compares just those
+files between the two commits, so a change somewhere else is not a reason to re-check:
+
+```
+snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, covered files unchanged
+snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, covered file changed: src/cache/WidgetCache.java, re-check
+```
+
+Write each covered file as a path from the repository's top-level directory, the way
+`git ls-files` prints it. A bare file name, a file the anchored commit does not have, or a
+record linked to several repositories reads `covered files not checked`, with the reason.
+
 Two more commands:
 
 ```bash

@@ -444,6 +444,13 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    from the working directory's PATH entry) and only when a shown record has an anchor to
    compare. This line is in the plain output too, so it changes it for such records
    (`docs/design/contracts/provenance.md`).
+   *(US-12)* When the commits differ and the record lists `covers_files` (paths from the
+   repository's top-level directory), the `re-check` is refined by comparing exactly those
+   files between the anchor and `HEAD`: `covered files unchanged` (no change signal),
+   `covered file changed: <path>[ (deleted)], re-check`, or `covered files not checked:
+   <reason>, re-check`. One `git cat-file --batch` per such block reads only commits and
+   trees; it never decides whether the decision is still right. A record linked to several
+   repositories is not compared, since `covers_files` does not say which file is where.
 4. No matches → prints `prior context: none found` (exit code 0).
 5. Scoreboard footer, always printed: `docs: N | drafts: N | last doc: Nd ago`. The count
    carries a parenthetical for anything the store is not fully serving —

@@ -30,12 +30,18 @@ never added, edited or dropped, even if the user has switched mode since: they r
 condition this session was started under. A draft without `mode` was started before modes
 existed and stays without one.
 
-`related` and the last four before `mode` are worth a word each — derive them, never guess them:
+`related`, `covers_files` and the last four before `mode` are worth a word each — derive them,
+never guess them:
 
 - `related` — document ids, never filenames: a `.md` suffix will not resolve. It breaks
   both `gate1`'s adjacency check (a citation that should read `adjacent` reads `distant`
   instead) and a search hit's rendered related line (a document that IS in the store
   renders as "not in store").
+- `covers_files` — the files the decision rests on, each as a path from the repository's
+  top-level directory, the way `git ls-files` prints it (`src/export/ExportJob.java`, not
+  `ExportJob.java` or `./src/...`). A search compares exactly these files between the
+  `verified_at` commit and the checkout's current `HEAD`. They are read as files of the
+  record's one repository: with two or more in `repos` they are not compared.
 - `author` — who did the work. Prefer `git config user.name` (and `user.email` if you
   want both); leave blank if neither is available rather than inventing a name.
 - `repos` — the repository or repositories this work actually touched, as a list (e.g.
