@@ -153,13 +153,14 @@ whole is not bounded. The caps are far above real use and the marks are additive
   `"repos_truncated": true` and `"repos_total": N`, the number of distinct names chosen, so an
   analysis can tell a capped row from a real one and knows how many there were.
 - A row under every cap is byte-identical to the row before the caps: no new key, no new
-  value. The caps change only what is recorded: the search, `n_searched`, `context_bytes`
+  value. The same holds against the row before US-14: `weak_only` appears only on a row where it
+  is true (below, "Weak candidates are marked, never dropped"). The caps change only what is recorded: the search, `n_searched`, `context_bytes`
   (measured on the rendered result, never on the row) and `session_id` are the same.
   `session_id` is not capped: it is the attribution key the Gate 1 join matches against a
   draft's id, and a cut id would quietly attribute the row to no session.
-- Every reader keeps working on old and new rows: `summarize` reads `channel`, `result` and
-  the context counts, `read_session_rows` reads `session_id` and `ts`, and neither reads
-  `query` or `scope`.
+- Every reader keeps working on old and new rows: `summarize` reads `channel`, `result`,
+  `weak_only` and the context counts, `read_session_rows` reads `session_id` and `ts`, and
+  neither reads `query` or `scope`.
 
 ## One composed result for both channels
 
@@ -182,14 +183,56 @@ read `scan_error`, so the MCP-only channel showed an unlistable `sessions/` as
 with no I/O; only `compose` writes telemetry. `tools/baseline_cost.py` measures through it, so
 a calibration run reports exactly what telemetry records and adds no row to the store it measures.
 
+## Weak candidates are marked, never dropped (US-14)
+
+`scoring` decides which hits are weak candidates (`contracts/scoring.md`, "Weak candidates")
+and ranks them after every reliable find; the renderer only says so, in the same order.
+
+- A weak hit's header ends `  [weak candidate]` (`WEAK_TAG`), after `[ambiguous]` or
+  `[role: …]` when either is there, so a block that lost its other lines to the 4 KB trim
+  still says it. Under its `matched:` line one more line gives the reason, from the words
+  alone: `weak candidate: matched 1 of 5 query words (policy) and no identifier — check it
+  before relying on it`. When a matched word did not count for being short, the parenthesis
+  says so: `(policy, for; words of 3 characters or fewer count only as identifiers)`. It
+  names a count, never a score or a likelihood.
+- When every hit and every redirect shown is a weak candidate (`only_weak_shown`), the result
+  opens with `prior context: no reliable match — only weak candidates below`
+  (`NO_RELIABLE_MATCH`), directly under the `scope:` line of a scoped search and the `role:`
+  line of a role search, the way `none found` sits under them. With any reliable find shown there is no such line: the reliable blocks
+  come first, and the marked ones after them.
+- A weak superseded match is marked on its redirect line (`old-note  [weak candidate]:
+  superseded by new-note`); its successor's block is the successor's own text, not a match.
+- Shown, not hidden, because the card allows both and a hidden candidate is one the reader
+  cannot overrule: an author who knows the logo note is the answer still sees it. The cap is
+  still three blocks, and a weak candidate takes a place only no reliable find claimed. Nothing
+  is ever shown that matched no word (AC-14.3): `prior context: none found` is unchanged.
+- `cite as` names a weak candidate like any shown document: whether to cite it is the
+  reader's call after reading it.
+
+The telemetry row says it too. A row carries `"weak_only": true`, right after `result`, when
+the result was shown and every hit and redirect shown was a weak candidate; a role search's row
+carries it when every role hit kept is weak. Any other row carries no `weak_only` key at all, so
+an ordinary row is byte-identical to one written before US-14 (owner decision D3, 2026-10-09,
+which also ratifies the field as an exception to the §9 measurement freeze). Readers treat a
+missing key as not weak-only. The cost is that a row from before US-14 and a reliable row since
+cannot be told apart by the row alone; the release date can. The field sits beside `result`,
+never in it, so a `result: "hit"` row keeps its meaning for every reader written before it.
+`summarize` counts a row's `weak_only` only when it is exactly `true` and the row is a `hit`; the
+count stays inside `hits`, and `engmem telemetry` adds one line, only when there is any,
+`weak-only hits: N of M hit(s) showed only weak candidates — counted as hits above, not as
+reliable finds`. No telemetry figure is user-confirmed usefulness, weak or not: that is the
+Reuse Log's classification, which this does not touch (AC-14.4).
+
 ## Known limits
 
 `surfaced_ids` reports what the renderer *selected*, not what survived the trim, so a trimmed
 run can log an id the reader never saw. Telemetry reads it as "prior context surfaced", which
 over-counts in exactly the runs where the output was too long.
 
-`_selected` admits a redirect only when its score is strictly greater than the last shown
-hit's. A superseded document tied with the third hit would have taken that place on the
-`(-score, -date, id)` order `scoring` actually sorts by, and its redirect is dropped. The
+`_selected` admits a redirect only when it ranks strictly before the last shown hit on
+`(weak, -score)` (`_rank`): a reliable redirect beats a weak hit, a weak one never displaces a
+reliable hit, and between two of a kind the higher score wins. A superseded document tied with
+the third hit would have taken that place on the `(weak, -score, -date, id)` order `scoring`
+actually sorts by, and its redirect is dropped. The
 failure is silence about a stale document, never handing one over, and closing it would mean
 restating `scoring`'s sort key in the renderer.

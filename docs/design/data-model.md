@@ -199,7 +199,8 @@ telemetry.
 
 | Attribute | Description |
 |---|---|
-| results | top 3 matching **active** documents, ranked by score (`ENGMEM-SPEC.md` §7) |
+| results | top 3 matching **active** documents, reliable finds first, then ranked by score (`ENGMEM-SPEC.md` §7) |
+| weak candidate | a result that matched fewer than two distinct query words (all of a shorter query; a word of three characters or fewer counts only as an identifier) and no identifier; marked `[weak candidate]` with the words it matched, and when every result shown is one the set opens with `prior context: no reliable match — only weak candidates below` (US-14; contracts/scoring.md, "Weak candidates") |
 | per-result fields | id, path, score, why-matched (which query tokens matched which fields), first 2 lines of Cold-start primer, its `related` (id + path only, depth 1), and a `snapshot:` line per record with an anchor or a repository link (US-11; contracts/provenance.md) |
 | ambiguous flag | set when a short/numeric query token matches entities across distinct clusters; one representative per cluster is returned instead of a single top result |
 | scoreboard footer | always present: `docs: N | drafts: N | last doc: Nd ago`; `N` in `last doc` is clamped to `0` for a future-dated newest document (typo, timezone skew, a `task_date` copied forward), since `Nd ago` cannot express a negative count |
@@ -210,5 +211,7 @@ Every call also produces one `telemetry.jsonl` line (`ENGMEM-SPEC.md` §5, `engm
 produced, not a separate entity. The line carries two join keys beyond the result itself:
 `session_id` (the draft document this search was run for, `null` when unattributed) and
 `surfaced` (the ids actually shown, including redirect targets that never scored).
+`"weak_only": true`, present only then, says everything shown was a weak candidate; it never changes `result`
+(contracts/output.md, "Weak candidates are marked, never dropped").
 Together they let the Gate 1 review connect what was retrieved to what a session's Reuse
 Log claims to have reused. A tool call over the MCP path writes the identical line.

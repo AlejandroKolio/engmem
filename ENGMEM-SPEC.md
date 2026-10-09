@@ -434,6 +434,17 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    format is paste-able markdown (for the paste bridge).
 3a. If more documents matched than the three shown, a final line states how many were
    withheld.
+3c. *(US-14, owner decision 2026-10-09)* A hit that matched fewer than two distinct query
+   words (all of a one-word query) and no identifier — the record's whole id or ticket number,
+   an entity matched in full (a multi-word entity only with all its words), or a CamelCase name
+   matched whole — is a weak candidate. A matched word of three characters or fewer (`for`,
+   `и`, `και`) counts only when it is an identifier; longer function words (`what`, `with`)
+   still count, a known gap. It ranks after every reliable find, its
+   header ends `[weak candidate]`, and a `weak candidate: matched N of M query words (…) and
+   no identifier` line gives the reason; when every result shown is one, the result opens
+   with `prior context: no reliable match — only weak candidates below`. A role search marks
+   the same way. The rule counts words, never a score, and states no likelihood
+   (`docs/design/contracts/scoring.md`, "Weak candidates"; `contracts/output.md`).
 3b. *(US-11)* Each block of a record with an anchor or a repository link carries a
    `snapshot:` line: per repository, the recorded `verified_at` commit next to the `HEAD` of
    the git checkout the search runs in (matched by directory name), as `same commit as HEAD`,
@@ -535,6 +546,14 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     (`docs/design/contracts/output.md`, "Query and scope names are bounded in the telemetry
     row, and a capped row says so").
 
+6d. *(US-14)* `"weak_only": true` rides the same line, right after `result`, when every hit
+    and redirect shown was a weak candidate (3c). Any other row carries no such key, so an
+    ordinary row stays the row 6–6c describe, byte for byte; readers treat a missing key as not
+    weak-only. `result` keeps its three values and their meaning, so a weak-only search is
+    still `"hit"`. `engmem telemetry` counts such rows inside the hits and names them on one
+    line of their own, only when there are any. *(Owner decision, 2026-10-09: an approved
+    exception to the §9 measurement freeze.)*
+
 ### `engmem search "<query>" --role ROLE` / `engmem roles [--store PATH]` (English
 addition — role-addressed retrieval)
 
@@ -568,7 +587,9 @@ words are in the query.
 
 The reading surface for the `telemetry.jsonl` rows §5's `search` subsection writes:
 totals, hit rate and context spent, split by channel (`cli`/`mcp`) and overall, plus the
-navigation misses recorded in the store's own documents.
+navigation misses recorded in the store's own documents. *(US-14)* Hits whose row says only weak
+candidates were shown stay in the hit rate and are counted on a `weak-only hits:` line, printed
+only when there are any.
 
 - **A missing log is zero rows; a log that cannot be read is not.** No `telemetry.jsonl`
   means no search has run yet, which is honestly reported as a zero-row summary. A log
@@ -679,6 +700,11 @@ Rationale and limits: `contracts/scoring.md`, "Tokenisation".
 tokens / total query tokens)`
 Field weights: id = 5, entities = 3, title = 2, tags = 1. Ties broken by recency (date),
 newer first.
+
+**Weak candidates** *(US-14)*: a hit that matched fewer than two distinct query words (all of
+a one-word query; a word of three characters or fewer counts only as an identifier) and no
+identifier is a weak candidate and ranks after every reliable find
+(§5, search 3c). The golden table below is unaffected: every approved result is reliable.
 
 **Homonyms:** if a short token (≤3) matches entities across docs whose full forms differ
 (MQ → MessageQueue vs MetricsQuery), output one top doc from each cluster, marked
@@ -809,7 +835,9 @@ minus any whose `repos` names `engmem` (§11, dogfooding); no code encodes this,
 point. The freeze lifts at count 10, when §11's table is read, or earlier if a §11 row is met.
 *(2026-10-09, owner decision: US-13 — checking a quote against the version it cites, with its
 `version_unavailable` state and `version references:` report line — is an approved exception; see
-§11's amendment of that date.)*
+§11's amendment of that date.)* *(2026-10-09, owner decision: US-14's `weak_only` telemetry
+field, written only when true, and the `weak-only hits:` summary line are a further approved
+exception; see §5, search 6d.)*
 
 ## 10. Principles
 

@@ -30,6 +30,12 @@ BM25_B = 0.6
 # a term in over half the corpus's sections is dropped from body scoring
 # entirely — self-tuning stopword substitute; see contracts/scoring.md
 DF_CEILING_RATIO = 0.5
+# a hit matching fewer distinct query words than this, and no identifier, is a weak candidate;
+# a shorter query needs all its words. A count, not a calibrated threshold — contracts/scoring.md
+MIN_COVERED_WORDS = 2
+# a matched word this short (characters, after normalisation) counts toward MIN_COVERED_WORDS only
+# as an identifier: `for`, `и`, `και`, `der` are what two-word coverage was cleared with (US-14)
+SHORT_WORD_MAX_CHARS = 3
 
 # Runs over a per-character class string, not the token itself: "A" upper/title-case letter,
 # "a" any other letter, "0" number, "m" combining mark. Same shape as the ASCII-era
@@ -157,6 +163,35 @@ class _QueryToken:
     restricted: bool  # True: may only match ORIGINAL (unsplit) field/section tokens
 
 
+@dataclass(frozen=True)
+class _QueryWord:
+    """One word as typed, with the tokens it searches for: itself, then any CamelCase parts."""
+
+    original: str
+    tokens: tuple[str, ...]
+    camel: bool
+
+
+def _build_query_words(query: str) -> list[_QueryWord]:
+    """Distinct query words in first-seen order, the same tokens `_build_query_tokens` searches
+    for grouped by the word that produced them (contracts/scoring.md, "Weak candidates")."""
+    tokens: dict[str, list[str]] = {}
+    camel: set[str] = set()
+    for raw in tokenize_raw(query):
+        orig = normalize_token(raw)
+        if not orig:
+            continue
+        word_tokens = tokens.setdefault(orig, [orig])
+        expansion = None if _is_restricted(orig) else _camel_expansion(raw)
+        if expansion is None:
+            continue
+        # `responsecache` then `ResponseCache` is one word; the second spelling adds its parts
+        camel.add(orig)
+        parts_norm, acronym = expansion
+        word_tokens += [t for t in (*parts_norm, acronym) if t and t not in word_tokens]
+    return [_QueryWord(orig, tuple(ts), orig in camel) for orig, ts in tokens.items()]
+
+
 def _build_query_tokens(query: str) -> list[_QueryToken]:
     """Distinct query tokens in first-seen order, each carrying its own restricted-ness."""
     # see contracts/scoring.md, "One rule per query token"
@@ -181,6 +216,18 @@ def _build_query_tokens(query: str) -> list[_QueryToken]:
     return list(tokens.values())
 
 
+@dataclass(frozen=True)
+class Strength:
+    """Whether a hit is only a weak candidate, and the words that say why (contracts/scoring.md,
+    "Weak candidates"). A verdict on the match, never a probability of usefulness."""
+
+    weak: bool
+    covered: tuple[str, ...]  # the query words the hit matched, in query order
+    n_words: int  # distinct words in the query
+    # the covered words that count toward MIN_COVERED_WORDS; a short word only as an identifier
+    counted: tuple[str, ...] = ()
+
+
 @dataclass
 class SectionHit:
     section: Section
@@ -197,6 +244,11 @@ class Hit:
     # every matched section, best first; matched_fields only names the winner
     # (see _search_core) — this is the fuller list the renderer walks
     section_hits: list[SectionHit] = field(default_factory=list)
+    strength: Strength = field(default_factory=lambda: Strength(False, (), 0))
+
+    @property
+    def weak(self) -> bool:
+        return self.strength.weak
 
 
 @dataclass
@@ -204,6 +256,11 @@ class SupersededNote:
     doc: Doc
     successor: Doc | None
     score: float
+    strength: Strength = field(default_factory=lambda: Strength(False, (), 0))
+
+    @property
+    def weak(self) -> bool:
+        return self.strength.weak
 
 
 @dataclass
@@ -224,6 +281,43 @@ def _id_field_weight(
     if qt.text.isdigit() or whole_id_matched:
         return FIELD_WEIGHTS["id"]
     return ID_SLUG_WEIGHT
+
+
+def _entity_token_sets(doc: Doc) -> list[set[str]]:
+    """Each entity's own original tokens: `brand policy` is one entity of two words."""
+    items = doc.entities if isinstance(doc.entities, list) else [doc.entities]
+    return [{normalize_token(raw) for raw in tokenize_raw(str(item))} for item in items]
+
+
+def _names_identifier(
+    word: _QueryWord, doc: Doc, entities: list[set[str]], matched: set[str]
+) -> bool:
+    """The word is the record's whole id or ticket number, an entity matched in full, or a
+    CamelCase name it carries whole — never a slug word, nor part of a longer name."""
+    id_originals = _doc_field_index(doc)["id"][0]
+    if word.original in id_originals and (
+        word.original.isdigit() or id_originals.issubset(matched)
+    ):
+        return True
+    if any(word.original in tokens and tokens <= matched for tokens in entities):
+        return True
+    return word.camel and word.original in matched
+
+
+def _is_short(word: _QueryWord) -> bool:
+    return len(word.original) <= SHORT_WORD_MAX_CHARS
+
+
+def _strength(words: list[_QueryWord], doc: Doc, matched: set[str]) -> Strength:
+    covered = tuple(w.original for w in words if not matched.isdisjoint(w.tokens))
+    entities = _entity_token_sets(doc)
+    if any(_names_identifier(w, doc, entities, matched) for w in words if w.original in covered):
+        return Strength(False, covered, len(words), covered)
+    counted = tuple(w.original for w in words if w.original in covered and not _is_short(w))
+    # a query of short words alone still needs one counted word, so it never passes on none
+    countable = sum(1 for w in words if not _is_short(w))
+    needed = max(1, min(MIN_COVERED_WORDS, countable))
+    return Strength(len(counted) < needed, covered, len(words), counted)
 
 
 def _spine_score(query_tokens: list[_QueryToken], doc: Doc) -> tuple[float, dict[str, list[str]]]:
@@ -572,19 +666,20 @@ def ranking_corpus(docs: list[Doc], scope: Scope | None = None) -> list[Doc]:
 
 
 def search(docs: list[Doc], query: str, scope: Scope | None = None) -> SearchOutcome:
-    query_tokens = _build_query_tokens(query)
     corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
-    return _search_core(corpus, docs, query_tokens, entries)
+    return _search_core(corpus, docs, query, entries)
 
 
 def _search_core(
     corpus: list[Doc],
     store_docs: list[Doc],
-    query_tokens: list[_QueryToken],
+    query: str,
     entries: list[_SectionEntry],
 ) -> SearchOutcome:
     """Ranks `corpus`; `store_docs` only resolves a superseded document's successor."""
+    query_tokens = _build_query_tokens(query)
+    query_words = _build_query_words(query)
     body_scores = _body_scores_from_entries(entries, query_tokens)
 
     scored: list[Hit] = []
@@ -595,6 +690,8 @@ def _search_core(
         if not matched_fields and body_value <= 0:
             continue
 
+        matched = {t for tokens in matched_fields.values() for t in tokens}
+        matched.update(t for section_hit in section_hits for t in section_hit.matched_tokens)
         if section_hits:
             # only the winning section is named on the explainability line;
             # section_hits itself still carries the full list to the renderer
@@ -608,12 +705,13 @@ def _search_core(
                 score=spine_value + body_value,
                 matched_fields=matched_fields,
                 section_hits=section_hits,
+                strength=_strength(query_words, doc, matched),
             )
         )
 
-    # -score, -date, id: a full deterministic order. BM25 scores shift with
-    # corpus size, so golden tests pin order/membership, never an absolute score.
-    scored.sort(key=lambda h: (-h.score, -_date_ordinal(h.doc), h.doc.id))
+    # reliable finds first, then -score, -date, id: a full deterministic order. BM25 scores
+    # shift with corpus size, so golden tests pin order/membership, never an absolute score.
+    scored.sort(key=lambda h: (h.weak, -h.score, -_date_ordinal(h.doc), h.doc.id))
 
     # a single restricted token whose entity match clusters into 2+ differing
     # full forms is ambiguous; keep one representative per cluster (§7)
@@ -660,7 +758,7 @@ def _search_core(
         if h.doc.status == "superseded":
             successor = docs_by_id.get(h.doc.superseded_by) if h.doc.superseded_by else None
             superseded_notes.append(
-                SupersededNote(doc=h.doc, successor=successor, score=h.score)
+                SupersededNote(doc=h.doc, successor=successor, score=h.score, strength=h.strength)
             )
             continue
         hits.append(h)
@@ -690,10 +788,9 @@ def search_with_role_sections(
     docs: list[Doc], query: str, scope: Scope | None = None
 ) -> tuple[SearchOutcome, dict[str, dict[str, Section]]]:
     """`search()` plus a `doc_id -> {role: Section}` map built from the same parse."""
-    query_tokens = _build_query_tokens(query)
     corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
-    outcome = _search_core(corpus, docs, query_tokens, entries)
+    outcome = _search_core(corpus, docs, query, entries)
     role_map = _role_index_from_entries(entries)
     return outcome, role_map
 

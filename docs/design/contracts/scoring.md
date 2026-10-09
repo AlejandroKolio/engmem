@@ -8,8 +8,9 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
 
 ## Invariants
 
-- The rank order is `(-score, -date, id)`, a full deterministic order. BM25 scores move with
-  corpus size, so golden tests pin order and membership, never an absolute score.
+- The rank order is `(weak, -score, -date, id)`, a full deterministic order: every reliable
+  find before every weak candidate (below), then by score. BM25 scores move with corpus size,
+  so golden tests pin order and membership, never an absolute score.
 - A document scores its single best section, not the sum, or it wins by section count.
 - Restricted-ness (`_is_restricted`: three characters or fewer, or purely numeric) is a
   property of the token's text, decided once in `_build_query_tokens` and read from
@@ -243,6 +244,98 @@ Distinct: `_spine_score` divides by `len(query_tokens)`, and the expansion can e
 neighbouring query word repeats (`cache ResponseCache` yields `cache` once). A duplicate adds
 its weight twice and raises the denominator, and those do not cancel, so two documents each
 matching one query word at the same tier scored differently.
+
+## Weak candidates (`_strength`, `MIN_COVERED_WORDS`, `SHORT_WORD_MAX_CHARS`, US-14)
+
+Before this change, any positive match was a hit. `database migration transactional rollback policy` found a
+note about a logo's colour through the one word `policy`, at score 0.4, and nothing in the
+result said so. Each hit now carries a `Strength`: whether it is only a weak candidate, the
+query words it matched, which of them counted, and how many distinct words the query had. The
+rule and the corpus `tests/fixtures/retrieval-eval/v1` are owner decisions of 2026-10-09. The
+rule, in order:
+
+1. **A query word** is a word as typed (`_build_query_words`), with the tokens
+   `_build_query_tokens` searches for on its behalf: itself, and for a CamelCase word its parts
+   and acronym. Two spellings of one word (`responsecache ResponseCache`) are one word. A word
+   is *matched* when any of its tokens matched a spine field or a body section; a body term
+   past `DF_CEILING_RATIO` never matched, so the stopword substitute applies here too.
+2. **An identifier is always reliable** (AC-14.2): a matched word that is one of these:
+   - the record's whole id or its numeric ticket component (the two cases `_id_field_weight`
+     pays full id weight for);
+   - part of an entity matched in full, every one of the entity's own tokens matched. A
+     one-word entity (`revalidation`, `TTL`) is an identifier on its own word; a multi-word
+     entity (`brand policy`) only when the query matched all its words, so `policy` alone does
+     not borrow it (owner decision D5). `ledger` from `LedgerReplayGuard` is not one, since the
+     entity's token is `ledgerreplayguard`;
+   - a CamelCase word matched whole anywhere, body included (`JitterSource`).
+
+   A slug word of the id, a title or tag word and an entity fragment are not identifiers.
+3. **A short word counts only as an identifier** (owner decision D4). A matched word of
+   `SHORT_WORD_MAX_CHARS` (3) characters or fewer, counted in characters after the existing
+   NFKC and casefold, never in bytes, counts toward the rule below only when it is an
+   identifier. Without this, function words carried a hit: `rollback policy for database
+   migrations` made the logo note reliable through `policy` and `for`, and `what is the policy
+   for migrations` made the retry note reliable through `is`, `the` and `for`. A character count
+   needs no word list and treats the ten languages of US-02 alike (`for`, `и`, `και`, `der`).
+4. **Otherwise a hit is weak when it matched fewer counted words than it needs.** It needs
+   `MIN_COVERED_WORDS` (2), or, when the query has fewer words longer than three characters, all
+   of those, and never fewer than one. One shared word in a multi-word query is not evidence. A
+   one-word query matched in full is evidence, with or without short words around it (`the
+   policy` reads as `policy`). A query of short words alone (`for`) still needs one counted
+   word, so it never passes on none.
+
+Why a count, and why 2. The rule has to be explainable on the result line and must not read as
+a likelihood (the story forbids presenting a score as a probability of usefulness without
+calibration). A count of shared words is what the reader can check against the query in one
+glance, and the reason line states exactly that count, naming the short words that did not
+count. BM25 and spine scores are not on one scale (below), so a score threshold would mean
+different things for different queries and stores. Two is the smallest count that excludes the
+audit case. It is a pre-registered starting point (owner decision D1), not a tuned value. The
+corpus pins what it decides. Whether it is the right line is a question for an experiment over
+real queries, not for one fixture.
+
+What it does not do, on purpose:
+- It does not judge how common a word is. `policy` alone is a one-word query matched in full,
+  and reliable.
+- Longer function words still count: `what`, `with`, `that`, `this`, `when` clear the count with
+  one real word if the store's sections do not carry them in over half their bodies.
+- A CamelCase identifier typed in lower case is an identifier only when it is a declared entity.
+  In a body it counts as a plain word.
+- A short id slug word (`api` in `api-limits`) is not an id component in this sense; only the
+  numeric ticket component and the whole id are.
+- A query word that is also part of another query word (`cache ResponseCache`) counts twice when
+  a document matches only `cache`.
+
+Ordering. A weak hit ranks after every reliable one, whatever its score. In `4711 themes` the
+ticket-number match comes first although the logo note scores higher. The order still decides
+the top 3, the withheld count and the redirect cut-off, so the renderer cannot show a weak
+candidate in a place a reliable find was entitled to. A weak candidate is never dropped
+(owner decision D2): when only weak candidates matched, they are what is shown, marked
+(`contracts/output.md`, "Weak candidates are marked, never dropped"). A document that matched
+nothing is never a hit at all, so nothing is picked to fill the top 3 (AC-14.3). A superseded
+document carries the strength of its own match on its `SupersededNote`.
+
+The golden table (§8) is unchanged: every approved result is reliable. The one visible change
+on the golden fixtures is the second result of G7 and G8, `metrics-query-refactor`. It shares
+only `MQ` with the query (as `MessageQueue`'s acronym) and is now marked a weak candidate.
+
+### Corpus v1 records relevance beside the verdict
+
+Every expected hit in `expected.json` has a `strength`, which is the rule's verdict, and a
+`relevant` label, which is a human reading of whether the record answers the query. The two
+are kept apart so the corpus cannot prove the rule by restating it. A reliable find that is not
+relevant is a failure of the rule. Its case carries `known_limit: true` and is listed below, and
+the corpus test fails when a case is one without the other, or when this list drifts from the
+data. A limit therefore stays a named limit and never becomes an approved result silently. A
+weak candidate that is not relevant is the rule working.
+
+### Known limits of corpus v1
+
+- `borderline-two-of-five`: `deploy order canary metrics dashboard` makes the warm-up note
+  reliable through `deploy` and `order`. The note says nothing about canaries or dashboards.
+  Two ordinary shared words clear the count.
+- `borderline-single-word`: `policy` makes the logo note reliable. A one-word query matched in
+  full is reliable whatever the word, since the rule does not judge how common a word is.
 
 ## Ambiguity clustering (`_cluster_key_for_short_token`)
 

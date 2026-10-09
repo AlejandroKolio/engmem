@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engmem.output import SCOPE_NAME_DISPLAY_MAX, surfaced_ids
+from engmem.output import SCOPE_NAME_DISPLAY_MAX, only_weak_shown, surfaced_ids
 from engmem.scoring import Scope, SearchOutcome
 
 
@@ -46,6 +46,12 @@ def _query_fields(query: str) -> dict:
     if len(query) <= QUERY_RECORD_MAX:
         return {"query": query}
     return {"query": query[:QUERY_RECORD_MAX], "query_truncated": True}
+
+
+def _weak_only_field(weak_only: bool) -> dict:
+    """`weak_only` only when true, so an ordinary row is byte-identical to one before US-14
+    (owner decision, 2026-10-09; contracts/output.md)."""
+    return {"weak_only": True} if weak_only else {}
 
 
 def _repos_fields(names: tuple[str, ...], n_searched: int) -> dict:
@@ -98,6 +104,8 @@ def log_search(
         "hits": [{"id": h.doc.id, "score": h.score} for h in outcome.hits],
         "surfaced": surfaced_ids(outcome),  # what the reader was shown, incl. redirects
         "result": _result_label(outcome),
+        # beside `result`, never in it: a row reading `hit` keeps its meaning for every reader
+        **_weak_only_field(only_weak_shown(outcome)),
         "context_bytes": context_bytes,
         "context_tokens_estimate": context_tokens_estimate,
         # explicit null for the whole store, like `session_id`: a row predating the field
@@ -137,6 +145,7 @@ def log_role_search(
         "hits": [{"id": rh.doc.id, "score": rh.score} for rh in role_hits],
         "surfaced": [rh.doc.id for rh in role_hits],
         "result": "hit" if role_hits else "miss",
+        **_weak_only_field(bool(role_hits) and all(rh.weak for rh in role_hits)),
         "context_bytes": context_bytes,
         "context_tokens_estimate": context_tokens_estimate,
         # explicit null for the whole store, like `session_id`: a row predating the field
@@ -159,6 +168,8 @@ class ChannelTotals:
     hits: int = 0
     misses: int = 0
     ambiguous: int = 0
+    # hits whose row says only weak candidates were shown; inside `hits`, not beside it
+    weak_only: int = 0
     context_bytes: int = 0
     context_tokens_estimate: int = 0
 
@@ -179,6 +190,7 @@ class _Row:
     result: object
     context_bytes: int
     context_tokens_estimate: int
+    weak_only: bool
 
 
 def _load_json_object(line: str) -> dict | None:
@@ -214,13 +226,16 @@ def _read_row(line: str) -> _Row | None:
     except (TypeError, ValueError, OverflowError):
         # a string, a list, `Infinity`: one row's bad field, not the file's
         return None
-    return _Row(channel, record.get("result"), context_bytes, context_tokens_estimate)
+    # `is True`: a row predating the field, or carrying any other value, is not weak-only
+    weak_only = record.get("weak_only") is True
+    return _Row(channel, record.get("result"), context_bytes, context_tokens_estimate, weak_only)
 
 
 def _accumulate(bucket: ChannelTotals, row: _Row) -> None:
     bucket.total += 1
     if row.result == "hit":
         bucket.hits += 1
+        bucket.weak_only += row.weak_only
     elif row.result == "ambiguous":
         bucket.ambiguous += 1
     else:

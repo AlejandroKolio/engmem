@@ -238,7 +238,11 @@ Output is a pasteable top-3 (id, path, score, why-matched, cold-start primer exc
 related docs, matched section locators) capped at 4 KB, with a footer scoreboard:
 `docs: N | drafts: N | last doc: Nd ago`. No match prints `prior context: none found`
 (exit 0). Ambiguous short queries (e.g. `MQ` matching both MessageQueue and
-MetricsQuery) return one representative per cluster, marked `ambiguous`.
+MetricsQuery) return one representative per cluster, marked `ambiguous`. A result that shares
+only one word with a longer query, and no identifier such as an entity or the record's id, is
+marked `[weak candidate]` (words of three characters or fewer, such as `for` or `the`, do not
+count unless they are an entity) with the words it matched and listed after the reliable finds; when
+nothing reliable matched, the output opens with `prior context: no reliable match`.
 
 Matching is exact, word for word, in any language that separates words with spaces or
 punctuation: `ОТМЕНА, заказа!` finds "Отмена заказа", `CacheMémoire` finds itself and

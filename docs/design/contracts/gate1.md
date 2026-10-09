@@ -430,15 +430,19 @@ not a schema gate: `gate1_audit.evaluate()` never raises, never changes `gate1_r
 `session_id` is written on every telemetry row by both channels (`telemetry.py`'s `log_search` /
 `log_role_search`; the MCP side's blank-to-`None` rule is in `contracts/mcp-server.md`,
 "`session_id`: optional to the schema, asked for in every wording"). But `_Row`, the type
-`summarize()` totals, carries only `channel`, `result`, `context_bytes` and
-`context_tokens_estimate`; `_read_row` never touches `session_id`, so `summarize()` structurally
+`summarize()` totals, carries only `channel`, `result`, `context_bytes`,
+`context_tokens_estimate` and `weak_only`; `_read_row` never touches `session_id`, so `summarize()` structurally
 cannot answer a per-session question. A reader defect, not a data gap.
 
 `telemetry.SessionRow` / `telemetry.read_session_rows()` live in `telemetry.py`, next to `_Row`,
 because a second parse of the same file format in a different module is the duplication that
 diverges. Widening `_Row` was rejected: `summarize()`'s output is pinned byte-for-byte through
 `engmem telemetry`, and a field only the audit needs has no business on the type the ordinary
-reading surface totals. The two readers share `_load_json_object`, the decode-and-shape check,
+reading surface totals. `weak_only` (US-14) went onto `_Row` for the opposite reason: the
+ordinary reading surface is the one that counts it, on the `weak-only hits:` line of `engmem
+telemetry`, and that line is printed only when there is a weak-only row, so a summary of older
+rows is byte-identical to before. `session_id` stays off `_Row` because no figure `summarize()`
+prints needs it. The two readers share `_load_json_object`, the decode-and-shape check,
 so a decode rule cannot drift between them.
 
 `read_session_rows` mirrors `summarize()`'s tolerance on purpose: a missing file is zero rows, a
