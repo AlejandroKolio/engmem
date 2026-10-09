@@ -258,6 +258,24 @@ def test_the_start_template_tells_an_agent_without_a_draft_not_to_pass_an_id():
     )
 
 
+def test_the_start_templates_read_step_tells_an_agent_without_a_draft_not_to_pass_an_id():
+    """Step 4's read instruction carries the session id like step 3's search does, and the same
+    exception: with no draft written, an id names a document that does not exist (US-16)."""
+    step4 = _start_step("## 4. Load what was found", "## 5.")
+
+    assert "engmem read" in step4 and "--session" in step4
+    assert "could not create the" in step4 and "never pass an id" in step4
+
+
+def test_the_save_templates_cite_a_quote_by_the_response_it_came_from():
+    """A read can deliver a later version than the search showed; citing the search's version for
+    a quote taken from the read fails its check (US-16, ARCH-001)."""
+    root = ROOT / "src" / "engmem" / "templates"
+    for name in ("engmem.save.md", "engmem.save.quick.md"):
+        text = " ".join((root / name).read_text(encoding="utf-8").split())
+        assert "read the quote came from" in text or "quote a read" in text, name
+
+
 def test_the_save_template_asks_about_a_superseded_citation():
     """A row citing a superseded document is indistinguishable from honest reuse once the session
     is over."""

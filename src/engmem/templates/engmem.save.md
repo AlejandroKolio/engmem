@@ -189,10 +189,11 @@ One row per prior document that **actually influenced** this work:
 
 - `prior-doc` is the cited document's id — its front-matter `id`, else its filename
   **stem** — followed by `@` and the version you read: copy `<id>@<version>` exactly as the
-  search result's `cite as (Reuse Log prior-doc):` line gives it. Never the filename as
-  written on disk: a `.md` suffix will not resolve, and the row is reported as citing a
+  `cite as (Reuse Log prior-doc):` line of the response the quote came from gives it — the
+  `engmem read` result's when you quote a read, the search result's when you quote the
+  search. Never the filename as written on disk: a `.md` suffix will not resolve, and the row is reported as citing a
   document that is not in the store and dropped from the Gate 1 count. Never compute or
-  guess a version: engmem kept a copy of exactly that version when the search showed it,
+  guess a version: engmem kept a copy of exactly that version when it showed it to you,
   and the quote is checked against that copy later, whatever the document says by then. If
   no search showed you the document (you opened it some other way), write the bare id; the
   row is then checked against the document's current text and reported as legacy.
@@ -329,7 +330,7 @@ one is always better than inventing it.
 
 ```yaml
 baseline_tokens:   # research mode: what the no-memory sub-agent actually consumed, if reported
-context_bytes:     # prior-document text pulled into context this session
+context_bytes:     # your own count of prior-document text pulled into context; not engmem's measurement
 answer_steps:      # tool calls needed after the search to reach the answer
 answer_tokens:     # only if the runtime really reports it
 ```
@@ -340,7 +341,9 @@ These answer two different questions, and it is worth keeping them apart:
   done. Qualitative, secondary, and read at review time only where the document records
   `pre-reg source: sub-agent`; a self-written baseline came from something that had already
   seen the code, so its divergence measures nothing. The primary evidence is the Reuse Log.
-- **Did memory pay for itself in context?** — `context_bytes` against `answer_steps`.
+- **Did memory pay for itself in context?** — `context_bytes` against `answer_steps`. What
+  engmem itself measured — the bytes of each search and `engmem read` response — is in
+  `engmem cost summary --session <id>`, labelled apart from estimates and missing data.
   Cheap looks like: a few kilobytes recovered, almost no tool calls afterwards. Expensive
   looks like: tens of kilobytes pulled in and the same number of tool calls as without it,
   which means the document was read but did not actually shorten the path.

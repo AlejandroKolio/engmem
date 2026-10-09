@@ -171,3 +171,24 @@ nothing, and an unanswered question records nothing: the find stays unknown, whi
 failure. `/engmem.save.quick` does not ask. Its contract is one preview and one confirmation,
 and a second question would break it. The user can still record an assessment later with
 `engmem feedback record`.
+
+## Reads go through engmem, and the agent's own count is not a measurement (US-16)
+
+`/engmem` asks the agent to load found documents with `engmem read` (MCP: `engmem_read`) and to
+pass the draft id on each read, as on each search. Only a read made that way is counted in
+`engmem cost summary`; a file opened directly is allowed, still unobserved, and the report names
+that gap (`contracts/output.md`, "Observed cost"). The instruction asks for sections by role
+because a whole document is the largest single cost a session can take on. The read carries the
+session id under step 3's rule, including its exception: with no draft written, it is left out,
+never an id whose document does not exist (ARCH-003). Each quote is cited by the `cite as`
+reference of the response it came from, the read's or the search's, in `/engmem.save` and
+`/engmem.save.quick` alike: a read can deliver a later version than the search showed
+(ARCH-001).
+
+The `context_bytes` and `answer_steps` front-matter fields stay, as the agent's own count. The
+templates call `context_bytes` that and point at `engmem cost summary` for what engmem measured;
+nothing reads the field as a measurement. A baseline figure goes to `engmem cost record-baseline`
+(MCP: `engmem_record_baseline`) only when the runtime reported it, after the draft exists,
+because the record needs the session document; `baseline_tokens` in front matter keeps its old
+rule. With nothing reported the template records nothing, and the report shows the baseline as
+missing data.

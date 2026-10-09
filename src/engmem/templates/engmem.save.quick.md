@@ -67,9 +67,9 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    search preview: short, about 240 characters together, and readable on their own.
 3. Write `## Reuse Log` as exactly `Prior docs used: none.` unless prior docs obviously
    influenced the work, in which case list them as rows (with quotes, same validity rule
-   as `/engmem.save`: `prior-doc` is the `<id>@<version>` the search result's `cite as` line
-   gave, a quoted span in `taken`, classification exactly `reuse` / `anti-reuse` /
-   `harmful`; `engmem_complete_draft` refuses a row that breaks one and returns it), but do
+   as `/engmem.save`: `prior-doc` is the `<id>@<version>` the `cite as` line of the search or
+   read the quote came from gave, a quoted span in `taken`, classification exactly `reuse` /
+   `anti-reuse` / `harmful`; `engmem_complete_draft` refuses a row that breaks one and returns it), but do
    not interrogate the user about it.
 4. Write `## Search Trace` with the `shell` / `paste` / `miss` value recorded by
    `/engmem`, alone on its own line. `- shell` or `Trace: shell` counts as no trace:

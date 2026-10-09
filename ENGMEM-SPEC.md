@@ -351,7 +351,7 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    the saved choice, then the default; a saved choice that cannot be read exits 2 with the
    cause on stderr only) and runs the protocol loop until stdin closes; the exit code is
    whatever the loop returns. `--read-only` lists only the two search tools and refuses
-   the write tools as unknown, for a server reachable from outside this machine.
+   every other tool as unknown, for a server reachable from outside this machine.
 2. On this path, **stdout carries the MCP JSON-RPC protocol and nothing else** — no
    banner, no confirmation, no error line. A single stray line corrupts a frame and
    kills the client session. This is the opposite convention from every other command
@@ -363,11 +363,14 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    without ever starting the protocol loop.
 3. The stdio loop's own protocol behavior (tool schema, request/response shapes,
    error handling within the protocol) is out of scope for this section — it lives with
-   `engmem.mcp_server`. Five tools are exposed: `engmem_search` (word search, unchanged),
+   `engmem.mcp_server`. Eight tools are exposed: `engmem_search` (word search, unchanged),
    `engmem_search_by_role` (role-addressed retrieval — English addition, see the
-   `--role` subsection under `engmem search` below), and three that write to the store —
-   `engmem_create_draft`, `engmem_complete_draft` and `engmem_mark_superseded` — plus
-   three prompts, one per template.
+   `--role` subsection under `engmem search` below), three that write documents —
+   `engmem_create_draft`, `engmem_complete_draft` and `engmem_mark_superseded` —,
+   `engmem_record_feedback` (US-15, `feedback.jsonl`), `engmem_read` (US-16, one published
+   document or its sections of one role, counted in `cost.jsonl`) and
+   `engmem_record_baseline` (US-16, the client's baseline figures) — plus three prompts, one
+   per template. `--read-only` lists the two search tools only and refuses the other six.
 4. A tool call writes the same `telemetry.jsonl` line as `search`, with the same
    `session_id` semantics (the tool takes an optional `session_id` argument alongside
    `query`). This path is inside the experiment, not beside it: a search that leaves no
@@ -631,6 +634,42 @@ assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and
 prints the same summary after its audit block. Rules: `docs/design/contracts/gate1.md`,
 "Usefulness feedback".
 
+### `engmem read DOC_ID [--role ROLE] [--session ID] [--store PATH]`
+
+*(US-16, owner decision 2026-10-09)* Prints one published document's body, or only its sections
+of `ROLE`, under a `document: <id> -- <title> (status: …)` header that names a successor for a
+superseded document, and appends one line to `cost.jsonl` with the bytes of the whole response.
+It refuses (exit 2, the cause on both streams, nothing delivered or recorded) an id with no
+document, a draft, an unknown role and a document with no section of that role. Control
+characters other than a line break and a tab are escaped. Like a search it retains the
+document's exact bytes under `versions/` and ends with `cite as (Reuse Log prior-doc):
+<id>@<version>`, the version of the whole file even for a `--role` read, or a `note: version of
+… not retained` line (§5 search 4b). Without `--session` it ends with `note: unattributed read —
+pass --session <draft-id>`. The MCP tool `engmem_read` does the same; a `--read-only` server
+does not offer it. There is no size cap (coordinator decision D3); the templates ask for
+`--role`. It exists to make reading observable, and to give an MCP-only client a way to read a
+whole document; it is not a replacement for grep or for opening a file, which stay possible and
+unobserved. Rules: `docs/design/contracts/output.md`, "Observed cost".
+
+### `engmem cost record-baseline SESSION_ID [--tokens N] [--seconds T] [--call-id ID]` / `engmem cost summary --session ID`
+
+*(US-16, owner decision 2026-10-09)* The 4 KB cap bounds one search result, not a task.
+`cost.jsonl` is an append-only log beside `telemetry.jsonl`, which it leaves unchanged: one line
+per search or read response engmem delivered (`op`, a fresh `op_id`, `session_id`, `channel`,
+`bytes` — the UTF-8 size of the whole response text, transport excluded) and one per baseline
+figure the client reported (`tokens` and/or `seconds`, `call_id`, `"reported_by": "client"`).
+`record-baseline` refuses a figure not above zero or not finite, a call with neither figure, a
+session with no document and a call id over 200 characters; `engmem_record_baseline` is its MCP
+twin. `summary` shows, for one session: search responses and document reads, apart and in total,
+as measured by engmem (the same text in two deliveries counts twice; a line repeating an
+`op_id` counts once); estimated tokens, `ceil(bytes / 3.5)`, labelled an estimate; the
+baseline as measured and reported by the client and tied to its call, or as missing data; a
+`coverage, not complete:` block naming files opened directly, CLI diagnostics on stderr, the
+model's context outside engmem, and telemetry rows with no delivery record (a `--read-only`
+server writes none); and always `savings: not claimed`, since no alternative workflow was
+measured. An unreadable or undecodable log exits 2. Rules: `docs/design/contracts/output.md`,
+"Observed cost".
+
 ## 6. Prompt templates — behavior specification
 
 ### `/engmem <task description>` (start)
@@ -859,7 +898,13 @@ point. The freeze lifts at count 10, when §11's table is read, or earlier if a 
 `version_unavailable` state and `version references:` report line — is an approved exception; see
 §11's amendment of that date.)* *(2026-10-09, owner decision: US-14's `weak_only` telemetry
 field, written only when true, and the `weak-only hits:` summary line are a further approved
-exception; see §5, search 6d.)*
+exception; see §5, search 6d.)* *(2026-10-09, owner decision: US-16 is a further approved
+exception — `cost.jsonl`, `engmem read`, `engmem cost record-baseline|summary`, the MCP tools
+`engmem_read` and `engmem_record_baseline`, and the modules `src/engmem/cost.py` and
+`src/engmem/read_report.py`. `engmem read` is admitted to make reading observable — a session's
+cost included only its searches, while the documents it read were invisible — and because an
+MCP-only client had no way to read a whole document; it is not a grep replacement. The
+telemetry row and every Gate 1 figure are unchanged; see §5, `engmem read` and `engmem cost`.)*
 
 ## 10. Principles
 

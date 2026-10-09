@@ -167,8 +167,9 @@ whole is not bounded. The caps are far above real use and the marks are additive
 `search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/`
 line, stray-scan warnings, the ranked result, the stray note, the `cite as` line and any
 `version ... not retained` notes (US-13, `contracts/gate1.md`, "Versioned citations"), the
-scoreboard, the telemetry note and the channel's unattributed note, in that order, and it writes
-the one telemetry row. The `cite as` line is housekeeping like the stray note: it is outside
+scoreboard, the telemetry note, any `cost not recorded` note and the channel's unattributed note,
+in that order, and it writes the one telemetry row and the one `cost.jsonl` row ("Observed cost",
+below). The `cite as` line is housekeeping like the stray note: it is outside
 `render_result`'s text, so `context_bytes` and every rendered-result test are unchanged by it.
 It names what `surfaced_ids` selected, so after a trim it can name a document whose block was
 cut, the same limit noted below. `engmem mcp --read-only` prints no `cite as` line.
@@ -222,6 +223,90 @@ count stays inside `hits`, and `engmem telemetry` adds one line, only when there
 `weak-only hits: N of M hit(s) showed only weak candidates — counted as hits above, not as
 reliable finds`. No telemetry figure is user-confirmed usefulness, weak or not: that is the
 Reuse Log's classification, which this does not touch (AC-14.4).
+
+## Observed cost (US-16)
+
+The 4 KB cap bounds one search result, and it was easy to read it as the cost of a task. A task
+also reads documents, may run a baseline call, and every search sends more than the rendered
+result. `engmem cost summary --session ID` reports what engmem can actually see, under three
+labels that never mix: measured by engmem, reported by the client, estimated. Whatever none of
+the three covers is named as missing data.
+
+**A ledger of its own.** `cost.jsonl` is a second append-only file, not more fields on the
+telemetry row. A read row in `telemetry.jsonl` would be counted as a search by `summarize`, by
+the Gate 1 audit and by the feedback finds, and a new search field would change every row. Here
+`telemetry.jsonl`, `engmem telemetry`, `feedback summary` and `tools/gate1_report.py` stay byte
+for byte what they were, and nothing on the Gate 1 side reads the new file. Each line carries
+`ts`, `op_id` (a fresh uuid4 hex), `op`, `session_id` (explicit `null` when unattributed) and
+`channel`. `search` and `read` add `bytes`; `read` also adds `doc_id` and `role` (`null` for a
+whole document). `baseline` adds `tokens`, `seconds`, `call_id` and `"reported_by": "client"`.
+Lines are appended the way `feedback.jsonl` is: a line torn by an interrupted write is closed
+first, so it never swallows the next one.
+
+**What a delivery measures.** `bytes` is the UTF-8 length of the whole response text the
+command or tool sent: for a search, every line `compose` returns (warnings, the result, the
+`cite as` line, the scoreboard, the notes), not only the `context_bytes` part, which keeps its
+§5 meaning. The transport is not counted: the CLI's final newline and the MCP JSON envelope.
+The one line left out is `note: cost not recorded (...)` itself, written when the row could not
+be appended; a delivery with no row is not counted at all. The same text in two deliveries is
+counted twice, because it was sent twice.
+
+**One operation, once.** The reader skips a line whose `op_id` it already counted for the
+session (a copied or replayed line) and says how many it skipped. A line it cannot count (no
+`op_id`, an unknown `op`, `bytes` that is not a non-negative integer, a baseline with no
+figure or no session) is counted as unreadable and named, as `summarize` does for telemetry.
+There are no lines older than this file, so a line without `op_id` is malformed, not legacy.
+
+**Reads go through `engmem read`.** Before US-16 an agent opened a found document as a file,
+and engmem never saw it. `engmem read ID [--role ROLE] [--session S]` and the MCP tool
+`engmem_read` (`read_report.compose_read`, one composition for both channels) deliver a
+published document's body, or only its sections of one role, under a `document:` header naming
+its status and, when superseded, its successor. A draft is refused, as it is never a search
+result (US-01); an unknown id, an unknown role and a document with no section of that role are
+refused too, and a refused read delivers nothing and writes no row. Control characters other
+than a line break and a tab are escaped, as in a search result. After the text comes the read's
+own `cite as (Reuse Log prior-doc): <id>@<version>` line, through the same
+`search_report.cite_lines` a search uses: the document's bytes are retained under `versions/`
+first, and a copy that cannot be kept prints the same `note: version of ... not retained` line
+instead (coordinator decision D4, 2026-10-09, ARCH-001). The version is that of the whole
+document file even for a `--role` read, so a quote from any section is checked against one
+copy. Without it, a document edited between the search and the read was delivered as text the
+search's version does not hold, and the quote failed its check; a document no search showed had
+no reference at all. The line is part of the delivery and counted in its bytes. There is no size
+cap on a read (coordinator decision D3); the templates ask for `--role`. A read without a session ends
+with `note: unattributed read — pass --session <draft-id>` (MCP: `session_id`). A file opened
+directly is still possible and still unobserved, so every report names that gap.
+
+**Baseline figures are the client's.** engmem cannot see what the baseline sub-agent cost; only
+the client can. `engmem cost record-baseline SESSION_ID --tokens N --seconds T --call-id X` and
+`engmem_record_baseline` record what the client reported, refusing a figure that is not above
+zero (or not finite), a call with neither figure, a session with no document and a call id over
+`cost.CALL_ID_MAX` characters. The report shows them as "measured and reported by the client",
+tied to the call id, or "a call with no id". A later report naming the same call id replaces the
+earlier one, and the report says how many were replaced. Without a report the baseline is
+"not reported by the client -- missing data". A `baseline_tokens` value in front matter is the
+agent's note and is not read here.
+
+**Estimates say so.** Estimated tokens are `ceil(bytes / 3.5)` of the measured total, the
+estimator `engmem telemetry` uses, on a line that ends "an estimate, not a measurement". No
+client reports the tokens of a delivery, so that line reads "not reported by the client --
+missing data".
+
+**What is not observed.** The `coverage, not complete:` block always names files opened
+directly (and, when the session has no observed read, says that reading cost is missing) and
+the model's own context outside engmem. It names what a CLI command prints on stderr — load
+warnings and errors, which a shell agent sees too — as not counted (ARCH-002): a delivery is
+the response text, and stderr is the diagnostics channel beside it. A refused read, the only
+case where `_load_sessions` puts an `error:` line on stdout before any response, records no row
+at all. It also names telemetry rows of the session with no
+delivery row, counted as the difference between the two files' counts: a `--read-only` server
+writes no `cost.jsonl` row (owner decision D2: it writes nothing but telemetry), and a search run
+before this file existed or whose row failed to write has none either.
+
+**No savings line.** A saving needs the same task done another way and measured. The baseline
+sub-agent writes a plan, it does not do the task, so its cost is a cost of observing, not the
+alternative. The report always ends `savings: not claimed -- ...`, and the costs it did observe
+are listed above that line.
 
 ## Known limits
 

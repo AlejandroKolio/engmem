@@ -11,7 +11,7 @@ from typing import NoReturn
 
 import yaml
 
-from engmem import __version__, feedback
+from engmem import __version__, cost, feedback
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.doctor import cmd_doctor
 from engmem.install import (
@@ -29,6 +29,7 @@ from engmem.output import (
     render_scoreboard,
     render_telemetry_summary,
 )
+from engmem.read_report import ReadError, compose_read
 from engmem.runtime import (
     StoreSettingError,
     StoreSource,
@@ -243,6 +244,61 @@ def _cmd_feedback_summary(args: argparse.Namespace) -> int:
         fail(f"engmem feedback summary: cannot read the store's logs ({exc})")
         return 2
     print(feedback.render_summary(summary, session_id))
+    return 0
+
+
+def _cmd_read(args: argparse.Namespace) -> int:
+    """One published document, or one role's sections of it, delivered and counted (US-16)."""
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    try:
+        text = compose_read(
+            store, result.docs, args.doc_id, args.role, _session_id(args.session), "cli"
+        )
+    except ReadError as exc:
+        fail(f"engmem read: {exc}")
+        return 2
+    print(text)
+    return 0
+
+
+def _cmd_cost_record_baseline(args: argparse.Namespace) -> int:
+    """Appends what the client reported for a session's baseline call (US-16)."""
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    try:
+        entry = cost.record_baseline(
+            store, {d.id for d in result.docs}, session_id=args.session_id,
+            tokens=args.tokens, seconds=args.seconds, call_id=args.call_id, channel="cli",
+        )
+    except cost.CostError as exc:
+        fail(f"engmem cost record-baseline: {exc}")
+        return 2
+    print(f"engmem cost: {cost.confirmation(entry)}")
+    return 0
+
+
+def _cmd_cost_summary(args: argparse.Namespace) -> int:
+    """Measured, estimated, client-reported and missing cost of one session, each labelled."""
+    session_id = _session_id(args.session)
+    if session_id is None:
+        fail("engmem cost summary: --session needs a session document id (got a blank value)")
+        return 2
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    try:
+        summary = cost.summarize(store, session_id, {d.id for d in result.docs})
+    except (OSError, UnicodeDecodeError) as exc:
+        # an unreadable log is not a session that cost nothing -- `_cmd_telemetry`'s reasoning
+        fail(f"engmem cost summary: cannot read the store's logs ({exc})")
+        return 2
+    print(cost.render_summary(summary))
     return 0
 
 
@@ -811,6 +867,72 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(feedback_summary_parser)
     feedback_summary_parser.set_defaults(func=_cmd_feedback_summary)
+
+    read_parser = subparsers.add_parser(
+        "read",
+        help=(
+            "print one published document, or only its sections of one role, and count the "
+            "bytes delivered for `engmem cost summary`"
+        ),
+    )
+    read_parser.add_argument("doc_id", metavar="DOC_ID", help="the id of the document to read")
+    read_parser.add_argument(
+        "--role",
+        default=None,
+        # not argparse `choices=`: `compose_read` names the whole vocabulary on both streams
+        help="print only the sections of this ROLE (see `engmem roles`)",
+    )
+    read_parser.add_argument(
+        "--session",
+        default=None,
+        help="id of the draft document this read belongs to, as on `engmem search`",
+    )
+    _add_store_option(read_parser)
+    read_parser.set_defaults(func=_cmd_read)
+
+    cost_parser = subparsers.add_parser(
+        "cost",
+        help=(
+            "show what a session's searches and reads delivered, apart from estimates and "
+            "missing data, or record what the client reported for its baseline call"
+        ),
+    )
+    cost_commands = cost_parser.add_subparsers(dest="cost_command", required=True)
+    record_baseline_parser = cost_commands.add_parser(
+        "record-baseline",
+        help=(
+            "append the tokens and/or seconds the client reported for the session's no-memory "
+            "baseline call; only figures the client reported, never an estimate"
+        ),
+    )
+    record_baseline_parser.add_argument(
+        "session_id", metavar="SESSION_ID", help="the session document the baseline belongs to"
+    )
+    record_baseline_parser.add_argument(
+        "--tokens", type=int, default=None, help="tokens the client reported for the call"
+    )
+    record_baseline_parser.add_argument(
+        "--seconds", type=float, default=None, help="duration the client reported for the call"
+    )
+    record_baseline_parser.add_argument(
+        "--call-id", default=None, help="the client's id for that call, if it gives one"
+    )
+    _add_store_option(record_baseline_parser)
+    record_baseline_parser.set_defaults(func=_cmd_cost_record_baseline)
+    cost_summary_parser = cost_commands.add_parser(
+        "summary",
+        help=(
+            "bytes engmem delivered to one session, estimated tokens, the client-reported "
+            "baseline and what is not observed; never a savings figure"
+        ),
+    )
+    cost_summary_parser.add_argument(
+        "--session",
+        required=True,
+        help="the session document id the operations were attributed to",
+    )
+    _add_store_option(cost_summary_parser)
+    cost_summary_parser.set_defaults(func=_cmd_cost_summary)
 
     backfill_parser = subparsers.add_parser(
         "backfill",

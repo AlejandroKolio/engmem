@@ -713,11 +713,12 @@ def test_compare_covered_never_asks_git_without_two_commit_ids(
 
 
 def _stored_files(store: Path) -> list[str]:
-    """What a search may leave behind besides its telemetry row and the shown versions it
-    retains (US-13): a copy of a record's bytes, never a verdict about them."""
+    """What a search may leave behind besides its telemetry row, its delivery row (US-16) and the
+    shown versions it retains (US-13): a copy of a record's bytes, never a verdict about them."""
     return sorted(
         p.name for p in store.rglob("*")
-        if p.name != "telemetry.jsonl" and "versions" not in p.relative_to(store).parts
+        if p.name not in ("telemetry.jsonl", "cost.jsonl")
+        and "versions" not in p.relative_to(store).parts
     )
 
 

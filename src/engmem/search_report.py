@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from engmem.cost import OP_SEARCH, record_delivery
 from engmem.output import (
     RELATED_MAX,
     RoleHit,
@@ -113,13 +114,13 @@ def _shown_docs(docs: list[Doc], rendered: RenderedResult) -> list[Doc]:
     ]
 
 
-def _cite_lines(store: Path, docs: list[Doc], rendered: RenderedResult) -> list[str]:
+def cite_lines(store: Path, shown: list[Doc]) -> list[str]:
     """The `<id>@<version>` a Reuse Log row cites each shown document by, each one retained under
     `versions/` first (US-13; contracts/gate1.md, "Versioned citations")."""
     references: list[str] = []
     # one cause, one line: an unwritable store fails every document the same way
     failures: dict[str, list[str]] = {}
-    for doc in _shown_docs(docs, rendered):
+    for doc in shown:
         try:
             references.append(f"{doc.id}{VERSION_SEPARATOR}{retain(store, doc)}")
         except (RetentionError, OSError) as exc:
@@ -145,8 +146,10 @@ def compose(
     channel: Channel,
     scope: Scope | None = None,
     retain_versions: bool = True,
+    record_cost: bool = True,
 ) -> str:
-    """The whole stdout of one search, and its one telemetry row; the caller only transports it."""
+    """The whole stdout of one search, its one telemetry row and, with `record_cost`, its one
+    `cost.jsonl` row; the caller only transports it."""
     lines: list[str] = []
     # "found nothing" and "could not look" must never read the same, on either channel
     if loaded.scan_error is not None:
@@ -160,7 +163,7 @@ def compose(
     if not rendered.surfaced_anything and strays:
         lines.append(stray_note(len(strays)))
     if retain_versions:
-        lines += _cite_lines(store, loaded.docs, rendered)
+        lines += cite_lines(store, _shown_docs(loaded.docs, rendered))
     lines.append(render_scoreboard(loaded.docs, failed=len(loaded.errors)))
 
     telemetry_path = store / "telemetry.jsonl"
@@ -181,6 +184,13 @@ def compose(
     # the search itself succeeded: report the gap in the result rather than lose the result
     if telemetry_error is not None:
         lines.append(f"note: telemetry not recorded ({telemetry_error})")
-    if session_id is None:
-        lines.append(_UNATTRIBUTED_NOTES[channel])
-    return "\n".join(lines)
+    trailer = [_UNATTRIBUTED_NOTES[channel]] if session_id is None else []
+    if record_cost:
+        # the delivery is the whole text sent, so it is measured last, without only this note
+        cost_error = record_delivery(
+            store, op=OP_SEARCH, session_id=session_id, channel=channel,
+            byte_count=len("\n".join(lines + trailer).encode("utf-8")),
+        )
+        if cost_error is not None:
+            lines.append(f"note: cost not recorded ({cost_error})")
+    return "\n".join(lines + trailer)
