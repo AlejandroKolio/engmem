@@ -13,6 +13,7 @@ from pathlib import Path
 from engmem.settings import Mode
 from engmem.sections import split_sections
 from engmem.spine import Doc, Problem, load_store
+from engmem.versions import retained_body, split_reference
 
 QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
 NONE_LINE = "prior docs used: none."
@@ -23,6 +24,8 @@ class Integrity(enum.StrEnum):
 
     NO_QUOTE = "no_quote"
     CITED_MISSING = "cited_missing"
+    # the row names a version, and no intact retained copy of it exists (US-13)
+    VERSION_UNAVAILABLE = "version_unavailable"
     QUOTE_NOT_FOUND = "quote_not_found"
     VERIFIED = "verified"
 
@@ -121,6 +124,9 @@ class RowVerdict:
     distance: Distance | None  # set only when integrity is VERIFIED
     staleness: Staleness | None  # set whenever `cited` resolved
     dogfooding: bool
+    # the version the row cites; None for a legacy row, checked against the current text
+    cited_version: str | None = None
+    version_problem: str | None = None  # why `cited_version` could not be checked
 
 
 @dataclass
@@ -209,7 +215,27 @@ def classification_of(cells: list[str]) -> tuple[str, Classification]:
     return raw, Classification.UNRECOGNIZED
 
 
+def cited_reference(cell: str, docs: dict[str, Doc]) -> tuple[str, str | None]:
+    """`(cited id, version)`; a cell naming an existing id exactly stays a bare id, so every row
+    that resolved before versions existed resolves the same way (contracts/gate1.md)."""
+    reference = cell.strip("[] `")
+    if reference in docs:
+        return reference, None
+    return split_reference(reference)
+
+
+def _quoted_body(
+    store: Path, cited_id: str, cited_version: str | None, bodies: dict[str, str]
+) -> tuple[str | None, str | None]:
+    """`(normalized body, None)` the quotes are checked against, else `(None, reason)`."""
+    if cited_version is None:
+        return bodies[cited_id], None
+    body, problem = retained_body(store, cited_id, cited_version)
+    return (None, problem) if body is None else (_normalized(body), None)
+
+
 def _row_verdict(
+    store: Path,
     citing: Doc,
     table_row: TableRow,
     docs: dict[str, Doc],
@@ -217,7 +243,7 @@ def _row_verdict(
     repos: dict[str, set[str] | None],
 ) -> RowVerdict:
     cells = table_row.cells
-    cited_id = cells[0].strip("[] `")
+    cited_id, cited_version = cited_reference(cells[0], docs)
     cited = docs.get(cited_id)
     source = f"{Path(citing.path).name}:{_line_number(Path(citing.path), table_row.line)}"
 
@@ -225,13 +251,18 @@ def _row_verdict(
 
     # exactly the check order verify_citations.py already used: each step needs the
     # data the step before it established -- see contracts/gate1.md
+    version_problem = None
     if not quotes:
         integrity, unfound = Integrity.NO_QUOTE, ()
     elif cited is None:
         integrity, unfound = Integrity.CITED_MISSING, ()
     else:
-        unfound = tuple(q for q in quotes if _normalized(q) not in bodies[cited_id])
-        integrity = Integrity.QUOTE_NOT_FOUND if unfound else Integrity.VERIFIED
+        body, version_problem = _quoted_body(store, cited_id, cited_version, bodies)
+        if body is None:
+            integrity, unfound = Integrity.VERSION_UNAVAILABLE, ()
+        else:
+            unfound = tuple(q for q in quotes if _normalized(q) not in body)
+            integrity = Integrity.QUOTE_NOT_FOUND if unfound else Integrity.VERIFIED
 
     staleness = None
     if cited is not None:
@@ -251,6 +282,7 @@ def _row_verdict(
         integrity=integrity, unfound_quotes=unfound,
         classification_raw=classification_raw, classification=classification,
         distance=distance, staleness=staleness, dogfooding=dogfooding,
+        cited_version=cited_version, version_problem=version_problem,
     )
 
 
@@ -282,7 +314,7 @@ def evaluate(store: Path) -> Verdicts:
             continue
 
         for table_row in table_rows:
-            rows.append(_row_verdict(doc, table_row, docs, bodies, repos))
+            rows.append(_row_verdict(store, doc, table_row, docs, bodies, repos))
 
     return Verdicts(
         rows=rows, none_reports=none_reports, none_reports_kept_apart=none_reports_kept_apart,
@@ -298,6 +330,7 @@ def excluded_by_status(row: RowVerdict) -> str | None:
 INTEGRITY_EXCLUSIONS = {
     Integrity.NO_QUOTE: "excluded: no quote in the `taken` cell",
     Integrity.CITED_MISSING: "excluded: cited document not in store",
+    Integrity.VERSION_UNAVAILABLE: "excluded: cited version cannot be checked",
     Integrity.QUOTE_NOT_FOUND: "excluded: quote not found in cited document",
 }
 
@@ -315,6 +348,8 @@ def exclusion_reason(row: RowVerdict) -> str | None:
     # then the citing document's status, then its mode, then dogfooding, then classification --
     # first one wins
     integrity_reason = INTEGRITY_EXCLUSIONS.get(row.integrity)
+    if integrity_reason is not None and row.version_problem is not None:
+        return f"{integrity_reason} -- {row.version_problem}"
     if integrity_reason is not None:
         return integrity_reason
     status = excluded_by_status(row)
@@ -329,6 +364,19 @@ def exclusion_reason(row: RowVerdict) -> str | None:
         # the one classification whose reason quotes what the human actually wrote
         return f"excluded: classification {row.classification_raw!r} not recognized"
     return CLASSIFICATION_EXCLUSIONS.get(row.classification)
+
+
+def cited_as_written(row: RowVerdict) -> str:
+    """The `prior-doc` reference as the row states it, for every message that names it."""
+    return row.cited_id if row.cited_version is None else f"{row.cited_id}@{row.cited_version}"
+
+
+def checked_against_current_text(row: RowVerdict) -> bool:
+    """A legacy row whose quotes were compared with the cited document's text as it is now --
+    the limitation AC-13.5 has every tool name (contracts/gate1.md, "Versioned citations")."""
+    return row.cited_version is None and row.integrity in (
+        Integrity.VERIFIED, Integrity.QUOTE_NOT_FOUND
+    )
 
 
 def is_valid(row: RowVerdict) -> bool:

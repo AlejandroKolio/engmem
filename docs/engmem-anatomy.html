@@ -325,6 +325,7 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 rows: 1
 citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
+version references: 0 row(s) cite a version and are checked against it, 1 legacy row(s) cite none and are checked against the cited document's current text, which may have changed since the quote was taken
 classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
 rows excluded from the count: 0
 excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded), 0 outside the experiment (mode: daily), 0 incomplete observation (baseline_unavailable), 0 research without a baseline, 0 mode not recognized
@@ -336,8 +337,9 @@ The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
 <p>Полный прогон печатает под этим ещё один блок — контроль полноты выборки, а не второй гейт. Инструмент сам называет две его оговорки. <code>--session</code> нарочно не проверяется, поэтому строка про «осиротевшие» записи считает и опечатки, и загрязнение из чужого хранилища, а не только настоящие пробелы. А <code>telemetry.jsonl</code> ведётся только дозаписью, без ротации, так что строки до Gate 1 и тестовые неотличимы от экспериментальных в пределах любого окна. Остальное — в <code>docs/design/contracts/gate1.md</code>, раздел «The audit coverage block».</p>
-    <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1. Если не читается сам документ со ссылкой, его имя стоит в первой строке вывода, и код выхода тот же.</p>
+    <p>Подделка ловится там же: если поправить цитату так, что она разойдётся с источником, проверка называет файл, строку и саму цитату и выходит с кодом 1. Если не читается сам документ со ссылкой, его имя стоит в первой строке вывода, и код выхода тот же. Цитата сверяется с той версией источника, которую показал поиск: строка выдачи <code>cite as</code> даёт ссылку вида <code>&lt;id&gt;@&lt;version&gt;</code>, а engmem хранит копию этой версии в <code>versions/</code>. Поэтому поздняя правка источника старую цитату не ломает и новую не подтверждает. Строка без версии проверяется по нынешнему тексту, как раньше, и инструмент прямо об этом пишет — как в примере ниже.</p>
 <pre><code>2000002-widget-cache.md:32: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+1 row(s) carry no version reference (legacy): checked against the cited document's current text, which may have changed since the quote was taken
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>Толкование результата тоже зафиксировано до данных. Если основная точка не взята, а вторичные взяты, вывод звучит так: хранилище как сжатый контекст себя оправдало, измерительная надстройка — нет, и надстройку сворачивают. Промах — это результат, а не повод смягчить критерий и попробовать ещё раз.</p>
   </div>
@@ -1363,6 +1365,7 @@ rm -rf ~/Developer/engmem         # ваши документы — только
 
 rows: 1
 citation integrity: 1 verified, 0 no quote, 0 cited doc not in store, 0 quote not found
+version references: 0 row(s) cite a version and are checked against it, 1 legacy row(s) cite none and are checked against the cited document's current text, which may have changed since the quote was taken
 classification: 1 reuse, 0 anti-reuse, 0 harmful, 0 classification missing, 0 classification not recognized
 rows excluded from the count: 0
 excluded from the count, by axis (a row may match more than one -- see the total above for the true count, not the sum of these): 0 dogfooding (story about this repository), 0 citing document not active (draft/superseded), 0 outside the experiment (mode: daily), 0 incomplete observation (baseline_unavailable), 0 research without a baseline, 0 mode not recognized
@@ -1374,8 +1377,9 @@ The last column is yours where the tool left it blank.
 
 [... continues with the audit coverage block -- see contracts/gate1.md ...]</code></pre>
 <p>The full run prints a second block beneath this one — sample-completeness audit coverage, not another gate. The tool states two standing caveats of its own. <code>--session</code> is deliberately unvalidated, so the orphan-row figure also counts typos and cross-store contamination, not only genuine gaps. And <code>telemetry.jsonl</code> is append-only with no rotation, so pre-Gate-1 and testing rows are indistinguishable from experimental ones within whatever window is in force. See <code>docs/design/contracts/gate1.md</code>, "The audit coverage block," for the rest.</p>
-    <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1. If the citing document itself cannot be read, its name is the first line of the output, with the same exit code.</p>
+    <p>Fabrication is caught in the same place: edit a quote so it drifts from its source, and the check names the file, the line and the quote itself, and exits 1. If the citing document itself cannot be read, its name is the first line of the output, with the same exit code. A quote is checked against the version of its source that the search showed: the result's <code>cite as</code> line gives a reference of the form <code>&lt;id&gt;@&lt;version&gt;</code>, and engmem keeps a copy of that version under <code>versions/</code>. So a later edit to the source neither breaks the old quote nor confirms a new one. A row without a version is checked against the current text, as before, and the tool says so — as in the sample below.</p>
 <pre><code>2000002-widget-cache.md:32: quote not found in 1000001-response-cache — "rejected the separate table because it would have been slower"
+1 row(s) carry no version reference (legacy): checked against the cited document's current text, which may have changed since the quote was taken
 verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 with a conflicting Reuse Log</code></pre>
     <p>The reading of the result is fixed in advance too. If the primary endpoint is missed while the secondaries hold, the verdict reads: the store as compressed context earned its keep, the measurement superstructure did not — and the superstructure gets wound down. A miss is a result, not grounds for softening the criterion and trying again.</p>
   </div>

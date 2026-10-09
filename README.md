@@ -45,7 +45,11 @@ context it pulls in has any ceiling at all.
 
 **4. Record what was actually reused.** `/engmem.save` closes the session with a Reuse Log:
 one row per prior document that changed a decision, each carrying a verbatim quote from it.
-A row without a quote is invalid. If nothing was reused, the section says exactly
+A row without a quote is invalid. The row cites the document as `<id>@<version>`, copied from
+the search result's `cite as` line: engmem kept a copy of exactly that version when it showed
+it (under `versions/` in the store), so the quote is checked against the text it was taken
+from even after the document is edited. A row with a bare id is still read, checked against
+the current text and marked as legacy. If nothing was reused, the section says exactly
 `Prior docs used: none.` — the most useful answer the experiment can get, and the easiest
 to quietly avoid writing.
 

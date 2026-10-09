@@ -25,7 +25,10 @@ later is unreachable here until it is named there.
 
 What it does not stop: a search still appends a row to `telemetry.jsonl`, because the row is the
 measurement engmem exists for, so a URL holder can grow that file; and the documents themselves
-are readable. Prompts are still served, on purpose: `/engmem` is useful for its search step,
+are readable. A read-only search writes nothing else (owner decision D2, 2026-10-09): it keeps no
+copy under `versions/` and prints no `cite as` line, because a client behind a bridge cannot save
+a Reuse Log. `_handle_read_only_tools_call` passes `retain_versions=False` down to
+`search_report.compose` (`contracts/gate1.md`, "Versioned citations"). Prompts are still served, on purpose: `/engmem` is useful for its search step,
 and the save prompts reach their write calls and get the `--read-only` refusal by name. A
 bridge stays a test setup; the tunnel is the way to keep a store private.
 
@@ -250,8 +253,15 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
    reports, per row, each defect the count would exclude it for without looking at any other
    document: no quoted span in `taken` (`gate1.quotes_in`, the same `QUOTE_RE`), a missing or
    empty classification cell, or one outside `gate1.VALID_CLASSIFICATIONS`
-   (`gate1.classification_of`). One `_ToolError` carries one line per defect with the row
-   quoted verbatim, so a row with both defects is fixed in one turn, not two. The three
+   (`gate1.classification_of`), or a `prior-doc` cell `<id>@<version>` whose version is not 16
+   lowercase hex digits (`versions.split_reference`, `versions.is_version` — the same reading
+   `gate1.cited_reference` makes when the id does not resolve). One `_ToolError` carries one
+   line per defect with the row quoted verbatim, so a row with both defects is fixed in one
+   turn, not two. The one store read in this tier spares a cell that names an existing id
+   exactly, the rule `gate1.cited_reference` applies, so an id spelled with `@` is not refused:
+   `load_store` runs only when a row has such a malformed suffix. Whether a well-formed version
+   was retained depends on the store, so that is tier 2; and a row with no version at all is a legacy row the count still reads, so it is
+   never refused here. The three
    helpers are public in `gate1` for this reason only: the refusal must agree with the count
    to the character, and a second regex here would be the drift `contracts/gate1.md`
    describes, reintroduced between the gate and the write path. This tier walks every `reuse`
@@ -280,8 +290,14 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
      `prior-doc` wants a document id, not a filename) and `quote_not_found`, each carrying
      `row.source` so a document with several rows names the right one. `no_quote` is
      impossible here by construction: tier 1 refused it with the same parser and regex.
+     `version_unavailable` is reported the same way, with `row.version_problem` as its reason
+     (the cited version has no intact retained copy, so the quote stays unverified).
      `cited_superseded` and `verdicts.conflicts` are NOT reported: both are a judgement call
      for the reviewing human, and the store-wide tools surface them at the next run.
+     Rows `gate1.checked_against_current_text` names — no version, quotes compared with the
+     current text — get one `note:` line, not a warning: they count exactly as before US-13,
+     and the line only says the evidence can change under them and where the reference comes
+     from (the search result's `cite as` line).
      `gate1.evaluate` can raise (`_repos` and `_line_number` call `read_text` unguarded on
      every document, not only this one); that is caught and degraded to `note: citation check
      did not run (<exc>)`, because a read-only diagnostic must not turn a successful commit

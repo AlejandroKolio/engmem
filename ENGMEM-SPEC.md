@@ -107,7 +107,8 @@ That is what makes it a pure function of file bytes rather than an index.
 choice saved by `engmem store set` → default `~/Developer/engmem`. A blank setting is skipped as
 if it were unset, and the answer is always absolute — `install --agent claude-desktop` writes it
 into a config file another process reads back from a working directory of its own; see
-`contracts/runtime.md`. Inside: `sessions/*.md` + `telemetry.jsonl`.
+`contracts/runtime.md`. Inside: `sessions/*.md` + `telemetry.jsonl` + `versions/` (US-13: the
+exact bytes of each document version a search showed; never read as documents, §5 search step 4b).
 
 One config file, one line, only the store path: `$XDG_CONFIG_HOME/engmem/store` (default
 `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows). *(2026-10-07, owner decision,
@@ -452,6 +453,17 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    trees; it never decides whether the decision is still right. A record linked to several
    repositories is not compared, since `covers_files` does not say which file is where.
 4. No matches → prints `prior context: none found` (exit code 0).
+4b. *(US-13)* After the result, one line names the reference a Reuse Log row cites each shown
+   published document by: `cite as (Reuse Log prior-doc): <id>@<version>, ...`, the version
+   being the first 16 hex digits of the SHA-256 of the document's exact bytes. Each is offered
+   only after an intact copy of those bytes is kept at `versions/<id>/<version>.md` (written
+   atomically; an existing copy whose bytes are wrong is replaced by the verified ones;
+   `versions/.gitattributes` with `* -text` keeps git from rewriting line endings); a copy that
+   cannot be kept is named on a `note: version of ... not retained` line instead and its
+   reference is not offered. The line sits outside the measured result, like the stray note, so
+   `context_bytes` does not change. Drafts, and superseded documents a redirect line only names,
+   are never retained. `engmem mcp --read-only` keeps no copies and prints no such line (owner
+   decision, 2026-10-09). See `docs/design/contracts/gate1.md`, "Versioned citations".
 5. Scoreboard footer, always printed: `docs: N | drafts: N | last doc: Nd ago`. The count
    carries a parenthetical for anything the store is not fully serving —
    `docs: N (M partial spine, K failed to load)` — each note present only when non-zero.
@@ -621,6 +633,9 @@ navigation misses recorded in the store's own documents.
 3. **Reuse Log** — a table, one row per prior doc that actually influenced the work:
    `| prior-doc | what was taken (artifact + QUOTE from the doc) | how it influenced the
    work | reuse|anti-reuse|harmful |`
+   `prior-doc` is `<id>@<version>` as the search result's `cite as` line gives it, so the quote
+   is checked later against exactly the version it was taken from; a bare `<id>` is still
+   read, as a legacy row checked against the document's current text (US-13).
    Rules: a row exists only if the doc was opened and had an effect; the artifact must be
    concrete (class/contract/decision/landmine); a row without a quote is invalid; do NOT
    estimate time saved — that's the author's judgment at review time; nothing used →
@@ -792,6 +807,9 @@ is practice, not counted. The count is read by hand from the "completed (status:
 figure on the "ritual:" line of `tools/gate1_report.py`'s audit block, minus such documents and
 minus any whose `repos` names `engmem` (§11, dogfooding); no code encodes this, which is the
 point. The freeze lifts at count 10, when §11's table is read, or earlier if a §11 row is met.
+*(2026-10-09, owner decision: US-13 — checking a quote against the version it cites, with its
+`version_unavailable` state and `version references:` report line — is an approved exception; see
+§11's amendment of that date.)*
 
 ## 10. Principles
 
@@ -970,6 +988,21 @@ transition rule, and no new protocol version is introduced:
 
 Recorded before any session has been written in either mode. See
 `docs/design/contracts/gate1.md`, "Modes".
+
+**Amendment, recorded 2026-10-09 (US-13), ratified by the owner the same day: a quote is checked
+against the version it cites.** A
+Reuse Log row whose `prior-doc` is `<id>@<version>` has its quote checked against the retained
+copy of that version, never against the document's current text; with no intact copy it is
+`version_unavailable`, excluded under that name with its reason, never verified. A row with a
+bare `<id>` is a legacy row and is checked and counted exactly as before, against the current
+text. No row written before this date can carry a version with a retained copy, since nothing
+kept copies before it, so no earlier row can become valid and the valid and distant figures are
+unchanged. The other figures are unchanged too unless a `prior-doc` cell contains `@`: a cell
+`<existing-id>@<anything>` that did not resolve was `cited_missing` and is now
+`version_unavailable`, excluded either way. The report adds one `version references:` line
+naming how many rows are which. A versioned row whose cited document is gone stays
+`cited_missing`. This is an owner-approved exception to the §9 measurement freeze. See `docs/design/contracts/gate1.md`,
+"Versioned citations".
 
 ### What does not count as evidence
 

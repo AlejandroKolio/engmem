@@ -134,7 +134,7 @@ refuse its own write.
 
 | Field | Description |
 |---|---|
-| `prior-doc` | id of the prior document that influenced this work |
+| `prior-doc` | id of the prior document that influenced this work, as `<id>@<version>` — the reference a search result's `cite as` line gives, naming the exact version quoted (US-13); a bare `<id>` is a legacy row, checked against the document's current text |
 | taken | concrete artifact reused (class / contract / decision / pitfall) + a direct quote from the prior document |
 | impact | how it influenced this work |
 | classification | `reuse` \| `anti-reuse` (quoted, then deliberately departed from) \| `harmful` |
@@ -181,12 +181,16 @@ The engineer's full collection of Engineering Session Documents.
 | Attribute | Description |
 |---|---|
 | location | resolved via `--store PATH` flag → `ENGMEM_HOME` env var → the choice saved by `engmem store set` → default `~/Developer/engmem` |
-| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) |
+| contents | `sessions/*.md` (the documents) + `telemetry.jsonl` (append-only search log) + `versions/<id>/<version>.md` (the exact bytes of each document version a search showed, kept so a Reuse Log quote can be checked against the version it cites — US-13) |
 | persistence | a git repository (created by `install` if it doesn't exist); no other database or cache |
 | scope | machine-wide default, or single-project if `--local` was used at install time (`ENGMEM-SPEC.md` §5, `engmem install`) |
 
 There is no derived/generated artifact belonging to the store (no index file, no cache) —
 this is a hard invariant, not an optimization detail (`ENGMEM-SPEC.md` §3).
+`versions/` does not break it: a retained copy cannot be rebuilt from anything else in the
+store — once its document is edited, the copy is the only record of the text a quote was
+taken from — so it is evidence, like `telemetry.jsonl`, not a derived index. It is never
+read as a document and never searched (`contracts/gate1.md`, "Versioned citations").
 
 ## Entity: Search Result Set
 
