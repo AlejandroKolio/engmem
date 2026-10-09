@@ -313,7 +313,7 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
     <p>Порядок обязателен для свидетельства, а не для работы. Пропущенный или переставленный такт не ломает ни задачу, ни разбор: разбор пройдёт по тому, что записано. Он лишь перестаёт быть доказательством — наивный план, написанный после чтения документов, уже ничего не доказывает.</p>
     <ol>
       <li><strong>Пре-регистрация.</strong> Отдельный под-агент, которому дана только формулировка задачи, пишет наивный план до всякого поиска, и план уходит в черновик документа. Порядок здесь и есть измерение: план, написанный после чтения документов, свидетельством уже не будет. Этот такт идёт только в исследовательском режиме (<code>engmem mode set research</code>). По умолчанию тул работает в дневном: пре-регистрации нет, и сессия в разбор не попадает.</li>
-      <li><strong>Работа.</strong> Поиск отдаёт адреса разделов, агент читает найденное, задача делается обычным образом. В середине engmem не участвует вовсе.</li>
+      <li><strong>Работа.</strong> Поиск отдаёт адреса разделов, агент читает найденное через <code>engmem read</code>, задача делается обычным образом. В середине engmem только выдаёт то, что агент читает, и записывает само чтение; правил он не навязывает и ничего не проверяет.</li>
       <li><strong>Строка журнала с дословной цитатой.</strong> На каждый повлиявший документ — строка: что процитировано, что в итоге изменилось, какого рода влияние: <code>reuse</code> — пошли за документом, <code>anti-reuse</code> — сознательно против него, <code>harmful</code> — документ увёл не туда. Строка без цитаты недействительна; если не пригодилось ничего — пишется ровно <code>Prior docs used: none.</code></li>
       <li><strong>Разбор (Gate 1).</strong> Строки со всего хранилища сводятся в одну таблицу и читаются по правилу, записанному заранее. Документ, который не удалось прочитать, называется по имени в самом начале вывода: в таблицу он не попадает, но и не пропадает молча.</li>
     </ol>
@@ -558,7 +558,7 @@ tags: []
 entities: []
 related: []
 covers_files: []
-verified_at_commit:
+verified_at:
 capture_minutes:
 mode: research
 ---
@@ -590,10 +590,12 @@ mode: research
         <div class="io">
           <div class="io-k">Команда</div>
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
-            <p>Ключевые слова агент собирает сам — из формулировки задачи и имён классов рядом в коде.</p></div>
+            <p>Ключевые слова агент собирает сам — из формулировки задачи и имён классов рядом в коде. Запускает он поиск из клона <code>platform-core</code>, и поиск сверяет записи с его <code>HEAD</code>.</p>
+            <p>Ищет он по всему хранилищу: нужная история часто лежит в соседнем репозитории. Если вы попросите сузить поиск, агент добавит <code>--repo platform-core</code> (флаг можно повторить для нескольких репозиториев): останутся документы, у которых этот репозиторий записан в <code>repos</code>, и вывод начнётся строкой <code>scope:</code>.</p></div>
           <div class="io-k">Что получается</div>
           <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.7)
 path: /Users/…/sessions/1000001-response-cache.md
+snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered files unchanged
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
@@ -602,17 +604,22 @@ ResponseCacheController serves cached responses for read endpoints using the ETA
 
 ### ttl-etag-revalidation-v2 (score: 16.3)
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
+snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered file changed: src/cache/CacheRevalidationController.java, re-check
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
   §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
   §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
+cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd, ttl-etag-revalidation-v2@e769033ec2900763
 docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
 note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
               <li>Разрыв 20.7 против 16.3 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: пятью словами, а не одним.</li>
               <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт.</li>
+              <li>Строка <code>snapshot:</code> говорит, на каком коде запись проверяли. Первый документ сверяли на коммите <code>b5cb7e6</code>; с тех пор <code>HEAD</code> ушёл вперёд, но файлы из его <code>covers_files</code> не менялись. У второго нужный файл изменился, и строка кончается на <code>re-check</code>. Верен ли сам текст, эта строка не говорит.</li>
+              <li>Здесь обе находки надёжные: у каждой совпали сущности из шапки целиком. Документ, у которого с длинным запросом совпало одно слово и ни одного идентификатора, пришёл бы с пометкой <code>[weak candidate]</code> и строкой с причиной и стоял бы после надёжных. Если надёжных нет вовсе, вывод начинается строкой <code>prior context: no reliable match</code>.</li>
+              <li>Строка <code>cite as</code> — готовая ссылка для журнала переиспользования. Каждую показанную версию engmem сохранил в <code>versions/</code>, и цитату потом сверят именно с этой копией.</li>
               <li>Футер — состояние памяти: 7 документов, среди них черновик из шага 02 (восьмой файл не прочитался и в счёт не вошёл), последний написан 19 дней назад.</li>
               <li>Последняя строка — напоминание: поиск без <code>--session</code> не привязан к черновику. По шаблону агент передаёт id черновика, и тогда этой строки нет.</li>
             </ul></div>
@@ -632,7 +639,19 @@ note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
         <div class="prose"><p>Самый дорогой шаг пути: в промпт физически уезжает текст найденных документов.</p></div>
         <div class="io">
           <div class="io-k">Что происходит</div>
-          <div class="io-v"><p>До трёх путей из выдачи открываются <strong>по разделам</strong>, а не целиком, плюс их <code>related</code> на глубину ровно 1; дальше по цепочке агент не идёт.</p></div>
+          <div class="io-v"><p>До трёх путей из выдачи открываются <strong>по разделам</strong>, а не целиком, плюс их <code>related</code> на глубину ровно 1; дальше по цепочке агент не идёт. Читает агент через engmem, по одной роли за раз: <code>engmem read</code> с id документа, ролью и id черновика (через MCP — <code>engmem_read</code>).</p></div>
+          <div class="io-k">Команда</div>
+          <div class="io-v"><pre><code>engmem read 1000001-response-cache --role decisions --session 20260820-cache-new-endpoint</code></pre>
+            <pre><code>document: 1000001-response-cache -- Response Cache API (status: active)
+section role: decisions
+
+## Decision Log
+
+Reused the ETAG and TTL headers the upstream service already sends instead of adding a
+separate cache-metadata table; rejected the separate table because the response already
+carries the freshness data and an extra lookup would add latency for no real benefit.
+cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd</code></pre>
+            <p>Ответ кончается своей строкой <code>cite as</code>. Версия в ней называет весь документ таким, каким он был в момент чтения, даже если <code>--role</code> показал только его часть. Цитату из чтения записывают по этой строке: между поиском и чтением документ могли поправить. Каждое чтение engmem записывает в <code>cost.jsonl</code>; файл, открытый напрямую, туда не попадёт, и отчёт о цене на шаге 08 так и скажет.</p></div>
           <div class="io-k">Что получается</div>
           <div class="io-v"><p>Минимум — праймер и журнал решений каждого документа; чаще всего дело решают эти три:</p>
             <pre><code>## 8. Decision Log
@@ -713,20 +732,24 @@ read-эндпоинтов, используя ETAG и TTL…</code></pre></div>
           <div class="io-v"><pre><code>tags: [platform, caching]
 entities: [EndpointConfig, ResponseCacheController, ETAG]
 related: [1000001-response-cache, ttl-etag-revalidation-v2]
-covers_files: [EndpointConfig.java, ResponseCacheController.java]
+covers_files: [src/cache/EndpointConfig.java, src/cache/ResponseCacheController.java]
 author: &lt;из git config user.name&gt;
 repos: [platform-core]
 branch: feat/response-cache
 pr:                        # PR ещё не открыт — поле остаётся пустым
 
 Подтвердить? (y / правки)</code></pre>
-            <p>Последние четыре поля доводят шапку с тринадцати до семнадцати — чистый провенанс: поиск их не читает, поэтому пустое <code>pr:</code> безвредно, а выдуманный номер — нет.</p>
-            <p>Журнал переиспользования — строка на каждый реально повлиявший документ; без прямой цитаты строка недействительна, а если ничего не пригодилось — пишется ровно <code>Prior docs used: none.</code></p>
-            <pre><code>| 1000001-response-cache
+            <p>Последние четыре поля доводят шапку с тринадцати до семнадцати — это провенанс. Из них поиск читает только <code>repos</code>: по нему работает <code>--repo</code>, и по нему же строка <code>snapshot:</code> решает, какие репозитории сверять. Остальные три он не читает, поэтому пустое <code>pr:</code> безвредно, а выдуманный номер — нет.</p>
+            <p>Журнал переиспользования — строка на каждый реально повлиявший документ; без прямой цитаты строка недействительна, а если ничего не пригодилось — пишется ровно <code>Prior docs used: none.</code> Документ в строке назван так, как его дала строка <code>cite as</code>: id и версия через <code>@</code>.</p>
+            <pre><code>| 1000001-response-cache@0e7d4b936a1cd9bd
 | «отдельную таблицу отвергли, потому что ответ и так
 |  несёт данные о свежести»
 | отказался от своей таблицы, взял заголовки апстрима
-| reuse</code></pre></div>
+| reuse</code></pre>
+            <p>Когда документ записан, полный save один раз спрашивает, помогли ли найденные документы, не подошли или навредили. Отвечать не обязательно; записывается только то, что сказали вы:</p>
+            <pre><code>engmem feedback record 20260820-cache-new-endpoint 1000001-response-cache helped --decision "dropped the separate metadata table" --source "PR 12"
+engmem feedback: recorded helped for 1000001-response-cache in session 20260820-cache-new-endpoint as a user assessment</code></pre>
+            <p>Оценка уходит в <code>feedback.jsonl</code> и в счёт Gate 1 не идёт. Документ, который вы не оценили, остаётся находкой с неизвестным влиянием: это не успех и не провал. <code>/engmem.save.quick</code> этот вопрос не задаёт.</p></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><pre><code>## Pre-reg                     ← из черновика, дословно
 ## 1. Executive Summary
@@ -763,17 +786,31 @@ pr:                        # PR ещё не открыт — поле остаё
           <div class="io-k">Что получается</div>
           <div class="io-v"><pre><code>status: draft  →  active
 capture_minutes:  →  (пусто: время начала не записали)
-verified_at_commit: → 4f1c2a8   (HEAD на момент сохранения)
+verified_at: → {platform-core: 4f1c2a8}   (HEAD на момент сохранения, после коммита этой работы)
 entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
             <pre><code>docs: 7 (1 failed to load) | drafts: 0 | last doc: 0d ago</code></pre>
-            <p><code>verified_at_commit</code> отвечает на будущий вопрос «на каком коде это было правдой», <code>capture_minutes</code> копит цену ритуала там, где её действительно измерили.</p></div>
+            <p><code>verified_at</code> отвечает на будущий вопрос «на каком коде это проверяли», по коммиту на каждый репозиторий: строка <code>snapshot:</code> из шага 03 потом покажет рядом с ним <code>HEAD</code> вашего клона; <code>capture_minutes</code> копит цену ритуала там, где её действительно измерили.</p></div>
           <div class="io-k">Чего это стоит</div>
           <div class="io-v"><p>Четыре необязательных поля отвечают, окупилась ли память по контексту:</p>
             <pre><code>baseline_tokens: 1840   # расход под-агента на наивный план
 context_bytes:   3120   # сколько текста доков втянуто в контекст
 answer_steps:       2   # вызовов инструментов ПОСЛЕ поиска
 answer_tokens:   9600   # только если рантайм реально его сообщает</code></pre>
-            <p>Дёшево — пара килобайт поднято и почти нет обращений к коду; дорого — десятки килобайт втянуты, а вызовов столько же, сколько было бы без памяти. Поле опускается, если числа нет: выдуманная цифра портит единственный анализ, ради которого всё затевалось.</p></div>
+            <p>Дёшево — пара килобайт поднято и почти нет обращений к коду; дорого — десятки килобайт втянуты, а вызовов столько же, сколько было бы без памяти. Поле опускается, если числа нет: выдуманная цифра портит единственный анализ, ради которого всё затевалось.</p>
+            <p>Эти числа агент считает сам. Что видел engmem, показывает <code>engmem cost summary --session 20260820-cache-new-endpoint</code>: сколько байтов ушло на поиски, сколько на чтения и сколько всего. Отчёт отдельно помечает, что engmem измерил сам, что сообщил клиент и что лишь оценка; чего нет, так и пишет, а экономию не заявляет никогда:</p>
+            <pre><code>observed cost for session 20260820-cache-new-endpoint -- only what engmem delivered through its own commands and tools
+measured by engmem, UTF-8 bytes of each response delivered:
+  search responses: 1 delivery(ies), 2544 bytes
+  document reads: 4 delivery(ies), 1611 bytes
+  total: 5 delivery(ies), 4155 bytes -- text repeated in different deliveries is counted each time
+estimated tokens of that total: 1188 -- ceil(bytes / 3.5), an estimate, not a measurement
+actual tokens of these deliveries: not reported by the client -- missing data
+baseline call (no-memory sub-agent): not reported by the client -- missing data
+coverage, not complete:
+  - a document opened as a file, not through `engmem read`, is not observed and not counted here
+  - diagnostics a CLI command prints on stderr (load warnings and errors) reach a shell agent too and are not counted
+  - the model's full context outside engmem (the task, the code, its own reasoning) is not measured by this report
+savings: not claimed -- the task was not also done without memory, so nothing measured can be compared against these costs; a baseline call is a cost of observing, not that alternative</code></pre></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><p>Стоимость той же задачи <em>без</em> памяти это не меряет: наивный план — план, а не выполнение, и настоящее сравнение даёт только двойной прогон одной задачи.</p></div>
         </div>
@@ -792,7 +829,7 @@ answer_tokens:   9600   # только если рантайм реально е
           <div class="io-k">Что происходит</div>
           <div class="io-v"><p>Через месяц запрос <code>EndpointConfig ETAG</code> найдёт его по полю <code>entities</code>, и таблицу не предложат в третий раз.</p></div>
           <div class="io-k">Что получается</div>
-          <div class="io-v"><p>В <code>telemetry.jsonl</code> копятся строки поисков, в документах — журналы переиспользования с цитатами; через 3–4 недели по ним проводится разбор.</p></div>
+          <div class="io-v"><p>В <code>telemetry.jsonl</code> копятся строки поисков, в документах — журналы переиспользования с цитатами; через 3–4 недели по ним проводится разбор. Рядом копятся ваши оценки в <code>feedback.jsonl</code> и размеры ответов в <code>cost.jsonl</code>; их сводят <code>engmem feedback summary</code> и <code>engmem cost summary</code>, но в счёт Gate 1 они не идут.</p></div>
         </div>
       </div>
     </article>
@@ -806,7 +843,7 @@ answer_tokens:   9600   # только если рантайм реально е
   <h2>Три пути через код</h2>
   <div class="prose">
     <p><em>Роль в цикле:</em> это код самой памяти — через который запрос превращается в ограниченную выдачу и в строку телеметрии, и которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
-    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI десять подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для клиентов, которые ходят через MCP: Claude Desktop, Codex, ChatGPT. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
+    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI тринадцать подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для клиентов, которые ходят через MCP: Claude Desktop, Codex, ChatGPT. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
   </div>
 
   <h3>Путь 1 — <code>engmem search</code>: от команды до вывода</h3>
@@ -965,7 +1002,7 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
         <div class="prose"><p>Порядок сборки решает, что переживёт обрезку, — поэтому строка про недостающие документы получает байтовый бюджет до неё, а не после.</p></div>
         <div class="io">
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p>Для первых <code>TOP_N = 3</code> хитов собирается блок: заголовок, <code>path</code>, строка <code>matched</code>, до трёх адресов разделов, до двух строк праймера (обрезка по 240 символам), до трёх связей. Следом — редиректы <code>superseded</code>, но только те, чей счёт выше худшего из показанных трёх.</p></div>
+          <div class="io-v"><p>Для первых <code>TOP_N = 3</code> хитов собирается блок: заголовок, <code>path</code>, строка <code>matched</code>, до трёх адресов разделов, до двух строк праймера (обрезка по 240 символам), до трёх связей. Следом — редиректы <code>superseded</code>, но только те, чей счёт выше худшего из показанных трёх. Если у записи есть якорь или репозиторий, после <code>path</code> идёт строка <code>snapshot:</code>; у слабого кандидата в заголовке пометка, а ниже строка с причиной. Строку <code>cite as</code> собирают после блоков, вне бюджета 4 КБ.</p></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><pre><code>1. body = собранные блоки
 2. withheld_line = "(N more document(s) matched below the top 3 — …)"
@@ -1114,7 +1151,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
 
   <h3>Путь 3 — сессия MCP: <code>engmem mcp</code>, вход для MCP-клиентов</h3>
   <div class="prose">
-    <p>Тот же поиск, что в пути 1, но по протоколу, где <code>stdout</code> — не текст для человека, а кадры JSON-RPC. Поиск здесь только часть входа: сервер отдаёт шесть инструментов, четыре из них пишут в хранилище (создать черновик, закрыть его, пометить документ устаревшим, записать оценку пользователя, помогла ли находка), и три промпта, по одному на шаблон. Промпт <code>engmem</code> на каждом вызове начинается со строки <code>engmem mode for this session: …</code>, а <code>engmem_create_draft</code> отказывает черновику, чей <code>mode</code> расходится с настроенным. Файл режима перечитывается на каждый вызов, так что <code>engmem mode set</code> подхватывается без перезапуска; новый код engmem клиент получит, только когда запустит сервер заново. С флагом <code>--read-only</code> сервер отдаёт лишь два инструмента поиска — это для сервера, до которого можно достучаться снаружи машины.</p>
+    <p>Тот же поиск, что в пути 1, но по протоколу, где <code>stdout</code> — не текст для человека, а кадры JSON-RPC. Поиск здесь только часть входа. Сервер отдаёт восемь инструментов. Два ищут, три пишут документ (создают черновик, закрывают его, помечают документ устаревшим), один записывает вашу оценку находки (<code>engmem_record_feedback</code>), один читает документ (<code>engmem_read</code>), и ещё один записывает цифры базового прогона, которые сообщил клиент (<code>engmem_record_baseline</code>). К ним три промпта, по одному на шаблон. Промпт <code>engmem</code> на каждом вызове начинается со строки <code>engmem mode for this session: …</code>, а <code>engmem_create_draft</code> отказывает черновику, чей <code>mode</code> расходится с настроенным. Файл режима перечитывается на каждый вызов, так что <code>engmem mode set</code> подхватывается без перезапуска; новый код engmem клиент получит, только когда запустит сервер заново. С флагом <code>--read-only</code> сервер отдаёт лишь два инструмента поиска — это для сервера, до которого можно достучаться снаружи машины. Такой поиск пишет строку телеметрии, но не хранит копий версий, не печатает <code>cite as</code> и ничего не пишет в <code>cost.jsonl</code>.</p>
   </div>
 
 <figure class="scroll-x">
@@ -1271,6 +1308,7 @@ engmem install --agent claude    # или copilot-ide / copilot-cli / claude-des
 
     <h3>Режим, хранилище и проверка</h3>
     <p>У тула два однострочных файла настроек, оба в <code>~/.config/engmem/</code> (<code>$XDG_CONFIG_HOME/engmem/</code>, в Windows — <code>%APPDATA%\engmem\</code>): <code>store</code> — путь к хранилищу, его пишет только <code>engmem store set</code>, и <code>mode</code> — режим, его пишет только <code>engmem mode set</code>. <code>install</code> не пишет ни тот, ни другой. Удалили файл — настройка вернулась к умолчанию.</p>
+    <p>В самом хранилище рядом с <code>sessions/</code> со временем появляются файлы, которые пишет тул: <code>telemetry.jsonl</code> — строка на каждый поиск, <code>versions/</code> — копии показанных версий документов (с <code>.gitattributes</code>, чтобы git не переписывал в них концы строк), <code>feedback.jsonl</code> — ваши оценки находок, <code>cost.jsonl</code> — размеры ответов поиска и чтения, без самого текста. Сводки по двум последним печатают <code>engmem feedback summary</code> и <code>engmem cost summary --session &lt;id&gt;</code>.</p>
 <pre><code>engmem mode set research   # следующие сессии идут по протоколу Gate 1
 engmem mode show           # режим и откуда он взят
 engmem store show          # какое хранилище в работе и куда смотрят MCP-записи</code></pre>
@@ -1291,11 +1329,12 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
       <li><strong>не удаляет чужое.</strong> Каталог навыка Copilot сносится, только если после удаления <code>SKILL.md</code> он пуст; посторонние строки в <code>CLAUDE.md</code> сохраняются, сам файл не удаляется, даже если опустел;</li>
       <li><strong>не удаляет сам пакет</strong> — команда <code>engmem</code> остаётся в PATH.</li>
     </ul>
-    <p>Поэтому полное удаление — четыре шага, и только первый обязателен для того, чтобы агент перестал звать несуществующую команду:</p>
+    <p>Поэтому полное удаление — пять шагов, и только первый обязателен для того, чтобы агент перестал звать несуществующую команду:</p>
 <pre><code>engmem uninstall --agent claude   # шаблоны и триггер-правило
 uv tool uninstall engmem          # сам пакет и команда в PATH
 rm -rf ~/.config/engmem           # настройки store и mode (в Windows — %APPDATA%\engmem)
-rm -rf ~/Developer/engmem         # ваши документы — только если точно не нужны</code></pre>
+rm -rf ~/.cache/engmem            # кэш разбора, его можно удалить в любой момент
+rm -rf ~/Developer/engmem         # документы, журналы и копии версий — только если точно не нужны</code></pre>
   </div>
 </section>
 
@@ -1353,7 +1392,7 @@ rm -rf ~/Developer/engmem         # ваши документы — только
     <p>The order is required for the evidence, not for the work. A skipped or reordered beat breaks neither the task nor the review — the review runs on whatever was recorded. It simply stops proving anything: a naive plan written after reading the documents proves nothing.</p>
     <ol>
       <li><strong>Pre-registration.</strong> A separate sub-agent, given nothing but the task statement, writes the naive plan before any search runs, and the plan goes into the draft document. The order <em>is</em> the measurement: a plan written after the documents are read is no longer evidence. This beat runs in research mode only (<code>engmem mode set research</code>). By default the tool runs in daily mode: no pre-registration, and the session stays out of the review.</li>
-      <li><strong>The work.</strong> Search hands back section addresses, the agent reads what it found, the task proceeds as it normally would. In the middle, engmem takes no part at all.</li>
+      <li><strong>The work.</strong> Search hands back section addresses, the agent reads what it found through <code>engmem read</code>, the task proceeds as it normally would. In the middle, engmem only hands out what the agent reads and records the read; it imposes no rules and runs no checks.</li>
       <li><strong>A Reuse Log row with a verbatim quote.</strong> One row per influencing document: what was quoted, what changed as a result, and what kind of influence it was: <code>reuse</code> — the work followed the document, <code>anti-reuse</code> — it deliberately went against it, <code>harmful</code> — the document led it astray. A row without a quote is invalid; if nothing was of use, the line written is exactly <code>Prior docs used: none.</code></li>
       <li><strong>The review (Gate 1).</strong> Rows from the whole store are collected into one table and read against a rule written down in advance. A document that could not be read is named at the very top of the output: it gets no row, and it does not vanish quietly either.</li>
     </ol>
@@ -1598,7 +1637,7 @@ tags: []
 entities: []
 related: []
 covers_files: []
-verified_at_commit:
+verified_at:
 capture_minutes:
 mode: research
 ---
@@ -1630,10 +1669,12 @@ control invalidation that way.</code></pre></div>
         <div class="io">
           <div class="io-k">Command</div>
           <div class="io-v"><pre><code>engmem search "ResponseCacheController ETAG revalidation"</code></pre>
-            <p>The agent assembles the keywords itself — from your phrasing and the class names it sees nearby in the code.</p></div>
+            <p>The agent assembles the keywords itself — from your phrasing and the class names it sees nearby in the code. It runs the search from a <code>platform-core</code> checkout, and the search compares the records with that checkout's <code>HEAD</code>.</p>
+            <p>It searches the whole store: the story you need often lives in a neighbouring repository. If you ask to narrow it, the agent adds <code>--repo platform-core</code> (repeat the flag for several repositories): only documents whose <code>repos</code> names that repository remain, and the output opens with a <code>scope:</code> line.</p></div>
           <div class="io-k">What comes back</div>
           <div class="io-v"><pre><code>### 1000001-response-cache (score: 20.7)
 path: /Users/…/sessions/1000001-response-cache.md
+snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered files unchanged
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
   §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
@@ -1642,17 +1683,22 @@ ResponseCacheController serves cached responses for read endpoints using the ETA
 
 ### ttl-etag-revalidation-v2 (score: 16.3)
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
+snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered file changed: src/cache/CacheRevalidationController.java, re-check
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
   §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
   §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
 related: 1000001-response-cache (/Users/…/sessions/1000001-response-cache.md)
+cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd, ttl-etag-revalidation-v2@e769033ec2900763
 docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
 note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
               <li>The gap between 20.7 and 16.3 separates a direct hit from a tangential one, and <code>matched</code> shows by what: five words, not one.</li>
               <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes.</li>
+              <li>The <code>snapshot:</code> line says which code the record was checked against. The first document was checked at commit <code>b5cb7e6</code>; <code>HEAD</code> has moved on since, but the files in its <code>covers_files</code> have not changed. The second one's file has changed, so its line ends in <code>re-check</code>. Whether the text itself is right, the line does not say.</li>
+              <li>Both finds here are reliable: each matched entities from its header in full. A document that shared one word with a longer query and no identifier would come back tagged <code>[weak candidate]</code>, with a line giving the reason, after the reliable ones. When nothing reliable matched, the output opens with <code>prior context: no reliable match</code>.</li>
+              <li>The <code>cite as</code> line is the reference ready for the Reuse Log. engmem kept a copy of each version it showed under <code>versions/</code>, and the quote is later checked against that copy.</li>
               <li>The footer is the state of the memory: 7 documents, the draft from step 02 among them (an eighth file failed to load and is not counted), the newest written 19 days ago.</li>
               <li>The last line is a reminder: a search without <code>--session</code> is tied to no draft. Following the template, the agent passes the draft id, and then the line is gone.</li>
             </ul></div>
@@ -1672,7 +1718,19 @@ note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
         <div class="prose"><p>The most expensive step on the path: the text of the found documents physically moves into the prompt.</p></div>
         <div class="io">
           <div class="io-k">What happens</div>
-          <div class="io-v"><p>Up to three paths from the results are opened <strong>section by section</strong>, not whole, plus their <code>related</code> at depth exactly 1; the agent never follows the chain further.</p></div>
+          <div class="io-v"><p>Up to three paths from the results are opened <strong>section by section</strong>, not whole, plus their <code>related</code> at depth exactly 1; the agent never follows the chain further. The agent reads through engmem, one role at a time: <code>engmem read</code> with the document id, the role and the draft id (over MCP, <code>engmem_read</code>).</p></div>
+          <div class="io-k">Command</div>
+          <div class="io-v"><pre><code>engmem read 1000001-response-cache --role decisions --session 20260820-cache-new-endpoint</code></pre>
+            <pre><code>document: 1000001-response-cache -- Response Cache API (status: active)
+section role: decisions
+
+## Decision Log
+
+Reused the ETAG and TTL headers the upstream service already sends instead of adding a
+separate cache-metadata table; rejected the separate table because the response already
+carries the freshness data and an extra lookup would add latency for no real benefit.
+cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd</code></pre>
+            <p>The response ends with its own <code>cite as</code> line. Its version names the whole document as it was at the read, even when <code>--role</code> showed only part of it. A quote from the read is cited by that line: the document may have been edited between the search and the read. engmem records every read in <code>cost.jsonl</code>; a file opened directly never gets there, and the cost report at step 08 says so.</p></div>
           <div class="io-k">What comes back</div>
           <div class="io-v"><p>At minimum the primer and the Decision Log of each document; these three usually settle the matter:</p>
             <pre><code>## 8. Decision Log
@@ -1753,20 +1811,24 @@ that already arrive instead.</code></pre>
           <div class="io-v"><pre><code>tags: [platform, caching]
 entities: [EndpointConfig, ResponseCacheController, ETAG]
 related: [1000001-response-cache, ttl-etag-revalidation-v2]
-covers_files: [EndpointConfig.java, ResponseCacheController.java]
+covers_files: [src/cache/EndpointConfig.java, src/cache/ResponseCacheController.java]
 author: &lt;from git config user.name&gt;
 repos: [platform-core]
 branch: feat/response-cache
 pr:                        # no PR opened yet — the field stays blank
 
 Confirm? (y / edits)</code></pre>
-            <p>Those last four take the header from thirteen fields to seventeen — pure provenance: search never reads them, so a blank <code>pr:</code> is harmless and an invented number is not.</p>
-            <p>The Reuse Log is one row per document that actually influenced the work; without a direct quote the row is invalid, and if nothing helped it writes exactly <code>Prior docs used: none.</code></p>
-            <pre><code>| 1000001-response-cache
+            <p>Those last four take the header from thirteen fields to seventeen — provenance. Search reads only <code>repos</code> of them: <code>--repo</code> filters on it, and the <code>snapshot:</code> line uses it to decide which repositories to check. The other three it never reads, so a blank <code>pr:</code> is harmless and an invented number is not.</p>
+            <p>The Reuse Log is one row per document that actually influenced the work; without a direct quote the row is invalid, and if nothing helped it writes exactly <code>Prior docs used: none.</code> The row names the document the way the <code>cite as</code> line gave it: the id and the version, joined by <code>@</code>.</p>
+            <pre><code>| 1000001-response-cache@0e7d4b936a1cd9bd
 | "rejected the separate table because the response
 |  already carries the freshness data"
 | dropped my own table, reused the upstream headers
-| reuse</code></pre></div>
+| reuse</code></pre>
+            <p>Once the document is written, a full save asks you once whether the documents found helped, did not apply, or did harm. Answering is up to you; only what you said is recorded:</p>
+            <pre><code>engmem feedback record 20260820-cache-new-endpoint 1000001-response-cache helped --decision "dropped the separate metadata table" --source "PR 12"
+engmem feedback: recorded helped for 1000001-response-cache in session 20260820-cache-new-endpoint as a user assessment</code></pre>
+            <p>The assessment goes to <code>feedback.jsonl</code> and stays out of the Gate 1 count. A document you did not assess remains a find of unknown influence: neither a success nor a failure. <code>/engmem.save.quick</code> does not ask.</p></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><pre><code>## Pre-reg                     ← carried over verbatim
 ## 1. Executive Summary
@@ -1803,17 +1865,31 @@ Confirm? (y / edits)</code></pre>
           <div class="io-k">What comes back</div>
           <div class="io-v"><pre><code>status: draft  →  active
 capture_minutes:  →  (blank: no start time was recorded)
-verified_at_commit: → 4f1c2a8   (HEAD at save time)
+verified_at: → {platform-core: 4f1c2a8}   (HEAD at save time, after this work was committed)
 entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
             <pre><code>docs: 7 (1 failed to load) | drafts: 0 | last doc: 0d ago</code></pre>
-            <p><code>verified_at_commit</code> answers the future question "which code was this true against"; <code>capture_minutes</code> accumulates the ritual's price where it was actually measured.</p></div>
+            <p><code>verified_at</code> answers the future question "which code was this checked against", one commit per repository: the <code>snapshot:</code> line from step 03 later shows your checkout's <code>HEAD</code> next to it; <code>capture_minutes</code> accumulates the ritual's price where it was actually measured.</p></div>
           <div class="io-k">What it costs</div>
           <div class="io-v"><p>Four optional fields answer whether memory paid for itself in context:</p>
             <pre><code>baseline_tokens: 1840   # the sub-agent's spend on the naive plan
 context_bytes:   3120   # document text pulled into context
 answer_steps:       2   # tool calls AFTER the search
 answer_tokens:   9600   # only when the runtime really reports it</code></pre>
-            <p>Cheap is a couple of kilobytes recovered and almost no further trips to the code; expensive is tens of kilobytes pulled in and the same number of tool calls you'd have made anyway. A field is omitted when the number isn't there: a fabricated figure corrupts the one analysis this whole thing exists for.</p></div>
+            <p>Cheap is a couple of kilobytes recovered and almost no further trips to the code; expensive is tens of kilobytes pulled in and the same number of tool calls you'd have made anyway. A field is omitted when the number isn't there: a fabricated figure corrupts the one analysis this whole thing exists for.</p>
+            <p>The agent counts these numbers itself. What engmem saw, <code>engmem cost summary --session 20260820-cache-new-endpoint</code> shows: how many bytes went to searches, how many to reads, and the total. The report labels apart what engmem measured itself, what the client reported and what is only an estimate; it says what is missing, and it never claims a saving:</p>
+            <pre><code>observed cost for session 20260820-cache-new-endpoint -- only what engmem delivered through its own commands and tools
+measured by engmem, UTF-8 bytes of each response delivered:
+  search responses: 1 delivery(ies), 2544 bytes
+  document reads: 4 delivery(ies), 1611 bytes
+  total: 5 delivery(ies), 4155 bytes -- text repeated in different deliveries is counted each time
+estimated tokens of that total: 1188 -- ceil(bytes / 3.5), an estimate, not a measurement
+actual tokens of these deliveries: not reported by the client -- missing data
+baseline call (no-memory sub-agent): not reported by the client -- missing data
+coverage, not complete:
+  - a document opened as a file, not through `engmem read`, is not observed and not counted here
+  - diagnostics a CLI command prints on stderr (load warnings and errors) reach a shell agent too and are not counted
+  - the model's full context outside engmem (the task, the code, its own reasoning) is not measured by this report
+savings: not claimed -- the task was not also done without memory, so nothing measured can be compared against these costs; a baseline call is a cost of observing, not that alternative</code></pre></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><p>This does <em>not</em> measure the cost of the same task without memory: the naive plan is a plan, not an execution, and only running one task twice gives a real side-by-side number.</p></div>
         </div>
@@ -1832,7 +1908,7 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
           <div class="io-k">What happens</div>
           <div class="io-v"><p>A month from now, the query <code>EndpointConfig ETAG</code> finds it through the <code>entities</code> field, and the table isn't proposed a third time.</p></div>
           <div class="io-k">What comes back</div>
-          <div class="io-v"><p><code>telemetry.jsonl</code> accumulates search records and the documents accumulate quoted reuse logs; after 3–4 weeks those are reviewed.</p></div>
+          <div class="io-v"><p><code>telemetry.jsonl</code> accumulates search records and the documents accumulate quoted reuse logs; after 3–4 weeks those are reviewed. Beside them, <code>feedback.jsonl</code> collects your assessments and <code>cost.jsonl</code> the size of each response; <code>engmem feedback summary</code> and <code>engmem cost summary</code> sum them up, and neither enters the Gate 1 count.</p></div>
         </div>
       </div>
     </article>
@@ -1846,7 +1922,7 @@ answer_tokens:   9600   # only when the runtime really reports it</code></pre>
   <h2>Three paths through the code</h2>
   <div class="prose">
     <p><em>Its role in the loop:</em> this is the memory's own code — what turns a query into a bounded result and a telemetry line, and what puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
-    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has ten subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for clients that come in over MCP: Claude Desktop, Codex, ChatGPT. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
+    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has thirteen subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for clients that come in over MCP: Claude Desktop, Codex, ChatGPT. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
   </div>
 
   <h3>Path 1 — <code>engmem search</code>: from the command to the output</h3>
@@ -2005,7 +2081,7 @@ body  = 10.02                    →  score 20.7</code></pre>
         <div class="prose"><p>Assembly order decides what survives the trim — which is why the withheld-count line gets its byte budget before the trim, not after.</p></div>
         <div class="io">
           <div class="io-k">What runs</div>
-          <div class="io-v"><p>For the first <code>TOP_N = 3</code> hits, a block is built: header, <code>path</code>, a <code>matched</code> line, up to three section addresses, up to two lines of the primer (capped at 240 characters), up to three links. Then the <code>superseded</code> redirects — but only those whose score beats the weakest of the shown three.</p></div>
+          <div class="io-v"><p>For the first <code>TOP_N = 3</code> hits, a block is built: header, <code>path</code>, a <code>matched</code> line, up to three section addresses, up to two lines of the primer (capped at 240 characters), up to three links. Then the <code>superseded</code> redirects — but only those whose score beats the weakest of the shown three. A record with an anchor or a repository gets a <code>snapshot:</code> line after <code>path</code>; a weak candidate gets a tag in its header and a line giving the reason below it. The <code>cite as</code> line is assembled after the blocks, outside the 4 KB budget.</p></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><pre><code>1. body = the assembled blocks
 2. withheld_line = "(N more document(s) matched below the top 3 — …)"
@@ -2154,7 +2230,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
 
   <h3>Path 3 — an MCP session: <code>engmem mcp</code>, the entry point for MCP clients</h3>
   <div class="prose">
-    <p>The same search as path 1, but over a protocol where <code>stdout</code> isn't text for a human — it's JSON-RPC frames. Search is only part of this entry point: the server exposes six tools, four of which write to the store (create a draft, complete it, mark a document superseded, record the user's assessment of whether a find helped), and three prompts, one per template. The <code>engmem</code> prompt opens with <code>engmem mode for this session: …</code> on every call, and <code>engmem_create_draft</code> refuses a draft whose <code>mode</code> differs from the configured one. The mode file is read again on every call, so <code>engmem mode set</code> takes effect without a restart; new engmem code reaches the client only when it starts the server again. With <code>--read-only</code> the server exposes just the two search tools — meant for a server reachable from outside the machine.</p>
+    <p>The same search as path 1, but over a protocol where <code>stdout</code> isn't text for a human — it's JSON-RPC frames. Search is only part of this entry point. The server exposes eight tools. Two search, three write a document (create a draft, complete it, mark a document superseded), one records your assessment of a find (<code>engmem_record_feedback</code>), one reads a document (<code>engmem_read</code>), and one more records the baseline figures the client reported (<code>engmem_record_baseline</code>). On top come three prompts, one per template. The <code>engmem</code> prompt opens with <code>engmem mode for this session: …</code> on every call, and <code>engmem_create_draft</code> refuses a draft whose <code>mode</code> differs from the configured one. The mode file is read again on every call, so <code>engmem mode set</code> takes effect without a restart; new engmem code reaches the client only when it starts the server again. With <code>--read-only</code> the server exposes just the two search tools — meant for a server reachable from outside the machine. Such a search writes its telemetry row, but keeps no version copies, prints no <code>cite as</code> and writes nothing to <code>cost.jsonl</code>.</p>
   </div>
 
 <figure class="scroll-x">
@@ -2311,6 +2387,7 @@ engmem install --agent claude    # or copilot-ide / copilot-cli / claude-desktop
 
     <h3>Mode, store and checking the setup</h3>
     <p>The tool has two one-line setting files, both in <code>~/.config/engmem/</code> (<code>$XDG_CONFIG_HOME/engmem/</code>; <code>%APPDATA%\engmem\</code> on Windows): <code>store</code>, the store path, written only by <code>engmem store set</code>, and <code>mode</code>, written only by <code>engmem mode set</code>. <code>install</code> writes neither. Delete a file and that setting returns to its default.</p>
+    <p>Inside the store, next to <code>sessions/</code>, the tool writes more files over time: <code>telemetry.jsonl</code>, one line per search; <code>versions/</code>, copies of the document versions it showed (with a <code>.gitattributes</code> so git does not rewrite their line endings); <code>feedback.jsonl</code>, your assessments of finds; <code>cost.jsonl</code>, the size of each search and read response, never the text. <code>engmem feedback summary</code> and <code>engmem cost summary --session &lt;id&gt;</code> print the summaries of the last two.</p>
 <pre><code>engmem mode set research   # sessions from now on run the Gate 1 protocol
 engmem mode show           # the mode, and where it came from
 engmem store show          # the store in use, and where the MCP entries point</code></pre>
@@ -2331,11 +2408,12 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
       <li><strong>never removes what isn't its own.</strong> A Copilot skill directory is pruned only if it's empty after its <code>SKILL.md</code> goes; unrelated lines in <code>CLAUDE.md</code> survive, and the file itself is never deleted even if it ends up empty;</li>
       <li><strong>doesn't remove the package</strong> — the <code>engmem</code> command stays on your PATH.</li>
     </ul>
-    <p>So a full removal is four steps, and only the first is required to stop agents calling a command that no longer exists:</p>
+    <p>So a full removal is five steps, and only the first is required to stop agents calling a command that no longer exists:</p>
 <pre><code>engmem uninstall --agent claude   # templates and the trigger rule
 uv tool uninstall engmem          # the package and the PATH command
 rm -rf ~/.config/engmem           # the store and mode settings (%APPDATA%\engmem on Windows)
-rm -rf ~/Developer/engmem         # your documents — only if you're sure</code></pre>
+rm -rf ~/.cache/engmem            # the parse cache, safe to delete at any time
+rm -rf ~/Developer/engmem         # documents, logs and version copies — only if you're sure</code></pre>
   </div>
 </section>
 

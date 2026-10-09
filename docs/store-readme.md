@@ -9,13 +9,22 @@ responsible for it, what's in here, who's allowed to read it, and how long it li
 ## What this is
 
 Personal engineering memory: one markdown document per closed task (decisions and
-their reasons, rejected alternatives, landmines), plus a search log,
-`telemetry.jsonl`, and under `versions/` an exact copy of each document version a search
-showed, so a quote can later be checked against the text it was taken from (delete a
-document's `versions/<id>/` too when you remove a fact from the store; keep
-`versions/.gitattributes`, which stops git from rewriting the copies' line endings). It's populated by
-the engmem tool (https://github.com/AlejandroKolio/engmem) at the end of each task and
-read back by it at the start of the next one.
+their reasons, rejected alternatives, landmines) in `sessions/`, plus what the engmem tool
+(https://github.com/AlejandroKolio/engmem) records around them. It's populated by the tool at
+the end of each task and read back by it at the start of the next one.
+
+- `telemetry.jsonl` — one line per search: the query, what surfaced, bytes of context spent.
+- `versions/<id>/` — an exact copy of each document version a search or `engmem read` showed,
+  so a Reuse Log quote can later be checked against the text it was taken from.
+  `versions/.gitattributes` stops git from rewriting the copies' line endings; keep it.
+- `feedback.jsonl` — your answers to "did this find help, not apply, or do harm?", with the
+  decision and source you named.
+- `cost.jsonl` — the byte count of each response engmem delivered and any baseline figures
+  your client reported; never the text itself.
+
+When you remove a fact from the store, delete the document's `versions/<id>/` too, and any
+`feedback.jsonl` line whose decision or source repeats it; `telemetry.jsonl` keeps the queries
+that were typed. `cost.jsonl` holds no text from the documents.
 
 ## Owner
 
