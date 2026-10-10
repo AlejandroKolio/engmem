@@ -101,16 +101,21 @@ class Checkout:
 
 
 class SessionCheckout:
-    """The checkout this process runs in, looked up on first use and at most once."""
+    """The checkout this process runs in, or the one `directory` is in, looked up on first use
+    and at most once."""
 
-    def __init__(self) -> None:
+    def __init__(self, directory: Path | None = None) -> None:
+        self._directory = directory
         self._checkout: Checkout | None = None
         # a git that timed out or could not start is not asked again in this search
         self._git_failure: str | None = None
 
     def lookup(self) -> Checkout:
         if self._checkout is None:
-            self._checkout = _find_session_checkout()
+            self._checkout = (
+                _find_session_checkout() if self._directory is None
+                else find_checkout(self._directory)
+            )
         return self._checkout
 
     def covered(self, anchor: str, paths: list[str]) -> CoveredCheck:

@@ -248,6 +248,15 @@ doctor, and prints each step to type in Codex. Your own store and `~/.codex` are
 `--verify` then checks that a record was saved and found again by another session, and that the
 example's acceptance check passes. See [docs/walkthrough-codex.md](docs/walkthrough-codex.md).
 
+To see a task handed between Codex and Claude Code, `engmem walkthrough handoff --dir
+~/engmem-handoff` wires both clients to one demo store, each in a workspace of its own, and
+prints three sessions: Codex saves a decision, Claude Code finds it and saves its own, and Codex
+finds that one by its id. The command does not change your own store, `~/.codex`, `~/.claude`
+or `~/.claude.json`; Claude Code itself records the demo folder's trust and the session transcript
+there, as for any folder. `--verify` first checks that both clients are set to the same store, and reports a
+mismatch, naming both stores, instead of a missing record. See
+[docs/walkthrough-handoff.md](docs/walkthrough-handoff.md).
+
 If the saved file is unreadable or the store it names is missing, commands stop and name the
 path; they never fall back to another store. `--agent claude-desktop` and `--agent codex`
 record the store in their MCP entry at install time, so after a `store set` re-run the install
@@ -458,8 +467,11 @@ and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes o
 removed straight away, even when interrupted.
 
 **`engmem walkthrough` writes only inside the directory you give it.** It creates a demo
-store, a demo Codex config and a workspace there, and runs `git init`, `engmem doctor`, and
+store, a demo Codex config and workspaces there, and runs `git init`, `engmem doctor`, and
 with `--verify` the acceptance check engmem ships, against the workspace's `demo_orders`.
+`walkthrough handoff` also writes Claude Code's `.mcp.json` and `.claude/settings.json` inside
+its `storefront/` workspace, and makes one commit per workspace with your git hooks and commit
+signing switched off.
 
 **The cache is JSON, never pickle.** Token counts live under `~/.cache/engmem/`, which any
 process running as you can write to. Unpickling from there would execute whatever it

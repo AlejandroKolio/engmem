@@ -588,11 +588,11 @@ def test_verify_refuses_a_directory_the_walkthrough_did_not_build(home, tmp_path
     ],
 )
 def test_on_windows_the_env_line_is_powershell_with_literal_values(monkeypatch, value, literal):
-    from engmem.walkthrough import _env_command
+    from engmem.demo import env_command
 
-    monkeypatch.setattr("engmem.walkthrough.sys.platform", "win32")
+    monkeypatch.setattr("engmem.demo.sys.platform", "win32")
 
-    lines = _env_command({"CODEX_HOME": value, "ENGMEM_HOME": value}, "codex")
+    lines = env_command({"CODEX_HOME": value, "ENGMEM_HOME": value}, "codex")
 
     assert lines[0] == f"$env:CODEX_HOME = {literal}; $env:ENGMEM_HOME = {literal}; codex"
     assert "PowerShell" in lines[1] and "stay set" in lines[1]

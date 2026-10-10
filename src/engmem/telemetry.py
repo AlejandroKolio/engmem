@@ -295,6 +295,8 @@ class SessionRow:
     # what the row's search showed, for the usefulness summary's finds (US-15)
     surfaced: tuple[str, ...] = ()
     weak_only: bool = False
+    # what was searched for, for the handoff walkthrough's search by id (US-18)
+    query: str = ""
 
 
 def _parse_ts(raw: object) -> datetime | None:
@@ -341,6 +343,7 @@ def read_session_rows(jsonl_path: Path) -> list[SessionRow]:
                 ts=_parse_ts(record.get("ts")),
                 surfaced=_shown_ids(record),
                 weak_only=record.get("weak_only") is True,
+                query=record["query"] if isinstance(record.get("query"), str) else "",
             ))
     return rows
 
