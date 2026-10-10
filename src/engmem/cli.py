@@ -48,7 +48,7 @@ from engmem.sections import CANONICAL_ROLES
 from engmem.settings import Mode, ModeSettingError, mode_setting_file, save_mode, saved_mode
 from engmem.spine import Doc, LoadResult, load_store, sessions_dir_unreadable, stray_documents
 from engmem.telemetry import summarize as summarize_telemetry
-from engmem.walkthrough import CLIENTS as WALKTHROUGH_CLIENTS
+from engmem.walkthrough import DEMOS as WALKTHROUGH_DEMOS
 from engmem.walkthrough import cmd_walkthrough
 
 
@@ -815,30 +815,31 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     walkthrough_parser = subparsers.add_parser(
         "walkthrough",
         help=(
-            "build a demo of one save-and-find cycle for a real Codex session, with its own "
-            "store and Codex settings, and print each step; --verify checks it was completed"
+            "build a demo for real agent sessions, with its own store and client settings, and "
+            "print each step: codex walks one save-and-find cycle in Codex, handoff passes a "
+            "task between Codex and Claude Code; --verify checks it was completed"
         ),
     )
     walkthrough_parser.add_argument(
         "client",
-        metavar="CLIENT",
+        metavar="DEMO",
         # not argparse `choices=`: `cmd_walkthrough` names the cause on both streams itself
-        help=f"one of {', '.join(WALKTHROUGH_CLIENTS)}",
+        help=f"one of {', '.join(WALKTHROUGH_DEMOS)}",
     )
     walkthrough_parser.add_argument(
         "--dir",
         required=True,
         help=(
-            "the demo directory: new, empty, or one the walkthrough built; holds the demo store, "
-            "the demo's CODEX_HOME and its workspace"
+            "the demo directory: new, empty, or one the same walkthrough built; holds the demo "
+            "store, the demo's client settings and its workspaces"
         ),
     )
     walkthrough_parser.add_argument(
         "--verify",
         action="store_true",
         help=(
-            "check the demo store for the saved record, another session's search that found it "
-            "and the passing acceptance check; PASS only when all three hold"
+            "check the demo store for what the walkthrough's steps leave behind; PASS only when "
+            "every check holds"
         ),
     )
     walkthrough_parser.set_defaults(func=cmd_walkthrough)

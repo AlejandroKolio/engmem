@@ -252,6 +252,101 @@ The demo's MCP server, and shell `engmem` commands outside Codex's sandbox, shar
 user's documents. They are rebuilt on the next search, the sharing contracts/cache.md already
 accepts, and no document is touched.
 
+## Walkthrough: a handoff between Codex and Claude Code (US-18)
+
+Owner decisions, 2026-10-10: `engmem walkthrough handoff` is a demo of its own in the shape of
+`walkthrough codex`, for one pair of clients (D1); which client saved a record or ran a search is
+read from the demo's per-client routes, never from a new field (D2), so the session record and
+telemetry formats stay as §9's measurement freeze has them.
+
+The parts both demos share live in `engmem/demo.py`: claiming the directory, the containment
+check, the exclusive writes, the demo `CODEX_HOME`, the doctor gate and the printed environment
+lines. `walkthrough.py` keeps the Codex demo and the dispatch; `handoff.py` holds this one. The
+marker now holds the name of the walkthrough that built the directory, and each demo refuses a
+directory the other built. The two layouts differ (`workspace/` against `orders/` and
+`storefront/`), and one store holding both demos' records would let one `--verify` count the
+other's sessions.
+
+**One store, two routes.** Codex gets the same demo `CODEX_HOME` as `walkthrough codex`. Claude
+Code gets two project files in its workspace, both naming the demo store: `.mcp.json` with the
+stdio entry `_stdio_mcp_entry` builds for Desktop, and `.claude/settings.json` with
+`env.ENGMEM_HOME`. The printed start line also sets `ENGMEM_HOME` and passes `--strict-mcp-config
+--mcp-config <that .mcp.json>`. That flag makes Claude Code use only the servers in that file, so
+an `engmem` server the engineer added at user scope, which names their own store, cannot take
+the MCP half of the session while the shell half goes to the demo. That is the same split the
+separate `CODEX_HOME` prevents for Codex. Without the flag, a project `.mcp.json` server still
+outranks a user-scope one of the same name, but only after the engineer approves it. The
+`env` in the project settings covers a start without `ENGMEM_HOME`. Claude Code's docs do not say
+which wins when both are set, and here both name the same store.
+
+`CLAUDE_CONFIG_DIR` was the alternative and is not used. It moves `~/.claude` and `~/.claude.json`
+as a whole, so the session would lose the `/engmem` commands and the trigger rule that `engmem
+install --agent claude` put in `~/.claude`. The demo would then have to install its own copies,
+and the docs do not say whether the sign-in moves with it. The commands name no store, so the
+installed ones are used and none are written, as with Codex's skills. `engmem doctor --agent
+claude` checks them, read only, with the demo store, and the same `not ready:` rule applies.
+
+What was checked against Claude Code's documentation and never by running it: the `.mcp.json`
+shape, project-over-user precedence by server name, `--strict-mcp-config` ignoring every other MCP
+configuration, the `env` key applying to the Bash tool, and the trust prompt for a new folder.
+The command writes nothing outside the demo directory, but the Claude Code session the owner
+starts records the folder's trust and project state in `~/.claude.json` and its transcript under
+`~/.claude/projects/`, as for any folder. The docs say so and list it under cleaning up, rather
+than claim those files untouched.
+The owner's real run is what confirms them.
+
+**Who did what is read from the workspace.** Each client works in its own git checkout, `orders`
+for Codex and `storefront` for Claude Code, and the save templates link a record to the checkout
+it was saved in (`repos`, spelled as the checkout's directory name). So a published record
+belongs to the client whose workspace it links. A search belongs to the client of the document
+its `--session` names. A draft links no repository yet, so a session counts only once it has
+saved, and the steps end each session with a quick save for that reason. A record linked to both
+workspaces is decided by its `verified_at` anchors: the templates record an anchor only for a
+checkout at hand. Anchors in both, or in neither, leave it with no client, and the `missing:` line
+names its session as one whose client is unknown, or names the record itself as linking both
+workspaces with anchors that do not tell. It is never guessed. The step messages ask each
+agent to link the record to its own repository only, because an agent that read about the other
+repository tends to link it too. `--verify` cannot see which binary ran a session. That is said in
+its `not checked here:` line.
+
+**A mismatch is reported as one, never as a missing record (AC-18.4).** Before it looks at any
+record, `--verify` reads the four places a client's store is set: `--store` and
+`shell_environment_policy.set.ENGMEM_HOME` in the demo `config.toml`, `--store` in `.mcp.json`,
+`env.ENGMEM_HOME` in `.claude/settings.json`. The `--store` values are read with `_store_argument`,
+the same way `store show` and doctor read them. Paths are compared resolved. When any one of them
+names another store, or names none, or its file cannot be parsed, the line is `mismatch: same
+store:`. It names each client's store with the file that sets it, and the handoff checks are not
+run. With the clients on different stores, a record one of them cannot see is a configuration
+fact, not a knowledge gap.
+
+**The two checks (AC-18.1, AC-18.2).** "Found" means what it means in `walkthrough codex` and the
+usefulness summary, `_finds`: shown to a session other than the document's own, by a search that
+did not show only weak candidates. Weakness is recorded per search, not per result: a telemetry
+row says only whether every result it showed was weak (`weak_only`), so a search with one reliable
+find counts every record it showed, a weak candidate beside it included. Re-scoring the row's
+query at verify time was considered and not done: it would score against the store as it is now,
+not as the search saw it, and a per-result flag is a new telemetry field, which §9 freezes. The
+`ok:` lines and the docs state the limit. `codex to claude` asks for a Codex record with the short-capture
+`Decision:` naming `request_id`, a stated `Reason:` and `Source:`, and a cold-start primer, since
+the primer is what the search result shows. `claude to codex` asks for any published Claude Code
+record with a stated `Decision:`, `Reason:` and `Source:` and a primer. It counts a search only for
+the record whose id its query names, and only when that same search showed that record. The id is
+matched whole, between characters that cannot be part of an id (`[a-z0-9-]`), so
+`20261011-storefront` does not name `20261011-s`, and a search naming one record that shows
+another counts for neither. AC-18.2 is about finding it by its id, and the telemetry
+row's existing `query` is read for that. `SessionRow` gained the field. The row format did not.
+
+**The unavailable source (AC-18.3) was already handled by US-11.** A search run where the record's
+repository has no checkout keeps the anchor and shows `<repo> <anchor>: unknown, no checkout of
+it here`, and the Decision Log keeps the Source. Nothing new was needed for the search. The demo
+makes the case happen: the `orders` checkout is not where Claude Code works. Each workspace gets
+one commit of the demo files at set-up, so a save has a commit to anchor. That commit is made with
+`core.hooksPath` pointed at a directory that does not exist and `commit.gpgsign=false`, so no hook
+and no signing setting of the engineer's runs for it. It is made once: a workspace that already
+has a `HEAD` is left alone. `--verify` prints the same snapshot line through `SessionCheckout`,
+which now takes the directory to look in. It is a `note:`, not a gate: the owner's PASS is the
+two finds.
+
 ## ChatGPT: nothing to write
 
 ChatGPT's connector lives in the ChatGPT workspace, so `--agent chatgpt` creates the store and

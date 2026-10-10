@@ -22,9 +22,10 @@ does not measure how long that takes.
 engmem walkthrough codex --dir ~/engmem-demo
 ```
 
-The directory must be new, empty, or one the walkthrough built before. The command refuses
-any other directory, and any path it would write through that is a symbolic link or leads
-outside the directory, such as a Windows junction. It creates:
+The directory must be new, empty, or one this walkthrough built before. The command refuses a
+directory `engmem walkthrough handoff` built, any other directory, and any path it would write
+through that is a symbolic link or leads outside the directory, such as a Windows junction. It
+creates:
 
 | Path | What it is |
 |---|---|

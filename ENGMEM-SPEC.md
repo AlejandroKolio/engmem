@@ -349,7 +349,8 @@ the demo shares `~/.cache/engmem`; D5 `--verify` runs the agent-edited `demo_ord
 engmem's Python; D6 `--verify` reads only the short-capture labelled lines; D7 the demo config
 names the store by its resolved path.)* Builds a demo of one save-and-find cycle for a real
 Codex session in `PATH` (resolved), which must be new, empty, or one the walkthrough built (it
-holds a `.engmem-walkthrough` marker); any other directory, and any path the set-up writes
+holds a `.engmem-walkthrough` marker naming `walkthrough codex`); any other directory, a
+directory another walkthrough built included, and any path the set-up writes
 through that is a symbolic link or resolves outside `PATH` (a junction), is refused with exit 2
 and nothing written. `PATH` gets a demo store (`store/`), a demo `CODEX_HOME` (`codex-home/`:
 `sandbox_mode = "workspace-write"`, the demo store in `writable_roots` and in
@@ -367,9 +368,48 @@ Decision Log has a `Decision:` naming `request_id` with a stated `Reason:` and `
 search attributed to another session that showed any of them as a find (not weak only); and the
 acceptance check engmem ships, never the workspace copy, exiting 0 against the workspace's
 `demo_orders`. Then `PASS` naming the record that was found, exit 0, only when all three hold;
-otherwise `NOT COMPLETE`, exit 1. Exit 2 when `PATH` holds no marker. Whether the agent named the
+otherwise `NOT COMPLETE`, exit 1. Exit 2 when `PATH` holds no `walkthrough codex` marker,
+a handoff marker included. Whether the agent named the
 id and Source is read in the Codex transcript, which is owner acceptance (E-05). See
 `docs/walkthrough-codex.md` and `docs/design/contracts/install.md`, "Walkthrough".
+
+### `engmem walkthrough handoff --dir PATH [--verify]`
+
+*(US-18, owner decisions 2026-10-10: D1 a demo of its own in the shape of `walkthrough codex`,
+for one pair of clients, Codex and Claude Code; D2 which client saved a record or ran a search is
+read from the demo's per-client workspace, never from a new field, so the session record and
+telemetry formats do not change.)* Builds, in `PATH` (resolved; the same refusals as
+`walkthrough codex`, with a marker naming `walkthrough handoff`), one demo store (`store/`), the
+demo `CODEX_HOME` of `walkthrough codex` (`codex-home/`), Codex's workspace `orders/`
+(`demo_orders`) and Claude Code's workspace `storefront/` (`demo_storefront`), each a git
+repository with one commit of the demo files, made with the engineer's hooks and commit signing
+switched off. `storefront/` also gets `.mcp.json` (the engmem stdio entry with `--store` = the
+demo store) and `.claude/settings.json` (`env.ENGMEM_HOME` = the demo store); `~/.claude` and
+`~/.claude.json` are never opened by the command (Claude Code itself, once started, records the
+folder's trust and its transcripts there). Only missing files are written and no second commit is made.
+It runs `engmem doctor --agent codex` and `engmem doctor --agent claude` against the demo store,
+with the same `not ready:` rule, then prints three sessions: Codex saves the `request_id`
+decision in `orders/`; Claude Code, started there as `claude --strict-mcp-config --mcp-config
+storefront/.mcp.json` with `ENGMEM_HOME` set, continues in `storefront/` and saves its own
+decision; a new Codex session searches for that record's id and saves.
+`--verify` first compares the store each client is set to: `--store` and `ENGMEM_HOME` in the
+demo `config.toml`, `--store` in `.mcp.json` and `env.ENGMEM_HOME` in `.claude/settings.json`.
+Any other store, or one it cannot read, is `mismatch: same store:` naming each client's store and
+the file that sets it, then `NOT COMPLETE: configuration mismatch`, exit 1, and the handoff is not
+judged (AC-18.4). Otherwise it prints `ok:` or `missing:` for `codex to claude` (a published
+record linked to `orders` with a `Decision:` naming `request_id`, a stated `Reason:` and
+`Source:` and a primer, shown as a find to a session whose record is linked to `storefront`)
+and `claude to codex` (a published record linked to `storefront` with a stated `Decision:`,
+`Reason:`, `Source:` and a primer, shown as a find by a search whose query names that same
+record's id as a whole token, in a session whose record is linked to `orders`). A find is a
+search that did not show only weak candidates; weakness is recorded per search, not per result,
+so a weak candidate shown beside a reliable find counts. A record
+linked to both workspaces belongs to the one its `verified_at` anchors alone, else to neither.
+A `note: unavailable source:` line shows the Codex record as a search from `storefront/` shows it:
+its Source, and the snapshot line saying the `orders` checkout is not there, so the current-code
+check is not performed (AC-18.3, the US-11 snapshot unchanged). `PASS`, exit 0, only when both
+hold; otherwise `NOT COMPLETE`, exit 1; exit 2 when `PATH` holds no handoff marker. See
+`docs/walkthrough-handoff.md` and `docs/design/contracts/install.md`, "Walkthrough: a handoff".
 
 ### `engmem mcp [--store PATH] [--read-only]`
 
