@@ -148,8 +148,7 @@ write-probed. Codex profiles and an MCP entry's own `env` are not resolved.
 Every check runs in the shell doctor was started from. A client that runs commands in its own
 sandbox may be refused what this shell was allowed. So no client ever gets an `ok` for access
 from inside it. Each run ends with an `unverified: sandbox:` line naming the client and the
-store. For ChatGPT the line is `tunnel`: `tunnel-client`'s profile records its own
-`--mcp-command`, and engmem does not read it.
+store. ChatGPT has no sandbox line; it gets the two bridge lines below.
 
 Codex has a sandbox config engmem can read, so doctor reads it. The top-level `sandbox_mode`
 and `[sandbox_workspace_write] writable_roots` come from `$CODEX_HOME/config.toml`, through the
@@ -161,6 +160,26 @@ workspace-write. The action is the one `install` already prints: add the store t
 `writable_roots`, or approve each write. Codex profiles are not resolved, and the workspace
 Codex starts in is not known here. A store inside that workspace is writable without
 `writable_roots`, and the warning names that exception.
+
+## ChatGPT: the bridge (US-19)
+
+ChatGPT reaches the store through a bridge, and engmem cannot see who that bridge lets in. So
+`--agent chatgpt` ends with two `unverified` lines and never an `ok` (`_bridge_findings`):
+
+- `tunnel` names the one supported bridge, OpenAI's Secure MCP Tunnel, and says its access
+  check is OpenAI's and was not verified by engmem. It also reports what this shell can see:
+  the `tunnel-client` path on PATH (not run; doctor runs no network tool), or that it is not on
+  PATH. The profile records its own `--mcp-command` and `--store`, and engmem does not read it,
+  so whether ChatGPT uses the tunnel at all is not claimed. Where the profile lives and what it
+  looks like is `tunnel-client`'s own, so parsing it would be guessing at a format engmem does
+  not own.
+- `public bridge` says engmem cannot see whether one is in use and that such a bridge is not
+  protected: `--read-only` only refuses writes, and whoever holds the URL reads documents,
+  titles and search snippets (AC-19.4). A process scan for `ngrok` or `supergateway` would see
+  only this machine and only now, and an empty result would read as a clean bill.
+
+Both texts are `install`'s (`contracts/install.md`, "ChatGPT: which bridge, and what it
+protects"), so the two commands say the same thing.
 
 ## Paths a config cannot hold
 

@@ -19,8 +19,10 @@ from engmem.install import (
     _SKILL_AGENTS,
     LEGACY_TRIGGER_RULES,
     MCP_CONFIGS,
+    PUBLIC_BRIDGE_STATUS,
     TRIGGER_MARKER,
     TRIGGER_RULE,
+    TUNNEL_BRIDGE_STATUS,
     McpWiring,
     WiringVerdict,
     _agent_instructions_file,
@@ -119,7 +121,10 @@ def diagnose(agent: str, local: bool, explicit: str | None) -> list[Finding]:
     findings += _trigger_rule_findings(agent, local)
     if agent in MCP_CONFIGS:
         findings += _mcp_findings(agent, choice)
-    findings.append(_sandbox_finding(agent, choice))
+    if agent == "chatgpt":
+        findings += _bridge_findings()
+    else:
+        findings.append(_sandbox_finding(agent, choice))
     return findings
 
 
@@ -461,13 +466,6 @@ def _command_finding(wiring: McpWiring) -> Finding:
 
 def _sandbox_finding(agent: str, choice: StoreChoice | None) -> Finding:
     store = choice.path if choice is not None else None
-    if agent == "chatgpt":
-        return Finding(
-            Status.UNVERIFIED, "tunnel",
-            "ChatGPT reaches engmem through `tunnel-client`, whose profile records its own "
-            "--mcp-command and --store; engmem does not read that profile — compare it with the "
-            "store above",
-        )
     if agent == "codex":
         return _codex_sandbox_finding(store)
     client = _CLIENT_NAMES[agent]
@@ -476,6 +474,29 @@ def _sandbox_finding(agent: str, choice: StoreChoice | None) -> Finding:
         f"the checks above ran in this shell, outside {client}; whether {client}'s own sandbox "
         f"or permission rules let it read and write {store or 'the store'} is not verified",
     )
+
+
+def _bridge_findings() -> list[Finding]:
+    """Neither line is ever `ok`: engmem sees neither bridge's access control —
+    contracts/doctor.md, "ChatGPT: the bridge"."""
+    found = _on_path("tunnel-client")
+    where = (
+        f"`tunnel-client` is {found} on this shell's PATH (not run)"
+        if found is not None
+        else "`tunnel-client` is not on this shell's PATH"
+    )
+    return [
+        Finding(
+            Status.UNVERIFIED, "tunnel",
+            f"{TUNNEL_BRIDGE_STATUS}. {where}; engmem does not read its profile, so whether "
+            f"ChatGPT reaches engmem through it, and the --mcp-command and --store it launches, "
+            f"are not verified — compare the profile with the store above",
+        ),
+        Finding(
+            Status.UNVERIFIED, "public bridge",
+            f"engmem cannot see whether one is in use; {PUBLIC_BRIDGE_STATUS}",
+        ),
+    ]
 
 
 def _codex_sandbox_finding(store: Path | None) -> Finding:

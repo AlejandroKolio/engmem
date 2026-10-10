@@ -1,4 +1,8 @@
+import os
+import re
 import shlex
+import shutil
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -404,6 +408,116 @@ def test_chatgpt_install_prints_a_tunnel_command_that_launches_this_store(env, t
     mcp_command = tokens[tokens.index("--mcp-command") + 1]
     assert _split_command_line(mcp_command) == [sys.executable, *_expected_args(store)]
     assert "note: installed templates" not in out, "the tunnel command carries the store itself"
+
+
+REPO = Path(__file__).resolve().parent.parent
+SETUP_SCRIPT = REPO / "scripts" / "setup-openai.sh"
+_UNNEGATED_PROTECTED = re.compile(r"(?<!not )\bprotected\b", re.IGNORECASE)
+# the exact claims, pinned here once: engmem observes neither bridge's access control
+TUNNEL_LINE = (
+    "bridge: OpenAI's Secure MCP Tunnel is the one supported bridge; OpenAI decides who may reach "
+    "it, and engmem did not verify that"
+)
+PUBLIC_LINE = (
+    "public bridge: a public bridge (supergateway plus ngrok or cloudflared) is not protected: "
+    "whoever holds its URL reads the store's documents, titles and search snippets; "
+    "`engmem mcp --read-only` only refuses writes and does not make the store private"
+)
+
+
+def test_chatgpt_install_names_the_bridge_and_calls_neither_protected(env, tmp_path, capsys):
+    """AC-19.4: engmem sees neither bridge's access control, so the summary claims none."""
+    _install("--agent", "chatgpt", "--store", str(tmp_path / "store"))
+
+    lines = capsys.readouterr().out.splitlines()
+    assert TUNNEL_LINE in lines and PUBLIC_LINE in lines
+    assert not re.search(r"\b(only|private|protected|secure[ds]?|safe)\b", TUNNEL_LINE.split(";")[1])
+    assert not [line for line in lines if _UNNEGATED_PROTECTED.search(line)], lines
+
+
+def _stub(bin_dir: Path, name: str, body: str) -> None:
+    tool = bin_dir / name
+    tool.write_text(body, encoding="utf-8")
+    tool.chmod(0o755)
+
+
+def _run_setup_script(tmp_path: Path, with_tunnel: bool) -> tuple[str, list[str]]:
+    """Runs the real script with stubbed `uv`, `engmem` and `tunnel-client`; returns stdout and
+    the `tunnel-client` subcommands it called."""
+    home, bin_dir, calls = tmp_path / "home", tmp_path / "bin", tmp_path / "tunnel-calls"
+    home.mkdir()
+    bin_dir.mkdir()
+    _stub(bin_dir, "uv", "#!/bin/sh\nexit 0\n")
+    _stub(
+        bin_dir, "engmem",
+        f"#!{sys.executable}\nimport sys\nfrom engmem.cli import main\nsys.exit(main())\n",
+    )
+    _stub(bin_dir, "tunnel-client", f'#!/bin/sh\necho "$1" >> {shlex.quote(str(calls))}\nexit 0\n')
+    env = {
+        "PATH": os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]),
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "ENGMEM_HOME": str(tmp_path / "store"),
+    }
+    if with_tunnel:
+        env |= {"TUNNEL_ID": "tunnel-test", "CONTROL_PLANE_API_KEY": "key-test"}
+    result = subprocess.run(
+        ["bash", str(SETUP_SCRIPT), "--skip-codex", "--store", str(tmp_path / "store")],
+        env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    called = calls.read_text(encoding="utf-8").split() if calls.exists() else []
+    return result.stdout, called
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None, reason="a bash script, POSIX only"
+)
+@pytest.mark.parametrize("with_tunnel", [True, False], ids=["tunnel-initialised", "no-tunnel"])
+def test_setup_script_summary_names_the_tunnel_only_when_it_initialised_one(tmp_path, with_tunnel):
+    """AC-19.4 for scripts/setup-openai.sh: its summary says only what the run itself did."""
+    out, called = _run_setup_script(tmp_path, with_tunnel)
+
+    summary = out.split("==> Done", 1)[1]
+    initialised = (
+        "ChatGPT bridge: Secure MCP Tunnel, profile 'engmem' initialised; OpenAI decides who may "
+        "reach it, and this script did not verify that"
+    )
+    assert (initialised in summary) is with_tunnel, summary
+    assert ("ChatGPT bridge: none set up by this script" in summary) is not with_tunnel, summary
+    assert (
+        "public bridge (supergateway plus ngrok or cloudflared): not protected; whoever holds its "
+        "URL reads documents, titles and search snippets, and --read-only only refuses writes"
+    ) in summary
+    assert not _UNNEGATED_PROTECTED.findall(out), out
+    assert called == (["init", "doctor"] if with_tunnel else []), "the script never runs the tunnel"
+
+
+def _canary_document() -> str:
+    text = (REPO / "docs" / "remote-access.md").read_text(encoding="utf-8")
+    block = text.split("<!-- canary-document: begin -->", 1)[1].split("<!-- canary-document: end -->", 1)[0]
+    return block.split("```markdown\n", 1)[1].rsplit("```", 1)[0]
+
+
+def test_the_acceptance_canary_document_is_a_valid_active_document_found_by_its_word(
+    tmp_path, capsys
+):
+    """docs/remote-access.md tells the owner to save it as is; a drifted copy would make the
+    AC-19 check fail for a reason that has nothing to do with the tunnel."""
+    from engmem.spine import load_store
+
+    sessions = tmp_path / "store" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "20260101-zebracanary-check.md").write_text(_canary_document(), encoding="utf-8")
+
+    loaded = load_store(sessions)
+
+    assert not loaded.errors and not loaded.warnings, (loaded.errors, loaded.warnings)
+    [doc] = loaded.docs
+    assert doc.status == "active" and "zebracanary" in doc.title.casefold()
+    assert "zebracanary" in doc.body
+    assert main(["search", "zebracanary", "--store", str(tmp_path / "store")]) == 0
+    assert "20260101-zebracanary-check" in capsys.readouterr().out
 
 
 def test_chatgpt_install_writes_nothing_outside_the_store(env, tmp_path):

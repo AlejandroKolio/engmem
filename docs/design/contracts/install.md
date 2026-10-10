@@ -355,3 +355,39 @@ launch line the other MCP clients get, quoted as one argument for the platform's
 (`shlex` on POSIX, `list2cmdline` on Windows). Uninstall prints where the
 connector is deleted and reports 0, without the "other agent present" nudge, which would read
 as if it had looked for ChatGPT's files.
+
+## ChatGPT: which bridge, and what it protects (US-19)
+
+Owner decisions, 2026-10-10 (E-04). D1: OpenAI's Secure MCP Tunnel is the one supported bridge.
+OpenAI decides who reaches it, so engmem opens no port and gains no network server or auth
+code (`tests/test_no_network.py`, `contracts/mcp-server.md`). D2: a public bridge (`supergateway` plus `ngrok` or `cloudflared`) stays documented as a test setup and is
+always called not protected.
+
+So after the tunnel steps install prints two lines, `TUNNEL_BRIDGE_STATUS` and
+`PUBLIC_BRIDGE_STATUS`, shared with doctor so the two cannot drift:
+
+- `bridge:` names the tunnel and says who decides access: OpenAI, not verified by engmem. engmem
+  sees neither the tunnel nor the workspace, so it does not say who that is ("your workspace",
+  "only", "private"), and the bare word "protected" would claim something nothing here observed.
+- `public bridge:` says such a bridge is not protected: whoever holds its URL reads the store's
+  documents, titles and search snippets. It also says `--read-only` only refuses writes. Before
+  US-19 the README said a leaked URL "can read the store but never change a document", which a
+  reader could take as "read-only, so safe" (AC-19.4).
+
+Neither line depends on what is set up, because install sets up nothing for ChatGPT.
+`scripts/setup-openai.sh` does run `tunnel-client init`, so its summary names the tunnel only
+when that ran in the same run, and otherwise says no bridge was set up. Both forms still leave
+the access check to OpenAI. Tests pin both install lines word for word and check that no output
+calls anything protected. On POSIX the script itself is run under bash with stub `uv`, `engmem` and `tunnel-client`, both
+with and without the tunnel variables, because a text check cannot tell whether the tunnel line
+depends on `tunnel-client init` having run. AC-19.1..19.3 (no access without authorization, read
+works and writes are refused, a revoked client is refused) are enforced by OpenAI's tunnel, not
+by engmem, so they are checked by the owner against the real tunnel: `docs/remote-access.md`.
+
+That procedure runs on a store holding one synthetic document, given inline and loaded by a test
+so it cannot drift invalid: whatever the store holds goes to ChatGPT's history, and to an
+unauthorized account if a step fails, so a real document there would turn a failed check into a
+leak. Every negative step is followed by a positive control, a search from an authorized account
+that must add a `telemetry.jsonl` line; without it a refusal could mean the tunnel was simply
+down. Revocation must remove one client's access while the tunnel keeps running: deleting the
+tunnel or stopping `tunnel-client` refuses everyone and proves nothing about that client.

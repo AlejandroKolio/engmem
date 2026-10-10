@@ -818,6 +818,19 @@ def _shell_quoted_mcp_command(store: Path) -> str:
     return shlex.quote(shlex.join(argv))
 
 
+# engmem never observes who reaches either bridge, so neither line may call a setup protected:
+# contracts/install.md, "ChatGPT: which bridge, and what it protects"
+TUNNEL_BRIDGE_STATUS = (
+    "OpenAI's Secure MCP Tunnel is the one supported bridge; OpenAI decides who may reach it, "
+    "and engmem did not verify that"
+)
+PUBLIC_BRIDGE_STATUS = (
+    "a public bridge (supergateway plus ngrok or cloudflared) is not protected: whoever holds "
+    "its URL reads the store's documents, titles and search snippets; `engmem mcp --read-only` "
+    "only refuses writes and does not make the store private"
+)
+
+
 def _print_chatgpt_steps(store: Path) -> None:
     mcp_command = _shell_quoted_mcp_command(store)
     print(
@@ -831,6 +844,8 @@ def _print_chatgpt_steps(store: Path) -> None:
         "  3. in ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, then "
         "Create app, Connection: Tunnel"
     )
+    print(f"bridge: {TUNNEL_BRIDGE_STATUS}")
+    print(f"public bridge: {PUBLIC_BRIDGE_STATUS}")
 
 
 def _cwd_is_repo_scoped(args: argparse.Namespace) -> bool:

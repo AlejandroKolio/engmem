@@ -6,6 +6,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -25,6 +26,7 @@ from conftest import (
 
 from engmem import __version__
 from engmem.cli import main
+from engmem.install import TUNNEL_BRIDGE_STATUS
 
 
 
@@ -141,7 +143,7 @@ EXPECTED_SUBJECTS = {
     "copilot-cli": {"skill", "engmem command", "sandbox"},
     "codex": {"skill", "trigger rule", "engmem command", "mcp entry", "mcp command", "sandbox"},
     "claude-desktop": {"mcp entry", "mcp command", "sandbox"},
-    "chatgpt": {"tunnel"},
+    "chatgpt": {"tunnel", "public bridge"},
 }
 
 
@@ -951,6 +953,49 @@ def test_no_client_is_ever_reported_ok_from_inside_its_sandbox(
     assert _with(lines, "ok", "sessions write")
     [line] = [l for l in lines if ": sandbox:" in l or ": tunnel:" in l]
     assert line.startswith(("unverified:", "warning:")), line
+
+
+# --- US-19: ChatGPT's bridge is named, never called protected --------------------------------
+
+
+def _fake_tunnel_client(bin_dir: Path, ran: Path) -> Path:
+    """An executable `tunnel-client` that leaves `ran` behind if anything runs it."""
+    if sys.platform == "win32":
+        tool = bin_dir / "tunnel-client.bat"
+        tool.write_bytes(f'@echo ran> "{ran}"\r\n'.encode())
+    else:
+        tool = bin_dir / "tunnel-client"
+        tool.write_text(f"#!/bin/sh\necho ran > {shlex.quote(str(ran))}\n")
+        tool.chmod(0o755)
+    return tool
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["on-path", "missing"])
+def test_chatgpt_bridge_lines_name_what_was_seen_and_claim_no_protection(
+    home, tmp_path, monkeypatch, capsys, present
+):
+    _install("chatgpt", tmp_path / "notes", capsys)
+    ran = tmp_path / "ran"
+    bin_dir = tmp_path / "tools"
+    bin_dir.mkdir()
+    tool = _fake_tunnel_client(bin_dir, ran) if present else None
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    code, lines = _doctor(capsys, "--agent", "chatgpt")
+
+    [tunnel] = [line for line in lines if ": tunnel:" in line]
+    assert tunnel.startswith(f"unverified: tunnel: {TUNNEL_BRIDGE_STATUS}. "), tunnel
+    assert "does not read its profile" in tunnel
+    if present:
+        # casefolded: Windows' lookup spells the extension the way PATHEXT does
+        assert f"is {tool} on this shell's PATH (not run)".casefold() in tunnel.casefold()
+    else:
+        assert "is not on this shell's PATH" in tunnel
+    [public] = _with(lines, "unverified", "public bridge")
+    assert "is not protected" in public and "only refuses writes" in public
+    assert not [line for line in lines if re.search(r"(?<!not )\bprotected\b", line, re.I)], lines
+    assert not ran.exists(), "doctor ran tunnel-client"
+    assert code == 0
 
 
 # --- the report is stdout's ----------------------------------------------------------------

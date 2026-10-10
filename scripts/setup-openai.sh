@@ -141,6 +141,9 @@ PY
   verify_mcp "${CODEX_MCP_COMMAND[@]}" || die "the engmem MCP server in $CODEX_CONFIG did not answer"
 fi
 
+# what the summary may say about ChatGPT's bridge: only what this script saw happen
+TUNNEL_PROFILE=0
+
 if [[ $DO_CHATGPT -eq 1 ]]; then
   step "Wiring engmem into ChatGPT (Secure MCP Tunnel)"
   CHATGPT_OUT="$(engmem install --agent chatgpt --store "$STORE")"
@@ -154,6 +157,7 @@ if [[ $DO_CHATGPT -eq 1 ]]; then
       --tunnel-id "$TUNNEL_ID" \
       --mcp-command "$("$ENGMEM_PY" -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' \
         "$ENGMEM_PY" -m engmem.cli mcp --store "$STORE")"
+    TUNNEL_PROFILE=1
     tunnel-client doctor --profile engmem --explain || true
     echo "    start it with: tunnel-client run --profile engmem"
   else
@@ -165,5 +169,13 @@ step "Done"
 [[ "$STORE" != "$(cd "$DEFAULT_STORE" 2>/dev/null && pwd)" ]] \
   && echo "    to make it the store every command uses: engmem store set \"$STORE\""
 [[ $DO_CODEX -eq 1 ]] && echo "    Codex: run \`codex\`, check /mcp lists engmem, then try \`\$engmem <task>\`"
-[[ $DO_CHATGPT -eq 1 ]] && echo "    ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, Create app, Connection: Tunnel"
+if [[ $DO_CHATGPT -eq 1 ]]; then
+  echo "    ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, Create app, Connection: Tunnel"
+  if [[ $TUNNEL_PROFILE -eq 1 ]]; then
+    echo "    ChatGPT bridge: Secure MCP Tunnel, profile 'engmem' initialised; OpenAI decides who may reach it, and this script did not verify that"
+  else
+    echo "    ChatGPT bridge: none set up by this script; no tunnel profile was initialised"
+  fi
+  echo "    public bridge (supergateway plus ngrok or cloudflared): not protected; whoever holds its URL reads documents, titles and search snippets, and --read-only only refuses writes"
+fi
 exit 0
