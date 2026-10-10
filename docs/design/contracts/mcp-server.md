@@ -35,7 +35,24 @@ search shows. `_handle_read_only_tools_call` passes `read_only=True`, which reac
 `search_report.compose` as `retain_versions=False, record_cost=False` (`contracts/gate1.md`,
 "Versioned citations"). Prompts are still served, on purpose: `/engmem` is useful for its search step,
 and the save prompts reach their write calls and get the `--read-only` refusal by name. A
-bridge stays a test setup; the tunnel is the way to keep a store private.
+bridge stays a test setup. The tunnel is the supported way to limit who reads a store, and that
+limit is OpenAI's, not engmem's.
+
+`--read-only` is not privacy (US-19, AC-19.4). Behind a public bridge, whoever holds the URL
+still reads documents, titles and search snippets through the two search tools. Install and
+doctor call such a bridge not protected (`contracts/install.md`, "ChatGPT: which bridge, and what
+it protects"). Who may read is decided only by the bridge's own authorization, and the one
+supported bridge is OpenAI's Secure MCP Tunnel (owner decision D1, 2026-10-10).
+
+The tunnel's launch line does not add `--read-only`, and the server does not switch to it on its
+own. Who the tunnel lets in is decided by OpenAI, and engmem does not verify it; the owner
+checks it with `docs/remote-access.md`. A read-only default would not change who reads: every
+client the tunnel admits still searches the store. It would only take away the write tools
+(create a draft, complete it, record feedback) that the full cycle needs from the clients the
+owner meant to admit. An owner who wants a read-only connector appends `--read-only` to `--mcp-command`; the
+acceptance procedure for AC-19.2 does exactly that (`docs/remote-access.md`). The server cannot
+tell whether it was spawned by `tunnel-client` or by a public bridge, since both speak stdio to
+it, so no behaviour here keys on the bridge.
 
 ## Transport and the stdout-purity rule
 

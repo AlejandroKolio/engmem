@@ -737,7 +737,10 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     mcp_parser.add_argument(
         "--read-only",
         action="store_true",
-        help="expose only the search tools, for a server reachable from outside this machine",
+        help=(
+            "expose only the search tools, for a server reachable from outside this machine; "
+            "refuses writes, does not limit who reads"
+        ),
     )
     _add_store_option(mcp_parser)
     mcp_parser.set_defaults(func=_cmd_mcp)

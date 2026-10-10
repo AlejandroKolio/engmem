@@ -287,7 +287,12 @@ Idempotent (re-running = upgrade, nothing breaks):
 7. `--agent chatgpt` writes nothing but the store: ChatGPT runs no local MCP server, so
    install prints the OpenAI Secure MCP Tunnel commands that run `engmem mcp` on this
    machine, and uninstall prints where the connector is removed. engmem itself still makes
-   no network call (`tunnel-client` does). ChatGPT rejects `--local`.
+   no network call (`tunnel-client` does). ChatGPT rejects `--local`. *(US-19, owner
+   decisions 2026-10-10: D1 the tunnel is the one supported bridge, and its access check is
+   OpenAI's; D2 a public bridge stays a test setup.)* Install then prints a `bridge:` line
+   saying the tunnel's access is checked by OpenAI and was not verified by engmem, and a
+   `public bridge:` line saying such a bridge is not protected and that `--read-only` only
+   refuses writes. Nothing engmem prints calls a setup protected. See `docs/remote-access.md`.
 
 ### `engmem store show [--store PATH]` / `engmem store set PATH`
 
@@ -334,7 +339,10 @@ compared with the CLI store, and its command (stat-checked, then run as
 time-bounded. Different CLI and MCP stores are a warning that names both paths and sources,
 never an error. An error line names the path, the error type and the fix. Access from inside a
 client's own sandbox is never `ok`: Codex's `sandbox_mode` and `writable_roots` are read, and
-every other client gets an `unverified` line. No probe runs anything from the directory doctor
+every other client gets an `unverified` line. For ChatGPT that is two `unverified` lines
+instead: `tunnel` (the supported bridge, its access check left to OpenAI, and whether
+`tunnel-client` is on PATH, never run) and `public bridge` (not protected; `--read-only` is
+not privacy). No probe runs anything from the directory doctor
 is started in. The report is on stdout only. Exit 0 with no error, 1 when any check is an error,
 2 on a usage error. Without `--agent` only claude is checked, the same default as install.
 *(Owner decisions, 2026-10-08: these exit codes and this default stay.)* See
@@ -423,7 +431,9 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    the saved choice, then the default; a saved choice that cannot be read exits 2 with the
    cause on stderr only) and runs the protocol loop until stdin closes; the exit code is
    whatever the loop returns. `--read-only` lists only the two search tools and refuses
-   every other tool as unknown, for a server reachable from outside this machine.
+   every other tool as unknown, for a server reachable from outside this machine. It
+   refuses writes only: it does not keep a reader who reaches the server from searching
+   (US-19). The server does not default to it under the tunnel.
 2. On this path, **stdout carries the MCP JSON-RPC protocol and nothing else** — no
    banner, no confirmation, no error line. A single stray line corrupts a frame and
    kills the client session. This is the opposite convention from every other command

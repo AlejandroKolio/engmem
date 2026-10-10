@@ -92,3 +92,14 @@ def test_read_only_keeps_the_missing_name_diagnosis(store):
     )
 
     assert "missing required 'name'" in responses[0]["error"]["message"]
+
+
+def test_the_read_only_help_says_it_does_not_limit_who_reads(capsys):
+    """US-19, AC-19.4: the flag offered for a reachable server is not offered as privacy."""
+    from engmem.cli import main
+
+    with pytest.raises(SystemExit):
+        main(["mcp", "--help"])
+
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "refuses writes, does not limit who reads" in help_text

@@ -106,10 +106,15 @@ calls servers it can reach — so `install` prints the
 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 commands that run `engmem mcp` on your machine and let ChatGPT's developer mode reach it.
 Whether the tunnel is available depends on your OpenAI workspace. engmem itself still opens
-no port and makes no network call; `tunnel-client` does. Without a tunnel, a public bridge
-(`supergateway` plus `ngrok` or `cloudflared`) works on any paid plan, but ChatGPT connects it
-without authentication; run the server behind it as `engmem mcp --read-only`, so a leaked URL
-can read the store and add search rows to its log, but never change a document.
+no port and makes no network call; `tunnel-client` does. The tunnel is the one supported
+bridge: OpenAI checks who may reach it, and engmem does not verify that, so install and
+`doctor` say so instead of calling the setup protected. Without a tunnel, a public bridge
+(`supergateway` plus `ngrok` or `cloudflared`) works on any paid plan as a test setup, but
+ChatGPT connects it without authentication, so it is not protected. Running the server behind
+it as `engmem mcp --read-only` keeps a leaked URL from changing a document, but it is not
+privacy: whoever holds the URL reads the store's documents, titles and search snippets, and
+adds search rows to its log. [docs/remote-access.md](docs/remote-access.md) has both bridges
+and the steps to check the tunnel's access control yourself.
 
 The MCP server (`engmem mcp`, what `claude-desktop`, `codex` and `chatgpt` connect to) offers
 eight tools: `engmem_search` and `engmem_search_by_role`; `engmem_create_draft`,
