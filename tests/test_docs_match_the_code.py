@@ -214,7 +214,7 @@ def test_cli_commands_and_flags_named_in_the_docs_exist():
     assert not unknown, f"the page names flags the CLI lacks: {sorted(unknown)}"
 
 
-_NUMBER_WORDS = {13: ("thirteen", "тринадцать")}
+_NUMBER_WORDS = {14: ("fourteen", "четырнадцать")}
 
 
 def test_the_subcommand_count_the_docs_state_is_the_one_the_cli_has():

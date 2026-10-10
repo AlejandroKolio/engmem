@@ -242,6 +242,12 @@ use the same store. What the client's own sandbox allows is never marked `ok`, s
 outside it: it is `unverified`, or a `warning` when Codex's sandbox settings would block writes
 to the store. The exit code is 1 when any line is an `error`.
 
+To see the whole cycle once before loading your own history, `engmem walkthrough codex --dir
+~/engmem-demo` builds a demo store, a demo Codex config and a small workspace, checks them with
+doctor, and prints each step to type in Codex. Your own store and `~/.codex` are not changed.
+`--verify` then checks that a record was saved and found again by another session, and that the
+example's acceptance check passes. See [docs/walkthrough-codex.md](docs/walkthrough-codex.md).
+
 If the saved file is unreadable or the store it names is missing, commands stop and name the
 path; they never fall back to another store. `--agent claude-desktop` and `--agent codex`
 record the store in their MCP entry at install time, so after a `store set` re-run the install
@@ -450,6 +456,10 @@ uncommitted changes are not seen.
 **`engmem doctor` changes nothing.** It reads configs and templates, runs `engmem --version`
 and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into `sessions/`,
 removed straight away, even when interrupted.
+
+**`engmem walkthrough` writes only inside the directory you give it.** It creates a demo
+store, a demo Codex config and a workspace there, and runs `git init`, `engmem doctor`, and
+with `--verify` the acceptance check engmem ships, against the workspace's `demo_orders`.
 
 **The cache is JSON, never pickle.** Token counts live under `~/.cache/engmem/`, which any
 process running as you can write to. Unpickling from there would execute whatever it

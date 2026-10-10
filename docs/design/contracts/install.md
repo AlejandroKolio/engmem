@@ -191,6 +191,67 @@ recognise forever (`LEGACY_TRIGGER_RULES`), for a reference the model reads corr
 way. Codex reads `AGENTS.override.md` instead of `AGENTS.md` when it exists; install does not
 write into the user's override and says so instead.
 
+## Walkthrough: a Codex config of its own (US-17)
+
+Owner decisions, 2026-10-10: the `walkthrough` subcommand is approved (D1); the demo has its own
+`CODEX_HOME`, at the cost of one extra sign-in, and credentials are never copied (D2); the
+sandbox is widened only in that demo config (D3). Coordinator defaults the owner may override:
+D4 to D7 below.
+
+`engmem walkthrough codex` writes a demo `CODEX_HOME` instead of pointing the user's own Codex at
+the demo store. The user's `[mcp_servers.engmem]` launches the server with `--store` set to their
+store, so a demo run with only `ENGMEM_HOME` changed would send shell commands to the demo and
+MCP writes to the real store. That split is the one thing the demo must not allow. Skills are
+the exception: Codex reads them from `~/.agents/skills` whatever `CODEX_HOME` says. They name no
+store, so the walkthrough uses the installed ones and installs none. It reuses
+`_install_codex_mcp` (given the demo's config path) and `_append_trigger_rule`, so a re-run is
+as idempotent as install, and a user's own entries in the demo config are kept the same way.
+
+Install never widens the sandbox, because that is the user's decision. The walkthrough does,
+but only in the demo config it creates (D3): `writable_roots` holds only the demo store, and the
+file is written once, so a later edit stays. The Codex login is not copied (D2). Credentials are
+not engmem's to move, and the cost is one sign-in.
+
+The demo directory is resolved once (D7), so `writable_roots`, `shell_environment_policy.set`
+and the MCP entry's `--store` all name the store's real path. On macOS `/tmp` is a link to
+`/private/tmp`, and a sandbox comparing paths could otherwise see two different directories.
+Three things about Codex were confirmed only from the strings in the Codex 0.160.0 binary,
+never by running it: that `shell_environment_policy.set` exists, that skills are read from
+`~/.agents/skills` whatever `CODEX_HOME` is, and how `writable_roots` matches paths. The owner's
+real Codex run (E-05) is what confirms them.
+
+Every file the walkthrough creates is opened with `x` (exclusive). An existing file, or a link
+left in its place, is never written over. Before anything is written, every path it writes
+through is checked: the store and its `sessions/`, the demo `CODEX_HOME` and its two files, the
+workspace, and each workspace file with its parent directories. A symbolic link is refused by
+name. Any other path whose resolved form leaves the demo directory is refused too. That covers
+a Windows junction, which `is_symlink()` does not report, and which could otherwise let the MCP
+block be written into the user's own `.codex`. A directory without the walkthrough's marker is
+refused when it is not empty: the marker is what makes "re-run" and "someone else's directory"
+different.
+
+The doctor run is a subprocess with `CODEX_HOME` and `ENGMEM_HOME` set for it alone, and
+`PYTHONSAFEPATH=1`, so an `engmem/` directory left in the demo cannot stand in for the installed
+package. The walkthrough process's own environment is never changed.
+
+`--verify` reuses `_finds` from feedback, so "found" means what the usefulness summary means:
+shown to a session other than the document's own, and not only as a weak candidate. It does not
+check that the session came later or that its id names a demo document. Every published record
+that qualifies is a candidate, because session 2 may save a `request_id` record of its own; the
+check passes when any of them was found. It reads only the short-capture labelled lines
+(`Decision:`, `Reason:`, `Source:`), so the walkthrough asks for `$engmem-save-quick` (D6).
+
+The acceptance check `--verify` runs is the source engmem ships, passed to `python -c` with the
+workspace on `PYTHONPATH`, never the workspace's `demo_orders/check.py`. The agent can edit that
+copy, and an edited copy that prints PASS would otherwise complete the walkthrough. A changed copy
+is reported in a `note:` line. What the check imports is still the workspace's `demo_orders`,
+code the agent edited, and it runs with the Python engmem runs on (D5). The output says so.
+
+The demo's MCP server, and shell `engmem` commands outside Codex's sandbox, share
+`~/.cache/engmem` with the user's store (D4). A demo search can prune cache entries for the
+user's documents. They are rebuilt on the next search, the sharing contracts/cache.md already
+accepts, and no document is touched.
+
 ## ChatGPT: nothing to write
 
 ChatGPT's connector lives in the ChatGPT workspace, so `--agent chatgpt` creates the store and

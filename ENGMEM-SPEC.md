@@ -70,7 +70,7 @@ rest of the list is unchanged and still in force.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): thirteen subcommands, no thinking.    │
+│ CLI `engmem` (Python): fourteen subcommands, no thinking.    │
 ├──────────────────────────────────────────────────────────────┤
 │ Prompt templates (all the intelligence, agent-agnostic       │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
@@ -339,6 +339,37 @@ is started in. The report is on stdout only. Exit 0 with no error, 1 when any ch
 2 on a usage error. Without `--agent` only claude is checked, the same default as install.
 *(Owner decisions, 2026-10-08: these exit codes and this default stay.)* See
 `docs/design/contracts/doctor.md`.
+
+### `engmem walkthrough codex --dir PATH [--verify]`
+
+*(US-17, owner decisions 2026-10-10: D1 the subcommand is approved; D2 the demo has its own
+`CODEX_HOME`, which costs one extra Codex sign-in, and credentials are never copied; D3 the
+sandbox is widened only in that demo config. Coordinator defaults the owner may override: D4
+the demo shares `~/.cache/engmem`; D5 `--verify` runs the agent-edited `demo_orders` with
+engmem's Python; D6 `--verify` reads only the short-capture labelled lines; D7 the demo config
+names the store by its resolved path.)* Builds a demo of one save-and-find cycle for a real
+Codex session in `PATH` (resolved), which must be new, empty, or one the walkthrough built (it
+holds a `.engmem-walkthrough` marker); any other directory, and any path the set-up writes
+through that is a symbolic link or resolves outside `PATH` (a junction), is refused with exit 2
+and nothing written. `PATH` gets a demo store (`store/`), a demo `CODEX_HOME` (`codex-home/`:
+`sandbox_mode = "workspace-write"`, the demo store in `writable_roots` and in
+`shell_environment_policy.set` as `ENGMEM_HOME`, then install's own MCP block and trigger rule)
+and a git workspace with `demo_orders` and its acceptance check `python -m demo_orders.check`.
+Only missing files are written, so a re-run duplicates no wiring and keeps what the agent or the
+user changed. It then runs `engmem doctor --agent codex` against the demo's `CODEX_HOME` and
+store and prints the report; an error, or a warning on `sandbox`, `mcp entry` or `mcp command`,
+ends in a `not ready:` line naming them and exit 1, with no Codex step printed. Otherwise it
+prints each step with its exact command or skill and exits 0; on Windows the environment line
+is PowerShell with single-quoted values, followed by the cmd.exe form. The engineer's own store,
+`~/.codex` and setting files are never written.
+`--verify` prints an `ok:` or `missing:` line for each of three checks: published records whose
+Decision Log has a `Decision:` naming `request_id` with a stated `Reason:` and `Source:`; a
+search attributed to another session that showed any of them as a find (not weak only); and the
+acceptance check engmem ships, never the workspace copy, exiting 0 against the workspace's
+`demo_orders`. Then `PASS` naming the record that was found, exit 0, only when all three hold;
+otherwise `NOT COMPLETE`, exit 1. Exit 2 when `PATH` holds no marker. Whether the agent named the
+id and Source is read in the Codex transcript, which is owner acceptance (E-05). See
+`docs/walkthrough-codex.md` and `docs/design/contracts/install.md`, "Walkthrough".
 
 ### `engmem mcp [--store PATH] [--read-only]`
 
