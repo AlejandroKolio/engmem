@@ -3,6 +3,7 @@ quoted constant must match."""
 
 from __future__ import annotations
 
+import argparse
 import ast
 import re
 from pathlib import Path
@@ -167,19 +168,38 @@ def test_cli_commands_and_flags_named_in_the_docs_exist():
     subcommands = set(next(
         a.choices for a in parser._actions if hasattr(a, "choices") and a.choices
     ))
-    flags = {o for a in parser._actions for o in a.option_strings}
-    for sub in subcommands:
-        flags |= {
-            o
-            for a in next(
-                x.choices[sub] for x in parser._actions
-                if hasattr(x, "choices") and x.choices and sub in x.choices
-            )._actions
-            for o in a.option_strings
-        }
+    # nested subcommands (`feedback record`, `cost record-baseline`) own their flags too
+    flags: set[str] = set()
+    pending = [parser]
+    while pending:
+        current = pending.pop()
+        for action in current._actions:
+            flags |= set(action.option_strings)
+            if isinstance(action, argparse._SubParsersAction):
+                pending.extend(action.choices.values())
 
     anatomy = (ROOT / "docs" / "engmem-anatomy.html").read_text(encoding="utf-8")
     cited_subs = set(re.findall(r"engmem (search|roles|install|uninstall|mcp|telemetry|backfill)\b", anatomy))
+    nested = {
+        name: set(action.choices)
+        for name, sub in next(
+            a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+        ).choices.items()
+        for action in sub._actions
+        if isinstance(action, argparse._SubParsersAction)
+    }
+    # every `<code>engmem word [word]` invocation, minus the prompt line the server prints
+    invocations = re.findall(
+        r"<code>engmem ([a-z][a-z-]*)(?=[ <])(?: ([a-z][a-z-]*)(?=[ <]))?",
+        anatomy.replace("engmem mode for this session", ""),
+    )
+    cited_subs |= {first for first, _ in invocations}
+    unknown_nested = sorted(
+        f"{first} {second}"
+        for first, second in invocations
+        if first in nested and second and second not in nested[first]
+    )
+    assert not unknown_nested, f"the page names subcommands the CLI lacks: {unknown_nested}"
     # only flags written next to an engmem invocation — the page's CSS custom
     # properties (`--accent`, `--bg`) look identical to a long flag
     cited_flags = {
@@ -192,6 +212,25 @@ def test_cli_commands_and_flags_named_in_the_docs_exist():
     assert cited_subs <= subcommands, f"the page names subcommands the CLI lacks: {cited_subs - subcommands}"
     unknown = cited_flags - flags
     assert not unknown, f"the page names flags the CLI lacks: {sorted(unknown)}"
+
+
+_NUMBER_WORDS = {13: ("thirteen", "тринадцать")}
+
+
+def test_the_subcommand_count_the_docs_state_is_the_one_the_cli_has():
+    """The count moved from ten to thirteen without anyone noticing; a stated number is a claim."""
+    from engmem.cli import build_parser
+
+    parser = build_parser()
+    count = len(next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices)
+    words = _NUMBER_WORDS.get(count)
+    assert words, f"the CLI now has {count} subcommands; teach this test the new spelling"
+    english, russian = words
+    spec = (ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8")
+
+    assert f"{english} subcommands" in spec
+    assert f"{english} subcommands" in ANATOMY_EN, "the English page states another count"
+    assert f"{russian} подкоманд" in ANATOMY_RU, "the Russian page states another count"
 
 
 def test_the_spec_parking_section_exists_and_is_not_empty():

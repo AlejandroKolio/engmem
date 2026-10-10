@@ -69,14 +69,14 @@ rest of the list is unchanged and still in force.
 ## 3. Architecture (three layers)
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): ten subcommands, no thinking.      │
-├──────────────────────────────────────────────────────────┤
-│ Prompt templates (all the intelligence, agent-agnostic    │
+┌──────────────────────────────────────────────────────────────┐
+│ CLI `engmem` (Python): thirteen subcommands, no thinking.    │
+├──────────────────────────────────────────────────────────────┤
+│ Prompt templates (all the intelligence, agent-agnostic       │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
-├──────────────────────────────────────────────────────────┤
-│ Store: a folder of markdown docs + git                    │
-└──────────────────────────────────────────────────────────┘
+├──────────────────────────────────────────────────────────────┤
+│ Store: a folder of markdown docs + git                       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **Key decision: NO derived index.** `search` parses the front matter of every doc directly
@@ -108,7 +108,8 @@ choice saved by `engmem store set` → default `~/Developer/engmem`. A blank set
 if it were unset, and the answer is always absolute — `install --agent claude-desktop` writes it
 into a config file another process reads back from a working directory of its own; see
 `contracts/runtime.md`. Inside: `sessions/*.md` + `telemetry.jsonl` + `versions/` (US-13: the
-exact bytes of each document version a search showed; never read as documents, §5 search step 4b).
+exact bytes of each document version a search or, since US-16, `engmem read` showed; never read
+as documents, §5 search step 4b) + `feedback.jsonl` (US-15) + `cost.jsonl` (US-16).
 
 One config file, one line, only the store path: `$XDG_CONFIG_HOME/engmem/store` (default
 `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows). *(2026-10-07, owner decision,
@@ -549,13 +550,15 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     (`docs/design/contracts/output.md`, "Query and scope names are bounded in the telemetry
     row, and a capped row says so").
 
-6d. *(US-14)* `"weak_only": true` rides the same line, right after `result`, when every hit
-    and redirect shown was a weak candidate (3c). Any other row carries no such key, so an
-    ordinary row stays the row 6–6c describe, byte for byte; readers treat a missing key as not
-    weak-only. `result` keeps its three values and their meaning, so a weak-only search is
-    still `"hit"`. `engmem telemetry` counts such rows inside the hits and names them on one
-    line of their own, only when there are any. *(Owner decision, 2026-10-09: an approved
-    exception to the §9 measurement freeze.)*
+6d. *(US-14)* `"weak_only": true` rides the same line, right after `result`, when every hit and
+    redirect shown was a weak candidate (3c). Any other row carries no such key, so an ordinary
+    row keeps the keys 6–6c describe; readers treat a missing key as not weak-only. Its values
+    follow the new output: `context_bytes` (6a) grows for any result that shows a weak
+    candidate, by its tag and reason line (and the 3c lead line when all are weak). `result`
+    keeps its three values and their meaning, so a weak-only search is still `"hit"`. `engmem
+    telemetry` counts such rows inside the hits and names them on one line of their own, only
+    when there are any. *(Owner decision, 2026-10-09: an approved exception to the §9
+    measurement freeze.)*
 
 ### `engmem search "<query>" --role ROLE` / `engmem roles [--store PATH]` (English
 addition — role-addressed retrieval)

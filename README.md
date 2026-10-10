@@ -109,7 +109,15 @@ Whether the tunnel is available depends on your OpenAI workspace. engmem itself 
 no port and makes no network call; `tunnel-client` does. Without a tunnel, a public bridge
 (`supergateway` plus `ngrok` or `cloudflared`) works on any paid plan, but ChatGPT connects it
 without authentication; run the server behind it as `engmem mcp --read-only`, so a leaked URL
-can read the store but never write to it.
+can read the store and add search rows to its log, but never change a document.
+
+The MCP server (`engmem mcp`, what `claude-desktop`, `codex` and `chatgpt` connect to) offers
+eight tools: `engmem_search` and `engmem_search_by_role`; `engmem_create_draft`,
+`engmem_complete_draft` and `engmem_mark_superseded`, which write documents;
+`engmem_record_feedback`; `engmem_read`; and `engmem_record_baseline`. It also serves three
+prompts, one per template. With `--read-only` it offers the two search tools only, and those
+searches keep no version copy, print no `cite as` line and record no cost row; each still
+writes its telemetry row.
 
 `install` is idempotent — re-running it upgrades templates in place and never duplicates
 the trigger rule or touches existing store content.
@@ -120,16 +128,20 @@ To remove the wiring again, mirror it with the same `--agent`:
 engmem uninstall --agent claude          # or any other --agent, plus --local if install used it
 ```
 
-`uninstall` deletes the templates it installed and the trigger rule it appended, reports
-the counts, and **never touches the store** — those are your documents, and they stay
-readable as plain markdown without the tool. It prints the store path so you can remove
-it yourself if you want to. Running it twice is safe. The two setting files below survive
-it too, and a later install reuses them; delete `~/.config/engmem/` (`%APPDATA%\engmem\` on
-Windows) for a full removal.
+`uninstall` deletes the templates it installed and the trigger rule it appended, reports the
+counts, and **never touches the store** — those are your documents, and they stay readable
+as plain markdown without the tool. It prints the store path so you can remove it yourself
+if you want to. Running it twice is safe. The two setting files below survive it too, and a
+later install reuses them; delete `~/.config/engmem/` (`%APPDATA%\engmem\` on Windows) and
+the parse cache `~/.cache/engmem/` (`$XDG_CACHE_HOME/engmem/` when set) for a full removal.
+Everything else engmem recorded is inside the store, so deleting the store removes it too.
 
 The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` → the store saved
-with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents)
-and `telemetry.jsonl` (append-only search log). engmem has two one-line setting files, both in
+with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents),
+`telemetry.jsonl` (append-only search log), `versions/` (an exact copy of each document version
+a search or `engmem read` showed, plus a `.gitattributes` that stops git from rewriting their
+line endings), `feedback.jsonl` (your usefulness assessments) and `cost.jsonl` (the size of
+each response engmem delivered). engmem has two one-line setting files, both in
 `~/.config/engmem/` (`$XDG_CONFIG_HOME/engmem/`; `%APPDATA%\engmem\` on Windows): `store`, the
 store path, written only by `engmem store set`, and `mode` (below). `install --store PATH`
 does not save it — `--store` always means "this command only" — and install says so when the
@@ -265,6 +277,8 @@ only one word with a longer query, and no identifier such as an entity or the re
 marked `[weak candidate]` (words of three characters or fewer, such as `for` or `the`, do not
 count unless they are an entity) with the words it matched and listed after the reliable finds; when
 nothing reliable matched, the output opens with `prior context: no reliable match`.
+`engmem telemetry` counts the searches that showed only weak candidates on a separate
+`weak-only hits:` line; they stay in the hit rate.
 
 Matching is exact, word for word, in any language that separates words with spaces or
 punctuation: `ОТМЕНА, заказа!` finds "Отмена заказа", `CacheMémoire` finds itself and
@@ -327,11 +341,25 @@ Write each covered file as a path from the repository's top-level directory, the
 `git ls-files` prints it. A bare file name, a file the anchored commit does not have, or a
 record linked to several repositories reads `covered files not checked`, with the reason.
 
-Two more commands:
+Read what a search found through engmem, so the read is counted and citable:
+
+```bash
+engmem read 1000001-widget-cache --role decisions --session <draft-id>   # one role's sections
+engmem read 1000001-widget-cache                                         # the whole document
+```
+
+`engmem read` prints a published document (never a draft) with no size cap and ends with its
+own `cite as (Reuse Log prior-doc): <id>@<version>` line. The version names the whole document
+as it was at the read, also when `--role` printed only part of it. Cite a quote you took from a
+read by the read's line: the document may have changed since the search.
+
+More commands:
 
 ```bash
 engmem backfill --all      # propose front matter for documents written before engmem
 engmem telemetry           # searches run, hit rate, context spent, split by channel
+engmem feedback record <session-id> <doc-id> helped   # or not-applicable, harmful
+engmem cost record-baseline <session-id> --tokens N   # a baseline figure your client reported
 ```
 
 `backfill` never writes without showing the proposal first, leaves the document body
@@ -411,10 +439,13 @@ written only by `engmem store set` and `engmem mode set`, each holding one line.
 `install` nor any other command writes them. Deleting a file returns that setting to its
 default.
 
-**`engmem search` runs `git rev-parse` once.** When a hit has an anchor to compare, the
-search runs `git rev-parse --show-toplevel HEAD` in its working directory: read-only, bounded
-to 5 seconds, with git taken from an absolute `PATH` entry, never from the project directory.
-It does not run `git status`, so uncommitted changes are not seen.
+**`engmem search` runs read-only git commands.** When a hit has an anchor to compare, the
+search runs `git rev-parse --show-toplevel HEAD` once in its working directory. When `HEAD` has
+moved and the record lists `covers_files`, it runs one `git cat-file --batch` per such result,
+which reads commits and trees only and never fetches. Each is bounded to 5 seconds, with git
+taken from an absolute `PATH` entry, never from the project directory. It runs neither
+`git status` nor `git diff`, because both can start a program the repository configures, so
+uncommitted changes are not seen.
 
 **`engmem doctor` changes nothing.** It reads configs and templates, runs `engmem --version`
 and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into `sessions/`,
@@ -434,7 +465,8 @@ it, so a failed write leaves them exactly as they were.
 **Two more logs beside `telemetry.jsonl`.** `feedback.jsonl` holds your assessments, and
 `cost.jsonl` one line per search or `engmem read` response (its byte count, never its text) and
 per baseline figure your client reported. A read, like a search, keeps a copy of the version it
-showed under `versions/` and prints the `cite as` reference for it. A `--read-only` MCP server writes neither.
+showed under `versions/` and prints the `cite as` reference for it. A `--read-only` MCP server
+writes no version copy and neither log; its searches still write telemetry rows.
 
 One thing to know: `engmem search` prints matched document text to stdout. In a shared
 terminal or a logged CI job, that text goes wherever the output goes.

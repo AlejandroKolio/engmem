@@ -153,8 +153,9 @@ whole is not bounded. The caps are far above real use and the marks are additive
   `"repos_truncated": true` and `"repos_total": N`, the number of distinct names chosen, so an
   analysis can tell a capped row from a real one and knows how many there were.
 - A row under every cap is byte-identical to the row before the caps: no new key, no new
-  value. The same holds against the row before US-14: `weak_only` appears only on a row where it
-  is true (below, "Weak candidates are marked, never dropped"). The caps change only what is recorded: the search, `n_searched`, `context_bytes`
+  value. Against the row before US-14 the keys are the same, since `weak_only` appears only on a
+  row where it is true; the values are not always (below, "Weak candidates are marked, never
+  dropped"). The caps change only what is recorded: the search, `n_searched`, `context_bytes`
   (measured on the rendered result, never on the row) and `session_id` are the same.
   `session_id` is not capped: it is the attribution key the Gate 1 join matches against a
   draft's id, and a cut id would quietly attribute the row to no session.
@@ -210,19 +211,23 @@ and ranks them after every reliable find; the renderer only says so, in the same
 - `cite as` names a weak candidate like any shown document: whether to cite it is the
   reader's call after reading it.
 
-The telemetry row says it too. A row carries `"weak_only": true`, right after `result`, when
-the result was shown and every hit and redirect shown was a weak candidate; a role search's row
+The telemetry row says it too. A row carries `"weak_only": true`, right after `result`, when the
+result was shown and every hit and redirect shown was a weak candidate; a role search's row
 carries it when every role hit kept is weak. Any other row carries no `weak_only` key at all, so
-an ordinary row is byte-identical to one written before US-14 (owner decision D3, 2026-10-09,
-which also ratifies the field as an exception to the §9 measurement freeze). Readers treat a
-missing key as not weak-only. The cost is that a row from before US-14 and a reliable row since
-cannot be told apart by the row alone; the release date can. The field sits beside `result`,
-never in it, so a `result: "hit"` row keeps its meaning for every reader written before it.
-`summarize` counts a row's `weak_only` only when it is exactly `true` and the row is a `hit`; the
-count stays inside `hits`, and `engmem telemetry` adds one line, only when there is any,
-`weak-only hits: N of M hit(s) showed only weak candidates — counted as hits above, not as
-reliable finds`. No telemetry figure is user-confirmed usefulness, weak or not: that is the
-Reuse Log's classification, which this does not touch (AC-14.4).
+an ordinary row has the keys of one written before US-14 (owner decision D3, 2026-10-09, which
+also ratifies the field as an exception to the §9 measurement freeze). Its values are not always
+the same: `context_bytes` and `context_tokens_estimate` measure the rendered result, which now
+carries the tag, the reason line and, when every result is weak, the lead line, so both grow for
+any result that shows a weak candidate, mixed or weak-only; and `hits` and `surfaced` follow the
+new order, weak after reliable. Readers treat a missing key as not weak-only. The cost is that a
+row from before US-14 and a reliable row since cannot be told apart by the row alone; the
+release date can. The field sits beside `result`, never in it, so a `result: "hit"` row keeps
+its meaning for every reader written before it. `summarize` counts a row's `weak_only` only when
+it is exactly `true` and the row is a `hit`; the count stays inside `hits`, and `engmem
+telemetry` adds one line, only when there is any, `weak-only hits: N of M hit(s) showed only
+weak candidates — counted as hits above, not as reliable finds`. No telemetry figure is
+user-confirmed usefulness, weak or not: that is the Reuse Log's classification, which this does
+not touch (AC-14.4).
 
 ## Observed cost (US-16)
 

@@ -49,8 +49,8 @@ def _query_fields(query: str) -> dict:
 
 
 def _weak_only_field(weak_only: bool) -> dict:
-    """`weak_only` only when true, so an ordinary row is byte-identical to one before US-14
-    (owner decision, 2026-10-09; contracts/output.md)."""
+    """`weak_only` only when true, so an ordinary row keeps the keys of one before US-14; its
+    `context_bytes` still grows when a weak candidate is shown (contracts/output.md)."""
     return {"weak_only": True} if weak_only else {}
 
 
