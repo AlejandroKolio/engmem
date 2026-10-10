@@ -48,6 +48,8 @@ from engmem.sections import CANONICAL_ROLES
 from engmem.settings import Mode, ModeSettingError, mode_setting_file, save_mode, saved_mode
 from engmem.spine import Doc, LoadResult, load_store, sessions_dir_unreadable, stray_documents
 from engmem.telemetry import summarize as summarize_telemetry
+from engmem.walkthrough import CLIENTS as WALKTHROUGH_CLIENTS
+from engmem.walkthrough import cmd_walkthrough
 
 
 def _session_id(raw: str | None) -> str | None:
@@ -809,6 +811,37 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(doctor_parser)
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    walkthrough_parser = subparsers.add_parser(
+        "walkthrough",
+        help=(
+            "build a demo of one save-and-find cycle for a real Codex session, with its own "
+            "store and Codex settings, and print each step; --verify checks it was completed"
+        ),
+    )
+    walkthrough_parser.add_argument(
+        "client",
+        metavar="CLIENT",
+        # not argparse `choices=`: `cmd_walkthrough` names the cause on both streams itself
+        help=f"one of {', '.join(WALKTHROUGH_CLIENTS)}",
+    )
+    walkthrough_parser.add_argument(
+        "--dir",
+        required=True,
+        help=(
+            "the demo directory: new, empty, or one the walkthrough built; holds the demo store, "
+            "the demo's CODEX_HOME and its workspace"
+        ),
+    )
+    walkthrough_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "check the demo store for the saved record, another session's search that found it "
+            "and the passing acceptance check; PASS only when all three hold"
+        ),
+    )
+    walkthrough_parser.set_defaults(func=cmd_walkthrough)
 
     telemetry_parser = subparsers.add_parser(
         "telemetry",

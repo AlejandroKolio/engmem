@@ -843,7 +843,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
   <h2>Три пути через код</h2>
   <div class="prose">
     <p><em>Роль в цикле:</em> это код самой памяти — через который запрос превращается в ограниченную выдачу и в строку телеметрии, и которым цикл ставится на машину. Ниже — что вызывается, в каком порядке и на каких развилках.</p>
-    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI тринадцать подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для клиентов, которые ходят через MCP: Claude Desktop, Codex, ChatGPT. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
+    <p><strong>Входа три, ядро одно — расходится лишь то, кто на другом конце читает <code>stdout</code>.</strong> У CLI четырнадцать подкоманд, а цикл проходит через три входа. Ниже все три функция за функцией, в порядке реального вызова: <code>engmem search</code>, пара <code>install</code> / <code>uninstall</code> и <code>engmem mcp</code> для клиентов, которые ходят через MCP: Claude Desktop, Codex, ChatGPT. Порядок здесь не формальность: в T4 разобран баг, который виден только из очерёдности трёх вызовов и которого список из десяти функций не показал бы вовсе.</p>
   </div>
 
   <h3>Путь 1 — <code>engmem search</code>: от команды до вывода</h3>
@@ -1922,7 +1922,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
   <h2>Three paths through the code</h2>
   <div class="prose">
     <p><em>Its role in the loop:</em> this is the memory's own code — what turns a query into a bounded result and a telemetry line, and what puts the loop on a machine. Below: what gets called, in what order, and at which branch points.</p>
-    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has thirteen subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for clients that come in over MCP: Claude Desktop, Codex, ChatGPT. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
+    <p><strong>Three entry points, one core — what diverges is only who reads <code>stdout</code> at the other end.</strong> The CLI has fourteen subcommands; the loop runs through three entry points. Below are all three, function by function, in the order they actually run: <code>engmem search</code>, the <code>install</code> / <code>uninstall</code> pair, and <code>engmem mcp</code> for clients that come in over MCP: Claude Desktop, Codex, ChatGPT. Order here is not a formality: T4 dissects a bug visible only from the sequence of three calls, one a list of ten functions would never have shown.</p>
   </div>
 
   <h3>Path 1 — <code>engmem search</code>: from the command to the output</h3>

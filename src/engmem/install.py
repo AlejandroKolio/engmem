@@ -197,26 +197,31 @@ def _write_template(path: Path, text: str) -> None:
 
 def _ensure_store(store: Path) -> None:
     _ensure_directory(store / "sessions", "store directory")
-    if (store / ".git").exists():
+    _git_init(store, "the store")
+
+
+def _git_init(directory: Path, what: str) -> None:
+    """`git init` in `directory` unless it already has a `.git`; `what` names it in the error."""
+    if (directory / ".git").exists():
         return
     try:
         subprocess.run(
-            ["git", "init"], cwd=store, check=True, capture_output=True, text=True,
+            ["git", "init"], cwd=directory, check=True, capture_output=True, text=True,
             # decoded as UTF-8 whatever the locale; `replace` so a byte in another charset cannot
             # raise before the failure is reported
             encoding="utf-8", errors="replace",
         )
     except FileNotFoundError as exc:
         raise _SetupError(
-            "`git` not found on PATH — the store must be a git repository. "
+            f"`git` not found on PATH — {what} must be a git repository. "
             "Install git and re-run."
         ) from exc
     except OSError as exc:
         # a `git` on PATH that cannot be executed at all: exec raises PermissionError here,
         # not FileNotFoundError, and it is still the user's environment, not a bug
-        raise _SetupError(f"cannot run `git init` in {store}: {exc}") from exc
+        raise _SetupError(f"cannot run `git init` in {directory}: {exc}") from exc
     except subprocess.CalledProcessError as exc:
-        raise _SetupError(f"`git init` failed in {store}: {exc.stderr.strip()}") from exc
+        raise _SetupError(f"`git init` failed in {directory}: {exc.stderr.strip()}") from exc
 
 
 def _stamp_after_front_matter(content: str, stamp: str) -> str:
@@ -567,9 +572,10 @@ def _split_codex_block(path: Path, text: str) -> tuple[str, str, str] | None:
     return "".join(lines[:begin]), "".join(lines[begin : end + 1]), "".join(lines[end + 1 :])
 
 
-def _install_codex_mcp(store: Path) -> CodexMcpOutcome:
-    """Adds or refreshes engmem's own block; an entry the user wrote is never rewritten."""
-    path = _codex_config_path()
+def _install_codex_mcp(store: Path, path: Path | None = None) -> CodexMcpOutcome:
+    """Adds or refreshes engmem's own block in `path` (default: $CODEX_HOME's config); an entry
+    the user wrote is never rewritten."""
+    path = path or _codex_config_path()
     existing, bom = _read_user_file(path) if path.is_file() else ("", b"")
     config = _parse_toml(path, existing)
     if not isinstance(config.get("mcp_servers", {}), dict):
