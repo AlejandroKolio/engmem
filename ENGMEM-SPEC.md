@@ -91,11 +91,10 @@ derived index this section rules out, and the distinction is load-bearing, not a
 technicality. `INDEX.md`/SQLite/a persisted search index is a **second source of truth**:
 it is built once, then read instead of the documents, so it can silently drift from them —
 exactly the failure this "NO derived index" decision exists to prevent. The cache
-is the opposite shape: it is keyed on the source file's own identity (path, `st_mtime_ns`,
-`st_size`), so a changed file produces a different key and a cache hit is only ever
-possible when the key still matches the read the entry was built from — the stamp is
-taken by that read, not by a fresh `stat()` later, which is what would let an entry built
-from an old body be filed under an edited file (see `contracts/cache.md`). There is no
+is the opposite shape: an entry is served only when the sha256 of the document body this
+search just read equals the hash stored with it, so a hit is only ever possible for the very
+text the entry was built from — whatever the file's size or mtime say, and never from a
+re-read that could describe a different text (see `contracts/cache.md`). There is no
 invalidation logic to get wrong and no lag between an edit and the miss it causes — a
 mismatch is not a bug to fix, it is simply a miss that falls back to recomputing from the
 document itself, the very thing `search` already does on every call. Losing the entire cache

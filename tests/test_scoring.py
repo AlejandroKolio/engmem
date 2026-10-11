@@ -813,7 +813,7 @@ def test_a_cache_payload_of_the_wrong_shape_recomputes_instead_of_crashing(
         "20260101-widget-cache",
         "## 8. Decision Log\n\nChose write-through for WidgetCache.\n",
     )
-    cache.store(doc.path, cache.identity_for(doc.path), payload)
+    cache.store(doc.path, cache.content_key(doc.body), payload)
     capsys.readouterr()
 
     entries = _entries_for_doc(doc)
@@ -835,7 +835,7 @@ def test_a_recomputed_entry_replaces_the_bad_payload(tmp_path, capsys):
         "20260101-widget-cache",
         "## 8. Decision Log\n\nChose write-through for WidgetCache.\n",
     )
-    cache.store(doc.path, cache.identity_for(doc.path), {"sections": None})
+    cache.store(doc.path, cache.content_key(doc.body), {"sections": None})
 
     _entries_for_doc(doc)
     capsys.readouterr()
@@ -859,7 +859,7 @@ def test_a_stale_format_version_entry_is_ignored_even_when_the_file_is_unchanged
 
     # a stale (pre-fix) cache entry: only the section an older `split_sections` could see,
     # under a format_version this install no longer trusts
-    cache.store(doc.path, cache.identity_for(doc.path), {
+    cache.store(doc.path, cache.content_key(doc.body), {
         "sections": [{
             "anchor": "architecture", "heading": "Architecture",
             "body": "Prose.\n\n  ## Testing Knowledge\n\nHow this is covered.",
@@ -903,7 +903,7 @@ def test_role_search_prefers_the_section_that_names_the_role_over_an_inherited_o
 
 def test_an_edit_during_a_search_does_not_poison_the_section_cache(tmp_path):
     """The cached sections come from `doc.body`; keying them to the file as it is *now* files
-    the old body under the edited file's identity, and that entry never invalidates."""
+    the old body under the edited file's key, and that entry is then served for the new text."""
     sessions = tmp_path / "sessions"
     sessions.mkdir()
     path = sessions / "widget-cache-warmup.md"
@@ -914,12 +914,10 @@ def test_an_edit_during_a_search_does_not_poison_the_section_cache(tmp_path):
     path.write_text(front_matter + "## Notes\n\nThe oldword path.\n", encoding="utf-8")
 
     doc = load_store(sessions).docs[0]
-    # a same-size edit is invisible to the key inside one filesystem tick — contracts/cache.md
-    path.write_text(front_matter + "## Notes\n\nThe newword path, rewritten.\n", encoding="utf-8")
+    path.write_text(front_matter + "## Notes\n\nThe newword path.\n", encoding="utf-8")
     _entries_for_doc(doc)  # caches the sections of the body that was read
 
     reloaded = load_store(sessions).docs[0]
-    assert reloaded.source_identity != doc.source_identity, "the edit must be visible in the key"
     bodies = " ".join(e.section.body for e in _entries_for_doc(reloaded))
 
     assert "newword" in bodies

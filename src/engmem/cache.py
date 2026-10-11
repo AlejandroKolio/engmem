@@ -1,4 +1,4 @@
-"""Local, best-effort cache of per-document scoring data, keyed by file identity.
+"""Local, best-effort cache of per-document scoring data, keyed by a hash of the body.
 
 Rules and their reasons: contracts/cache.md.
 """
@@ -14,11 +14,12 @@ from uuid import uuid4
 from collections.abc import Iterable
 from pathlib import Path
 
-# Bump the number when the cached payload shape or the tokenizer changes; older-format entries
-# are then treated as absent, not corrupt. 3: headings tolerate 0-3 leading spaces, changing
-# section boundaries. 4: Unicode tokenization. The Unicode database version rides along because
-# NFKC, casefold and the token character classes all come from it (contracts/cache.md).
-CACHE_FORMAT_VERSION = f"4/unicode-{unicodedata.unidata_version}"
+# Bump the number when the cached payload shape, the key, or the tokenizer changes; older-format
+# entries are then treated as absent, not corrupt. 3: headings tolerate 0-3 leading spaces,
+# changing section boundaries. 4: Unicode tokenization. 5: keyed by the body's sha256, not the
+# file's `(mtime_ns, size)`. The Unicode database version rides along because NFKC, casefold and
+# the token character classes all come from it (contracts/cache.md).
+CACHE_FORMAT_VERSION = f"5/unicode-{unicodedata.unidata_version}"
 
 
 def cache_root() -> Path:
@@ -29,7 +30,8 @@ def cache_root() -> Path:
 
 
 def identity_for(path: Path) -> tuple[int, int] | None:
-    """`(mtime_ns, size)` as a staleness key, or None when the file cannot be stat()'d."""
+    """`(mtime_ns, size)` for the write-side guards, or None when the file cannot be stat()'d.
+    Not the cache key: see contracts/cache.md, "Keyed by content"."""
     try:
         st = path.stat()
     except OSError:
@@ -37,12 +39,17 @@ def identity_for(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
+def content_key(body: str) -> str:
+    """The key of the payload built from `body`: its sha256, so no other text can match it."""
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def _entry_path(path: Path) -> tuple[Path, Path]:
     """`(entry_path, resolved_document_path)` — resolved once, so a caller recording the path
     cannot name a different document than the filename addresses."""
     # sha256 of the resolved path: fixed-length, filesystem-safe, and one entry for a symlink
     # and its target. A hard link or a case-variant name still gets its own — see
-    # contracts/cache.md.
+    # contracts/cache.md. Where an entry lives decides nothing about whether it is served.
     resolved = path.resolve()
     digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
     return cache_root() / f"{digest}.json", resolved
@@ -54,11 +61,9 @@ def _warn(message: str) -> None:
     print(f"engmem: cache warning: {message}", file=sys.stderr)
 
 
-def load(path: Path, identity: tuple[int, int] | None) -> object | None:
-    """Cached payload for `path` if present and current, else None; never raises."""
-    if identity is None:
-        return None
-
+def load(path: Path, key: str) -> object | None:
+    """Cached payload for `path` if present and built from the body `key` names, else None;
+    never raises."""
     entry_path, _ = _entry_path(path)
     try:
         raw = entry_path.read_text(encoding="utf-8")
@@ -86,15 +91,13 @@ def load(path: Path, identity: tuple[int, int] | None) -> object | None:
     if record.get("format_version") != CACHE_FORMAT_VERSION:
         return None
 
-    # `store` writes `list(identity)`; anything else is damage. A scalar is the shape that
-    # makes `tuple()` raise, which `load` must never do — a `str` or `dict` would merely
-    # mis-compare. Why this branch stays silent: contracts/cache.md, "Degrading, and how loudly"
-    key = record.get("key")
-    if not isinstance(key, list) or tuple(key) != tuple(identity):
+    # a plain `!=`: any value of any type that is not this body's hash is a miss, and none of
+    # them can raise. Why this branch stays silent: contracts/cache.md, "Degrading, and how loudly"
+    if record.get("body_sha256") != key:
         return None
 
     # `is None` and not `not in`: no legitimate write produces a null payload, so unlike the
-    # `key` row above there is no live case sharing this branch to keep it quiet for
+    # `body_sha256` row above there is no live case sharing this branch to keep it quiet for
     if record.get("payload") is None:
         _warn(f"cache entry for {path.name} is corrupt, recomputing (missing or null payload)")
         return None
@@ -102,18 +105,15 @@ def load(path: Path, identity: tuple[int, int] | None) -> object | None:
     return record["payload"]
 
 
-def store(path: Path, identity: tuple[int, int] | None, payload: object) -> None:
+def store(path: Path, key: str, payload: object) -> None:
     """Best-effort write-through: a write failure warns rather than failing the search."""
-    if identity is None:
-        return
-
     entry_path, resolved = _entry_path(path)
     record = {
         "format_version": CACHE_FORMAT_VERSION,
         # never read back; it is the only way from a directory of opaque digests to the
         # document an entry belongs to. The resolved path, because that is what was hashed
         "path": str(resolved),
-        "key": list(identity),
+        "body_sha256": key,
         "payload": payload,
     }
     # write-then-rename so a concurrent reader never sees a half-written file. A uuid, not

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import unicodedata
 
 import pytest
 
 from conftest import requires_symlinks, requires_permission_enforcement
 
 from engmem import cache
-from engmem.cache import identity_for
 
 
 @pytest.fixture
@@ -28,6 +28,10 @@ def doc(tmp_path):
     return path
 
 
+def _key(path) -> str:
+    return cache.content_key(path.read_text(encoding="utf-8"))
+
+
 def _write_entry(path, record) -> None:
     entry_path = cache._entry_path(path)[0]
     entry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +39,7 @@ def _write_entry(path, record) -> None:
 
 
 def test_missing_cache_entry_is_a_miss(cache_home, doc, capsys):
-    assert cache.load(doc, identity_for(doc)) is None
+    assert cache.load(doc, _key(doc)) is None
     # the highest-volume degraded path (contracts/cache.md's "entry absent" row): a stray
     # print here would corrupt every cold search, and on the MCP route every JSON-RPC frame
     captured = capsys.readouterr()
@@ -46,35 +50,39 @@ def test_missing_cache_entry_is_a_miss(cache_home, doc, capsys):
 def test_store_then_load_roundtrips_the_payload(cache_home, doc):
     payload = {"sections": [{"heading": "Decision Log", "literal_tf": {"cache": 3}}]}
 
-    cache.store(doc, identity_for(doc), payload)
+    cache.store(doc, _key(doc), payload)
 
-    assert cache.load(doc, identity_for(doc)) == payload
+    assert cache.load(doc, _key(doc)) == payload
 
 
 def test_storing_again_replaces_the_entry(cache_home, doc):
     """Recomputing after an edit must not leave the previous payload reachable."""
-    cache.store(doc, identity_for(doc), {"round": 1})
+    cache.store(doc, _key(doc), {"round": 1})
     doc.write_text("edited body", encoding="utf-8")
-    identity = identity_for(doc)
+    key = _key(doc)
 
-    cache.store(doc, identity, {"round": 2})
+    cache.store(doc, key, {"round": 2})
 
-    assert cache.load(doc, identity) == {"round": 2}
+    assert cache.load(doc, key) == {"round": 2}
     assert len(list(cache_home.glob("*.json"))) == 1
 
 
-def test_editing_the_document_invalidates_the_cache_entry(cache_home, doc, capsys):
-    old_identity = identity_for(doc)
-    cache.store(doc, old_identity, {"sections": ["original"]})
+def test_a_same_size_edit_with_the_old_mtime_misses(cache_home, doc, capsys):
+    """US-21: the key is the body's hash, so restoring size and mtime cannot revive an entry."""
+    doc.write_text("alphaword body", encoding="utf-8")
+    os.utime(doc, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    before = os.stat(doc)
+    old_key = _key(doc)
+    cache.store(doc, old_key, {"sections": ["original"]})
     capsys.readouterr()  # scope the silence assertion below to the loads this test names
 
-    doc.write_text("edited body, a different length", encoding="utf-8")
-    new_identity = identity_for(doc)
+    doc.write_text("bravoword body", encoding="utf-8")
+    os.utime(doc, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert cache.identity_for(doc) == (before.st_mtime_ns, before.st_size)
 
-    assert new_identity != old_identity
-    assert cache.load(doc, new_identity) is None
-    # the stale entry is still keyed to the old identity, not silently reused
-    assert cache.load(doc, old_identity) == {"sections": ["original"]}
+    assert cache.load(doc, _key(doc)) is None
+    # the entry still answers for the text it was built from, and only for that
+    assert cache.load(doc, old_key) == {"sections": ["original"]}
     # and none of it says anything: this fires once per edited document, so a warning here
     # would be one line of noise per edit, every search
     captured = capsys.readouterr()
@@ -86,22 +94,22 @@ def test_two_distinct_paths_never_collide(cache_home, tmp_path, doc):
     other = tmp_path / "sweeper-job.md"
     other.write_text("b", encoding="utf-8")
 
-    cache.store(doc, identity_for(doc), {"who": "a"})
-    cache.store(other, identity_for(other), {"who": "b"})
+    cache.store(doc, _key(doc), {"who": "a"})
+    cache.store(other, _key(other), {"who": "b"})
 
-    assert cache.load(doc, identity_for(doc)) == {"who": "a"}
-    assert cache.load(other, identity_for(other)) == {"who": "b"}
+    assert cache.load(doc, _key(doc)) == {"who": "a"}
+    assert cache.load(other, _key(other)) == {"who": "b"}
 
 
 @requires_symlinks
 def test_two_names_for_one_file_share_an_entry(cache_home, tmp_path, doc):
     """`_entry_path` hashes the *resolved* path, so a document reached through a symlink is
-    the same document — one entry, and the identity keeps it correct."""
+    the same document — one entry, and the content key keeps it correct."""
     alias = tmp_path / "alias.md"
     alias.symlink_to(doc)
-    cache.store(doc, identity_for(doc), {"who": "the one document"})
+    cache.store(doc, _key(doc), {"who": "the one document"})
 
-    assert cache.load(alias, identity_for(alias)) == {"who": "the one document"}
+    assert cache.load(alias, _key(alias)) == {"who": "the one document"}
     assert len(list(cache_home.glob("*.json"))) == 1
 
 
@@ -111,11 +119,11 @@ def test_two_names_for_one_file_share_an_entry(cache_home, tmp_path, doc):
 
 
 def test_corrupt_cache_file_degrades_to_a_miss_and_warns(cache_home, doc, capsys):
-    identity = identity_for(doc)
-    cache.store(doc, identity, {"sections": ["fine"]})
+    key = _key(doc)
+    cache.store(doc, key, {"sections": ["fine"]})
     cache._entry_path(doc)[0].write_text("{ not json at all", encoding="utf-8")
 
-    assert cache.load(doc, identity) is None
+    assert cache.load(doc, key) is None
     captured = capsys.readouterr()
     assert "widget-cache.md" in captured.err
     assert captured.out == ""
@@ -125,18 +133,18 @@ def test_corrupt_cache_file_degrades_to_a_miss_and_warns(cache_home, doc, capsys
     "make_record,expected_err_substring",
     [
         # valid JSON is not enough — a list parses, then `record.get` would raise
-        pytest.param(lambda identity: [1, 2, 3], "not a JSON object", id="not_a_json_object"),
+        pytest.param(lambda key: [1, 2, 3], "not a JSON object", id="not_a_json_object"),
         pytest.param(
-            lambda identity: {"format_version": cache.CACHE_FORMAT_VERSION, "key": list(identity)},
+            lambda key: {"format_version": cache.CACHE_FORMAT_VERSION, "body_sha256": key},
             "missing or null payload",
             id="payload_key_absent",
         ),
-        # unlike the `key` row above, no live case shares this branch: nothing legitimate
-        # writes a null payload, so it is free to warn
+        # unlike the `body_sha256` rows below, no live case shares this branch: nothing
+        # legitimate writes a null payload, so it is free to warn
         pytest.param(
-            lambda identity: {
+            lambda key: {
                 "format_version": cache.CACHE_FORMAT_VERSION,
-                "key": list(identity),
+                "body_sha256": key,
                 "payload": None,
             },
             "missing or null payload",
@@ -145,26 +153,44 @@ def test_corrupt_cache_file_degrades_to_a_miss_and_warns(cache_home, doc, capsys
         # damage, like a missing payload — but silent, because it shares its branch with the
         # live once-per-edit mismatch (see the comment on that branch in cache.py)
         pytest.param(
-            lambda identity: {"format_version": cache.CACHE_FORMAT_VERSION, "payload": {"x": 1}},
+            lambda key: {"format_version": cache.CACHE_FORMAT_VERSION, "payload": {"x": 1}},
             None,
-            id="key_absent_is_a_silent_miss",
+            id="hash_absent_is_a_silent_miss",
         ),
-        # `tuple(key)` raises on a scalar, and `load` promises never to raise
         pytest.param(
-            lambda identity: {
+            lambda key: {
                 "format_version": cache.CACHE_FORMAT_VERSION,
-                "key": 5,
+                "body_sha256": 5,
                 "payload": {"x": 1},
             },
             None,
-            id="key_not_a_list_is_a_silent_miss",
+            id="hash_not_a_string_is_a_silent_miss",
+        ),
+        pytest.param(
+            lambda key: {
+                "format_version": cache.CACHE_FORMAT_VERSION,
+                "body_sha256": cache.content_key("some other body"),
+                "payload": {"x": 1},
+            },
+            None,
+            id="hash_of_another_body_is_a_silent_miss",
+        ),
+        # the pre-US-21 key: a well-formed entry of format 4 must not be read as current
+        pytest.param(
+            lambda key: {
+                "format_version": f"4/unicode-{unicodedata.unidata_version}",
+                "key": [1_700_000_000_000_000_000, 4],
+                "payload": {"x": 1},
+            },
+            None,
+            id="format_4_identity_entry_is_a_silent_miss",
         ),
         # bumping CACHE_FORMAT_VERSION must retire old entries quietly, not report a store
         # full of corruption
         pytest.param(
-            lambda identity: {
+            lambda key: {
                 "format_version": 999,
-                "key": list(identity),
+                "body_sha256": key,
                 "payload": {"x": 1},
             },
             None,
@@ -177,10 +203,10 @@ def test_a_damaged_but_json_valid_cache_record_is_a_miss(
 ):
     """Every shape in `contracts/cache.md`'s "Degrading, and how loudly" table that still
     parses as a JSON object: a miss, warned or silent as the table says, stdout never touched."""
-    identity = identity_for(doc)
-    _write_entry(doc, make_record(identity))
+    key = _key(doc)
+    _write_entry(doc, make_record(key))
 
-    assert cache.load(doc, identity) is None
+    assert cache.load(doc, key) is None
     captured = capsys.readouterr()
     if expected_err_substring is None:
         assert captured.err == ""
@@ -191,13 +217,13 @@ def test_a_damaged_but_json_valid_cache_record_is_a_miss(
 
 @requires_permission_enforcement
 def test_unreadable_cache_file_degrades_to_a_miss_and_warns(cache_home, doc, capsys):
-    identity = identity_for(doc)
-    cache.store(doc, identity, {"sections": ["fine"]})
+    key = _key(doc)
+    cache.store(doc, key, {"sections": ["fine"]})
     entry_path = cache._entry_path(doc)[0]
 
     os.chmod(entry_path, 0o000)
     try:
-        result = cache.load(doc, identity)
+        result = cache.load(doc, key)
     finally:
         os.chmod(entry_path, 0o644)
 
@@ -214,12 +240,12 @@ def test_store_write_failure_warns_and_leaves_no_entry(tmp_path, monkeypatch, do
     blocked_root.write_text("not a directory", encoding="utf-8")
     monkeypatch.setattr(cache, "cache_root", lambda: blocked_root)
 
-    cache.store(doc, identity_for(doc), {"sections": []})
+    cache.store(doc, _key(doc), {"sections": []})
 
     captured = capsys.readouterr()
     assert "widget-cache.md" in captured.err
     assert captured.out == ""
-    assert cache.load(doc, identity_for(doc)) is None
+    assert cache.load(doc, _key(doc)) is None
 
 
 def test_a_failed_write_leaves_no_temp_file_behind(cache_home, doc, monkeypatch, capsys):
@@ -230,7 +256,7 @@ def test_a_failed_write_leaves_no_temp_file_behind(cache_home, doc, monkeypatch,
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(cache.Path, "replace", failing_replace)
-    cache.store(doc, identity_for(doc), {"sections": []})
+    cache.store(doc, _key(doc), {"sections": []})
 
     captured = capsys.readouterr()
     assert "widget-cache.md" in captured.err
@@ -247,10 +273,10 @@ def test_store_creates_cache_root_directory_when_absent(tmp_path, monkeypatch, d
     root = tmp_path / "does" / "not" / "exist-yet"
     monkeypatch.setattr(cache, "cache_root", lambda: root)
 
-    cache.store(doc, identity_for(doc), {"sections": []})
+    cache.store(doc, _key(doc), {"sections": []})
 
     assert root.exists()
-    assert cache.load(doc, identity_for(doc)) == {"sections": []}
+    assert cache.load(doc, _key(doc)) == {"sections": []}
 
 
 def test_default_cache_root_respects_xdg_cache_home(tmp_path, monkeypatch):
@@ -269,44 +295,30 @@ def test_identity_for_missing_file_returns_none(tmp_path):
     assert cache.identity_for(tmp_path / "does-not-exist.md") is None
 
 
-def test_load_with_no_identity_is_always_a_miss(cache_home, doc):
-    cache.store(doc, identity_for(doc), {"sections": ["fine"]})
-
-    assert cache.load(doc, None) is None
-
-
-def test_store_with_no_identity_writes_nothing(cache_home, doc):
-    """A file that cannot be stat'd has no staleness key, so an entry for it could never be
-    invalidated."""
-    cache.store(doc, None, {"sections": ["fine"]})
-
-    assert not cache_home.exists()
-
-
 def test_prune_orphans_removes_entries_for_paths_no_longer_present(cache_home, tmp_path, doc):
     gone = tmp_path / "sweeper-job.md"
     gone.write_text("gone", encoding="utf-8")
-    cache.store(doc, identity_for(doc), {"who": "keep"})
-    cache.store(gone, identity_for(gone), {"who": "gone"})
+    cache.store(doc, _key(doc), {"who": "keep"})
+    cache.store(gone, _key(gone), {"who": "gone"})
     gone_entry = cache._entry_path(gone)[0]
 
     cache.prune_orphans([doc])
 
-    assert cache.load(doc, identity_for(doc)) == {"who": "keep"}
+    assert cache.load(doc, _key(doc)) == {"who": "keep"}
     assert not gone_entry.exists()
 
 
 def test_prune_orphans_collects_a_leaked_temp_file(cache_home, doc):
     """A process killed by a signal between `write_text` and `replace` raises nothing `store`
     can catch, so the temp file it leaves behind is only ever collected here, by name alone."""
-    cache.store(doc, identity_for(doc), {"who": "keep"})
+    cache.store(doc, _key(doc), {"who": "keep"})
     leaked = cache_home / f"{cache._entry_path(doc)[0].name}.deadbeef.tmp"
     leaked.write_text("{}", encoding="utf-8")
 
     cache.prune_orphans([doc])
 
     assert not leaked.exists()
-    assert cache.load(doc, identity_for(doc)) == {"who": "keep"}
+    assert cache.load(doc, _key(doc)) == {"who": "keep"}
 
 
 def test_prune_orphans_deleting_an_in_flight_temp_file_is_a_warned_miss_not_a_crash(
@@ -325,7 +337,7 @@ def test_prune_orphans_deleting_an_in_flight_temp_file_is_a_warned_miss_not_a_cr
 
     monkeypatch.setattr(cache.Path, "write_text", write_then_prune)
 
-    cache.store(doc, identity_for(doc), {"sections": []})
+    cache.store(doc, _key(doc), {"sections": []})
 
     captured = capsys.readouterr()
     assert "widget-cache.md" in captured.err
@@ -336,18 +348,18 @@ def test_prune_orphans_deleting_an_in_flight_temp_file_is_a_warned_miss_not_a_cr
 def test_prune_orphans_collects_a_legacy_pid_named_temp_file(cache_home, doc):
     """Pre-upgrade residue from the old `{digest}.json.tmp{pid}` name must not be uncollectable
     forever just because it predates the uuid scheme."""
-    cache.store(doc, identity_for(doc), {"who": "keep"})
+    cache.store(doc, _key(doc), {"who": "keep"})
     leaked = cache_home / f"{cache._entry_path(doc)[0].name}.tmp99999"
     leaked.write_text("{}", encoding="utf-8")
 
     cache.prune_orphans([doc])
 
     assert not leaked.exists()
-    assert cache.load(doc, identity_for(doc)) == {"who": "keep"}
+    assert cache.load(doc, _key(doc)) == {"who": "keep"}
 
 
 def test_prune_orphans_with_nothing_current_empties_the_cache(cache_home, doc):
-    cache.store(doc, identity_for(doc), {"who": "keep"})
+    cache.store(doc, _key(doc), {"who": "keep"})
 
     cache.prune_orphans([])
 
@@ -363,7 +375,7 @@ def test_prune_orphans_on_an_absent_cache_root_is_a_no_op(cache_home):
 @requires_permission_enforcement
 def test_prune_orphans_survives_an_entry_it_cannot_delete(cache_home, doc, capsys):
     """Pruning is housekeeping; failing it must not fail the search that triggered it."""
-    cache.store(doc, identity_for(doc), {"who": "keep"})
+    cache.store(doc, _key(doc), {"who": "keep"})
     os.chmod(cache_home, 0o500)
     try:
         cache.prune_orphans([])  # must not raise
@@ -384,10 +396,10 @@ def test_storing_many_entries_never_evicts_purely_for_exceeding_a_count(cache_ho
         path = tmp_path / f"doc-{i}.md"
         path.write_text(f"body {i}", encoding="utf-8")
         docs.append(path)
-        cache.store(path, identity_for(path), {"i": i})
+        cache.store(path, _key(path), {"i": i})
 
     for i, path in enumerate(docs):
-        assert cache.load(path, identity_for(path)) == {"i": i}
+        assert cache.load(path, _key(path)) == {"i": i}
 
 
 def test_two_writers_in_one_process_do_not_share_a_temp_name(cache_home, doc, monkeypatch):
@@ -401,8 +413,8 @@ def test_two_writers_in_one_process_do_not_share_a_temp_name(cache_home, doc, mo
         return real_write_text(self, data, encoding=encoding)
 
     monkeypatch.setattr(cache.Path, "write_text", record_then_write)
-    cache.store(doc, identity_for(doc), {"round": 1})
-    cache.store(doc, identity_for(doc), {"round": 2})
+    cache.store(doc, _key(doc), {"round": 1})
+    cache.store(doc, _key(doc), {"round": 2})
 
     assert len(set(seen)) == 2, seen
     assert all(name.endswith(".tmp") for name in seen)
@@ -411,10 +423,10 @@ def test_two_writers_in_one_process_do_not_share_a_temp_name(cache_home, doc, mo
 def test_a_cache_entry_that_is_not_utf8_degrades_to_a_miss(cache_home, doc, capsys):
     """`UnicodeDecodeError` is a `ValueError`, not an `OSError`, so it walked past the read
     handler and out of a function whose docstring says it never raises."""
-    cache.store(doc, identity_for(doc), {"sections": ["fine"]})
+    cache.store(doc, _key(doc), {"sections": ["fine"]})
     cache._entry_path(doc)[0].write_bytes(b'{"format_version":2,"key":[1,2],"payload":\xff\xfe}')
 
-    assert cache.load(doc, identity_for(doc)) is None
+    assert cache.load(doc, _key(doc)) is None
     captured = capsys.readouterr()
     assert "widget-cache.md" in captured.err
     assert captured.out == ""
@@ -428,7 +440,7 @@ def test_an_interrupted_write_leaves_no_temp_file(cache_home, doc, monkeypatch):
 
     monkeypatch.setattr(cache.Path, "replace", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        cache.store(doc, identity_for(doc), {"sections": []})
+        cache.store(doc, _key(doc), {"sections": []})
 
     assert list(cache_home.iterdir()) == []
 
@@ -438,5 +450,5 @@ def test_a_payload_json_cannot_serialise_propagates(cache_home, doc):
     uncacheable document look like a full disk. `json.dumps` is the argument to `write_text`,
     so nothing is staged — there is no temp file to assert about."""
     with pytest.raises(TypeError):
-        cache.store(doc, identity_for(doc), {"bad": object()})
+        cache.store(doc, _key(doc), {"bad": object()})
 

@@ -486,12 +486,11 @@ def _entries_from_cache(doc: Doc, cached_payload: object) -> list[_SectionEntry]
 
 
 def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
-    """Section-level token index for one document, from cache when unchanged."""
-    # the identity of the read `doc.body` came from, not of the file as it is now: stat'ing
-    # here would key an entry built from the old body to the edited file, and that entry then
-    # never invalidates — the search keeps returning the pre-edit document until it changes again
-    identity = doc.source_identity
-    cached_payload = cache.load(doc.path, identity)
+    """Section-level token index for one document, from cache when its body is unchanged."""
+    # the hash of the very text the payload is built from below, so an entry can only ever be
+    # served for that text — contracts/cache.md, "Keyed by content"
+    key = cache.content_key(doc.body)
+    cached_payload = cache.load(doc.path, key)
     if cached_payload is not None:
         entries = _entries_from_cache(doc, cached_payload)
         if entries is not None:
@@ -512,7 +511,7 @@ def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
         )
         payload_sections.append(_section_to_payload(section, literal, derived))
 
-    cache.store(doc.path, identity, {"sections": payload_sections})
+    cache.store(doc.path, key, {"sections": payload_sections})
     return entries
 
 

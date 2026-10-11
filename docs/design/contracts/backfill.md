@@ -256,8 +256,8 @@ typo'd `[see](..md)` wrote `related: ['.']`, which no author would recognise as 
 `_cmd_backfill` puts a human's prompt between that and the write — a prompt whose note asks
 the author to go and edit the document. `apply_backfill` re-reads the body at write time, so
 the edit survives and the byte-for-byte check passes; what goes stale, silently, is the derived
-values. So the proposal carries the file's `(mtime_ns, size)` (`cache.identity_for`, the
-section cache's staleness key; `contracts/cache.md`, "Identity, not invalidation") and a
+values. So the proposal carries the file's `(mtime_ns, size)` (`cache.identity_for`;
+`contracts/cache.md`, "`identity_for` is not the cache key") and a
 write against anything else is refused with a `BackfillWriteError` telling the caller to
 re-run.
 
@@ -270,8 +270,10 @@ an edit landing in between produced a write of stale values that had just passed
 `None != None` is False, so a proposal with no stamp against a file that cannot be `stat`ed
 passed on no evidence; "unverifiable" is refused like "changed".
 
-The window closed is a human's; the residual is a size-preserving edit inside one filesystem
-timestamp tick, which `contracts/cache.md` bounds for the same key.
+The window closed is a human's prompt, thousands of ticks wide; the residual is a
+size-preserving edit inside the one filesystem timestamp tick of the read (NTFS advances about
+every 15ms). The section cache no longer shares this key or its residual (`contracts/cache.md`,
+"Keyed by content").
 
 `apply_backfill` also refuses a proposal whose `doc_id` or `path` is not the document it was
 handed. Rejected: pairing the two positionally with a `zip`, which a dropped proposal silently
