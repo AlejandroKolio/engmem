@@ -410,3 +410,187 @@ def test_the_search_trace_instructions_show_a_bare_value_line(template):
 
     # the example may sit indented inside a list item; the lines themselves carry nothing else
     assert re.search(r"^( *)```\n\1## Search Trace\n\n\1shell\n\1```$", text, re.MULTILINE), template
+
+
+# ---------------------------------------------------------------------------
+# US-17..US-21: walkthroughs, the ChatGPT bridge, export, the cache key
+# ---------------------------------------------------------------------------
+
+
+def _flat(text: str) -> str:
+    """Prose with its line breaks folded, so a phrase wrapped across two lines still reads whole."""
+    return " ".join(text.split())
+
+
+README = _flat((ROOT / "README.md").read_text(encoding="utf-8"))
+SPEC = _flat((ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8"))
+STORE_README = _flat((ROOT / "docs" / "store-readme.md").read_text(encoding="utf-8"))
+_PROSE = {
+    "README.md": README, "ENGMEM-SPEC.md": SPEC,
+    "anatomy RU": _flat(ANATOMY_RU), "anatomy EN": _flat(ANATOMY_EN),
+}
+
+
+def test_every_walkthrough_the_docs_name_is_a_demo_the_cli_runs():
+    """The demo is a positional argument, not a subparser, so the subcommand check above cannot
+    see `engmem walkthrough <demo>` naming one the CLI refuses."""
+    from engmem.walkthrough import DEMOS
+
+    for name, text in _PROSE.items():
+        cited = set(re.findall(r"engmem walkthrough ([a-z][a-z-]*)", text))
+        assert cited <= set(DEMOS), f"{name} names walkthroughs the CLI lacks: {cited - set(DEMOS)}"
+        missing = {demo for demo in DEMOS if f"engmem walkthrough {demo} --dir" not in text}
+        assert not missing, f"{name} does not show how to start {sorted(missing)}"
+
+
+def test_the_demo_paths_the_docs_name_are_the_ones_the_walkthrough_builds():
+    from engmem import handoff, walkthrough
+
+    root = Path("demo")
+    codex = walkthrough.Layout.under(root)
+    pair = handoff.Layout.under(root)
+    in_spec = [
+        f"`{codex.store.name}/`", f"`{codex.codex_home.name}/`", f"`{pair.orders.name}/`",
+        f"`{pair.storefront.name}/`", f"`{handoff.MCP_CONFIG}`", f"`{handoff.CLAUDE_SETTINGS}`",
+    ]
+    in_readme = [f"`{pair.storefront.name}/`", f"`{handoff.MCP_CONFIG}`", f"`{handoff.CLAUDE_SETTINGS}`"]
+
+    assert [p for p in in_spec if p not in SPEC] == []
+    assert [p for p in in_readme if p not in README] == []
+    for half in (ANATOMY_RU, ANATOMY_EN):
+        assert f"<code>{pair.storefront.name}/</code>" in half
+
+
+def _export_parser() -> argparse.ArgumentParser:
+    from engmem.cli import build_parser
+
+    subparsers = next(a for a in build_parser()._actions if isinstance(a, argparse._SubParsersAction))
+    return subparsers.choices["export"]
+
+
+def test_the_export_flags_the_docs_show_are_the_ones_the_cli_takes():
+    """Two steps the docs teach by heart: a renamed flag leaves every reader typing a refusal."""
+    actions = {
+        a.option_strings[-1]: a for a in _export_parser()._actions if a.option_strings
+    }
+    out, confirm = actions["--out"], actions["--confirm"]
+
+    assert set(actions) == {"--help", "--out", "--confirm", "--store"}
+    assert f"engmem export DOC_ID [--out {out.metavar} --confirm {confirm.metavar}]" in SPEC
+    assert re.search(r"engmem export \S+ --out \S+ --confirm <fingerprint>", README)
+    assert "--out FILE --confirm <fingerprint>" in STORE_README
+    assert "--out &lt;файл&gt; --confirm &lt;отпечаток&gt;" in ANATOMY_RU
+    assert "--out &lt;file&gt; --confirm &lt;fingerprint&gt;" in ANATOMY_EN
+
+
+def test_the_export_preview_ends_the_way_the_docs_say(tmp_path):
+    """The spec quotes the preview's last lines and the fingerprint's length; both are output."""
+    from engmem.export import MARKER, prepare_export, render_preview
+    from engmem.spine import load_store
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "1000001-widget-cache.md").write_text(
+        "---\nid: 1000001-widget-cache\ntitle: Widget cache\ndate: 2026-09-01\nstatus: active\n"
+        "related: [1000002-widget-warmup]\n---\n\n## Decision Log\n\nKept the cache.\n",
+        encoding="utf-8",
+    )
+    preview = render_preview(prepare_export(tmp_path, load_store(sessions), "1000001-widget-cache"))
+    lines = preview.splitlines()
+    fingerprint = next(line for line in lines if line.startswith("fingerprint: ")).split()[1]
+
+    assert lines[-1] == "nothing was written."
+    assert "It ends `nothing was written.`" in SPEC and "a `fingerprint:` line" in SPEC
+    assert f"the first {len(fingerprint)} hex digits of the SHA-256" in SPEC
+    for name, text in _PROSE.items():
+        assert MARKER in text, f"{name} no longer names the marker a cut leaves"
+
+
+def test_no_mcp_tool_takes_a_document_out_of_the_store_as_the_docs_say(tmp_path):
+    from engmem.mcp_server import _handle_tools_list
+
+    names = [tool["name"] for tool in _handle_tools_list({}, tmp_path)["tools"]]
+
+    assert not [n for n in names if "export" in n or "walkthrough" in n], names
+    assert "There is no MCP tool for it" in README
+    assert "There is no MCP tool, so an agent connected over MCP cannot take a document" in SPEC
+    assert "There is no MCP tool for export" in ANATOMY_EN
+    assert "MCP-инструмента для экспорта нет" in ANATOMY_RU
+
+
+def test_the_bridge_lines_the_docs_describe_are_the_ones_install_and_doctor_print(tmp_path, capsys):
+    """The docs promise that engmem names the public bridge unprotected and `--read-only` not
+    privacy; that promise is only as true as the lines install and doctor print."""
+    from engmem.doctor import Status, _bridge_findings
+    from engmem.install import _print_chatgpt_steps
+
+    _print_chatgpt_steps(tmp_path)
+    printed = capsys.readouterr().out.splitlines()
+    bridge = next(line for line in printed if line.startswith("bridge: "))
+    public = next(line for line in printed if line.startswith("public bridge: "))
+    findings = {f.subject: f for f in _bridge_findings()}
+
+    assert "engmem did not verify" in bridge
+    assert "is not protected" in public and "only refuses writes" in public
+    assert set(findings) == {"tunnel", "public bridge"}
+    assert {f.status for f in findings.values()} == {Status.UNVERIFIED}
+    assert "Install then prints a `bridge:` line" in SPEC and "`public bridge:` line" in SPEC
+    assert "two `unverified` lines" in SPEC and "`tunnel`" in SPEC
+    for name, text in (("README.md", README), ("anatomy EN", ANATOMY_EN), ("store-readme", STORE_README)):
+        assert "not protected" in text, f"{name} no longer says a public bridge is not protected"
+    assert "не защищён" in ANATOMY_RU
+    assert "it is not privacy" in README and "is not privacy" in ANATOMY_EN
+    assert "приватности он не даёт" in ANATOMY_RU
+
+
+def test_the_cache_key_the_docs_describe_is_the_one_the_search_uses():
+    """US-21 keyed an entry by its body's sha256; a doc still keying it by size and mtime would
+    send a reader hunting for a staleness the code no longer has."""
+    import hashlib
+
+    from engmem import cache
+
+    scoring = ast.parse((PACKAGE / "scoring.py").read_text(encoding="utf-8"))
+    entries_for_doc = next(
+        n for n in ast.walk(scoring) if isinstance(n, ast.FunctionDef) and n.name == "_entries_for_doc"
+    )
+    keyed_by = {
+        ast.unparse(call.args[0])
+        for call in ast.walk(entries_for_doc)
+        if isinstance(call, ast.Call) and ast.unparse(call.func) == "cache.content_key"
+    }
+
+    assert keyed_by == {"doc.body"}
+    assert cache.content_key("body") == hashlib.sha256(b"body").hexdigest()
+    for name, text in _PROSE.items():
+        assert "sha256" in text, f"{name} no longer says what the cache is keyed by"
+        for stale in ("st_mtime_ns", "st_size", "(mtime_ns, size)"):
+            assert stale not in text, f"{name} still keys the cache by {stale!r}"
+
+
+def test_the_shared_cache_the_docs_warn_about_is_the_one_every_demo_client_uses(tmp_path, monkeypatch):
+    """No demo setting names a cache of its own, so any search on the demo store prunes the one
+    your store uses; the docs state that residual, and it holds only while this does."""
+    import json
+
+    from engmem import cache, handoff, walkthrough
+
+    root = tmp_path / "demo"
+    pair = handoff.Layout.under(root)
+    project = handoff._claude_project_files(pair.store)
+    environments = [
+        walkthrough.Layout.under(root).env, pair.codex_env, pair.claude_env,
+        json.loads(project[handoff.CLAUDE_SETTINGS])["env"],
+        json.loads(project[handoff.MCP_CONFIG])["mcpServers"]["engmem"].get("env", {}),
+    ]
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    roots = set()
+    for store in (tmp_path / "yours", pair.store):
+        monkeypatch.setenv("ENGMEM_HOME", str(store))
+        roots.add(cache.cache_root())
+
+    assert [env for env in environments if "XDG_CACHE_HOME" in env] == []
+    assert len(roots) == 1
+    assert "uses the same `~/.cache/engmem` as your store" in README
+    assert "Кэш разбора у демо общий с вашим хранилищем" in _flat(ANATOMY_RU)
+    assert "The demo shares the parse cache with your store" in _flat(ANATOMY_EN)

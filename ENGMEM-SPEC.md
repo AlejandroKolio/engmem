@@ -785,14 +785,14 @@ citation, a `[[wiki link]]`, the title of a document this one points at, the tit
 document of two words or more, and a local path (home and temporary directories, Windows drives
 and shares, Git Bash drives, `~/`, `file://`, the store and the home directory) are replaced by
 `[excluded reference]`. The document's own id is never cut, and its own title only where another
-document's title runs across it. A Reuse Log quotes other documents, so its content goes whole
-unless it is `Prior docs used: none.` Repository names, commits, PR links and repository-relative
-paths stay. A draft is refused; a superseded document is exported with
-`status: superseded`, its successor cut, and a preview note says so. Control characters other
-than a line break and a tab are escaped in the file and the preview alike. The store is left
-byte-identical: no version is retained, and nothing is written to `cost.jsonl`, `telemetry.jsonl`
-or anywhere else. There is no MCP tool, so an agent connected over MCP cannot take a document
-out of the store. Rules: `docs/design/contracts/export.md`.
+document's title runs across it. A Reuse Log quotes other documents, so its whole content is
+replaced by one marker unless it is `Prior docs used: none.` Repository names, commits, PR
+links and repository-relative paths stay. A draft is refused; a superseded document is
+exported with `status: superseded`, its successor cut, and a preview note says so. Control
+characters other than a line break and a tab are escaped in the file and the preview alike. The
+store is left byte-identical: no version is retained, and nothing is written to `cost.jsonl`,
+`telemetry.jsonl` or anywhere else. There is no MCP tool, so an agent connected over MCP cannot
+take a document out of the store. Rules: `docs/design/contracts/export.md`.
 
 ## 6. Prompt templates — behavior specification
 
