@@ -47,6 +47,17 @@ Document content is sent to an LLM on every search and every task start — that
 a property of the tool by design, so take it into account when deciding what gets
 written here.
 
+If ChatGPT reaches this store, it comes in through a bridge, and engmem itself controls no
+access. OpenAI's Secure MCP Tunnel is the one supported bridge: OpenAI decides who may use it,
+and engmem does not verify that. A public bridge is not protected: whoever holds its URL
+reads the documents, titles and search snippets, and `engmem mcp --read-only` only stops
+them from writing (engmem's `docs/remote-access.md`).
+
+To hand one document to someone else, use `engmem export <id>` rather than copying the file.
+It previews the exact file, with references to other documents and local paths cut, and
+writes it only with `--out FILE --confirm <fingerprint>`. It does not look for secrets: read
+the preview before you confirm.
+
 ## Sweeper period
 
 This store exists for the sake of an experiment: to test whether pulling past
