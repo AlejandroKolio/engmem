@@ -373,6 +373,23 @@ own `cite as (Reuse Log prior-doc): <id>@<version>` line. The version names the 
 as it was at the read, also when `--role` printed only part of it. Cite a quote you took from a
 read by the read's line: the document may have changed since the search.
 
+To hand one decision to a colleague without the rest of your store, export it in two steps:
+
+```bash
+engmem export 1000001-widget-cache                                         # preview, writes nothing
+engmem export 1000001-widget-cache --out widget-cache.md --confirm <fingerprint>
+```
+
+The preview prints the whole file, lists what was cut and where, and ends with a fingerprint of
+exactly those bytes. Links to your other documents and local paths become `[excluded
+reference]`: other documents' ids and file names, `related`, `superseded_by`, `[[wiki links]]`,
+the Reuse Log's rows, the titles of documents this one points at, and any other document's title
+of two words or more (a one-word title nothing points at is usually an ordinary word, so it
+stays). Repository names, commits and PR links stay. The second command writes the file only if it would hold the
+same bytes, never over an existing file and never inside the store. Drafts are not exported.
+Nothing in the store changes, and nothing is sent anywhere: the file stays where you put it. The
+rules: [docs/design/contracts/export.md](docs/design/contracts/export.md).
+
 More commands:
 
 ```bash
@@ -452,6 +469,11 @@ hard links are unavailable, a lock does the same), so of two calls creating one 
 one succeeds. Two engmem calls rewriting one document take turns (`os.replace` under a
 lock), and finishing a draft can name the version it read, so a stale copy is refused
 instead of replacing newer text.
+
+**`engmem export` writes one new file, outside the store, and only what you previewed.** It
+needs the preview's fingerprint, refuses an existing file and a path inside the store, and leaves
+the store byte-identical. There is no MCP tool for it, so an agent connected over MCP cannot take
+a document out of the store. Spotting secrets in the text is not its job: read the preview.
 
 **Two one-line setting files.** `~/.config/engmem/store` and
 `~/.config/engmem/mode` (`$XDG_CONFIG_HOME/engmem/`; `%APPDATA%\engmem\` on Windows) are

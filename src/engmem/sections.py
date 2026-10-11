@@ -252,6 +252,31 @@ def split_sections(body: str) -> list[Section]:
     return sections
 
 
+@dataclass(frozen=True)
+class SectionSpan:
+    heading: str
+    canonical: str | None
+    content_start: int  # just past the heading line
+    end: int  # where the next `##` heading starts, or the end of the text
+
+
+def h2_spans(body: str) -> tuple[str, list[SectionSpan]]:
+    """`body` with setext `##` headings folded as `split_sections` reads them, and where each
+    `##` section of that text sits, so a caller can rewrite one in place."""
+    text = _rewrite_setext(body)
+    matches = _headings(_H2_RE, text)
+    spans = [
+        SectionSpan(
+            heading=_strip_ordinal(m.group(1)),
+            canonical=_canonical_for(m.group(1)),
+            content_start=m.end(),
+            end=matches[i + 1].start() if i + 1 < len(matches) else len(text),
+        )
+        for i, m in enumerate(matches)
+    ]
+    return text, spans
+
+
 def role_is_inherited(section: Section) -> bool:
     """True when the section carries a role its own heading does not name — a `###` piece of an
     oversized parent. Real, but second-best: it loses to a section headed with the role."""

@@ -24,6 +24,7 @@ from engmem.install import (
     rewire_action,
     wiring_verdict,
 )
+from engmem.export import ExportError, prepare_export, render_preview, write_export
 from engmem.output import (
     render_backfill_proposal,
     render_scoreboard,
@@ -263,6 +264,35 @@ def _cmd_read(args: argparse.Namespace) -> int:
         fail(f"engmem read: {exc}")
         return 2
     print(text)
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    """One published document as a file for someone else: a preview, then the file it showed (US-20)."""
+    if (args.out is None) != (args.confirm is None):
+        fail(
+            "engmem export: --out and --confirm go together -- run `engmem export <id>` for the "
+            "preview and its fingerprint, then add --out FILE --confirm <fingerprint>; nothing "
+            "written"
+        )
+        return 2
+    store = resolve_store(args.store)
+    result, failure = _load_sessions(store)
+    if failure:
+        return failure
+    try:
+        prepared = prepare_export(store, result, args.doc_id)
+        if args.out is None:
+            print(render_preview(prepared))
+            return 0
+        target = write_export(prepared, Path(args.out), store, args.confirm)
+    except ExportError as exc:
+        fail(f"engmem export: {exc}")
+        return 2
+    print(
+        f"engmem export: wrote {target} ({len(prepared.data)} bytes, fingerprint "
+        f"{prepared.fingerprint}) -- the file the preview showed; the store is unchanged"
+    )
     return 0
 
 
@@ -926,6 +956,30 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(read_parser)
     read_parser.set_defaults(func=_cmd_read)
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help=(
+            "preview one published document as a file to hand to someone else, with references "
+            "to the rest of the store and local paths cut, then write exactly that file with "
+            "--out FILE --confirm <fingerprint>; changes nothing in the store"
+        ),
+    )
+    export_parser.add_argument("doc_id", metavar="DOC_ID", help="the id of the document to export")
+    export_parser.add_argument(
+        "--out",
+        default=None,
+        metavar="FILE",
+        help="the new file to write, outside the store; an existing file is never replaced",
+    )
+    export_parser.add_argument(
+        "--confirm",
+        default=None,
+        metavar="FINGERPRINT",
+        help="the fingerprint the preview printed; the file is written only if it still matches",
+    )
+    _add_store_option(export_parser)
+    export_parser.set_defaults(func=_cmd_export)
 
     cost_parser = subparsers.add_parser(
         "cost",
