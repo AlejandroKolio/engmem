@@ -70,6 +70,10 @@ break, and folding it truncated the roled section above at its last numbered ite
 project's horizontal rules stay rules. Both lines tolerate the same 0-3 leading spaces as the
 ATX regexes, for the same reason.
 
+`h2_spans` gives a caller that rewrites a section in place (US-20's export) the same reading: the
+folded text, and where each `##` section of it starts and ends, with its role. Offsets are into
+the folded text, so the caller keeps that text; a second heading reader would drift from this one.
+
 ## Where the splitter diverges from CommonMark on purpose
 
 `tests/test_commonmark_parity.py` keeps the regexes beside a real parser. The agreements it

@@ -70,7 +70,7 @@ rest of the list is unchanged and still in force.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): fourteen subcommands, no thinking.    │
+│ CLI `engmem` (Python): fifteen subcommands, no thinking.     │
 ├──────────────────────────────────────────────────────────────┤
 │ Prompt templates (all the intelligence, agent-agnostic       │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
@@ -753,6 +753,39 @@ model's context outside engmem, and telemetry rows with no delivery record (a `-
 server writes none); and always `savings: not claimed`, since no alternative workflow was
 measured. An unreadable or undecodable log exits 2. Rules: `docs/design/contracts/output.md`,
 "Observed cost".
+
+### `engmem export DOC_ID [--out FILE --confirm FINGERPRINT] [--store PATH]`
+
+*(US-20, owner decisions 2026-10-10: D1 two steps and no prompt; D2 references to the rest of the
+store and local paths are cut and listed.)* Hands one published document to someone else as a
+file, and nothing else from the store. Without `--out` it prints a preview: the exact text of the
+file (UTF-8, LF line endings), a list of what was cut and where (the file line and section, or the
+front-matter field, with the value cut, which is printed here only), and a `fingerprint:` line,
+the first 16 hex digits of the SHA-256 of exactly those bytes. It ends `nothing was written.` and
+exits 0. With `--out FILE --confirm FINGERPRINT` it builds the file again and writes it only when
+it hashes to that fingerprint; otherwise the document or the store changed since the preview, and
+it refuses. One of the two flags without the other is refused. The file is created, never
+replaced: an existing entry at `FILE` (a dangling link included), a missing directory, and a
+`FILE` inside the store or inside a directory of its root (compared by file identity after links,
+so a link into the store, or the folder a linked `sessions/` points at, counts) are refused.
+Every refusal exits 2, names the cause on both streams and writes nothing anywhere. The front
+matter is rebuilt from an allow-list (`id`, `title`, `date`, `task_date`, `status`, `backfilled`,
+`tags`, `entities`, `covers_files`, `repos`, `verified_at`, `verified_at_commit`, `author`,
+`branch`, `pr`), so `related`, `superseded_by`, `navigation_miss`, the measurement fields and any
+field engmem does not know are cut, and YAML comments never reach the file. In the body and in
+every kept value, another document's id or file name (with or without a version), a versioned
+citation, a `[[wiki link]]`, the title of a document this one points at, the title of any other
+document of two words or more, and a local path (home and temporary directories, Windows drives
+and shares, Git Bash drives, `~/`, `file://`, the store and the home directory) are replaced by
+`[excluded reference]`. The document's own id is never cut, and its own title only where another
+document's title runs across it. A Reuse Log quotes other documents, so its content goes whole
+unless it is `Prior docs used: none.` Repository names, commits, PR links and repository-relative
+paths stay. A draft is refused; a superseded document is exported with
+`status: superseded`, its successor cut, and a preview note says so. Control characters other
+than a line break and a tab are escaped in the file and the preview alike. The store is left
+byte-identical: no version is retained, and nothing is written to `cost.jsonl`, `telemetry.jsonl`
+or anywhere else. There is no MCP tool, so an agent connected over MCP cannot take a document
+out of the store. Rules: `docs/design/contracts/export.md`.
 
 ## 6. Prompt templates — behavior specification
 
