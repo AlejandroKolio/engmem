@@ -139,7 +139,8 @@ as plain markdown without the tool. It prints the store path so you can remove i
 if you want to. Running it twice is safe. The two setting files below survive it too, and a
 later install reuses them; delete `~/.config/engmem/` (`%APPDATA%\engmem\` on Windows) and
 the parse cache `~/.cache/engmem/` (`$XDG_CACHE_HOME/engmem/` when set) for a full removal.
-Everything else engmem recorded is inside the store, so deleting the store removes it too.
+Everything else engmem recorded is inside the store, so deleting the store removes it too. A
+walkthrough's demo directory (below) holds a store of its own; delete the directory as a whole.
 
 The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` → the store saved
 with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents),
@@ -249,17 +250,20 @@ to the store. The exit code is 1 when any line is an `error`.
 
 To see the whole cycle once before loading your own history, `engmem walkthrough codex --dir
 ~/engmem-demo` builds a demo store, a demo Codex config and a small workspace, checks them with
-doctor, and prints each step to type in Codex. Your own store and `~/.codex` are not changed.
+doctor, and prints each step to type in Codex. It uses the skills `engmem install --agent codex`
+installed. Your own store and `~/.codex` are not changed; the demo's own `CODEX_HOME` costs one
+extra Codex sign-in, because your login is not copied there.
 `--verify` then checks that a record was saved and found again by another session, and that the
 example's acceptance check passes. See [docs/walkthrough-codex.md](docs/walkthrough-codex.md).
 
 To see a task handed between Codex and Claude Code, `engmem walkthrough handoff --dir
-~/engmem-handoff` wires both clients to one demo store, each in a workspace of its own, and
-prints three sessions: Codex saves a decision, Claude Code finds it and saves its own, and Codex
-finds that one by its id. The command does not change your own store, `~/.codex`, `~/.claude`
-or `~/.claude.json`; Claude Code itself records the demo folder's trust and the session transcript
-there, as for any folder. `--verify` first checks that both clients are set to the same store, and reports a
-mismatch, naming both stores, instead of a missing record. See
+~/engmem-handoff` wires both clients to one demo store, each in a workspace of its own (both
+need their `engmem install` first), and prints three sessions: Codex saves a decision, Claude
+Code finds it and saves its own, and Codex finds that one by its id. The command does not
+change your own store, `~/.codex`, `~/.claude` or `~/.claude.json`; Claude Code itself records
+the demo folder's trust and the session transcript there, as for any folder. `--verify` first
+checks that both clients are set to the same store, and reports a mismatch, naming both stores,
+instead of a missing record. See
 [docs/walkthrough-handoff.md](docs/walkthrough-handoff.md).
 
 If the saved file is unreadable or the store it names is missing, commands stop and name the
@@ -382,11 +386,14 @@ engmem export 1000001-widget-cache --out widget-cache.md --confirm <fingerprint>
 
 The preview prints the whole file, lists what was cut and where, and ends with a fingerprint of
 exactly those bytes. Links to your other documents and local paths become `[excluded
-reference]`: other documents' ids and file names, `related`, `superseded_by`, `[[wiki links]]`,
-the Reuse Log's rows, the titles of documents this one points at, and any other document's title
-of two words or more (a one-word title nothing points at is usually an ordinary word, so it
-stays). Repository names, commits and PR links stay. The second command writes the file only if it would hold the
-same bytes, never over an existing file and never inside the store. Drafts are not exported.
+reference]`: other documents' ids and file names, `[[wiki links]]`, the whole Reuse Log (it
+quotes other documents), the titles of documents this one points at, and any other document's
+title of two words or more (a one-word title nothing points at is usually an ordinary word, so it
+stays). The front matter keeps a fixed list of fields (id, title, dates, status, `backfilled`,
+tags, entities, covered files, repos, commit anchors, author, branch, PR); the rest,
+`related`, `superseded_by` and `mode` among them, is cut. Repository names, commits and PR links
+stay. The second command writes the file only if it would hold the same bytes, never over an
+existing file and never inside the store. Drafts are not exported.
 Nothing in the store changes, and nothing is sent anywhere: the file stays where you put it. The
 rules: [docs/design/contracts/export.md](docs/design/contracts/export.md).
 
@@ -494,15 +501,24 @@ and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes o
 removed straight away, even when interrupted.
 
 **`engmem walkthrough` writes only inside the directory you give it.** It creates a demo
-store, a demo Codex config and workspaces there, and runs `git init`, `engmem doctor`, and
-with `--verify` the acceptance check engmem ships, against the workspace's `demo_orders`.
-`walkthrough handoff` also writes Claude Code's `.mcp.json` and `.claude/settings.json` inside
-its `storefront/` workspace, and makes one commit per workspace with your git hooks and commit
-signing switched off.
+store, a demo Codex config and workspaces there, and runs `git init` in each, `engmem doctor`,
+and for `walkthrough codex --verify` the acceptance check engmem ships, against the workspace's
+`demo_orders`. `walkthrough handoff` also writes Claude Code's `.mcp.json` and
+`.claude/settings.json` inside its `storefront/` workspace, and makes one commit per workspace
+with your git hooks and commit signing switched off. The demo sessions leave two things
+outside the directory, neither written by the command: Claude Code records the `storefront/`
+folder's trust in `~/.claude.json` and the transcript under `~/.claude/projects/`, as for any
+folder; and every search on the demo store (the printed `engmem search ... --store`, the agents'
+own searches, the demo MCP server) uses the same `~/.cache/engmem` as your store and drops the
+cached entries for your documents. Results stay right; your next search only rebuilds them. The
+Codex sign-in the demo asks for stays inside, in the demo `CODEX_HOME`, and goes with the
+directory.
 
 **The cache is JSON, never pickle.** Token counts live under `~/.cache/engmem/`, which any
 process running as you can write to. Unpickling from there would execute whatever it
-contained; JSON cannot. A corrupted entry degrades to a cache miss.
+contained; JSON cannot. A corrupted entry degrades to a cache miss. An entry is used only when
+the sha256 of the document body a search just read equals the one stored with it, so an edited
+document is never scored from its old text, whatever its size or modification time say.
 
 **Installing touches known paths only.** `engmem install` writes templates into the agent
 directory you name and, for `claude-desktop` and `codex`, adds one server entry to that
