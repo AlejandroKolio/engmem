@@ -9,12 +9,12 @@ sub-splitting oversized ones on `###`, and resolves each heading to a stable can
 - `split_sections` tokenises nothing and is not cached: it measures well under a millisecond
   per document at an 800-document corpus. The expensive step is the tokenisation downstream,
   which `scoring` caches on disk (`contracts/cache.md`).
-- A change here that alters what a cached payload holds for a document whose bytes did not
+- A change here that alters what a cached payload holds for a document whose body did not
   change — the `canonical` a heading resolves to, or the section boundaries themselves — needs
-  a `cache.CACHE_FORMAT_VERSION` bump, because `cache.identity_for` cannot see it. Role
-  inheritance took the bump to 2; tolerating 0-3 leading spaces before a heading took it to
-  3, without which a document that had been losing a section to that defect would keep losing
-  it until it happened to be edited.
+  a `cache.CACHE_FORMAT_VERSION` bump, because the cache key, a hash of the body, cannot see
+  it. Role inheritance took the bump to 2; tolerating 0-3 leading spaces before a heading took
+  it to 3, without which a document that had been losing a section to that defect would keep
+  losing it until it happened to be edited.
 - The anchor is the heading's slug with any ordinal prefix stripped (`_ORDINAL_PREFIX_RE`),
   so it survives renumbering that touches no content; `index` is a display convenience only.
   Slugs go through NFKD and drop combining marks, so `Müller` slugs to `muller`, not `m-ller`;

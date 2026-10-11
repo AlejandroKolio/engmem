@@ -1,7 +1,8 @@
 # Contract: the section cache
 
 Source: `src/engmem/cache.py`. A best-effort, per-document store of the tokenised section
-index `scoring.py` builds, so a repeated search does not re-tokenise an unchanged document.
+index `scoring.py` builds, so a repeated search does not re-tokenise a document whose body has
+not changed.
 Nothing in it is authoritative: deleting the whole directory costs one slower search.
 
 ## Where it lives
@@ -12,75 +13,95 @@ conflicts on every pull.
 
 `cache_root()` has no store component, so two stores on one machine (`--store` /
 `ENGMEM_HOME`) share one directory and each prunes the other's entries. Answers stay correct
-for two reasons: entries are addressed by the sha256 of the resolved document path, so two
-stores never read each other's entry unless they hold the same file, and a pruned entry is a
-plain miss the caller recomputes. What is lost is warmth on each switch. Known gap: keying the
-root per store would fix it and has not been done.
+because an entry is served only for the exact body it was built from ("Keyed by content"): two
+stores that reach one entry — the same file through a symlink, or one store path whose
+directory was swapped for another store's with names, sizes and mtimes kept — get one store's
+sections only when they hold that store's text. A pruned entry is a plain miss the caller
+recomputes. What is lost is warmth on each switch. Known gap: keying the root per store would
+fix it and has not been done.
 
-## Identity, not invalidation
+## Keyed by content
 
-An entry is keyed by `(mtime_ns, size)` of the document it was built from (`identity_for`). A
-changed file has a different key, so a stale entry is never matched — there is no invalidation
-step to forget to call. `identity_for` returns `None` when the file cannot be `stat()`'d, and
-`load` and `store` both treat that as "no cache": a document with no staleness key could never
-have its entry invalidated, so it must not get one.
+An entry carries `body_sha256`, the sha256 of the `doc.body` its payload was built from
+(`content_key`), and `load` serves it only when that equals the hash of the body the current
+search parsed. The payload is a pure function of `doc.body` and of the code that splits and
+tokenises it, and the code is covered by the format version below, so a matching hash is exactly
+the condition under which the cached payload equals the one the search would compute. There is
+no invalidation step to forget, and no timestamp is consulted.
 
-**The key must be taken by the read it describes.** `scoring._entries_for_doc` passes
-`doc.source_identity`, stamped by `spine.parse_document` immediately before it read the body
-the payload is built from, not a fresh `stat()` at search time: stat'ing later files the old
-body's sections under the edited file's identity, and that entry never invalidates. See
-`contracts/backfill.md`, "The proposal has to still describe the document", for the same rule
-on the write side; `test_an_edit_during_a_search_does_not_poison_the_section_cache` pins it
-here.
+**The hash is of the text the payload is built from.** `scoring._entries_for_doc` hashes
+`doc.body`, the very string it hands to `split_sections`; it never re-reads the file. One read
+in `spine.parse_document` yields both the text and, through it, the key, so there is no window
+between hashing and parsing. Hashing the file as it is at search time instead would file an
+edited file's key over the old body's sections, and that entry would then be served for the new
+text; `test_an_edit_during_a_search_does_not_poison_the_section_cache` pins it.
+
+**The body, not the file's bytes.** The payload depends on the body only, so a front-matter
+edit needs no re-tokenising, and the body is already in memory. A hash of the raw bytes would
+need a second read, or a change to how `parse_document` reads (`read_text` translates line
+endings), for no gain in correctness. `staging.version_of` is not reused: it is a client-facing
+version of the raw bytes, truncated to 16 hex digits so a model copies it reliably. Nothing
+copies this key, and the full digest costs the same.
+
+**Why not `(mtime_ns, size)`.** Formats up to 4 keyed an entry by the file's `(mtime_ns,
+size)`. A size-preserving edit under a kept mtime was served stale until the file changed
+again: a restore from backup, an archive extracted twice, `touch -r`, a store directory
+swapped for another at one path, or simply an edit inside one filesystem tick (NTFS advances
+about every 15ms). That was documented as an accepted residual; US-21 (owner decision D1,
+2026-10-11) closed it. No `stat` pre-check was kept in front of the hash: a matching
+`(mtime_ns, size)` proves nothing, so it could never decide a hit, and a mismatch would only
+skip a hash that costs under 2ms for 800 documents.
 
 The entry's filename is the sha256 of the resolved document path, so a symlink and its target
-share one entry, kept honest by the identity check. `resolve()` collapses symlinks and relative
-segments and nothing else, so a hard link or a case-variant name on a case-insensitive
-filesystem gets its own entry: harmless duplication, each correctly keyed. The filename alone
-proves nothing; the stored key must match before a hit is trusted.
+share one entry. `resolve()` collapses symlinks and relative segments and nothing else, so a
+hard link or a case-variant name on a case-insensitive filesystem gets its own entry: harmless
+duplication. The filename decides where an entry lives, never whether it is served.
 
-### The residual
+### What it costs
 
-The key is not a hash. `store` keeps one entry per resolved path and replaces it, so a false
-hit needs the key this path's entry currently holds, different content of the same size, and
-no search in between. A copy does not do it (`cp -p` carries the source's mtime, which the
-cache never held for that path); a reused timestamp does — a reproducible-build epoch, an
-archive extracted twice, `touch -r` against the file's own earlier reference — and so does one
-filesystem tick: `st_mtime_ns` is nanoseconds of field width, not of resolution (NTFS advances
-about every 15ms), so a size-preserving edit landing in the same tick as the `stat` an entry
-was keyed by is invisible to the key, and that entry is served until the file changes again.
-`contracts/backfill.md` bounds the same residual for the same key to a human's confirmation
-prompt, thousands of ticks wide; here the window is the one tick containing
-`parse_document`'s `stat`, which an author editing by hand cannot aim at and a program that
-writes a document and searches in the same breath can. The tests that rely on two identities
-differing (`test_an_edit_during_a_search_does_not_poison_the_section_cache`,
-`test_cache.py::test_editing_the_document_invalidates_the_cache_entry`) change the size and
-assert the difference before relying on it, because a same-length edit passed on POSIX only
-through the tens of microseconds between two writes there, and failed on Windows.
+The search already reads every document on every call (`load_store`), so the hash adds no
+I/O; its cost is CPU. Measured 2026-10-11 on an Apple-silicon Mac, Python 3.13, with stores of
+synthetic five-section documents of about 5.4KB each, through the CLI (`engmem search
+"WidgetCache eviction"`, a fresh process per run; cold = cache directory removed before the
+run, warm = the run right after it; two interleaved rounds of 11 runs per build, the mean of the
+two medians):
 
-Rejected, so far: a stronger key. `st_ctime_ns` is POSIX-only (on Windows Python has reported
-the creation time in that field). `sha256(doc.body)`, over bytes `parse_document` already
-holds, would close the tick residual, but `identity_for` is shared with the write-side guards
-(`apply_backfill`, `mark_superseded`), which compare a plain `stat` against the stamp. Each
-holds its document's raw text from `staging.read_document`, which declines `read_text`'s
-newline translation deliberately (`contracts/backfill.md`, "Line endings"), so a hash over
-that text would disagree with `doc.body` on every CRLF document and refuse it as changed. The
-change moves the guards from "the same file" to "the same bytes", couples them to `spine`'s
-normalisation, and retires every stored key behind a `CACHE_FORMAT_VERSION` bump.
+| documents | store size | before (identity key) warm / cold | after (content key) warm / cold |
+|---|---|---|---|
+| 10 | 54KB | 154 / 167 ms | 155 / 168 ms |
+| 100 | 541KB | 192 / 314 ms | 194 / 316 ms |
+| 800 | 4.3MB | 497 / 1461 ms | 500 / 1464 ms |
+
+In process, `content_key` over every body measures 0.02 / 0.22 / 1.7 ms for 10 / 100 / 800
+documents. The difference in the table is within run-to-run noise. Rerun the comparison if the
+key ever covers more than the body.
+
+## `identity_for` is not the cache key
+
+`identity_for`'s `(mtime_ns, size)` lives on in `Doc.source_identity` for the write-side
+guards — `apply_backfill`, `mark_superseded`, `versions.retain` — which compare it against a
+fresh `stat` to refuse a write over a file that changed since it was read. Those guards keep
+the residual this cache no longer has: a size-preserving edit inside one filesystem tick of the
+read is invisible to them (`contracts/backfill.md`, `contracts/mcp-server.md`). The cache does
+not consult the identity at all, and an unstat-able file no longer goes uncached: its body was
+read, so its key exists.
 
 ## Format version: what retires an entry
 
 `CACHE_FORMAT_VERSION` must change whenever the same document would produce a different
 payload: a new payload shape, but also a change to section boundaries (3) or to the
-tokenizer (4, Unicode tokenization, `contracts/scoring.md` "Tokenisation"). The identity key
-cannot catch either case, because the file has not changed. Only the version can tell an
-entry the old code built from one the current code would build. Without the bump, a store
+tokenizer (4, Unicode tokenization, `contracts/scoring.md` "Tokenisation"), or to the key
+itself (5, the body's hash in place of `(mtime_ns, size)`). The content key cannot catch a
+change to the code, because the body has not changed. Only the version can tell an entry the
+old code built from one the current code would build. Bump 5 is the one a test cannot tell
+from its absence: a format-4 entry has no `body_sha256`, so it would miss anyway. It is bumped
+so the rule stays one rule, and so no reader has to work that out. Without the bump, a store
 upgraded to Unicode tokenization kept serving its pre-upgrade entries, in which a Cyrillic
 section had no tokens at all, and its documents stayed unfindable until each one was edited.
 With it, every old entry is a silent miss, the first search after the upgrade rebuilds it,
 and no document needs re-saving. This is the whole migration path.
 
-The constant is `"4/unicode-<unicodedata.unidata_version>"`, not a bare number. NFKC,
+The constant is `"5/unicode-<unicodedata.unidata_version>"`, not a bare number. NFKC,
 `casefold` and the letter/mark classes the tokenizer splits on all come from the running
 Python's Unicode database, and `cache_root()` is shared by every install on the machine. Two
 Pythons with different Unicode versions (3.11 ships 14.0, 3.13 ships 15.1) can tokenize the
@@ -98,14 +119,15 @@ whether the miss is announced, and a warning must be worth one line of a human's
 |---|---|
 | entry absent | silent miss |
 | `format_version` mismatch | silent miss — bumping the constant must retire old entries quietly, not report a store full of corruption |
-| `key` absent, wrong type, or not matching | silent miss — see below |
+| `body_sha256` absent, wrong type, or not this body's hash | silent miss — see below |
 | unreadable, not UTF-8, not JSON, not a JSON object, or a `payload` absent or null | warned miss |
 
-The `key` row is a deliberate tie-break. A missing or scalar `key` is damage, exactly as a
-missing `payload` is, but the branch also carries the ordinary once-per-edit mismatch, and key
-damage is only partly detectable: `key: 5` can be recognised, `key: [1, 2, 3]` is
-indistinguishable from a stale file. Warning on the detectable slice alone would be arbitrary
-within one field, so the whole branch stays silent.
+The `body_sha256` row is a deliberate tie-break. A missing or non-string hash is damage,
+exactly as a missing `payload` is, but the branch also carries the ordinary once-per-edit
+mismatch, and hash damage is only partly detectable: `body_sha256: 5` can be recognised, a
+well-formed hash of other text is indistinguishable from a stale entry. Warning on the
+detectable slice alone would be arbitrary within one field, so the whole branch stays silent.
+Either way the miss is rebuilt from the document, so damage costs latency, never a result.
 
 A payload that loads here but does not have the shape `scoring` expects is decided a layer up,
 as a warned miss (`contracts/scoring.md`, "A shape mismatch is a miss, never a crash").

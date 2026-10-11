@@ -201,7 +201,7 @@ difference is that it is a scope — the result names the mode and every block s
 US-09 (an owner decision recorded there).
 
 A scope belongs to one search. It is an argument of `search`, `compose` and the tool call,
-never stored: the section cache is keyed by a document's path and identity, not by a scope, and
+never stored: the section cache is keyed by a document's path and body, not by a scope, and
 the MCP server keeps no state between calls, so the next search without a scope argument
 searches the whole store again (AC-10.4).
 
@@ -360,9 +360,9 @@ document; ambiguity between a visible meaning and an invisible one is noise.
 
 `_entries_for_doc` reads a per-document cache entry (`contracts/cache.md`) and recomputes only
 what changed; rebuilding the index on every call was fine at the 9-document fixture corpus and
-not at a shared store in the hundreds. The key is `doc.source_identity`, stamped by
-`spine.parse_document` before it read the body, never a fresh `stat` at search time
-(`contracts/cache.md`, "Identity, not invalidation").
+not at a shared store in the hundreds. The key is `cache.content_key(doc.body)`, the hash of
+the very text the sections are split from, never a re-read of the file at search time
+(`contracts/cache.md`, "Keyed by content").
 
 `_build_section_index(docs, store_docs)` indexes the documents it was handed and prunes against
 the whole store. The second parameter has no default because a wrongly pruned cache neither
