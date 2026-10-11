@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from pathlib import Path
 
 import pytest
 
 from conftest import write_file
-from mcp_harness import _call, _text
+from mcp_harness import _call, _run, _text, _tools_call_msg
 
+from engmem import search_report
 from engmem.cli import main
 from engmem.scoring import search, search_with_role_sections
 from engmem.spine import load_store
@@ -132,8 +135,18 @@ CHANNELS = [
 ]
 
 
+DRAFTS_LINE = "unsaved drafts also match"
+
+
 def _without_scoreboard(output: str) -> list[str]:
-    return [line for line in output.splitlines() if not line.startswith("docs: ")]
+    return [
+        line for line in output.splitlines()
+        if not line.startswith("docs: ") and not line.startswith(DRAFTS_LINE)
+    ]
+
+
+def _drafts_line(output: str) -> str | None:
+    return next((line for line in output.splitlines() if line.startswith(DRAFTS_LINE)), None)
 
 
 def _scoreboard(output: str) -> str:
@@ -141,7 +154,9 @@ def _scoreboard(output: str) -> str:
 
 
 @pytest.mark.parametrize("run", CHANNELS)
-def test_ac_01_1_only_the_scoreboard_moves_when_a_draft_is_added(tmp_path, run, capsys):
+def test_ac_01_1_only_the_scoreboard_and_the_drafts_line_move_when_a_draft_is_added(
+    tmp_path, run, capsys
+):
     _write_store(tmp_path, {})
     before = run(tmp_path, QUERY, capsys)
 
@@ -151,10 +166,14 @@ def test_ac_01_1_only_the_scoreboard_moves_when_a_draft_is_added(tmp_path, run, 
     assert _without_scoreboard(after) == _without_scoreboard(before)
     assert "drafts: 0" in _scoreboard(before)
     assert "drafts: 1" in _scoreboard(after)
+    assert _drafts_line(before) is None
+    assert DRAFT_ID in _drafts_line(after)
 
 
 @pytest.mark.parametrize("run", CHANNELS)
-def test_ac_01_2_a_term_only_a_draft_holds_finds_nothing(tmp_path, run, capsys):
+def test_ac_01_2_a_term_only_a_draft_holds_finds_no_result_and_names_the_draft(
+    tmp_path, run, capsys
+):
     secret = "zanzibarquokka"
     draft = _doc(
         DRAFT_ID, "draft", f"Draft about {secret}",
@@ -166,8 +185,9 @@ def test_ac_01_2_a_term_only_a_draft_holds_finds_nothing(tmp_path, run, capsys):
     out = run(tmp_path, secret, capsys)
 
     assert "prior context: none found" in out
-    assert DRAFT_ID not in out
+    assert f"### {DRAFT_ID}" not in out
     assert "lives only in this draft" not in out
+    assert DRAFT_ID in _drafts_line(out)
     assert "drafts: 1" in out
 
 
@@ -225,3 +245,110 @@ def test_ac_01_4_audit_fixture_draft_does_not_hide_the_active_record(tmp_path, r
 
     assert "### 2001-charge-retry" in out
     assert "2002-wip-charges" not in out
+
+
+# the drafts line: a draft is named, never ranked (contracts/scoring.md, "Drafts that also match")
+
+
+def _draft_with(
+    doc_id: str, body: str, repos: str | None = None, title: str = "Idempotency retry work"
+) -> str:
+    text = _doc(doc_id, "draft", title, body)
+    return text.replace("covers_files: []\n", f"covers_files: []\nrepos: {repos}\n") if repos else text
+
+
+DECIDED = "## Decision Log\n\nRetries carry an idempotency key per attempt.\n"
+
+
+def test_the_sessions_own_draft_is_not_named(tmp_path, capsys):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
+
+    assert main(["search", QUERY, "--store", str(tmp_path), "--session", DRAFT_ID]) == 0
+
+    assert _drafts_line(capsys.readouterr().out) is None
+
+
+def test_a_draft_with_no_decision_log_is_not_named(tmp_path, capsys):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, "## Pre-reg\n\nidempotency retry.\n")})
+
+    assert _drafts_line(_cli_search(tmp_path, QUERY, capsys)) is None
+
+
+def test_a_draft_that_does_not_match_the_query_is_not_named(tmp_path, capsys):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, "## Decision Log\n\nZebra stripes.\n", title="Zebra")})
+
+    assert _drafts_line(_cli_search(tmp_path, QUERY, capsys)) is None
+
+
+@pytest.mark.parametrize(
+    "repos, named",
+    [
+        pytest.param(None, True, id="links-no-repository-yet"),
+        pytest.param("[alpha]", True, id="in-scope"),
+        pytest.param("[beta]", False, id="out-of-scope"),
+    ],
+)
+def test_a_scoped_search_names_a_draft_in_scope_or_linking_no_repository(
+    tmp_path, capsys, repos, named
+):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED, repos)})
+
+    assert main(["search", QUERY, "--store", str(tmp_path), "--repo", "alpha"]) == 0
+
+    line = _drafts_line(capsys.readouterr().out)
+    assert (line is not None and DRAFT_ID in line) == named
+
+
+def test_the_drafts_line_sits_after_the_cite_line_and_before_the_scoreboard(tmp_path, capsys):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
+
+    lines = _cli_search(tmp_path, QUERY, capsys).splitlines()
+
+    cite = next(i for i, line in enumerate(lines) if line.startswith("cite as"))
+    drafts = next(i for i, line in enumerate(lines) if line.startswith(DRAFTS_LINE))
+    scoreboard = next(i for i, line in enumerate(lines) if line.startswith("docs: "))
+    assert cite < drafts < scoreboard
+
+
+def test_the_drafts_line_is_counted_in_the_delivered_bytes(tmp_path, capsys):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
+
+    out = _cli_search(tmp_path, QUERY, capsys)
+
+    rows = [json.loads(line) for line in (tmp_path / "cost.jsonl").read_text().splitlines()]
+    assert _drafts_line(out) is not None
+    assert rows[-1]["bytes"] == len(out.removesuffix("\n").encode("utf-8"))
+
+
+def test_a_draft_id_is_escaped_on_the_drafts_line(tmp_path):
+    sessions = _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
+    loaded = next(d for d in load_store(sessions).docs if d.id == DRAFT_ID)
+    draft = dataclasses.replace(loaded, id="1099-wip\x1b[2J")
+
+    line = search_report.drafts_note([draft])
+
+    assert "\x1b" not in line and "1099-wip\\x1b[2J" in line
+
+
+def test_the_drafts_line_names_at_most_a_few_ids(tmp_path, capsys):
+    many = search_report.DRAFTS_NAMED_MAX + 2
+    _write_store(tmp_path, {
+        f"1099-wip-{n}": _draft_with(f"1099-wip-{n}", DECIDED) for n in range(many)
+    })
+
+    line = _drafts_line(_cli_search(tmp_path, QUERY, capsys))
+
+    assert line.count("1099-wip-") == search_report.DRAFTS_NAMED_MAX
+    assert " +2 more -- " in line
+
+
+def test_a_read_only_search_names_no_draft(tmp_path):
+    _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
+
+    _, responses, _ = _run(
+        tmp_path, _tools_call_msg(1, name="engmem_search", arguments={"query": QUERY}),
+        read_only=True,
+    )
+
+    out = _text(responses[0]["result"])
+    assert _drafts_line(out) is None and "drafts: 1" in out

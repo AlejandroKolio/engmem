@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from mcp_harness import _call, _run, _text, _tools_call_msg
 
-from engmem import cost, mcp_server, versions
+from engmem import cost, mcp_server, read_report, versions
 from engmem.cli import main
 from engmem.telemetry import estimate_tokens
 
@@ -238,7 +238,10 @@ def test_a_line_torn_by_an_interrupted_write_does_not_swallow_the_next(store, ca
     ("doc_id", "extra", "reason"),
     [
         pytest.param("no-such-doc", (), "no document with id 'no-such-doc'", id="unknown-id"),
-        pytest.param(SESSION, (), "is a draft", id="draft"),
+        pytest.param("no-such-doc@0123456789abcdef", (), "no document with id 'no-such-doc'", id="unknown-cited-id"),
+        pytest.param("widget-cache@nothex", (), "'nothex' is not a version", id="not-a-version"),
+        pytest.param("widget-cache@0123456789abcdef", (), "not retained", id="unretained-version"),
+        pytest.param("widget-cache@\x1b[2J", (), "widget-cache@\\x1b[2J", id="control-char-version"),
         pytest.param("other-note", ("--role", "lessons"), "has no lessons section", id="no-section"),
         pytest.param("widget-cache", ("--role", "nonsense"), "unknown role", id="unknown-role"),
     ],
@@ -248,15 +251,37 @@ def test_a_refused_read_delivers_nothing_and_records_nothing(store, capsys, doc_
 
     assert code == 2
     assert reason in out and reason in err
+    assert "\x1b" not in out + err
     assert "LRU" not in out
     assert not (store / cost.COST_FILE).exists()
 
 
-def test_an_mcp_read_of_a_draft_is_refused_as_a_tool_error(store):
-    result, is_error = _call(store, name=READ_TOOL, arguments={"id": SESSION})
+DRAFT_BODY = "## Decision Log\n\nWe lean towards LFU for WidgetCache, not yet reviewed."
 
-    assert is_error and "is a draft" in _text(result)
-    assert not (store / cost.COST_FILE).exists()
+
+def test_a_draft_is_read_marked_unreviewed_with_nothing_to_cite(store, capsys):
+    _doc(store / "sessions", "20260902-wip", status="draft", body=DRAFT_BODY)
+
+    out = _cli_ok(capsys, store, "read", "20260902-wip", "--session", SESSION)
+
+    assert out.splitlines()[0].endswith("(status: draft)")
+    assert read_report.DRAFT_NOTE in out
+    assert "We lean towards LFU" in out
+    assert "cite as" not in out
+    assert not (store / versions.VERSIONS_DIR).exists()
+    assert _rows(store)[0]["bytes"] == _delivered(out)
+
+
+def test_an_mcp_read_of_a_draft_delivers_what_the_cli_prints(store, capsys):
+    _doc(store / "sessions", "20260902-wip", status="draft", body=DRAFT_BODY)
+    printed = _cli_ok(capsys, store, "read", "20260902-wip", "--session", SESSION)
+
+    result, is_error = _call(
+        store, name=READ_TOOL, arguments={"id": "20260902-wip", "session_id": SESSION}
+    )
+
+    assert not is_error
+    assert _text(result) == printed.rstrip("\n")
 
 
 def test_an_unrecorded_delivery_is_named_in_the_response(store, capsys):
@@ -575,3 +600,80 @@ def test_cli_diagnostics_on_stderr_are_named_as_not_counted(store, capsys):
     out = _summary(capsys, store)
 
     assert "diagnostics a CLI command prints on stderr" in _line(out, "- diagnostics")
+
+
+# ---------------------------------------------------------------------------
+# a read takes the `<id>@<version>` a search cites (contracts/output.md, "Observed cost")
+# ---------------------------------------------------------------------------
+
+
+def _search_ref(capsys, store: Path) -> str:
+    searched = _cite(_cli_ok(capsys, store, "search", QUERY, "--session", SESSION))
+    return next(r for r in searched.split(", ") if r.startswith("widget-cache@"))
+
+
+def test_a_cited_reference_to_the_current_version_reads_as_the_bare_id(store, capsys):
+    ref = _search_ref(capsys, store)
+
+    cited = _cli_ok(capsys, store, "read", ref, "--session", SESSION)
+    bare = _cli_ok(capsys, store, "read", "widget-cache", "--session", SESSION)
+
+    assert cited == bare
+    assert _cite(cited) == ref
+
+
+def test_an_id_holding_an_at_sign_is_read_whole_not_split_as_a_reference(store, capsys):
+    _doc(store / "sessions", "odd-note@v2", body="## Decision Log\n\nKept as written.")
+
+    out = _cli_ok(capsys, store, "read", "odd-note@v2", "--session", SESSION)
+
+    assert out.splitlines()[0].startswith("document: odd-note@v2 -- ")
+    assert "Kept as written." in out
+
+
+def test_a_cited_version_the_document_no_longer_has_is_read_from_its_retained_copy(store, capsys):
+    ref = _search_ref(capsys, store)
+    path = store / "sessions" / "widget-cache.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("LRU", "LFU"), encoding="utf-8")
+
+    out = _cli_ok(capsys, store, "read", ref, "--session", SESSION)
+
+    _, version = versions.split_reference(ref)
+    assert f"note: this is version {version}, as cited; the document has changed since" in out
+    assert "We chose LRU eviction" in out and "LFU" not in out
+    assert _cite(out) == ref
+    assert _rows(store)[-1]["doc_id"] == "widget-cache"
+    assert _rows(store)[-1]["bytes"] == _delivered(out)
+
+
+def test_a_cited_read_of_what_is_now_a_draft_offers_nothing_to_cite(store, capsys):
+    ref = _search_ref(capsys, store)
+    _doc(store / "sessions", "widget-cache", status="draft", body=DRAFT_BODY)
+
+    out = _cli_ok(capsys, store, "read", ref, "--session", SESSION)
+
+    assert read_report.DRAFT_NOTE in out and "We chose LRU eviction" in out
+    assert "cite as" not in out
+
+
+def test_a_role_read_of_a_cited_version_takes_that_versions_sections(store, capsys):
+    ref = _search_ref(capsys, store)
+    path = store / "sessions" / "widget-cache.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("LRU", "LFU"), encoding="utf-8")
+
+    out = _cli_ok(capsys, store, "read", ref, "--role", "decisions", "--session", SESSION)
+
+    assert "We chose LRU eviction" in out
+    assert "nightly" not in out
+
+
+def test_an_mcp_read_of_a_cited_version_delivers_what_the_cli_prints(store, capsys):
+    ref = _search_ref(capsys, store)
+    path = store / "sessions" / "widget-cache.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("LRU", "LFU"), encoding="utf-8")
+    printed = _cli_ok(capsys, store, "read", ref, "--session", SESSION)
+
+    result, is_error = _call(store, name=READ_TOOL, arguments={"id": ref, "session_id": SESSION})
+
+    assert not is_error
+    assert _text(result) == printed.rstrip("\n")

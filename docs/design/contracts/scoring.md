@@ -103,7 +103,8 @@ Greek ones.
 draft out before any statistic is taken: the section index, `n`, `avgdl`, document
 frequencies and so `DF_CEILING_RATIO`, `idf`, and the ambiguity clusters. Adding, editing or
 deleting a draft therefore cannot change the set, order or score of a published result; only
-the scoreboard's `drafts: N` (and the `docs: N` / `last doc` it shares a line with) moves.
+the scoreboard's `drafts: N` (and the `docs: N` / `last doc` it shares a line with) and the
+drafts line below move.
 
 The defect this closes: drafts used to be indexed with everything else and dropped only after
 scoring. An active document with the term in one of two sections sits at `df / n = 0.5`, inside
@@ -119,6 +120,41 @@ The successor lookup still sees the whole store (`_search_core`'s `store_docs`):
 document's `superseded_by` may name a draft, which `output.md` names but does not render.
 Once published (`draft -> active`) a document joins the corpus on the next search and is ranked
 exactly as one that was born active.
+
+## Drafts that also match (`matching_drafts`)
+
+A draft that holds finished work is still invisible to a ranked search, and the Reuse-Log A/B of
+2026-10-11 found the store's two unsaved finished sessions only through grep. Owner decision,
+2026-10-11: a search names such drafts on one line after the results, and ranks nothing new.
+
+`matching_drafts` runs a second, separate pass after the published search: the ranking corpus
+plus the candidate drafts, so a draft's score means what a published document's would. Only
+the ids of the drafts it finds are kept, and the line is
+`unsaved drafts also match (not reviewed at save, not ranked, not citable): <ids> -- read one
+with ...`, the same text on CLI and MCP (AC-09.4), at most five ids and then `+N more`. A
+read-only MCP server prints no such line (`contracts/mcp-server.md`, "read-only"). The published pass never sees a draft, so
+everything above holds; the line sits outside the rendered result, like the stray-file note, so
+`context_bytes` and the telemetry row do not count it, and the delivery's bytes do.
+
+A candidate is a draft that:
+
+- has a Decision Log (a section of role `decisions`). Of the 17 drafts in the store that day, 15
+  were stubs left by a `/engmem` never saved, front matter and a Pre-reg at most; naming them
+  on every search would be noise;
+- is not the searching session's own draft (`--session` / `session_id`), which would otherwise
+  match its own query every time;
+- is in the search's scope or links no repository yet. A draft is written before its repository
+  link is settled (`contracts/install.md`), so a scoped search that dropped every unlinked
+  draft would never name one.
+
+The pass costs a second walk over the section index whenever a candidate exists: every
+published document's entry is loaded from the cache again, and each draft is split once to find
+its Decision Log. It does not prune the cache a second time; the published pass already did.
+Drafts that are candidates now get cache entries of their own, which `contracts/cache.md`
+treats like any other document's.
+
+A named draft is not a result: it is never retained under `versions/` and has no `cite as` line.
+`engmem read` opens it marked as not reviewed (`contracts/output.md`, "Observed cost").
 
 ## A repository scope narrows the corpus, before any statistic (US-09)
 

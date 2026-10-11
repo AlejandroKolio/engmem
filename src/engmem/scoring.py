@@ -12,7 +12,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from engmem import cache
-from engmem.sections import CANONICAL_ROLES, Section, role_is_inherited, split_sections
+from engmem.sections import (
+    CANONICAL_ROLES,
+    Section,
+    role_is_inherited,
+    sections_for_role,
+    split_sections,
+)
 from engmem.spine import Doc, linked_repos
 
 FIELD_WEIGHTS = {"id": 5, "entities": 3, "title": 2, "tags": 1}
@@ -668,6 +674,32 @@ def search(docs: list[Doc], query: str, scope: Scope | None = None) -> SearchOut
     corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
     return _search_core(corpus, docs, query, entries)
+
+
+def _draft_candidate(doc: Doc, scope: Scope | None, exclude: str | None) -> bool:
+    """A draft with a Decision Log, in scope or linking no repository yet (contracts/scoring.md,
+    "Drafts that also match")."""
+    if doc.status != "draft" or doc.id == exclude:
+        return False
+    if scope is not None and linked_repos(doc) and not in_scope(doc, scope):
+        return False
+    return bool(sections_for_role(split_sections(doc.body), "decisions"))
+
+
+def matching_drafts(
+    docs: list[Doc], query: str, scope: Scope | None = None, exclude: str | None = None
+) -> list[Doc]:
+    """Drafts a search would find, if published, among the published corpus; a pass of its own,
+    so the published ranking and its statistics never see a draft."""
+    candidates = [doc for doc in docs if _draft_candidate(doc, scope, exclude)]
+    if not candidates:
+        return []
+    corpus = ranking_corpus(docs, scope) + candidates
+    # the published pass already pruned the cache against the whole store
+    entries = [entry for doc in corpus for entry in _entries_for_doc(doc)]
+    outcome = _search_core(corpus, docs, query, entries)
+    wanted = {doc.id for doc in candidates}
+    return [hit.doc for hit in outcome.hits if hit.doc.id in wanted]
 
 
 def _search_core(

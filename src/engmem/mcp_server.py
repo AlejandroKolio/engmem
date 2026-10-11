@@ -164,10 +164,12 @@ RECORD_FEEDBACK_TOOL_DESCRIPTION = (
 
 READ_TOOL_NAME = "engmem_read"
 READ_TOOL_DESCRIPTION = (
-    "Read one published engmem session document by id -- the whole body, or with `role` only "
-    "its sections of that role (e.g. 'decisions'). Use it to load a document a search showed: "
-    "the text it returns is counted toward this session's observed cost, while a document "
-    "opened any other way is not observed. Refuses a draft and an id with no document. "
+    "Read one engmem session document by id, or by the `<id>@<version>` a search cites -- the "
+    "whole body, or with `role` only its sections of that role (e.g. 'decisions'). Use it to "
+    "load a document a search showed: the text it returns is counted toward this session's "
+    "observed cost, while a document opened any other way is not observed. A cited version "
+    "the document no longer has is read from its retained copy and says so; a draft is read "
+    "marked as not reviewed, with no reference to cite. Refuses an id with no document. "
     "Whenever a draft session document exists for the current task, pass its id as "
     "`session_id`, as on `engmem_search`."
 )
@@ -309,7 +311,7 @@ def _run_search_for_tool(
     # telemetry.jsonl; compose writes the row, so the MCP path is never invisible to Gate 1
     text = compose(
         store, result, strays, stray_scan_errors, query, role, session_id, "mcp", scope,
-        retain_versions=not read_only, record_cost=not read_only,
+        retain_versions=not read_only, record_cost=not read_only, name_drafts=not read_only,
     )
     return text, False
 
@@ -1252,7 +1254,10 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                     "properties": {
                         "id": {
                             "type": "string",
-                            "description": "The id of the document to read, as a search showed it.",
+                            "description": (
+                                "The id of the document to read, as a search showed it, or "
+                                "the `<id>@<version>` its `cite as` line names."
+                            ),
                         },
                         "role": {
                             "type": "string",

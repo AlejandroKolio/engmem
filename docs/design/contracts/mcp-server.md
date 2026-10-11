@@ -32,8 +32,10 @@ a Reuse Log. For the same reason it records no delivery in `cost.jsonl`, and off
 telemetry rows with no delivery record (US-16; `contracts/output.md`, "Observed cost"). Offering
 `engmem_read` there would hand a URL holder every published document whole, not the excerpts a
 search shows. `_handle_read_only_tools_call` passes `read_only=True`, which reaches
-`search_report.compose` as `retain_versions=False, record_cost=False` (`contracts/gate1.md`,
-"Versioned citations"). Prompts are still served, on purpose: `/engmem` is useful for its search step,
+`search_report.compose` as `retain_versions=False, record_cost=False, name_drafts=False`
+(`contracts/gate1.md`, "Versioned citations"). The last keeps the `unsaved drafts also match`
+line off a read-only result: it would name draft ids to a URL holder, who before saw only the
+`drafts: N` count, and point to an `engmem_read` this server does not offer. Prompts are still served, on purpose: `/engmem` is useful for its search step,
 and the save prompts reach their write calls and get the `--read-only` refusal by name. A
 bridge stays a test setup. The tunnel is the supported way to limit who reads a store, and that
 limit is OpenAI's, not engmem's.
@@ -364,9 +366,11 @@ CLI's, with every id escaped. No MCP tool reads finds back; a refusal lists the 
 An MCP-only client had no way to read a found document in full; `engmem_read` is that way, and
 the CLI's `engmem read` twin, both through `read_report.compose_read`. `id` must be a non-empty
 string, `role` one of the canonical roles and `session_id` a string when given, or the call is
-`-32602`; an unknown id, a draft or a missing section is `isError`. It writes no document: only
+`-32602`; an unknown id, a cited version with no retained copy or a missing section is
+`isError`. `id` may be the `<id>@<version>` a `cite as` line names, and a draft is read marked
+as not reviewed (`contracts/output.md`, "Observed cost"). It writes no document: only
 its row in `<store>/cost.jsonl` and the retained copy of the version it delivered under
-`versions/` (the search's `cite as` mechanism, `contracts/gate1.md`), paths fixed by the store. It reads the document the loader
+`versions/` (none for a draft or a cited older version, whose copy already exists) (the search's `cite as` mechanism, `contracts/gate1.md`), paths fixed by the store. It reads the document the loader
 already parsed, so it opens no path the caller names.
 
 `engmem_record_baseline` is `engmem cost record-baseline` for a client with no shell, through

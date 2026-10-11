@@ -352,7 +352,9 @@ copied to `versions/<id>/<version>.md` — bytes untouched, 0600, published with
 intact copy exists. *(US-16, 2026-10-09)* A read through `engmem read` / `engmem_read` is the
 second route: it retains the document it delivers the same way, through the same
 `search_report.cite_lines`, and ends with its own `cite as` line naming the whole document's
-version, even for a `--role` read. A quote is cited by the reference of the response it came
+version, even for a `--role` read. *(2026-10-11)* A read given an older `<id>@<version>` delivers
+that retained copy and cites the version as asked, retaining nothing new; a read of a draft
+cites nothing. A quote is cited by the reference of the response it came
 from, so a document edited between a search and a read is cited at the version the read
 delivered. An entry already at that name is trusted only after it is checked: a regular
 file whose bytes hash to the version is kept; a regular file with other bytes is replaced
@@ -361,7 +363,8 @@ than reported forever; anything else there (a directory, a symlink, dangling or 
 refused by a lock an interrupted create left behind (`staging._commit_new_under_lock`, on a
 filesystem without hard links) offer no reference and print a `note:` instead. That is the version the agent was shown, which is what "the used version" can mean
 mechanically; a reference computed at save time would name whatever the source was by then. A
-draft is never retained (it is never shown, and it changes on every edit). A document re-read for
+draft is never retained: it was not reviewed at save, so there is no decision to cite, and it
+changes on every edit. `engmem read` shows one with no `cite as` line, and a search only names it. A document re-read for
 the copy must have the identity it was parsed with, else it is not retained and a `note:` line
 says so: a copy of other bytes than the ones shown would mislabel the evidence. The copy is
 refused through a symlinked `versions/` or `versions/<id>/`, and for an id `validate_doc_id`
@@ -416,7 +419,7 @@ cell as the row states it.
 What this does not cover: a document opened as a file — found by grep, or reached through a
 `related` link of a related document or a `related` entry past the `+N more` cut — has no
 reference offered for it unless a search or an `engmem read` delivered the same bytes, and
-neither does a draft (`engmem read` refuses one); such a row stays legacy. Reading those
+neither does a draft (`engmem read` shows one with nothing to cite); such a row stays legacy. Reading those
 documents through `engmem read` closes the gap. A result trimmed to its byte budget can offer a reference for a
 document whose block the trim cut. The copies live in the store and are as private as it is; deleting a document
 does not delete its copies, so removing a fact from the store means removing `versions/<id>/` too.

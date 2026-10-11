@@ -61,6 +61,10 @@ spine`, `failed to load`) plus that line already exceeds the 128 before any tele
 stdout can pass `MAX_OUTPUT_BYTES` on a fully trimmed body. Accepted: both notes are
 diagnostics about the instrument, and truncating them would hide the one thing they say.
 
+The `unsaved drafts also match` line (`contracts/scoring.md`, "Drafts that also match") sits
+before the scoreboard and outside the budget too. It names at most `DRAFTS_NAMED_MAX` (5) ids and
+then `+N more`, so it stays bounded as the store grows.
+
 ## A scoped result says so, and shows every link (US-09)
 
 A search run with a scope (`--repo` / `--unscoped`, MCP `repo` / `unscoped`;
@@ -265,13 +269,29 @@ There are no lines older than this file, so a line without `op_id` is malformed,
 **Reads go through `engmem read`.** Before US-16 an agent opened a found document as a file,
 and engmem never saw it. `engmem read ID [--role ROLE] [--session S]` and the MCP tool
 `engmem_read` (`read_report.compose_read`, one composition for both channels) deliver a
-published document's body, or only its sections of one role, under a `document:` header naming
-its status and, when superseded, its successor. A draft is refused, as it is never a search
-result (US-01); an unknown id, an unknown role and a document with no section of that role are
-refused too, and a refused read delivers nothing and writes no row. Control characters other
+document's body, or only its sections of one role, under a `document:` header naming its
+status and, when superseded, its successor. An unknown id, an unknown role and a document with
+no section of that role are refused, and a refused read delivers nothing and writes no row.
+
+`ID` is a bare id or the `<id>@<version>` a search or read cites. Before 2026-10-11 the
+reference was refused as an unknown id, so an agent had to cut the version off by hand. An id
+the store holds exactly, `@` and all, is read whole and never split. A version equal to the
+document's current bytes reads as the bare id. Any other version is read from its retained copy
+under `versions/`, with `note: this is version <v>, as cited; the document has changed since`
+after the header, which still names the current status; a version not retained (or not a
+version) is refused with the cause from `versions.retained_body` and the bare id to read
+instead. The cited version's text is what the citing row was checked against, and the note is
+the cue that the decision may have moved on.
+
+A draft is read (owner decision, 2026-10-11; it was refused before, as it is never a search
+result, US-01). The header says `status: draft` and the next line is `read_report.DRAFT_NOTE`:
+not reviewed at save, not a recorded decision, nothing to cite. There is no `cite as` line and
+nothing is retained, so a draft never becomes a Reuse Log reference this way. A search names the
+drafts that match it (`contracts/scoring.md`, "Drafts that also match"). Control characters other
 than a line break and a tab are escaped, as in a search result. After the text comes the read's
 own `cite as (Reuse Log prior-doc): <id>@<version>` line, through the same
-`search_report.cite_lines` a search uses: the document's bytes are retained under `versions/`
+`search_report.cite_lines` a search uses (a cited older version is cited as asked, from the
+copy it was read from): the document's bytes are retained under `versions/`
 first, and a copy that cannot be kept prints the same `note: version of ... not retained` line
 instead (coordinator decision D4, 2026-10-09, ARCH-001). The version is that of the whole
 document file even for a `--role` read, so a quote from any section is checked against one

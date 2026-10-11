@@ -482,7 +482,10 @@ instead of a human pasting `engmem search` output across the paste-bridge.
 2. `status: draft` documents don't appear in results and take no part in ranking them —
    adding, editing or deleting a draft never changes a published result
    (`docs/design/contracts/scoring.md`, "Drafts are outside the ranking corpus"); they do
-   count toward the scoreboard.
+   count toward the scoreboard. *(Owner decision 2026-10-11)* A draft with a Decision Log that
+   would match is named on one `unsaved drafts also match` line after the `cite as` line, at most
+   five ids, and never the session's own draft (`scoring.md`, "Drafts that also match"). A
+   `--read-only` MCP server prints no such line (implementation choice, `mcp-server.md`).
    `status: superseded` documents don't appear either; if a superseded doc would have won,
    its line is replaced with `superseded by <id>` plus the successor itself, if it exists.
 2a. *(US-09)* Without `--repo` or `--unscoped` the whole store is searched, exactly as above.
@@ -719,14 +722,19 @@ prints the same summary after its audit block. Rules: `docs/design/contracts/gat
 
 ### `engmem read DOC_ID [--role ROLE] [--session ID] [--store PATH]`
 
-*(US-16, owner decision 2026-10-09)* Prints one published document's body, or only its sections
+*(US-16, owner decision 2026-10-09)* Prints one document's body, or only its sections
 of `ROLE`, under a `document: <id> -- <title> (status: …)` header that names a successor for a
 superseded document, and appends one line to `cost.jsonl` with the bytes of the whole response.
 It refuses (exit 2, the cause on both streams, nothing delivered or recorded) an id with no
-document, a draft, an unknown role and a document with no section of that role. Control
+document, an unknown role and a document with no section of that role. *(Owner decision
+2026-10-11)* `DOC_ID` may be the `<id>@<version>` a search or read cites: the current version
+reads as the bare id, an older one is read from its retained copy with a `note: this is version
+…, as cited; the document has changed since` line, and a version with no retained copy is
+refused. A draft is printed with a note that it was not reviewed at save, and with no `cite as`
+line. Control
 characters other than a line break and a tab are escaped. Like a search it retains the
-document's exact bytes under `versions/` and ends with `cite as (Reuse Log prior-doc):
-<id>@<version>`, the version of the whole file even for a `--role` read, or a `note: version of
+document's exact bytes under `versions/` (a draft excepted) and ends with `cite as (Reuse Log
+prior-doc): <id>@<version>`, the version of the whole file even for a `--role` read, or a `note: version of
 … not retained` line (§5 search 4b). Without `--session` it ends with `note: unattributed read —
 pass --session <draft-id>`. The MCP tool `engmem_read` does the same; a `--read-only` server
 does not offer it. There is no size cap (coordinator decision D3); the templates ask for

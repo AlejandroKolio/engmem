@@ -279,7 +279,7 @@ The daily loop runs through three agent slash commands installed above:
 - `/engmem.save` — finish a task: drafts the full document metadata from the diff and
   conversation for one-round approval, fills in decisions, rejected alternatives,
   lessons learned, and a Reuse Log of which prior documents actually influenced the work.
-- `/engmem.save.quick` — save the useful core of a decision: one preview with the decision, its reason, the rejected alternative, the source and a short context for the next task. Anything the session did not contain is marked as absent, never invented. A single `ok` publishes one valid, searchable document; declining publishes nothing and leaves the draft out of search. No YAML check, no supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row without a quote).
+- `/engmem.save.quick` — save the useful core of a decision: one preview with the decision, its reason, the rejected alternative, the source and a short context for the next task. Anything the session did not contain is marked as absent, never invented. A single `ok` publishes one valid, searchable document; declining publishes nothing and leaves the draft out of search results (a search still names a draft with a Decision Log that matches it). No YAML check, no supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row without a quote).
 
 Direct search from the shell:
 
@@ -366,12 +366,17 @@ Read what a search found through engmem, so the read is counted and citable:
 ```bash
 engmem read 1000001-widget-cache --role decisions --session <draft-id>   # one role's sections
 engmem read 1000001-widget-cache                                         # the whole document
+engmem read 1000001-widget-cache@<version>                               # the version a search cited
 ```
 
-`engmem read` prints a published document (never a draft) with no size cap and ends with its
-own `cite as (Reuse Log prior-doc): <id>@<version>` line. The version names the whole document
-as it was at the read, also when `--role` printed only part of it. Cite a quote you took from a
-read by the read's line: the document may have changed since the search.
+`engmem read` prints a document with no size cap and ends with its own
+`cite as (Reuse Log prior-doc): <id>@<version>` line. The version names the whole document as it
+was at the read, also when `--role` printed only part of it. Cite a quote you took from a read by
+the read's line: the document may have changed since the search. Given the `<id>@<version>` a
+search cited, it prints that version; when the document has changed since, the text comes from
+the retained copy and a note says so. A draft is printed marked as not reviewed, with nothing to
+cite, and a search names the drafts with a Decision Log that match it on one line after the
+results.
 
 To hand one decision to a colleague without the rest of your store, export it in two steps:
 
