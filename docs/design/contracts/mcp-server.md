@@ -34,8 +34,9 @@ telemetry rows with no delivery record (US-16; `contracts/output.md`, "Observed 
 search shows. `_handle_read_only_tools_call` passes `read_only=True`, which reaches
 `search_report.compose` as `retain_versions=False, record_cost=False, name_drafts=False`
 (`contracts/gate1.md`, "Versioned citations"). The last keeps the `unsaved drafts also match`
-line off a read-only result: it would name draft ids to a URL holder, who before saw only the
-`drafts: N` count, and point to an `engmem_read` this server does not offer. Prompts are still served, on purpose: `/engmem` is useful for its search step,
+line off a read-only result (owner decision, 2026-10-12): it would name draft ids to a URL
+holder, who before saw only the `drafts: N` count, and point to an `engmem_read` this server
+does not offer. Prompts are still served, on purpose: `/engmem` is useful for its search step,
 and the save prompts reach their write calls and get the `--read-only` refusal by name. A
 bridge stays a test setup. The tunnel is the supported way to limit who reads a store, and that
 limit is OpenAI's, not engmem's.
