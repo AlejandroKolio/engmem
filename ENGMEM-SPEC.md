@@ -485,7 +485,7 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    count toward the scoreboard. *(Owner decision 2026-10-11)* A draft with a Decision Log that
    would match is named on one `unsaved drafts also match` line after the `cite as` line, at most
    five ids, and never the session's own draft (`scoring.md`, "Drafts that also match"). A
-   `--read-only` MCP server prints no such line (implementation choice, `mcp-server.md`).
+   `--read-only` MCP server prints no such line (owner decision 2026-10-12, `mcp-server.md`).
    `status: superseded` documents don't appear either; if a superseded doc would have won,
    its line is replaced with `superseded by <id>` plus the successor itself, if it exists.
 2a. *(US-09)* Without `--repo` or `--unscoped` the whole store is searched, exactly as above.
