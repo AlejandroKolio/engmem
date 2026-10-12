@@ -106,7 +106,10 @@ active --(save of a LATER doc: human confirms "yes, this supersedes it")--> supe
 ```
 
 - `draft`: created immediately when `/engmem` starts; excluded from search results and
-  from the statistics that rank them, but counted in the scoreboard's `drafts: N`.
+  from the statistics that rank them, but counted in the scoreboard's `drafts: N`. A draft with
+  a Decision Log that matches a search is named on one line after the results, and `engmem read`
+  opens it marked as not reviewed and with nothing to cite (contracts/scoring.md, "Drafts that
+  also match").
 - `active`: the only state search actually returns as a primary result.
 - `superseded`: excluded from primary results; a query that would otherwise rank it
   returns `superseded by <id>` plus the successor document, if the successor itself

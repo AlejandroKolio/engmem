@@ -938,11 +938,15 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     read_parser = subparsers.add_parser(
         "read",
         help=(
-            "print one published document, or only its sections of one role, and count the "
-            "bytes delivered for `engmem cost summary`"
+            "print one document, or only its sections of one role, and count the bytes "
+            "delivered for `engmem cost summary`"
         ),
     )
-    read_parser.add_argument("doc_id", metavar="DOC_ID", help="the id of the document to read")
+    read_parser.add_argument(
+        "doc_id",
+        metavar="DOC_ID",
+        help="the id of the document to read, or the ID@VERSION a search cites",
+    )
     read_parser.add_argument(
         "--role",
         default=None,

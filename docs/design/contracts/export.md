@@ -115,8 +115,9 @@ it names nothing private.
 
 ## Which documents can be exported
 
-- **A draft is refused**, as `engmem read` refuses one. A draft is a session still in progress:
-  its Decision Log may not exist yet and nothing was reviewed at save. Finish it first.
+- **A draft is refused.** A draft is a session still in progress: its Decision Log may not
+  exist yet and nothing was reviewed at save. Finish it first. (`engmem read` opens a draft for
+  this session, marked as not reviewed; sharing it with someone else is a different act.)
 - **A superseded document is exported.** The decision and why it was replaced can be worth
   sharing. The file keeps `status: superseded`, so the recipient knows a newer decision exists;
   the successor's id is cut like any other reference. The preview says so in a `note:` line.

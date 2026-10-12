@@ -20,6 +20,11 @@ sections only when they hold that store's text. A pruned entry is a plain miss t
 recomputes. What is lost is warmth on each switch. Known gap: keying the root per store would
 fix it and has not been done.
 
+A draft has an entry once it is a candidate for the `unsaved drafts also match` line
+(`contracts/scoring.md`, "Drafts that also match"). Before that line only published documents
+were indexed. A draft is edited often; each edit misses on the content key and rewrites its
+entry, the same as an edited published document.
+
 ## Keyed by content
 
 An entry carries `body_sha256`, the sha256 of the `doc.body` its payload was built from

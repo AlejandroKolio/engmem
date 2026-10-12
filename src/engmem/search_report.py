@@ -10,6 +10,7 @@ from engmem.cost import OP_SEARCH, record_delivery
 from engmem.output import (
     RELATED_MAX,
     RoleHit,
+    _escape_controls,
     render_no_match,
     render_role_search_results,
     render_scoreboard,
@@ -22,6 +23,7 @@ from engmem.provenance import SessionCheckout
 from engmem.scoring import (
     Scope,
     SearchOutcome,
+    matching_drafts,
     ranking_corpus,
     search,
     search_with_role_sections,
@@ -73,6 +75,20 @@ def render_result(
         render_search_results(outcome, docs, lead, checkout) if surfaced else render_no_match(lead)
     )
     return RenderedResult(text, surfaced, outcome, None, n_searched)
+
+
+DRAFTS_NAMED_MAX = 5
+
+
+def drafts_note(drafts: list[Doc]) -> str:
+    ids = ", ".join(_escape_controls(doc.id) for doc in drafts[:DRAFTS_NAMED_MAX])
+    if len(drafts) > DRAFTS_NAMED_MAX:
+        ids += f" +{len(drafts) - DRAFTS_NAMED_MAX} more"
+    # one text on both channels: a search's result lines are the same on CLI and MCP (AC-09.4)
+    return (
+        f"unsaved drafts also match (not reviewed at save, not ranked, not citable): {ids} -- "
+        "read one with `engmem read <id>` (MCP: engmem_read)"
+    )
 
 
 def stray_note(count: int) -> str:
@@ -147,6 +163,7 @@ def compose(
     scope: Scope | None = None,
     retain_versions: bool = True,
     record_cost: bool = True,
+    name_drafts: bool = True,
 ) -> str:
     """The whole stdout of one search, its one telemetry row and, with `record_cost`, its one
     `cost.jsonl` row; the caller only transports it."""
@@ -164,6 +181,9 @@ def compose(
         lines.append(stray_note(len(strays)))
     if retain_versions:
         lines += cite_lines(store, _shown_docs(loaded.docs, rendered))
+    drafts = matching_drafts(loaded.docs, query, scope, exclude=session_id) if name_drafts else []
+    if drafts:
+        lines.append(drafts_note(drafts))
     lines.append(render_scoreboard(loaded.docs, failed=len(loaded.errors)))
 
     telemetry_path = store / "telemetry.jsonl"
