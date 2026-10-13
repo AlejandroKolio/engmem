@@ -69,8 +69,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    influenced the work, in which case list them as rows (with quotes, same validity rule
    as `/engmem.save`: `prior-doc` is the `<id>@<version>` the `cite as` line of the search or
    read the quote came from gave, a quoted span in `taken`, classification exactly `reuse` /
-   `anti-reuse` / `harmful`; `engmem_complete_draft` refuses a row that breaks one and returns it), but do
-   not interrogate the user about it.
+   `anti-reuse` / `harmful`; `engmem draft complete` and `engmem_complete_draft` refuse a row
+   that breaks one and return it), but do not interrogate the user about it.
 4. Write `## Search Trace` with the `shell` / `paste` / `miss` value recorded by
    `/engmem`, alone on its own line. `- shell` or `Trace: shell` counts as no trace:
 
@@ -101,19 +101,35 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    - **Confirmed** (`ok`, `yes`): publish that document as shown.
    - **Edits**: apply them and publish. Do not show it again and do not ask again.
    - **Declined** (`no`, `cancel`, `don't save`), or a reply you cannot read as either of
-     the above: publish nothing. Do not call `engmem_complete_draft` and do not set
+     the above: publish nothing. Do not run `engmem draft complete`, do not call
+     `engmem_complete_draft`, and do not set
      `status: active`. The draft stays as it is, `status: draft`, which keeps it out of
      search, and it still holds the Pre-reg this session's searches are attributed to:
      deleting it would leave them pointing at no document. Tell the user it stays a draft
      that `/engmem.save` or `/engmem.save.quick` can finish later.
 
-   To publish, replace `sessions/<id>.md` with the document if you have file access; never
-   write it under a second name. Otherwise call the `engmem_complete_draft` MCP tool with
-   `id`, the document as `content`, and the version `engmem_create_draft` returned as
-   `expected_version`. If it refuses because the draft changed since you read it, the
-   refusal carries the current draft and its version: carry what changed into the document,
-   show it to the user again, since that is a different document from the one confirmed,
-   and call with that version.
+   To publish, call the `engmem_complete_draft` MCP tool with `id`, the document as
+   `content`, and the version create gave as `expected_version`; prefer it to the shell when
+   you have both. Otherwise, with a shell, pipe the document to `engmem draft complete <id>
+   --expected-version <the version create gave>` with a quoted delimiter, so nothing in it is
+   expanded or run: in a POSIX shell, `<<'EOF'` … `EOF` (a delimiter no line of the document
+   is); in PowerShell, first `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, since
+   Windows PowerShell 5.1 otherwise sends every non-ASCII character as `?`, then `@'` … `'@ |`
+   the command. Never write `sessions/<id>.md` yourself, and never under a second name.
+
+   Publish only the document the user confirmed. If the call refuses, whatever the reason, and
+   what fixes it changes the document — a Reuse Log row, the mode, a field — show the changed
+   document to the user again and publish only after a new confirmation: it is a different
+   document from the one confirmed. A refusal because the draft changed since you read it
+   carries the current draft and its version: carry what changed into the document, show it
+   again, and call with that version.
+
+   If you can do neither, or the call fails for a reason no change to the document fixes,
+   publish nothing and tell the user it was not saved and why. Keep the confirmed document in
+   your reply, so nothing is lost, and say the draft stays a draft that `/engmem.save.quick`
+   can finish once engmem can write. Write the file by hand only if the user then explicitly
+   asks: as `sessions/<id>.md` in the store `engmem store show` names (without a shell, the
+   order `/engmem.save` gives), and tell them it was saved outside engmem's checks.
 
 ## Example
 

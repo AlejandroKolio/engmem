@@ -210,14 +210,17 @@ def test_store_show_without_a_saved_choice_names_the_default(home, setting, caps
     assert lines[1].startswith("source: default") and str(setting) in lines[1]
 
 
-def test_the_start_template_reads_the_store_from_store_show():
+def test_the_templates_read_the_store_from_store_show():
+    """Start checks it before engmem writes the draft; the full save spells out the order for
+    the hand-written fallback the user has to ask for (US-24)."""
     from engmem.install import _template_source
 
-    text = _template_source("engmem.start.md")
+    start = _template_source("engmem.start.md")
+    save = _template_source("engmem.save.md")
 
-    assert "engmem store show" in text
-    assert "store/engmem" not in text  # the XDG path is spelled right where it is spelled out
-    assert "engmem/store" in text
+    assert "engmem store show" in start and "engmem store show" in save
+    assert "store/engmem" not in save  # the XDG path is spelled right where it is spelled out
+    assert "engmem/store" in save
 
 
 # --- AC-05.2: precedence, and an override never rewrites the saved choice --------------------
@@ -691,5 +694,5 @@ def test_the_start_template_separates_an_error_after_the_store_from_an_error_ins
 
     text = " ".join(_template_source("engmem.start.md").split())
 
-    assert "When the first line is `store:`, use that path" in text
-    assert "When the first line is `error:`, report it and write the draft nowhere" in text
+    assert "When the first line is `store:`, that path is the store engmem writes to" in text
+    assert "When the first line is `error:`, report it and create no draft" in text

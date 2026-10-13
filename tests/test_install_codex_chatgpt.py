@@ -93,7 +93,7 @@ def test_codex_skill_bodies_mention_skills_the_way_codex_invokes_them(env, tmp_p
     assert "`$engmem-save`" in bodies["engmem"]
     assert "`$engmem-save-quick`" in bodies["engmem-save"]
     assert "`$engmem`" in bodies["engmem-save-quick"]
-    assert "`~/Developer/engmem`" in bodies["engmem"], "a store path is not a command reference"
+    assert "`~/Developer/engmem`" in bodies["engmem-save"], "a store path is not a command reference"
 
 
 def test_codex_appends_the_trigger_rule_to_the_codex_agents_file(env, tmp_path):

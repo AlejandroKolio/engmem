@@ -2,7 +2,7 @@
 
 Source: `src/engmem/gate1.py` and `src/engmem/gate1_audit.py`. Consumed by
 `tools/verify_citations.py` (exit-code gate), `tools/gate1_report.py` (the review table) and
-`mcp_server._reuse_log_rejections` (the write path). This is the module that decides the
+`drafts._reuse_log_rejections` (the write path). This is the module that decides the
 pre-registered §11 endpoint, so "why is this row excluded" needs a written answer here, and
 §11 forbids reading a rule into the count after the fact, so every change to a counting rule
 is dated against the data it met.
@@ -224,9 +224,9 @@ document's status and before dogfooding:
   experiment whatever else it records.
 - **missing baseline** — `mode: research` with neither a `## Pre-reg` section nor
   `baseline_unavailable`: `"excluded: research session with no Pre-reg and no
-  baseline_unavailable"`. A shell agent writes its draft directly, with no tool checking it
-  (`contracts/mcp-server.md`, "The mode a draft records"), so this is what a skipped baseline
-  looks like on that path; counting it as research would credit the experiment with a session
+  baseline_unavailable"`. A document written by hand reaches the store with no tool checking
+  it (`contracts/mcp-server.md`, "The mode a draft records"), so this is what a skipped
+  baseline looks like on that path; counting it as research would credit the experiment with a session
   that never ran its protocol. The rule reads only documents that say `mode: research`, so a
   legacy document without a Pre-reg is counted exactly as before.
 - **unrecognized** — any other `mode` value: `"excluded: mode '<value>' not recognized"`. A typo

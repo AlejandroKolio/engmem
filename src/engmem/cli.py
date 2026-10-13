@@ -11,7 +11,7 @@ from typing import NoReturn
 
 import yaml
 
-from engmem import __version__, cost, feedback
+from engmem import __version__, cost, drafts, feedback
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.doctor import cmd_doctor
 from engmem.install import (
@@ -230,6 +230,52 @@ def _cmd_feedback_record(args: argparse.Namespace) -> int:
         fail(f"engmem feedback record: {exc}")
         return 2
     print(f"engmem feedback: {feedback.confirmation(entry)}")
+    return 0
+
+
+def _document_from_stdin(command: str) -> str | None:
+    """The document text an agent pipes in; None, with the reason printed, when there is none."""
+    if sys.stdin is None or sys.stdin.isatty():
+        fail(f"engmem draft {command}: pass the document on stdin -- nothing was written")
+        return None
+    try:
+        text = sys.stdin.buffer.read().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        fail(f"engmem draft {command}: the document on stdin is not UTF-8 ({exc}) -- nothing "
+             "was written")
+        return None
+    if not text.strip():
+        fail(f"engmem draft {command}: stdin is empty; pass the document on stdin -- nothing "
+             "was written")
+        return None
+    return text
+
+
+def _cmd_draft_create(args: argparse.Namespace) -> int:
+    """Publishes a new draft through the one writer the MCP tool uses (US-24)."""
+    content = _document_from_stdin("create")
+    if content is None:
+        return 2
+    try:
+        print(drafts.create_draft(resolve_store(args.store), args.doc_id, content, drafts.CLI))
+    except (drafts.WriteRefused, OSError) as exc:
+        fail(f"engmem draft create: {exc}")
+        return 2
+    return 0
+
+
+def _cmd_draft_complete(args: argparse.Namespace) -> int:
+    """Publishes a finished draft as active through the one writer the MCP tool uses (US-24)."""
+    content = _document_from_stdin("complete")
+    if content is None:
+        return 2
+    try:
+        print(drafts.complete_draft(
+            resolve_store(args.store), args.doc_id, content, args.expected_version, drafts.CLI
+        ))
+    except (drafts.WriteRefused, OSError) as exc:
+        fail(f"engmem draft complete: {exc}")
+        return 2
     return 0
 
 
@@ -887,6 +933,34 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(telemetry_parser)
     telemetry_parser.set_defaults(func=_cmd_telemetry)
+
+    draft_parser = subparsers.add_parser(
+        "draft",
+        help=(
+            "create a session's draft, or complete it as active, with the document on stdin -- "
+            "the same checks the MCP write tools make, never a plain file write"
+        ),
+    )
+    draft_commands = draft_parser.add_subparsers(dest="draft_command", required=True)
+    draft_create_parser = draft_commands.add_parser(
+        "create",
+        help="publish a new `status: draft` document; never overwrites an existing id",
+    )
+    draft_create_parser.add_argument("doc_id", metavar="DOC_ID", help="the new document's id")
+    _add_store_option(draft_create_parser)
+    draft_create_parser.set_defaults(func=_cmd_draft_create)
+    draft_complete_parser = draft_commands.add_parser(
+        "complete",
+        help="publish the finished document as `status: active` over its own draft",
+    )
+    draft_complete_parser.add_argument("doc_id", metavar="DOC_ID", help="the draft's id")
+    draft_complete_parser.add_argument(
+        "--expected-version",
+        default=None,
+        help="the version `engmem draft create` printed; a draft changed since is refused",
+    )
+    _add_store_option(draft_complete_parser)
+    draft_complete_parser.set_defaults(func=_cmd_draft_complete)
 
     feedback_parser = subparsers.add_parser(
         "feedback",

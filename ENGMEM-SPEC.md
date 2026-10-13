@@ -70,7 +70,7 @@ rest of the list is unchanged and still in force.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ CLI `engmem` (Python): fifteen subcommands, no thinking.     │
+│ CLI `engmem` (Python): sixteen subcommands, no thinking.     │
 ├──────────────────────────────────────────────────────────────┤
 │ Prompt templates (all the intelligence, agent-agnostic       │
 │ markdown): /engmem (start), /engmem.save, /engmem.save.quick │
@@ -724,6 +724,29 @@ assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and
 prints the same summary after its audit block. Rules: `docs/design/contracts/gate1.md`,
 "Usefulness feedback".
 
+### `engmem draft create DOC_ID` / `engmem draft complete DOC_ID [--expected-version V]` (document on stdin)
+
+*(US-24, owner decision 2026-10-13)* The two steps the installed templates take to start and
+finish a session document, for an agent with a shell. Before them, that agent wrote
+`sessions/<id>.md` with its own file tools, bypassing every check the MCP write tools make. Both
+commands read the document from stdin, typically from a heredoc, and run it through the same
+writer as `engmem_create_draft` and `engmem_complete_draft` (`src/engmem/drafts.py`):
+- path containment;
+- the configured `mode`;
+- create never overwrites, and of two creators of one id exactly one wins;
+- complete runs under the document lock, refuses a draft changed since `--expected-version`
+  and returns its current text;
+- the Reuse Log row checks;
+- the `draft -> active` transition.
+
+`create` prints the version to pass back. Messages name the CLI's own commands. A refusal, a
+terminal on stdin, bytes that are not UTF-8, or a failed write exits 2 and says nothing was
+written. A draft is never left half-published. When neither the CLI nor MCP can write, the
+templates do not fall back to a file write: the user is told the document was not saved, and
+only an explicit request from the user makes the agent write the file by hand, labelled as
+saved outside these checks. Rules: `docs/design/contracts/mcp-server.md`, "One writer for every
+surface", and `docs/design/contracts/prompt-templates.md`, "Writes go through engmem".
+
 ### `engmem read DOC_ID [--role ROLE] [--session ID] [--store PATH]`
 
 *(US-16, owner decision 2026-10-09)* Prints one document's body, or only its sections
@@ -979,16 +1002,18 @@ and each removes a duplication this section exists to prevent.
 
 Full reasoning for both: `docs/design/contracts/gate1.md`.
 
-**Two large modules stay whole, and that is a decision, not a backlog item.**
-`mcp_server.py` and `scoring.py` are the biggest files here, and both were examined for a
-seam. `scoring.py`'s exists but cutting it would break the thing that makes it fast:
-`search`, `search_with_role_sections` and `role_coverage` deliberately share one built
-section index, and splitting them would either duplicate that sharing or widen the API
-between modules for no reader benefit. `mcp_server.py`'s write tools and path containment
-are a genuinely separate concern, but `serve` must stay importable from
-`engmem.mcp_server` and the tests reach module internals by name, so a split costs a
-re-export layer that defeats its own purpose. Revisit only when a second protocol surface
-arrives — not on size alone.
+**One large module stays whole; the other was split when its stated condition was met.**
+`scoring.py` was examined for a seam, and one exists, but cutting it would break the thing that
+makes it fast: `search`, `search_with_role_sections` and `role_coverage` deliberately share one
+built section index, and splitting them would either duplicate that sharing or widen the API
+between modules for no reader benefit. `mcp_server.py` stayed whole until a second protocol
+surface arrived: its write tools and path containment were a separate concern, but a split
+without a second caller cost a re-export layer for nothing. That surface arrived with
+`engmem draft create|complete` *(owner decision, 2026-10-13; §5)*, which writes through the
+same code as the MCP tools. So that code now lives in `src/engmem/drafts.py`, and both surfaces
+call it. `serve` and the MCP-only supersede stay in `engmem.mcp_server`. Tests patch the module
+that owns a call, so no re-export layer was added. Revisit `scoring.py` only on a second
+caller, not on size alone.
 
 Transliteration and stemming stay cut, and were re-tested rather than assumed: a
 measured comparison against `python-slugify` showed stdlib NFKD reproduces its output

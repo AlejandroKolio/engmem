@@ -126,7 +126,7 @@ The wording carries the requirement instead, because at call time the schema is 
 model reads while the template's instruction has scrolled out of the transcript:
 `_SESSION_ID_SCHEMA["description"]` is imperative and names the consequence of omitting it
 (the rejected wording opened with "Optional:" and produced a store with no attributed row);
-`TOOL_DESCRIPTION` and `ROLE_TOOL_DESCRIPTION` each ask once; `_handle_create_draft`'s success
+`TOOL_DESCRIPTION` and `ROLE_TOOL_DESCRIPTION` each ask once; `drafts.create_draft`'s success
 text names the id and what to do with it, since nothing else carries the id from the call
 that produced it to the call that needs it.
 
@@ -178,6 +178,28 @@ honours them unchanged: it filters tools, not arguments.
   and the server keeps no other state, so a call without a scope argument searches the whole
   store whatever the call before it asked for (AC-10.4).
 
+## One writer for every surface (US-24)
+
+`engmem_create_draft`, `engmem_complete_draft` and `engmem draft create|complete` are one
+writer, `src/engmem/drafts.py`. The MCP handlers and the CLI commands only unpack arguments and
+turn `drafts.WriteRefused` into their own refusal: an `isError` result, or exit 2 with the
+reason on both streams. Before US-24 the CLI had no write command. An agent with a shell was
+told to write `sessions/<id>.md` with its own file tools, which skipped every rule below:
+containment, the configured mode, exclusive create, the lock, the version check, and the Reuse
+Log rows. The same agent then saved with weaker guarantees than one that happened to have only
+MCP. A second implementation of the CLI side would drift from the first, so there is one.
+
+A refusal tells the caller what to do in its own terms. `drafts.Surface` names the steps:
+`engmem_complete_draft` and `expected_version: "<v>"` over MCP, `engmem draft complete` and
+`--expected-version <v>` on the CLI. An agent reading a CLI refusal is never sent to a tool it
+does not have.
+
+`engmem_mark_superseded` stays MCP-only and stays in `mcp_server.py`, using the shared
+containment and lock. The full save's step for superseding an older document still tells an
+agent with file access to edit that document directly, with no lock and no status check. This
+is a recorded limit of US-24 (owner decision, 2026-10-13): a CLI supersede is a separate story,
+next to US-25.
+
 ## Write tools: security contract
 
 Every write target MUST resolve inside the resolved store's `sessions/`. Order matters:
@@ -187,7 +209,7 @@ Every write target MUST resolve inside the resolved store's `sessions/`. Order m
 2. `_resolve_sessions_dir` resolves both the store root and `sessions/` and rejects a
    mismatch, which catches `sessions/` itself being a symlink out of the store; a string
    comparison would not.
-3. `_resolve_write_target` refuses to write through an existing target that is itself a
+3. `drafts.resolve_write_target` refuses to write through an existing target that is itself a
    symlink, checked before `Path.resolve()` would follow it and compare the wrong location.
 
 Points 2 and 3 are `engmem backfill`'s rules too (`cli._sessions_is_contained`,
@@ -244,8 +266,11 @@ refused with the file's error. A daily record can never be a wrong observation i
 experiment, so the broken file blocks only the mode it could be hiding (AC-08.1: daily work is
 never blocked).
 
-**The shell path is unguarded.** A shell agent writes `sessions/<id>.md` itself, and nothing
-checks its `mode` at write time. The count guards that path on its own side: the template's
+**A hand-written document is unguarded.** Since US-24 a shell agent creates its draft with
+`engmem draft create`, which makes this same check ("One writer for every surface"). What
+still never reaches engmem is a document written by hand: a legacy one, one the user edits,
+or the save templates' explicit-request fallback. Nothing checks its `mode` at write time. The
+count guards that path on its own side: the template's
 placeholder `mode: <daily|research from step 0>`, copied as is, reads as an unrecognized mode,
 and a `mode: research` document with neither a Pre-reg nor `baseline_unavailable` is excluded as
 a missing baseline (`contracts/gate1.md`, "Modes"). A wrongly chosen but valid word — `daily`
@@ -406,7 +431,7 @@ bytes between the reads (`UnicodeDecodeError`, a `ValueError`). Neither may esca
 `engmem_complete_draft` has the same window between confirming the file is a draft and
 committing its replacement: another writer can activate the draft meanwhile, and the new
 content still parses as `active`, so nothing else notices. It runs the same check,
-`_refuse_if_changed_since_read`, just before the commit, and the staged file is discarded on
+`drafts.refuse_if_changed_since_read`, just before the commit, and the staged file is discarded on
 refusal. Between engmem writers both tools now hold the document's write lock across the
 whole span (next section), so this check is what remains against a writer that does not
 take it — a hand edit, a direct file write, `engmem backfill`.
@@ -425,7 +450,7 @@ document, both seeing `status: active`, the later one dropping the earlier's suc
 first 16 hex digits of their SHA-256, BOM and line endings included. It is derived, never
 stored, so every existing document already has one and nothing is migrated. It changes with
 any byte, including an edit that keeps `status: draft` and the file's size, which the
-`(mtime_ns, size)` identity `_refuse_if_changed_since_read` uses cannot promise on a
+`(mtime_ns, size)` identity `drafts.refuse_if_changed_since_read` uses cannot promise on a
 filesystem with coarse timestamps. Sixty-four bits make an accidental match negligible; it
 is not a security boundary, since any writer that can change the file can do worse than
 forge a version. It is short so a model copies it reliably, and a mistyped one is a refusal,
@@ -454,7 +479,7 @@ non-string value is a `-32602`.
 **Closing the check-to-replace window.** `staging.document_lock` makes a
 `.<target>.write-lock` directory with `os.mkdir`, exclusive on every filesystem, and both
 rewriting tools hold it from their existence check to their `os.replace`
-(`_locked` wraps it). A second engmem writer waits for it, polling for up to
+(`drafts.locked` wraps it). A second engmem writer waits for it, polling for up to
 `_LOCK_WAIT_SECONDS` (2.0), then does its own checks against what the first one left: a
 second completion finds `status: active` and is refused as not a draft, a second supersede
 finds `status: superseded`. On Windows a `PermissionError` from the `mkdir` is a busy lock
@@ -481,8 +506,9 @@ Limits, recorded rather than closed:
   `engmem_mark_superseded`. `engmem backfill` rewrites the same files with
   `staging.commit` after its own identity check and does not take it yet; it has the short
   window `apply_backfill` documents (`contracts/backfill.md`). Taking the lock there is the
-  follow-up. Hand edits and the shell templates' direct writes never reach engmem; against
-  them `_refuse_if_changed_since_read` narrows the window and does not close it.
+  follow-up. Hand edits, the explicit-request fallback and the full save's supersede step for
+  an agent with file access never reach engmem; against them
+  `drafts.refuse_if_changed_since_read` narrows the window and does not close it.
 - `engmem_create_draft` does not take the lock and needs none: its publish step cannot
   replace anything, and both rewriting tools refuse a document that does not exist.
 - The lock relies on `mkdir` being atomic, which holds on local filesystems; a store on a
@@ -535,12 +561,10 @@ success text is produced.
 
 Limits, recorded rather than closed:
 
-- The guarantee covers writers that go through `commit_new`, which today is only
-  `engmem_create_draft`. The `/engmem` template tells a runtime that can write files directly
-  to write `sessions/<id>.md` itself, and only if no file by that name exists yet; that is an
-  instruction to the agent, a check at best. The write never reaches engmem, and nothing here
-  can make it exclusive. A shell-capable create command (`engmem create-draft` or similar) would
-  extend the guarantee to that path; it is a new CLI surface and not part of this change.
+- The guarantee covers writers that go through `commit_new`: `engmem_create_draft` and, since
+  US-24, `engmem draft create`, which the `/engmem` template now uses instead of telling a
+  runtime with file access to write `sessions/<id>.md` itself. A file written by hand, through
+  the save templates' explicit-request fallback, is outside it.
 - The lock path is not exclusive against the link path. The case left open is two creators
   in one directory where one is refused hard links (a sandbox that forbids `link`, say) and
   the other is not — an agent in a sandbox and an unsandboxed host sharing one store. The

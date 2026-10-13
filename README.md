@@ -402,6 +402,26 @@ existing file and never inside the store. Drafts are not exported.
 Nothing in the store changes, and nothing is sent anywhere: the file stays where you put it. The
 rules: [docs/design/contracts/export.md](docs/design/contracts/export.md).
 
+The templates start and finish a session document through engmem, never by writing the file
+themselves: over MCP with the `engmem_create_draft` and `engmem_complete_draft` tools, and
+otherwise by piping the document to `engmem draft create` and `engmem draft complete`. The
+delimiter is quoted, so nothing in the document is expanded or run:
+
+```bash
+engmem draft create <id> <<'EOF'                     # never overwrites; prints the version
+---
+id: <id>
+...
+EOF
+engmem draft complete <id> --expected-version <version> <<'EOF'   # draft -> active
+...
+EOF
+```
+
+In PowerShell, set `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)` first: Windows
+PowerShell 5.1 otherwise sends every non-ASCII character to the command as `?`. Then pipe a
+single-quoted here-string, `@'` … `'@ | engmem draft create <id>`.
+
 More commands:
 
 ```bash
