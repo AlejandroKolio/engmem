@@ -457,8 +457,12 @@ rewriting tools hold it from their existence check to their `os.replace`
 (`_locked` wraps it). A second engmem writer waits for it, polling for up to
 `_LOCK_WAIT_SECONDS` (2.0), then does its own checks against what the first one left: a
 second completion finds `status: active` and is refused as not a draft, a second supersede
-finds `status: superseded`. On Windows a `PermissionError` from the `mkdir` is a busy lock,
-as for `commit_new`. The lock is released in a `finally`; a failed release is ignored, since
+finds `status: superseded`. On Windows a `PermissionError` from the `mkdir` is a busy lock
+when the lock's entry is there, pending delete after another writer released it, as for
+`commit_new`. With no entry there, the delete may have just finished, so one more `mkdir`
+decides. Refused again with no entry, it is the store refusing the create (a read-only root,
+write-protected media), and that `PermissionError` is raised at once instead of being waited
+out and reported as a lock. The lock is released in a `finally`; a failed release is ignored, since
 by then the write has happened. A lock still held after the wait is refused as an `isError`
 that says nothing was written and names the lock to remove if no engmem process is running.
 It is never broken automatically: deciding a lock is stale by its age races with a second

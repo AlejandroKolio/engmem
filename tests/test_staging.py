@@ -333,9 +333,11 @@ def test_an_access_denied_lock_is_busy_on_windows_only(tmp_path, monkeypatch, wi
     def access_denied(path, *args, **kwargs):
         raise PermissionError(errno.EACCES, "Access is denied")
 
+    target = tmp_path / "widget-cache-warmup.md"
+    # the released lock, still pending delete: its entry is there until the last handle closes
+    target.with_name(f".{target.name}.create-lock").mkdir()
     monkeypatch.setattr(staging.os, "mkdir", access_denied)
     monkeypatch.setattr(staging, "_WINDOWS", windows)
-    target = tmp_path / "widget-cache-warmup.md"
     tmp = stage(target, b"mine")
 
     with pytest.raises(PermissionError if not windows else FileExistsError) as raised:
@@ -401,12 +403,30 @@ def test_an_access_denied_write_lock_is_busy_on_windows_only(tmp_path, monkeypat
     def denied(path, *args, **kwargs):
         raise PermissionError(errno.EACCES, "Access is denied")
 
+    target = tmp_path / "widget-cache-warmup.md"
+    _write_lock(target).mkdir()  # pending delete, as above
     monkeypatch.setattr(staging.os, "mkdir", denied)
     monkeypatch.setattr(staging, "_WINDOWS", windows)
-    target = tmp_path / "widget-cache-warmup.md"
 
     with pytest.raises(staging.DocumentLockedError if windows else PermissionError):
         with staging.document_lock(target):
+            pytest.fail("entered a lock that could not be taken")
+
+
+def test_an_access_denied_lock_with_no_entry_is_the_stores_refusal_on_windows(
+    tmp_path, monkeypatch
+):
+    """Nothing pending delete: the store refuses the create, which waiting would only hide."""
+    monkeypatch.setattr(staging, "_LOCK_WAIT_SECONDS", 60.0)
+
+    def denied(path, *args, **kwargs):
+        raise PermissionError(errno.EACCES, "Access is denied")
+
+    monkeypatch.setattr(staging.os, "mkdir", denied)
+    monkeypatch.setattr(staging, "_WINDOWS", True)
+
+    with pytest.raises(PermissionError):
+        with staging.document_lock(tmp_path / "widget-cache-warmup.md"):
             pytest.fail("entered a lock that could not be taken")
 
 

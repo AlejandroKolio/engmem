@@ -145,12 +145,25 @@ def _take_lock(lock: Path) -> bool:
     """`mkdir` is exclusive on every filesystem; False when another holder has `lock`."""
     try:
         os.mkdir(lock)
-    except (FileExistsError, PermissionError) as exc:
+    except FileExistsError:
+        return False
+    except PermissionError:
         # on Windows a lock another writer just removed can still be pending delete, and
         # `mkdir` then reports access denied for what is a busy lock
-        if isinstance(exc, PermissionError) and not _WINDOWS:
+        if not _WINDOWS:
             raise
-        return False
+        if os.path.lexists(lock):
+            return False
+        # no entry: the delete may have just finished, so one more `mkdir` decides. Refused
+        # again with no entry, it is the store refusing the create, which waiting would hide
+        try:
+            os.mkdir(lock)
+        except FileExistsError:
+            return False
+        except PermissionError:
+            if os.path.lexists(lock):
+                return False
+            raise
     return True
 
 

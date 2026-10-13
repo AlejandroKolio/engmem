@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from engmem import confined
 from engmem.output import _escape_controls
 from engmem.telemetry import SessionRow, _load_json_object, read_session_rows
 
@@ -154,20 +155,10 @@ def record(
     })
     path = store / FEEDBACK_FILE
     try:
-        with open(path, "a+b") as f:
-            f.write(_line_start(f) + line.encode("utf-8") + b"\n")
+        confined.append_line(path, confined.LOG_DEPTH, line.encode("utf-8"))
     except OSError as exc:
         raise FeedbackError(f"cannot write {path} ({exc})") from exc
     return entry
-
-
-def _line_start(f) -> bytes:
-    """`\n` when the file ends inside a torn line, so the new line is not swallowed by it."""
-    f.seek(0, 2)
-    if f.tell() == 0:
-        return b""
-    f.seek(-1, 2)
-    return b"" if f.read(1) == b"\n" else b"\n"
 
 
 def confirmation(entry: Feedback) -> str:
@@ -203,18 +194,15 @@ def _read_feedback(path: Path) -> tuple[dict[tuple[str, str], Feedback], int]:
     A missing file is no assessment; one that cannot be read or decoded raises."""
     latest: dict[tuple[str, str], Feedback] = {}
     unreadable = 0
-    if not path.is_file():
-        return latest, unreadable
-    with open(path, encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            entry = _feedback_of(line)
-            if entry is None:
-                unreadable += 1
-                continue
-            latest[(entry.session_id, entry.doc_id)] = entry
+    for raw_line in confined.read_log_lines(path, confined.LOG_DEPTH):
+        line = raw_line.strip()
+        if not line:
+            continue
+        entry = _feedback_of(line)
+        if entry is None:
+            unreadable += 1
+            continue
+        latest[(entry.session_id, entry.doc_id)] = entry
     return latest, unreadable
 
 

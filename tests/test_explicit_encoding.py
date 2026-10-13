@@ -124,8 +124,9 @@ def test_a_text_mode_subprocess_with_a_string_command_containing_b_is_scanned():
 
 
 def test_the_scan_finds_call_sites_at_all():
-    """Guards the guard: a scan that matches nothing passes vacuously."""
-    assert len(SITES) > 10, SITES
+    """Guards the guard: a scan that matches nothing passes vacuously. Store files are read
+    and appended as bytes through `confined` since US-22/23, which left fewer text opens."""
+    assert len(SITES) >= 5, SITES
 
 
 @pytest.mark.parametrize(

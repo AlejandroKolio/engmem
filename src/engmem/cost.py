@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engmem.feedback import _line_start
+from engmem import confined
 from engmem.output import _escape_controls
 from engmem.telemetry import (
     BYTES_PER_TOKEN_ESTIMATE,
@@ -34,8 +34,7 @@ class CostError(Exception):
 def _append(store: Path, op_id: str, record: dict) -> None:
     """One line, never swallowed by a torn line before it; raises `OSError`."""
     line = json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "op_id": op_id, **record})
-    with open(store / COST_FILE, "a+b") as f:
-        f.write(_line_start(f) + line.encode("utf-8") + b"\n")
+    confined.append_line(store / COST_FILE, confined.LOG_DEPTH, line.encode("utf-8"))
 
 
 def record_delivery(
@@ -240,18 +239,15 @@ def _read_ops(path: Path) -> tuple[list[_Op], int]:
     raises."""
     ops: list[_Op] = []
     unreadable = 0
-    if not path.is_file():
-        return ops, unreadable
-    with open(path, encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            entry = _read_op(line)
-            if entry is None:
-                unreadable += 1
-                continue
-            ops.append(entry)
+    for raw_line in confined.read_log_lines(path, confined.LOG_DEPTH):
+        line = raw_line.strip()
+        if not line:
+            continue
+        entry = _read_op(line)
+        if entry is None:
+            unreadable += 1
+            continue
+        ops.append(entry)
     return ops, unreadable
 
 
