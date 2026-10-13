@@ -475,7 +475,10 @@ the source it describes.
 **Reads stay inside the store.** A link in `sessions/` or `versions/`, or `sessions/`
 itself being a link, is refused by name and nothing behind it is read, so an imported or
 shared store cannot hand the agent a file from elsewhere on your machine as a recorded
-decision. The store directory itself may be a link, for example into a synced folder.
+decision. The logs follow the same rule: `telemetry.jsonl`, `cost.jsonl` and
+`feedback.jsonl` are never appended to or read through a link, so a search cannot write
+into a file outside the store. The store directory itself may be a link, for example into a
+synced folder.
 
 **Writes stay inside `sessions/`.** The MCP write tools resolve every path first and
 compare after, so `..` segments, absolute paths, symlinks pointing out of the store, and

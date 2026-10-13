@@ -249,8 +249,10 @@ for byte what they were, and nothing on the Gate 1 side reads the new file. Each
 `ts`, `op_id` (a fresh uuid4 hex), `op`, `session_id` (explicit `null` when unattributed) and
 `channel`. `search` and `read` add `bytes`; `read` also adds `doc_id` and `role` (`null` for a
 whole document). `baseline` adds `tokens`, `seconds`, `call_id` and `"reported_by": "client"`.
-Lines are appended the way `feedback.jsonl` is: a line torn by an interrupted write is closed
-first, so it never swallows the next one.
+Lines are appended the way `feedback.jsonl` and `telemetry.jsonl` are, through
+`confined.append_line`: a line torn by an interrupted write is closed first, so it never
+swallows the next one, and the file is never written through a link (`contracts/runtime.md`,
+"Logs are written inside the store").
 
 **What a delivery measures.** `bytes` is the UTF-8 length of the whole response text the
 command or tool sent: for a search, every line `compose` returns (warnings, the result, the

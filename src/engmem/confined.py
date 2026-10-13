@@ -1,5 +1,6 @@
-"""Store files read without leaving the store through a link (US-22). Rules and their reasons:
-contracts/runtime.md, "Reads stay inside the store"."""
+"""Store files read and appended without leaving the store through a link (US-22, US-23). Rules
+and their reasons: contracts/runtime.md, "Reads stay inside the store" and "Logs are written
+inside the store"."""
 
 from __future__ import annotations
 
@@ -8,7 +9,9 @@ import os
 import stat
 from pathlib import Path
 
-# the parts of a path that sit inside the store: `sessions/<id>.md`, `versions/<id>/<version>.md`
+# the parts of a path that sit inside the store: `<log>.jsonl`, `sessions/<id>.md`,
+# `versions/<id>/<version>.md`
+LOG_DEPTH = 1
 SESSIONS_DEPTH = 1
 SESSION_DEPTH = 2
 VERSION_DEPTH = 3
@@ -24,11 +27,17 @@ _OPENAT = (
 
 
 class OutsideStoreError(OSError):
-    """A store path that passes through a link or junction; nothing behind it was read."""
+    """A store path that passes through a link or junction; nothing behind it was read or
+    written."""
 
 
-def _refused(path: Path, depth: int) -> OutsideStoreError:
+def _refused(path: Path, depth: int, write: bool = False) -> OutsideStoreError:
     inside = "/".join(path.parts[-depth:])
+    if write:
+        return OutsideStoreError(
+            f"{inside} passes through a link or junction -- engmem writes only inside the "
+            "store, so nothing was written"
+        )
     return OutsideStoreError(
         f"{inside} passes through a link or junction -- engmem reads only files inside the "
         "store, so nothing behind it was read"
@@ -49,22 +58,25 @@ def is_link(path: Path) -> bool:
         return False
 
 
-def _open_inside(path: Path, depth: int, flags: int) -> int:
+def _open_inside(path: Path, depth: int, flags: int, write: bool = False) -> int:
     """An fd for `path`, opened one component at a time below the store root, none followed."""
     fd = os.open(path.parents[depth - 1], os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in path.parts[-depth:-1]:
-            child = _open_component(path, depth, part, os.O_RDONLY | os.O_DIRECTORY, fd)
+            child = _open_component(path, depth, part, os.O_RDONLY | os.O_DIRECTORY, fd, write)
             os.close(fd)
             fd = child
-        return _open_component(path, depth, path.name, flags, fd)
+        return _open_component(path, depth, path.name, flags, fd, write)
     finally:
         os.close(fd)
 
 
-def _open_component(path: Path, depth: int, name: str, flags: int, dir_fd: int) -> int:
+def _open_component(
+    path: Path, depth: int, name: str, flags: int, dir_fd: int, write: bool
+) -> int:
     try:
-        return os.open(name, flags | os.O_NOFOLLOW, dir_fd=dir_fd)
+        # 0o666, as `open()` creates a file; `os.open` would default to 0o777
+        return os.open(name, flags | os.O_NOFOLLOW, 0o666, dir_fd=dir_fd)
     except OSError as exc:
         # ELOOP on Linux and macOS, EMLINK on FreeBSD, ENOTDIR when O_DIRECTORY meets the link
         try:
@@ -72,11 +84,11 @@ def _open_component(path: Path, depth: int, name: str, flags: int, dir_fd: int) 
         except OSError:
             linked = False
         if linked or exc.errno in (errno.ELOOP, errno.EMLINK):
-            raise _refused(path, depth) from None
+            raise _refused(path, depth, write) from None
         raise
 
 
-def _check_components(path: Path, depth: int) -> os.stat_result:
+def _check_components(path: Path, depth: int, write: bool = False) -> os.stat_result:
     """Without `dir_fd` (Windows): each part below the root is checked, then opened by name.
     Returns the last part's `lstat`."""
     current = path.parents[depth - 1]
@@ -84,7 +96,7 @@ def _check_components(path: Path, depth: int) -> os.stat_result:
         current = current / part
         st = os.lstat(current)
         if _is_link(st):
-            raise _refused(path, depth)
+            raise _refused(path, depth, write)
     return st
 
 
@@ -138,3 +150,64 @@ def list_names(directory: Path, depth: int) -> list[str]:
             os.close(fd)
     _check_components(directory, depth)
     return os.listdir(directory)
+
+
+def read_log_lines(path: Path, depth: int) -> list[str]:
+    """`path`'s lines as `read_utf8` reads them; a log that does not exist yet has none."""
+    if not os.path.lexists(path):
+        return []
+    return read_utf8(path, depth).split("\n")
+
+
+def append_line(path: Path, depth: int, line: bytes) -> None:
+    """Appends `line` and a newline to `path`, creating it, never through a link. A line torn by
+    an interrupted write is closed first, so the new one is not swallowed by it."""
+    if _OPENAT:
+        fd = _open_inside(
+            path, depth, os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_NONBLOCK, write=True
+        )
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise _not_regular(path, st)
+            torn = st.st_size > 0 and os.pread(fd, 1, st.st_size - 1) != b"\n"
+            data = (b"\n" if torn else b"") + line + b"\n"
+            # one write with O_APPEND: on a local filesystem concurrent appenders land whole lines
+            if os.write(fd, data) != len(data):
+                raise OSError(errno.EIO, "short write", str(path))
+        finally:
+            os.close(fd)
+        return
+    _append_checked(path, depth, line)
+
+
+def _append_checked(path: Path, depth: int, line: bytes) -> None:
+    """Without `dir_fd` (Windows), where O_APPEND is a seek before each write and not atomic:
+    the store's write lock serialises appenders, and the file is checked before it is written."""
+    from engmem.staging import DocumentLockedError, document_lock
+
+    try:
+        with document_lock(path):
+            try:
+                checked = _check_components(path, depth, write=True)
+            except FileNotFoundError:
+                checked = None
+            if checked is not None and not stat.S_ISREG(checked.st_mode):
+                raise _not_regular(path, checked)
+            with open(path, "a+b") as f:
+                st = os.fstat(f.fileno())
+                after = os.lstat(path)
+                if _is_link(after) or (after.st_dev, after.st_ino) != (st.st_dev, st.st_ino):
+                    raise _refused(path, depth, write=True)
+                torn = False
+                if st.st_size > 0:
+                    f.seek(-1, os.SEEK_END)
+                    torn = f.read(1) != b"\n"
+                # "a" mode: the write lands at the end wherever the read left the position
+                f.write((b"\n" if torn else b"") + line + b"\n")
+    except DocumentLockedError as exc:
+        raise OSError(
+            errno.EBUSY,
+            f"{exc.lock} is held by another engmem call -- nothing was written; if no engmem "
+            "process is running, an interrupted write left it behind: remove it",
+        ) from None

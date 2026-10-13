@@ -179,8 +179,8 @@ name, and so is a Windows junction, which `is_symlink()` does not report. Nothin
 link is read. Without this, one link committed to a shared or imported store hands the agent
 any file on the machine. That file comes back as a search hit, a `read` or an export preview,
 and it is presented as a recorded decision. That is worse than a leak: it quietly replaces
-the context the agent decides on. The logs in the store root (`telemetry.jsonl`, `cost.jsonl`,
-`feedback.jsonl`) are not covered here; they belong to US-23.
+the context the agent decides on. The logs in the store root follow their own section below
+(US-23).
 
 The root itself may be a link. `~/Developer/engmem` pointing into a synced folder is a
 supported setup ("The answer is absolute, and it is not resolved", above). The root is the
@@ -236,6 +236,72 @@ store, where every later read would trust them.
 - which reparse points count as links, and a directory refused before it is opened;
 - a linked `sessions/` in the stray scan (`tests/test_doctor.py` covers it in doctor);
 - a junction, on Windows only.
+
+## Logs are written inside the store (US-23)
+
+`telemetry.jsonl`, `cost.jsonl` and `feedback.jsonl` are appended through
+`confined.append_line` and read through `confined.read_log_lines`, with the same boundary as a
+document: the file itself must not be a link or junction. A plain search appends telemetry, and
+a read appends cost. Before this, a link at one of these names made every search write into a
+file outside the store, and that file could be any file the user can write. The readers are
+covered too. A feedback line carries the user's decision text, so `feedback summary` read
+through a link would print whatever the outside file says. Telemetry decides which finds a
+feedback record may assess, so a linked log could vouch for a document no search showed.
+
+A refused or failed append is a named miss, never a success:
+- search and read add `note: telemetry not recorded (...)` or `note: cost not recorded (...)`
+  and still answer;
+- `feedback record` and `record-baseline` fail with `cannot write`.
+
+The same applies to a directory or a FIFO at the name, or a file the user cannot write. A
+dangling link creates nothing: opening it for append would otherwise create its target outside
+the store. With `dir_fd` the open itself fails on the link (`O_NOFOLLOW`), so `O_CREAT` never
+acts. Without `dir_fd` the `lstat` check refuses it before the open.
+
+A reader treats only a missing name as an empty log. A link at the name, dangling or not, is
+refused and named, as the writer refuses it. Otherwise `engmem telemetry` would print "0 rows"
+for a log that every search reports it cannot write.
+
+How an append is made:
+- **With `dir_fd`.** The file is opened `O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW |
+  O_NONBLOCK` relative to the store root, with mode `0o666` as `open()` would use. Anything but
+  a regular file is refused after the `fstat`. A torn last line is closed with `\n`, and the
+  line is written with one `os.write`. On a local Linux or macOS filesystem, `O_APPEND` writes
+  to one file are serialised, so concurrent appenders land whole lines one after another. POSIX
+  does not promise this for regular files, and over NFS or SMB, where the client computes the
+  end itself, lines can collide. A store on a network share is not a supported setup for
+  concurrent writers. Two appenders both closing the same torn line leave an empty line, which
+  every reader skips.
+- **Without `dir_fd` (Windows).** There `O_APPEND` is a seek followed by a write, so two
+  appenders can overwrite each other. The append runs under the store's write lock for that
+  file (`staging.document_lock`, a `.<name>.write-lock` directory in the store root). A held
+  lock that outlasts the wait is a named miss. Its message gives the lock's path and says to
+  remove it if no engmem process is running. A lock left by a killed process is never broken
+  automatically, for the reason `contracts/mcp-server.md` gives for document locks. Until
+  someone removes it, every append to that log is a named miss: every search shows its `note:`
+  line, and logging of that file stops. A store root that refuses the lock's `mkdir`
+  (read-only, write-protected media) fails at once with the `PermissionError`; it is not waited
+  out as a busy lock (`contracts/mcp-server.md` gives the rule). So does a root whose ACL
+  allows writing an existing log but not creating a directory: that store could log before
+  US-23 and now reports every append as a named miss. The file is checked with
+  `lstat` and opened by name. Before writing, its identity must still match the name, so a link
+  swapped in after the check is not written through. A link swapped in for a missing log in
+  that window can still leave an empty file outside the store. This is the residual race on
+  that platform.
+
+Telemetry used to be written in text mode, so a Windows store got `\r\n` line endings. It
+now gets `\n` like the other two logs. Every reader splits the same way either way.
+
+`tests/test_logs_stay_inside_the_store.py` covers:
+- each writer through a link, on the CLI and over MCP, including read-only search;
+- each reader through a link;
+- a directory, a FIFO and an unwritable file at the name;
+- a dangling link;
+- forty concurrent appends after a torn line, where every append that returned is present
+  once and every one refused is named;
+- the check-then-open swap and the lock on the path without `dir_fd`: a held lock is named
+  with its remedy, and a refused `mkdir` is a permission error, not a wait;
+- a summary of a dangling log link.
 
 ## `~/Developer/engmem` is the default on every platform
 

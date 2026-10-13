@@ -586,7 +586,8 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    would make an honest Reuse Log row look fabricated at review time. `related` expansion
    is not listed: the search never printed it, and it is reconstructible from front matter.
    A write failure here (store made read-only, `telemetry.jsonl` shadowed by a
-   directory) does not crash the command — the search result already printed above is
+   directory, *(US-23)* `telemetry.jsonl` a link or junction, which is never written
+   through) does not crash the command — the search result already printed above is
    correct and complete, and the command still exits 0 — but is reported with its own
    `note: telemetry not recorded (<reason>)` line on stdout, since a silently-stopped
    measurement instrument is a data-integrity problem worth surfacing.

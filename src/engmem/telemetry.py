@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from engmem import confined
 from engmem.output import SCOPE_NAME_DISPLAY_MAX, only_weak_shown, surfaced_ids
 from engmem.scoring import Scope, SearchOutcome
 
@@ -114,8 +115,7 @@ def log_search(
     }
     try:
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(jsonl_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
+        confined.append_line(jsonl_path, confined.LOG_DEPTH, json.dumps(record).encode("utf-8"))
     except OSError as exc:
         return str(exc)
     return None
@@ -154,8 +154,7 @@ def log_role_search(
     }
     try:
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(jsonl_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
+        confined.append_line(jsonl_path, confined.LOG_DEPTH, json.dumps(record).encode("utf-8"))
     except OSError as exc:
         return str(exc)
     return None
@@ -248,23 +247,19 @@ def summarize(jsonl_path: Path) -> TelemetrySummary:
     """A missing file reads as zero rows and any line this reader cannot total counts as
     `unreadable`; a file it cannot read (`OSError`) or decode (`UnicodeDecodeError`) raises."""
     overall = ChannelTotals(channel="overall")
-    if not jsonl_path.is_file():
-        return TelemetrySummary(total=0, unreadable=0, by_channel=[], overall=overall)
-
     by_channel: dict[str, ChannelTotals] = {}
     unreadable = 0
-    with open(jsonl_path, encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            row = _read_row(line)
-            if row is None:
-                unreadable += 1
-                continue
-            bucket = by_channel.setdefault(row.channel, ChannelTotals(channel=row.channel))
-            _accumulate(bucket, row)
-            _accumulate(overall, row)
+    for raw_line in confined.read_log_lines(jsonl_path, confined.LOG_DEPTH):
+        line = raw_line.strip()
+        if not line:
+            continue
+        row = _read_row(line)
+        if row is None:
+            unreadable += 1
+            continue
+        bucket = by_channel.setdefault(row.channel, ChannelTotals(channel=row.channel))
+        _accumulate(bucket, row)
+        _accumulate(overall, row)
 
     return TelemetrySummary(
         total=overall.total,
@@ -320,31 +315,27 @@ def read_session_rows(jsonl_path: Path) -> list[SessionRow]:
     matching `summarize()`'s tolerance for a bad row; a file that cannot be read or decoded
     raises, also matching `summarize()` — both readers make the same distinction on the same
     file. Blank/whitespace-only mirrors `log_search`'s own write-side rule: absent, not a value."""
-    if not jsonl_path.is_file():
-        return []
-
     rows: list[SessionRow] = []
-    with open(jsonl_path, encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            record = _load_json_object(line)
-            if record is None:
-                continue
-            session_id = record.get("session_id")
-            if not isinstance(session_id, str):
-                continue
-            session_id = session_id.strip()
-            if not session_id:
-                continue
-            rows.append(SessionRow(
-                session_id=session_id,
-                ts=_parse_ts(record.get("ts")),
-                surfaced=_shown_ids(record),
-                weak_only=record.get("weak_only") is True,
-                query=record["query"] if isinstance(record.get("query"), str) else "",
-            ))
+    for raw_line in confined.read_log_lines(jsonl_path, confined.LOG_DEPTH):
+        line = raw_line.strip()
+        if not line:
+            continue
+        record = _load_json_object(line)
+        if record is None:
+            continue
+        session_id = record.get("session_id")
+        if not isinstance(session_id, str):
+            continue
+        session_id = session_id.strip()
+        if not session_id:
+            continue
+        rows.append(SessionRow(
+            session_id=session_id,
+            ts=_parse_ts(record.get("ts")),
+            surfaced=_shown_ids(record),
+            weak_only=record.get("weak_only") is True,
+            query=record["query"] if isinstance(record.get("query"), str) else "",
+        ))
     return rows
 
 
