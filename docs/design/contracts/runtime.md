@@ -170,6 +170,73 @@ corrupts the frame in flight (`contracts/mcp-server.md`, "Transport and the stdo
 rule"). `tests/test_stdout_is_protocol_only.py` reads `mcp_server.py`'s syntax tree and fails
 if the module so much as imports `fail`.
 
+## Reads stay inside the store (US-22)
+
+A document in `sessions/` and a retained copy in `versions/<id>/` are read through
+`confined.read_bytes`, and `sessions/` itself is listed through `confined.list_names`. The
+parts of the path below the store root must not be links. A symbolic link there is refused by
+name, and so is a Windows junction, which `is_symlink()` does not report. Nothing behind the
+link is read. Without this, one link committed to a shared or imported store hands the agent
+any file on the machine. That file comes back as a search hit, a `read` or an export preview,
+and it is presented as a recorded decision. That is worse than a leak: it quietly replaces
+the context the agent decides on. The logs in the store root (`telemetry.jsonl`, `cost.jsonl`,
+`feedback.jsonl`) are not covered here; they belong to US-23.
+
+The root itself may be a link. `~/Developer/engmem` pointing into a synced folder is a
+supported setup ("The answer is absolute, and it is not resolved", above). The root is the
+owner's choice, so it is followed once and everything below it is held to the rule. A root
+link whose target is gone is "store not found". It never falls back to another store.
+
+How a read is made:
+- **With `dir_fd` (Linux, macOS).** The read opens the root, then each part below it relative
+  to the directory before, with `O_NOFOLLOW`. A link swapped in after the listing, at any
+  depth, makes the open fail. No check-then-open window is left for it to land in.
+- **The final open adds `O_NONBLOCK`,** and anything but a regular file is refused after the
+  `fstat`. Without that, a FIFO named like a document would hang the search.
+- **Without `dir_fd` (Windows).** Each part is checked with `lstat`, then the file is opened
+  by name. A part counts as a link when it is a symlink or a name-surrogate reparse point,
+  which covers a junction. Other reparse points are files in their own place: a OneDrive
+  placeholder or a deduplicated file. Refusing them would lock a store in a synced folder out
+  of every document. The type is checked before the open, because Windows opens a directory
+  with `PermissionError` instead of `IsADirectoryError`. After the read, the name must still be the
+  file that was read (`st_dev`, `st_ino`). That check catches a swap of the file itself. A
+  directory above it swapped for a junction in the window between the check and the open is
+  not caught. This is the residual race on that platform.
+- **A hard link is not detected.** It is one more name for a file, and nothing about it
+  points out of the store. `contracts/backfill.md` leaves it open for writes for the same
+  reason.
+
+A linked `sessions/` is not walked for stray markdown either, since its subtree is outside
+the store and the stray warning would print the names found there. `engmem doctor` reports a
+linked `sessions/` as an error, because a search behind it finds nothing.
+
+A refused file is a load error like an unreadable one. Its id is missing from the store, and
+the error names the link. `read` and `export` of that id say why it is missing, so the answer
+is not just "no document". A search shows the error on stderr. Over MCP it shows only the
+`N failed to load` count, because the client never sees stderr.
+
+A document is also re-read after it was loaded, and those re-reads use the same reader:
+- the current version a `read` compares with a cited one;
+- the text an export rebuilds;
+- the bytes a version is retained from, and an existing copy compared against them;
+- the Reuse Log line number;
+- a backfill proposal and its write;
+- the MCP completion check and the supersede rebuild.
+
+A link that lands between the load and one of these re-reads is refused there too. Otherwise,
+for the retained version and the supersede rebuild, outside bytes would be copied into the
+store, where every later read would trust them.
+
+`tests/test_reads_stay_inside_the_store.py` covers:
+- a file link, a linked `sessions/`, and the three places in `versions/` a link can sit;
+- both read paths, with the `dir_fd` one switched off to run the Windows path on any platform;
+- a linked and a dangling root;
+- a swap between the listing and the open, and between the check and the open;
+- each re-read after a load;
+- which reparse points count as links, and a directory refused before it is opened;
+- a linked `sessions/` in the stray scan (`tests/test_doctor.py` covers it in doctor);
+- a junction, on Windows only.
+
 ## `~/Developer/engmem` is the default on every platform
 
 `Developer` is a macOS convention, and the default is deliberately not per-platform. The path

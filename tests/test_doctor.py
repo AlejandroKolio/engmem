@@ -22,6 +22,7 @@ from conftest import (
     redirect_home,
     requires_permission_enforcement,
     requires_posix_modes,
+    requires_symlinks,
 )
 
 from engmem import __version__
@@ -459,6 +460,27 @@ def test_a_sessions_directory_denying_reads_is_named(home, tmp_path, shell_path,
 
     [line] = _with(lines, "error", "sessions")
     assert str(sessions) in line and "PermissionError" in line and "read access" in line
+    assert code == 1
+
+
+@requires_symlinks
+def test_a_linked_sessions_directory_is_an_error_not_a_readable_store(
+    home, tmp_path, shell_path, capsys
+):
+    """Search refuses a linked sessions/ (US-22), so doctor must not call it readable."""
+    store = tmp_path / "notes"
+    _install("claude", store, capsys)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "20260101-outside.md").write_text("---\nid: x\n---\n", encoding="utf-8")
+    (store / "sessions").rmdir()
+    (store / "sessions").symlink_to(elsewhere, target_is_directory=True)
+
+    code, lines = _doctor(capsys)
+
+    [line] = _with(lines, "error", "sessions")
+    assert "is a link or junction" in line
+    assert not _with(lines, "ok", "sessions")
     assert code == 1
 
 

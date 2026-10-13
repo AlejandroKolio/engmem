@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlsplit
 import yaml
 from markdown_it import MarkdownIt
 
+from engmem import confined
 from engmem.cache import identity_for
 from engmem.sections import sections_for_role, split_sections
 from engmem.spine import (
@@ -359,7 +360,7 @@ def propose_backfill(doc: Doc) -> BackfillProposal:
     if doc.spine_complete:
         return BackfillProposal(doc.id, doc.path, True, [], [])
 
-    text, _ = read_document(doc.path)
+    text, _ = read_document(doc.path, confined.SESSION_DEPTH)
     front_matter_text, _ = split_front_matter(text)
     raw = _front_matter_mapping(front_matter_text)
 
@@ -518,7 +519,7 @@ def apply_backfill(doc: Doc, proposal: BackfillProposal) -> str:
             "— refusing to write"
         )
 
-    original_text, bom = read_document(doc.path)
+    original_text, bom = read_document(doc.path, confined.SESSION_DEPTH)
     # everything below `proposal.fields` was derived from the document as it was when
     # `propose_backfill` read it, and the CLI puts a human's confirmation prompt in between.
     # The body is re-read above, so an edit landing in that window is preserved and the

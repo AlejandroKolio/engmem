@@ -368,7 +368,8 @@ changes on every edit. `engmem read` shows one with no `cite as` line, and a sea
 the copy must have the identity it was parsed with, else it is not retained and a `note:` line
 says so: a copy of other bytes than the ones shown would mislabel the evidence. The copy is
 refused through a symlinked `versions/` or `versions/<id>/`, and for an id `validate_doc_id`
-rejects. The `cite as` line is outside `render_result`'s text, like the stray note, so
+rejects. A retained copy is also never read through a link, because its target could hash to
+the version it is named by (`contracts/runtime.md`, "Reads stay inside the store"). The `cite as` line is outside `render_result`'s text, like the stray note, so
 `context_bytes` is unchanged by it. A failure with one cause — an unwritable store fails every
 shown document the same way — is one `note:` naming every document it hit. Under
 `engmem mcp --read-only` (D2) none of this runs: no copy is written and no `cite as` line printed,

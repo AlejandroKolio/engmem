@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from engmem import confined
 from engmem.settings import Mode
 from engmem.sections import split_sections
 from engmem.spine import Doc, Problem, load_store
@@ -171,7 +172,7 @@ def reuse_log_rows(section_body: str) -> list[TableRow]:
 
 
 def _line_number(path: Path, row_line: str) -> int:
-    for n, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
+    for n, line in enumerate(confined.read_utf8(path, confined.SESSION_DEPTH).splitlines(), start=1):
         if line.strip() == row_line.strip():
             return n
     return 0

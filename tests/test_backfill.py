@@ -33,6 +33,7 @@ from engmem.backfill import (
     _split_terms,
     _drop_declared_keys,
 )
+from engmem.confined import OutsideStoreError
 from engmem.spine import load_store, parse_document, split_front_matter
 
 
@@ -1493,19 +1494,59 @@ def test_a_symlinked_document_is_refused(tmp_path, target_relpath, target_text, 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(target_text, encoding="utf-8")
     link = store / link_name
+    # a plain document when loaded: the loader refuses a link outright (US-22), so this is the
+    # link that lands after the load, which `apply_backfill` must refuse on its own
+    link.write_text(target_text, encoding="utf-8")
+    doc = next(d for d in load_store(store).docs if d.path == link)
+    proposal = propose_backfill(doc)
+    link.unlink()
     link.symlink_to(target)
     before = target.read_bytes()
 
-    doc = next(d for d in load_store(store).docs if d.path == link)
-    with pytest.raises(BackfillWriteError, match="is a symlink"):
-        apply_backfill(doc, propose_backfill(doc))
+    with pytest.raises(OutsideStoreError, match="passes through a link"):
+        apply_backfill(doc, proposal)
 
     assert target.read_bytes() == before
     assert link.is_symlink()
-    assert load_store(store).errors == []
+    assert [p.path for p in load_store(store).errors] == [link]
     assert not [
         p for d in {store, target.parent} for p in d.iterdir() if p.name.endswith(".tmp")
     ]
+
+
+@requires_symlinks
+def test_a_link_landing_after_the_read_is_refused_before_the_write(tmp_path, monkeypatch):
+    """The read refuses a link that is already there; one swapped in after it is the write
+    guard's to refuse."""
+    store = tmp_path / "sessions"
+    store.mkdir()
+    outside = tmp_path / "elsewhere" / "shellrc"
+    outside.parent.mkdir()
+    outside.write_text("export PATH=/usr/bin\n", encoding="utf-8")
+    path = store / "widget-cache-warmup.md"
+    path.write_text("# Widget Cache Warmup\n\nexport PATH=/usr/bin\n", encoding="utf-8")
+    doc = load_store(store).docs[0]
+    proposal = propose_backfill(doc)
+    real_read_document = backfill.read_document
+    real_identity = backfill.identity_for(path)
+
+    def read_then_link(target, depth=None):
+        result = real_read_document(target, depth)
+        target.unlink()
+        target.symlink_to(outside)
+        return result
+
+    monkeypatch.setattr(backfill, "read_document", read_then_link)
+    # the swap keeps the identity the staleness check compares, as a same-size edit in one tick
+    monkeypatch.setattr(backfill, "identity_for", lambda _path: real_identity)
+    before = outside.read_bytes()
+
+    with pytest.raises(BackfillWriteError, match="is a symlink"):
+        apply_backfill(doc, proposal)
+
+    assert outside.read_bytes() == before
+    assert path.is_symlink()
+    assert not [p for p in store.iterdir() if p.name.endswith(".tmp")]
 
 
 # ---------------------------------------------------------------------------
@@ -1581,7 +1622,7 @@ def test_an_edit_landing_between_the_staleness_check_and_the_read_is_not_written
 
     real_read_document = backfill.read_document
 
-    def edit_then_read(target):
+    def edit_then_read(target, depth=None):
         # `apply_backfill` reads the document once and the staged file after it, so only the
         # first call is the window being simulated. The edit changes the file's size, since the
         # residual this key knowingly leaves is a size-preserving edit inside one mtime tick
@@ -1592,7 +1633,7 @@ def test_an_edit_landing_between_the_staleness_check_and_the_read_is_not_written
                 ),
                 encoding="utf-8",
             )
-        return real_read_document(target)
+        return real_read_document(target, depth)
 
     monkeypatch.setattr(backfill, "read_document", edit_then_read)
 

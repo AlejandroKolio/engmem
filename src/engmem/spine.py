@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from engmem import confined
 from engmem.cache import identity_for
 from engmem.settings import Mode
 
@@ -146,6 +147,12 @@ class LoadResult:
     scan_error: Problem | None = None
 
 
+def load_error_for(errors: list[Problem], doc_id: str) -> Problem | None:
+    """The error that kept `sessions/<doc_id>.md` out of the store, so a request for that id
+    says why instead of "no document" (US-22)."""
+    return next((p for p in errors if p.path.name == f"{doc_id}.md"), None)
+
+
 # files a store root legitimately contains besides sessions/
 STORE_ROOT_ALLOWED = {"README.md"}
 
@@ -189,7 +196,9 @@ def stray_documents(store: Path) -> tuple[list[Path], list[str]]:
 
     sessions_dir = store / "sessions"
     nested: list[Path] = []
-    if _is_dir(sessions_dir, scan_errors):
+    # a linked sessions/ is refused by `load_store`, which names it; walking it would print the
+    # names of files outside the store as documents to move (US-22)
+    if not confined.is_link(sessions_dir) and _is_dir(sessions_dir, scan_errors):
         # os.walk's onerror callback reports one locked-down subdirectory and
         # keeps walking its siblings, instead of losing the whole scan to it
         def _record_walk_error(exc: OSError) -> None:
@@ -449,7 +458,8 @@ def parse_document(path: Path) -> Doc:
     # stat first: a change landing mid-read is then caught by a later comparison rather than
     # stamped as if it had already been there
     identity = identity_for(path)
-    text = path.read_text(encoding="utf-8-sig")  # strips a BOM, else the opening --- is missed
+    # a link out of the store is refused here, before a byte behind it is read (US-22)
+    text = confined.read_utf8(path, confined.SESSION_DEPTH)
     front_matter_text, body = split_front_matter(text)
     raw = yaml.safe_load(front_matter_text) or {}
     if not isinstance(raw, dict):
@@ -556,9 +566,10 @@ def load_store(sessions_dir: Path) -> LoadResult:
     sessions_dir = Path(sessions_dir)
 
     try:
-        # iterdir (unlike glob) does not swallow the OSError from an unreadable
-        # directory, so scanning through it first surfaces what glob would hide
-        paths = sorted(p for p in sessions_dir.iterdir() if p.name.endswith(".md"))
+        # listing (unlike glob) does not swallow the OSError from an unreadable directory, so
+        # scanning through it first surfaces what glob would hide; a linked sessions/ is refused
+        names = confined.list_names(sessions_dir, confined.SESSIONS_DEPTH)
+        paths = sorted(sessions_dir / name for name in names if name.endswith(".md"))
     except OSError as exc:
         # an error, not a warning: an unknown number of documents is hidden
         # behind this, not necessarily zero

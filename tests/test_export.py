@@ -771,17 +771,16 @@ def test_a_store_named_through_a_link_still_owns_its_directories(store, tmp_path
 
 
 @requires_symlinks
-def test_a_directory_the_store_links_to_is_refused(tmp_path, out_dir, capsys):
-    real_sessions = tmp_path / "synced" / "sessions"
-    real_sessions.mkdir(parents=True)
-    _doc(real_sessions, SELECTED, body="## Decision Log\n\nLRU.")
-    store = tmp_path / "linked-store"
-    store.mkdir()
-    (store / "sessions").symlink_to(real_sessions, target_is_directory=True)
+def test_a_directory_the_store_links_to_is_refused(store, tmp_path, capsys):
+    # `versions/` linked into a synced folder: the store owns what its root entries reach. A
+    # linked `sessions/` is refused outright (US-22), so this link sits beside it
+    real_versions = tmp_path / "synced" / "versions"
+    real_versions.mkdir(parents=True)
+    (store / "versions").symlink_to(real_versions, target_is_directory=True)
     before = _tree(tmp_path / "synced")
     fingerprint = _fingerprint(_preview(capsys, store))
 
-    code, out, _err = _cli(capsys, store, SELECTED, "--out", str(real_sessions / "copy.md"),
+    code, out, _err = _cli(capsys, store, SELECTED, "--out", str(real_versions / "copy.md"),
                            "--confirm", fingerprint)
 
     assert code == 2 and "inside the store" in out and _tree(tmp_path / "synced") == before

@@ -1014,10 +1014,10 @@ def test_supersede_refuses_a_document_that_changed_between_its_two_reads(store, 
 
     real_read_document = mcp_server.read_document
 
-    def racing_read(target: Path):
+    def racing_read(target: Path, depth: int | None = None):
         # the concurrent write lands after this handler has its text, exactly where a
         # staleness check that is not there cannot see it
-        text, bom = real_read_document(target)
+        text, bom = real_read_document(target, depth)
         target.write_text(newer, encoding="utf-8")
         return text, bom
 

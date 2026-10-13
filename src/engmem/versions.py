@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 
+from engmem import confined
 from engmem.cache import identity_for
 from engmem.spine import Doc, split_front_matter, validate_doc_id
 from engmem.staging import commit_new, discard, stage, version_of
@@ -73,7 +74,7 @@ def _verify_or_repair(target: Path, data: bytes, version: str) -> None:
     `data`, which provably is `version`, and anything else there is refused."""
     if target.is_symlink() or not target.is_file():
         raise RetentionError(f"{target.name!r} exists and is not a regular file")
-    if version_of(target.read_bytes()) == version:
+    if version_of(confined.read_bytes(target, confined.VERSION_DEPTH)) == version:
         return
     tmp_path = stage(target, data)
     try:
@@ -89,7 +90,7 @@ def retain(store: Path, doc: Doc) -> str:
     invalid = validate_doc_id(doc.id)
     if invalid is not None:
         raise RetentionError(f"id {doc.id!r} cannot name a directory: {invalid}")
-    data = doc.path.read_bytes()
+    data = confined.read_bytes(doc.path, confined.SESSION_DEPTH)
     # stat after the read: a change before it or during it leaves a different identity behind
     if identity_for(doc.path) != doc.source_identity:
         raise RetentionError(f"{doc.path.name!r} changed on disk since it was read")
@@ -118,7 +119,7 @@ def retained_body(store: Path, doc_id: str, version: str) -> tuple[str | None, s
         return None, f"id {doc_id!r} cannot name a retained copy"
     path = retained_path(store, doc_id, version)
     try:
-        data = path.read_bytes()
+        data = confined.read_bytes(path, confined.VERSION_DEPTH)
     except FileNotFoundError:
         return None, f"not retained: no copy at {VERSIONS_DIR}/{doc_id}/{version}.md"
     except OSError as exc:

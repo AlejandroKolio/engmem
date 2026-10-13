@@ -14,7 +14,7 @@ from typing import Any, TextIO
 
 import yaml
 
-from engmem import __version__, cost, feedback, gate1
+from engmem import __version__, confined, cost, feedback, gate1
 from engmem.cache import identity_for
 from engmem.read_report import ReadError, compose_read
 from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
@@ -530,7 +530,7 @@ def _refuse_if_not_the_version_read(target: Path, doc_id: str, expected_version:
     """A draft that changed since the client read it is refused with its current text and
     version, never overwritten from the client's stale copy."""
     try:
-        data = target.read_bytes()
+        data = confined.read_bytes(target, confined.SESSION_DEPTH)
     except OSError as exc:
         raise _ToolError(
             f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
@@ -827,7 +827,7 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
         # bytes, not `read_text`: this handler rebuilds the whole file from what it reads,
         # and `read_text` drops the BOM and translates every line ending on the way in —
         # see contracts/backfill.md, "Line endings"
-        existing_text, bom = read_document(target)
+        existing_text, bom = read_document(target, confined.SESSION_DEPTH)
     # ValueError as well as OSError: `read_document` decodes what it read, so a document
     # replaced with invalid UTF-8 between the two reads raises `UnicodeDecodeError` here.
     # That is the document's problem, refused as one — not a -32603 server fault
@@ -909,7 +909,9 @@ def _handle_read(arguments: object, store: Path) -> tuple[str, bool]:
     session_id = (arguments.get("session_id") or "").strip() or None
     try:
         result, _, _ = _load_store_for_tool(store)
-        return compose_read(store, result.docs, arguments["id"], role, session_id, "mcp"), False
+        return compose_read(
+            store, result.docs, arguments["id"], role, session_id, "mcp", result.errors
+        ), False
     except (_StoreLoadError, ReadError) as exc:
         return str(exc), True
 

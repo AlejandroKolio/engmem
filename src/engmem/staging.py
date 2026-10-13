@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+from engmem import confined
+
 _BOM = b"\xef\xbb\xbf"
 _WINDOWS = os.name == "nt"
 # what `os.link` raises where the filesystem has no hard links at all (FAT, exFAT, a sandbox
@@ -48,10 +50,11 @@ def version_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:_VERSION_HEX_DIGITS]
 
 
-def read_document(path: Path) -> tuple[str, bytes]:
+def read_document(path: Path, depth: int | None = None) -> tuple[str, bytes]:
     """`(text, byte-order mark)`. Bytes then decode, never `read_text`: it translates line
-    endings, invisibly to a caller that rebuilds the file from what it read."""
-    data = path.read_bytes()
+    endings, invisibly to a caller that rebuilds the file from what it read. With `depth`, a
+    store document read with `confined.read_bytes`."""
+    data = path.read_bytes() if depth is None else confined.read_bytes(path, depth)
     bom = _BOM if data.startswith(_BOM) else b""
     return data[len(bom):].decode("utf-8"), bom
 

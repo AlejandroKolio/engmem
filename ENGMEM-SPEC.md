@@ -179,10 +179,11 @@ containing an embedded newline (breaks the `id == filename stem` invariant and, 
 into a `### <id> (...)` result header, forges a second, fabricated result block), a value
 of the wrong type for its field (e.g. `capture_minutes: [1, 2]`, `tags: 5`), an
 `OSError` while reading one file itself (permission denied, a dangling symlink, a
-directory in place of the file — none of these reach the YAML parser at all), or an
-`OSError` while listing `sessions/` itself (e.g. the directory is unreadable). The latter
-is an error, and the scan uses `Path.iterdir` rather than a glob so that the `OSError`
-`os.scandir` raises propagates instead of reading as an empty directory — unlike one bad
+directory in place of the file, *(US-22)* a link or junction that would lead out of the
+store — none of these reach the YAML parser at all), or an `OSError` while listing
+`sessions/` itself (e.g. the directory is unreadable, or *(US-22)* `sessions/` is itself a
+link). The latter is an error, and the scan lists the directory rather than globbing it so
+that the `OSError` propagates instead of reading as an empty directory — unlike one bad
 file, whose blast radius is exactly that one document, an unlistable directory hides an
 *unknown* count of documents, which makes the whole run untrustworthy the same way a
 duplicate id does, not merely degraded; **warning**
@@ -465,8 +466,10 @@ instead of a human pasting `engmem search` output across the paste-bridge.
 
 1. Walks `sessions/*.md` (flat — subdirectories are not scanned) and parses front matter.
    Corrupt files, wrongly-typed field values, and files that cannot even be read (a
-   dangling symlink, a directory shadowing the `.md` name, permission denied) → error on
-   stderr, the run continues with the rest of the store. Incomplete spines load degraded
+   dangling symlink, a directory shadowing the `.md` name, permission denied, *(US-22)* a
+   link or junction out of the store, refused without reading what it points at) → error
+   on stderr, the run continues with the rest of the store. `read` and `export` of such an
+   id say why it is missing. Incomplete spines load degraded
    and are counted on stdout (§4). Markdown that engmem will never read — in the store
    root, or nested under `sessions/` — is reported by name on stderr, and on stdout as
    well when the search returns nothing. A missing `sessions/` directory is a terminal
