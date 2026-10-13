@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from engmem import __version__
+from engmem import __version__, confined
 from engmem.install import (
     _HOME_SCOPED_AGENTS,
     _SKILL_AGENTS,
@@ -159,7 +159,14 @@ def _store_findings(explicit: str | None) -> tuple[list[Finding], StoreChoice | 
 def _sessions_findings(store: Path, agent: str, local: bool) -> list[Finding]:
     sessions = store / "sessions"
     try:
-        names = [entry.name for entry in sessions.iterdir()]
+        names = confined.list_names(sessions, confined.SESSIONS_DEPTH)
+    except confined.OutsideStoreError:
+        return [Finding(
+            Status.ERROR, "sessions",
+            f"{sessions} is a link or junction — engmem reads nothing behind it, so every "
+            f"search finds nothing. Move the documents into a real sessions/ directory, or run "
+            f"`engmem store set PATH` with the folder whose own sessions/ holds them",
+        )]
     except FileNotFoundError as exc:
         return [Finding(
             Status.ERROR, "sessions",

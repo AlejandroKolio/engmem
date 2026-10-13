@@ -258,7 +258,8 @@ def _cmd_read(args: argparse.Namespace) -> int:
         return failure
     try:
         text = compose_read(
-            store, result.docs, args.doc_id, args.role, _session_id(args.session), "cli"
+            store, result.docs, args.doc_id, args.role, _session_id(args.session), "cli",
+            result.errors,
         )
     except ReadError as exc:
         fail(f"engmem read: {exc}")

@@ -6,11 +6,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from engmem import confined
 from engmem.cost import OP_READ, record_delivery
 from engmem.output import _escape_control_char, _escape_controls
 from engmem.search_report import Channel, cite_lines
 from engmem.sections import CANONICAL_ROLES, sections_for_role, split_sections
-from engmem.spine import Doc
+from engmem.spine import Doc, Problem, load_error_for
 from engmem.staging import version_of
 from engmem.versions import VERSION_SEPARATOR, retained_body, split_reference
 
@@ -34,7 +35,18 @@ def _escape_body(text: str) -> str:
     return _BODY_CONTROL_RE.sub(_escape_control_char, text.replace("\r\n", "\n"))
 
 
-def _resolve(docs: list[Doc], reference: str) -> tuple[Doc, str | None]:
+def not_found_message(doc_id: str, errors: list[Problem]) -> str:
+    """"No document", plus the load error that kept its file out, when one did (US-22)."""
+    message = f"no document with id '{_escape_controls(doc_id)}' in the store"
+    problem = load_error_for(errors, doc_id)
+    if problem is not None:
+        message += f" -- its file was not loaded: {_escape_controls(problem.message)}"
+    return message
+
+
+def _resolve(
+    docs: list[Doc], reference: str, errors: list[Problem]
+) -> tuple[Doc, str | None]:
     """The document a bare id or an `<id>@<version>` names, and the version asked for, if any."""
     # an id the spine loads with an `@` in it is still read whole, never split
     exact = next((d for d in docs if d.id == reference), None)
@@ -43,13 +55,13 @@ def _resolve(docs: list[Doc], reference: str) -> tuple[Doc, str | None]:
     doc_id, version = split_reference(reference)
     doc = next((d for d in docs if d.id == doc_id), None)
     if doc is None:
-        raise ReadError(f"no document with id '{_escape_controls(doc_id)}' in the store")
+        raise ReadError(not_found_message(doc_id, errors))
     return doc, version
 
 
 def _current_version(doc: Doc) -> str | None:
     try:
-        return version_of(doc.path.read_bytes())
+        return version_of(confined.read_bytes(doc.path, confined.SESSION_DEPTH))
     except OSError:
         return None
 
@@ -101,9 +113,10 @@ def compose_read(
     role: str | None,
     session_id: str | None,
     channel: Channel,
+    errors: list[Problem] | None = None,
 ) -> str:
     """The whole delivered text of one read, and its one `cost.jsonl` row; raises `ReadError`."""
-    doc, version = _resolve(docs, doc_id.strip())
+    doc, version = _resolve(docs, doc_id.strip(), errors or [])
     cited = version is not None and version != _current_version(doc)
     body = _cited_body(store, doc, version) if cited else doc.body
     text = body.strip("\n") if role is None else _role_text(doc, body, role)

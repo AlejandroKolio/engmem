@@ -377,10 +377,12 @@ directory as readily as a file and following one aims every write of `--all --ye
 store. `os.replace` over the link turned it into a regular file and left the original to
 diverge; writing through it is worse in both directions. Out of the directory, it would make
 `apply_backfill` the only path in this codebase that writes outside a store that is
-relocatable with `--store`/`ENGMEM_HOME`, and `load_store` accepts any `*.md` link in
-`sessions/` whatever it points at. Inside the directory, the link shares an inode with the
-real document, so the alias's `id` lands in it and `load_store` reports a duplicate id across
-the pair.
+relocatable with `--store`/`ENGMEM_HOME`. Inside the directory, the link shares an inode with
+the real document, so the alias's `id` lands in it.
+
+Since US-22 `load_store` refuses a link in `sessions/` outright (`contracts/runtime.md`, "Reads
+stay inside the store"), and the reads in `propose_backfill` and `apply_backfill` refuse one
+too. The `is_symlink` check before the write stays for a link that lands after those reads.
 
 Not closed by this: a hard link. `os.replace` leaves the second name holding the pre-backfill
 content. Keeping it would mean writing in place, forfeiting the atomic replace and the

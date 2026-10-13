@@ -13,9 +13,10 @@ from pathlib import Path
 
 import yaml
 
+from engmem import confined
 from engmem.gate1 import NONE_LINE, reuse_log_rows
 from engmem.output import _escape_controls
-from engmem.read_report import _escape_body
+from engmem.read_report import _escape_body, not_found_message
 from engmem.sections import SectionSpan, h2_spans
 from engmem.spine import DOC_ID_RE, Doc, LoadResult, split_front_matter, stated
 from engmem.staging import commit_new, discard, stage, version_of
@@ -299,7 +300,7 @@ def _notes(doc: Doc, raw: dict) -> list[str]:
 
 def _read(doc: Doc) -> tuple[dict, str]:
     try:
-        text = doc.path.read_text(encoding="utf-8-sig")
+        text = confined.read_utf8(doc.path, confined.SESSION_DEPTH)
         front_matter, body = split_front_matter(text)
         raw = yaml.safe_load(front_matter) or {}
     except (OSError, ValueError, yaml.YAMLError) as exc:
@@ -313,7 +314,7 @@ def _selected(result: LoadResult, doc_id: str) -> Doc:
     wanted = doc_id.strip()
     doc = next((d for d in result.docs if d.id == wanted), None)
     if doc is None:
-        raise ExportError(f"no document with id '{_escape_controls(wanted)}' in the store")
+        raise ExportError(not_found_message(wanted, result.errors))
     if doc.status == "draft":
         raise ExportError(
             f"'{_escape_controls(wanted)}' is a draft -- finish it with /engmem.save first; "
