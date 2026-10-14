@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from conftest import ACTIVE_CONTENT, DRAFT_CONTENT
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
 
 from engmem import drafts, mcp_server, staging
 from engmem.spine import load_store, parse_document
@@ -200,15 +200,23 @@ def test_completing_a_finished_document_changes_neither_content_nor_status(
     assert _sessions_files(store) == [f"{DOC_ID}.md"]
 
 
-def test_a_completion_without_a_version_still_completes_a_draft(store, target):
-    """Clients and installed templates that predate `expected_version` keep working, with the
-    weaker guarantee the contract records."""
-    _create(store)
+@pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
+def test_a_completion_without_a_version_is_refused_with_the_current_one(store, target, missing):
+    """AC-25.2: no read to check against is not a match. The refusal carries what the client
+    needs to retry, so the error is one it can fix in the same turn."""
+    version = _create(store)
 
-    text, is_error = _complete(store, ACTIVE_CONTENT, None)
+    text, is_error = _complete(store, ACTIVE_CONTENT, missing)
 
-    assert not is_error, text
-    assert target.read_bytes() == ACTIVE_CONTENT.encode("utf-8")
+    assert is_error
+    assert "nothing was written" in text
+    assert CURRENT_VERSION_RE.search(text).group(1) == version
+    assert DRAFT_CONTENT in text, "the refusal must carry the current draft"
+    assert target.read_bytes() == DRAFT_CONTENT.encode("utf-8")
+    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+
+    retried, is_error = _complete(store, ACTIVE_CONTENT, CURRENT_VERSION_RE.search(text).group(1))
+    assert not is_error, retried
 
 
 def test_surrounding_whitespace_in_the_version_is_not_a_conflict(store, target):
@@ -237,13 +245,14 @@ def test_a_non_string_expected_version_is_invalid_params(store, target, bad):
     assert target.read_bytes() == DRAFT_CONTENT.encode("utf-8")
 
 
-def test_the_complete_schema_offers_expected_version_without_requiring_it(store):
+@pytest.mark.parametrize("tool", [COMPLETE_TOOL, SUPERSEDE_TOOL])
+def test_both_rewriting_schemas_require_expected_version(store, tool):
     _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
-    complete = next(t for t in responses[0]["result"]["tools"] if t["name"] == COMPLETE_TOOL)
-    assert complete["inputSchema"]["properties"]["expected_version"]["type"] == "string"
-    assert "expected_version" not in complete["inputSchema"]["required"]
-    assert "expected_version" in complete["description"]
+    schema = next(t for t in responses[0]["result"]["tools"] if t["name"] == tool)
+    assert schema["inputSchema"]["properties"]["expected_version"]["type"] == "string"
+    assert "expected_version" in schema["inputSchema"]["required"]
+    assert "expected_version" in schema["description"]
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +279,7 @@ def test_a_lock_left_by_an_interrupted_write_refuses_by_name_and_writes_nothing(
     target.write_bytes(on_disk.encode("utf-8"))
     _lock_of(target).mkdir()
 
-    result, is_error = _call(store, name=tool, arguments=arguments)
+    result, is_error = _call(store, name=tool, arguments=versioned(store, arguments))
 
     assert is_error
     assert f".{DOC_ID}.md.write-lock" in _text(result)
@@ -307,11 +316,13 @@ def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypat
 
     monkeypatch.setattr(mcp_server, "commit", commit_pausing_a)
     successors = {"A": "20260201-widget-cache-a", "B": "20260201-widget-cache-b"}
+    read = staging.version_of(ACTIVE_CONTENT.encode("utf-8"))
     results: dict[str, tuple[str, bool]] = {}
 
     def supersede(name: str) -> None:
         results[name] = mcp_server._handle_mark_superseded(
-            {"id": DOC_ID, "superseded_by": successors[name]}, store
+            {"id": DOC_ID, "superseded_by": successors[name], "expected_version": read},
+            store,
         )
 
     a = threading.Thread(target=supersede, args=("A",), name="A")

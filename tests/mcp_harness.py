@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from engmem.mcp_server import serve
+from engmem.staging import version_of
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -70,6 +71,15 @@ def _call(store: Path, *, name: str, arguments: dict) -> tuple[dict, bool]:
     _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
     result = responses[0]["result"]
     return result, bool(result.get("isError"))
+
+
+def versioned(store: Path, arguments: dict) -> dict:
+    """`arguments` with the `expected_version` a client that has just read the document passes
+    (US-25); unchanged when there is no document to read."""
+    path = store / "sessions" / f"{arguments.get('id')}.md"
+    if not path.is_file():
+        return arguments
+    return {**arguments, "expected_version": version_of(path.read_bytes())}
 
 
 def _text(result: dict) -> str:

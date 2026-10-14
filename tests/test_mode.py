@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, FIXTURES, run_tool, write_file
-from mcp_harness import _call, _prompts_get_msg, _run, _telemetry_lines, _text
+from mcp_harness import _call, _prompts_get_msg, _run, _telemetry_lines, _text, versioned
 
 from engmem import gate1, gate1_audit, mcp_server, runtime, settings
 from engmem.cli import main
@@ -72,7 +72,7 @@ def _create(store: Path, content: str) -> tuple[str, bool]:
 def _complete(store: Path, content: str) -> tuple[str, bool]:
     result, is_error = _call(
         store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
-        arguments={"id": DRAFT_ID, "content": content},
+        arguments=versioned(store, {"id": DRAFT_ID, "content": content}),
     )
     return _text(result), is_error
 

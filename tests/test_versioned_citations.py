@@ -17,7 +17,7 @@ from conftest import (
     requires_symlinks,
     run_tool,
 )
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
 
 from engmem import gate1, mcp_server, versions
 from engmem.cli import main
@@ -380,8 +380,11 @@ def _complete(store: Path, prior_doc: str, quote: str) -> tuple[str, bool]:
         "## Reuse Log\n\n| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
         f'| {prior_doc} | flush order: "{quote}" | kept it | reuse |\n\n',
     )
-    result, is_error = _call(store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
-                             arguments={"id": "20260101-story-doc", "content": content})
+    result, is_error = _call(
+        store,
+        name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
+        arguments=versioned(store, {"id": "20260101-story-doc", "content": content}),
+    )
     return _text(result), is_error
 
 

@@ -55,6 +55,11 @@ def read_document(path: Path, depth: int | None = None) -> tuple[str, bytes]:
     endings, invisibly to a caller that rebuilds the file from what it read. With `depth`, a
     store document read with `confined.read_bytes`."""
     data = path.read_bytes() if depth is None else confined.read_bytes(path, depth)
+    return decode_document(data)
+
+
+def decode_document(data: bytes) -> tuple[str, bytes]:
+    """`read_document` for bytes already read: `(text, byte-order mark)`."""
     bom = _BOM if data.startswith(_BOM) else b""
     return data[len(bom):].decode("utf-8"), bom
 

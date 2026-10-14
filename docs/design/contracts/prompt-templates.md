@@ -79,6 +79,30 @@ then says it was saved outside engmem's checks. The full save spells out how the
 resolves for that one case. Start no longer needs it, because engmem resolves the store when it
 writes.
 
+## Every rewrite names the version read (US-25)
+
+Both rewriting calls of the save now require the version the agent read
+(`contracts/mcp-server.md`, "The version is required"). Completion already passed the version
+create gave. The template used to allow leaving it out when the agent no longer had it, and
+that was the one path where a changed draft was overwritten. It now says to pass an empty
+version and read the refusal, which carries the current draft and its version. Empty, not
+omitted: the schema lists the argument as required, and a client that enforces that would
+never send the call, so the refusal would never come back. The server treats blank as missing.
+
+The full save's supersede step offers `engmem_mark_superseded` first, ahead of a direct file
+edit. The version it passes is the one the new document was built on: the `<id>@<version>` row
+of its Reuse Log, as the `cite as` line of a search or `engmem_read` gave it. A fresh read just
+before the call would hand over a version only seconds old, and the check would then cover
+those seconds and not the time since the agent built its document, which is when a colleague's
+change goes missing. So the template forbids re-reading for a newer version, and reads now
+only when the agent has no version from building the document. A refusal means someone changed
+the older document after that read, possibly with a rule the new document drops. The step
+tells the agent to read what changed and tell the user, and to call again only if the new
+document still replaces the old one. The direct edit stays for an agent without the tool, a recorded limit until the
+CLI supersede story (`contracts/mcp-server.md`, "One writer for every surface"). The template
+tells that agent to read the document again just before it edits it, since nothing checks the
+edit.
+
 ## The session id belongs inside the search instruction
 
 `engmem.start.md` step 3 states the session id in the CLI bullet and in the MCP bullet

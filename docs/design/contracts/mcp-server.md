@@ -195,10 +195,10 @@ A refusal tells the caller what to do in its own terms. `drafts.Surface` names t
 does not have.
 
 `engmem_mark_superseded` stays MCP-only and stays in `mcp_server.py`, using the shared
-containment and lock. The full save's step for superseding an older document still tells an
-agent with file access to edit that document directly, with no lock and no status check. This
-is a recorded limit of US-24 (owner decision, 2026-10-13): a CLI supersede is a separate story,
-next to US-25.
+containment, lock and, since US-25, version check. The full save's step for superseding an
+older document sends an agent that has the tool to it first. Only an agent without it is still
+told to edit that document directly, with no lock, version or status check. This is a recorded
+limit (owner decision, 2026-10-13): a CLI supersede is a separate story after US-25.
 
 ## Write tools: security contract
 
@@ -234,9 +234,10 @@ The three document tools' own rules (`engmem_record_feedback` writes no document
   creator takes the id while the call is running.
 - `engmem_complete_draft` requires the existing file to be `status: draft` and the new
   content to be `status: active` with a matching `id` — it can never touch an active or
-  superseded document. Given `expected_version`, it also requires the draft on disk to be
-  that version ("Rewriting a document: the version read", below).
-- `engmem_mark_superseded` requires the existing file to be `status: active` and patches only
+  superseded document. It also requires `expected_version`, and the draft on disk to be that
+  version ("Rewriting a document: the version read", below).
+- `engmem_mark_superseded` requires the existing file to be `status: active` and to be the
+  `expected_version` the client read (same section), and patches only
   the `status`/`superseded_by` lines (`_patch_front_matter_line`), leaving the rest
   byte-for-byte; retyping the whole document to flip two fields risks silent drift in
   everything else.
@@ -414,27 +415,29 @@ in `_SEARCH_TOOL_NAMES` and a `--read-only` server lists and runs neither.
 
 This is the only write tool that rebuilds a file from what is on disk, and it needs the
 document twice: the validating `parse_document` (which strips the BOM and translates line
-endings) to confirm `status: active`, and `staging.read_document` for the raw bytes the patch
-is spliced into. The validating parse runs first and stats before it reads, so its
-`Doc.source_identity` covers the raw re-read as well; it is compared against a fresh
-`identity_for(target)` after that read, and a writer landing anywhere in the span is refused.
-Without this the failure is silent: the replacing document still carries `status: active`, so
-the staged re-parse passes and the newer version is overwritten by the stale copy. It is
+endings) to confirm `status: active`, and the raw bytes the patch is spliced into. The raw
+bytes are the ones `drafts.refuse_unless_version_read` read to check the client's version, so
+the file rebuilt is exactly the version the client named. The validating parse runs first and
+stats before it reads, so its `Doc.source_identity` covers the raw read as well; it is
+compared against a fresh `identity_for(target)` after the patched document is staged, just
+before the commit, and a writer landing anywhere in the span is refused. Without this the
+failure is silent: the replacing document still carries `status: active`, so the staged
+re-parse passes and the newer version is overwritten by the stale copy. It is
 `apply_backfill`'s rule (`contracts/backfill.md`, "The proposal has to still describe the
 document") applied to a short window — a short window is not a closed one.
 
-The raw re-read's own failures are properties of the document, refused as `isError` saying
-nothing was written: unreadable (`OSError`), or no longer UTF-8 because a writer replaced the
-bytes between the reads (`UnicodeDecodeError`, a `ValueError`). Neither may escape as a
-`-32603` with codec text in it.
+The raw read's own failures are properties of the document, refused as `isError` saying
+nothing was written: unreadable (`OSError`), or not UTF-8 (`UnicodeDecodeError`, a
+`ValueError`) when those are the bytes the client read. Neither may escape as a `-32603` with
+codec text in it.
 
 `engmem_complete_draft` has the same window between confirming the file is a draft and
 committing its replacement: another writer can activate the draft meanwhile, and the new
 content still parses as `active`, so nothing else notices. It runs the same check,
 `drafts.refuse_if_changed_since_read`, just before the commit, and the staged file is discarded on
-refusal. Between engmem writers both tools now hold the document's write lock across the
-whole span (next section), so this check is what remains against a writer that does not
-take it — a hand edit, a direct file write, `engmem backfill`.
+refusal. Between engmem writers both tools hold the document's write lock across the whole
+span (next section), so this check is what remains against a writer that does not take it —
+a hand edit, a direct file write, another tool.
 
 ### Rewriting a document: the version read
 
@@ -460,7 +463,7 @@ never a wrong write.
 bytes it wrote in its success text. In a shell-less runtime the draft the client knows *is*
 the content it passed to that call (`templates/engmem.save.md`), so that version is the one
 it read. `engmem_complete_draft` takes it as `expected_version`; under the lock, after the
-status check, `_refuse_if_not_the_version_read` reads the file and refuses when its version
+status check, `drafts.refuse_unless_version_read` reads the file and refuses when its version
 differs (surrounding whitespace ignored). The refusal says nothing was written, gives the
 current version, tells the client to re-read, and carries the current draft's text — that
 is how a client with no file access gets the newer version. No read tool was added for it:
@@ -468,13 +471,30 @@ the refusal is the one place the text is needed, and a read tool would be new su
 `--read-only` to decide about. The status check runs first, so a document that is already
 `active` or `superseded` is refused as not a draft whatever version is named.
 
-`expected_version` is optional. Required, it would turn every call from a client or an
-installed template that predates it into a `-32602`, and a draft written by hand has no
-version the client was ever told. Omitted, the guarantee is weaker and stated in the tool's
-description and schema: the lock still lets only one completion of a draft through, but a
-draft changed while staying a draft is overwritten. Every template passes it. This is the
-`session_id` shape (above): optional to the schema, asked for in every wording. A
-non-string value is a `-32602`.
+**The version is required (US-25).** Until US-25 `expected_version` was optional, so that a
+client or installed template predating it kept working. Omitted, a draft changed while
+staying a draft was overwritten, and a test pinned that path. A guarantee that holds only
+when the client remembers to ask for it is not the normal flow's guarantee, so both rewriting
+tools now refuse a call without one. Both schemas list it as required. The server still
+checks only its type at the protocol layer (`_WRITE_TOOL_OPTIONAL_STRING_ARGS`; a non-string
+value is a `-32602`). A missing or blank version goes to the handler and is refused there as
+an `isError` that carries the document's current text and version, like a stale one. A
+`-32602` would carry neither: a client that lost the version, or an old template that never
+passed one, would have no way back in the same turn. With the refusal, the retry is one read
+away, and nothing was written either way. The CLI does the same: `--expected-version` stays
+an optional flag to `argparse`, and `engmem draft complete` without it exits 2 with the
+current draft and version, not with a usage line.
+
+**Superseding the version read (US-25).** `engmem_mark_superseded` used to take no version: it
+rebuilt the document from the bytes it read under the lock, so no client copy of the file
+could go stale. The stale copy is elsewhere. The agent builds the replacing document from its
+own earlier read of the one it replaces. If a colleague then added a rule to that document,
+the supersede hides the rule from every later search behind a successor that never saw it.
+The tool now takes the version the replacing document was built on, the one its Reuse Log row
+cites from a search's or `engmem_read`'s `cite as` line (`contracts/gate1.md`, "Versioned
+citations"), and refuses a document that is no longer that version. The refusal carries the current text and tells the agent to check that its document
+still replaces what the old one now says. The status check runs first, as for completion, and
+the document stays `active` until a call naming its current version succeeds.
 
 **Closing the check-to-replace window.** `staging.document_lock` makes a
 `.<target>.write-lock` directory with `os.mkdir`, exclusive on every filesystem, and both
@@ -502,20 +522,21 @@ intact.
 
 Limits, recorded rather than closed:
 
-- The guarantee holds between writers that take the lock: `engmem_complete_draft` and
-  `engmem_mark_superseded`. `engmem backfill` rewrites the same files with
-  `staging.commit` after its own identity check and does not take it yet; it has the short
-  window `apply_backfill` documents (`contracts/backfill.md`). Taking the lock there is the
-  follow-up. Hand edits, the explicit-request fallback and the full save's supersede step for
-  an agent with file access never reach engmem; against them
-  `drafts.refuse_if_changed_since_read` narrows the window and does not close it.
+- The guarantee holds between writers that take the lock: `engmem_complete_draft`,
+  `engmem draft complete`, `engmem_mark_superseded` and, since US-25, `engmem backfill`
+  (`contracts/backfill.md`, "The write lock"). A backfill and a supersede of one document run
+  one after the other, and the second one refuses, since the first changed what it read.
+  Hand edits, the explicit-request fallback and the full save's supersede step for an agent
+  without the MCP tool never reach engmem. Against them `drafts.refuse_if_changed_since_read`
+  runs after the replacement is staged, as late as a check can run before the commit. It
+  narrows the window and does not close it: an edit landing between that check and
+  `os.replace` is overwritten. That residual race is with writers outside the protocol, and
+  closing it would need a compare-and-swap that the filesystem does not offer (see the
+  rename-based alternative above).
 - `engmem_create_draft` does not take the lock and needs none: its publish step cannot
   replace anything, and both rewriting tools refuse a document that does not exist.
 - The lock relies on `mkdir` being atomic, which holds on local filesystems; a store on a
   network filesystem with weaker semantics is not a supported setup for concurrent writers.
-- `engmem_mark_superseded` takes no version. It rebuilds the document from the bytes it
-  reads under the lock, so there is no client copy to go stale; the only client input is
-  the two ids.
 
 ### Creating a document: exclusive, not checked
 

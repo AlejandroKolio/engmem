@@ -29,7 +29,7 @@ from engmem.spine import (
     stray_documents,
     validate_doc_id,
 )
-from engmem.staging import commit, discard, newline_of, read_document
+from engmem.staging import commit, decode_document, discard, newline_of
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -116,8 +116,8 @@ COMPLETE_DRAFT_TOOL_DESCRIPTION = (
     "`engmem_create_draft` returned for this draft: if the draft changed since "
     "then, the call is refused and its result carries the current draft and its "
     "version — re-read it, carry its changes into `content`, and call again with "
-    "that version. Without `expected_version` only the draft's status is checked, "
-    "so a change to a draft that is still a draft is overwritten."
+    "that version. Without `expected_version` nothing is written: the refusal "
+    "carries the current draft and its version the same way."
 )
 
 MARK_SUPERSEDED_TOOL_NAME = "engmem_mark_superseded"
@@ -130,7 +130,13 @@ MARK_SUPERSEDED_TOOL_DESCRIPTION = (
     "unless `sessions/<id>.md` exists and its current `status` is `active` (never "
     "a draft, never an already-superseded document, and never itself: `id` and "
     "`superseded_by` must differ). This does not require `superseded_by` to "
-    "already exist as a document — it is fine to mark the earlier document first."
+    "already exist as a document — it is fine to mark the earlier document first. "
+    "Always pass `expected_version`, the earlier document's version your new document "
+    "was built on — the `<version>` of its `<id>@<version>` Reuse Log row, from the "
+    "`cite as` line of that search or `engmem_read`: if it changed since "
+    "then, or no version is given, nothing is written and the result carries its "
+    "current text and version — re-read it, check that your document still holds "
+    "against it, and call again with that version."
 )
 
 
@@ -327,6 +333,7 @@ def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
 def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     superseded_by = arguments.get("superseded_by") if isinstance(arguments, dict) else None
+    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
 
     try:
         target = drafts.resolve_write_target(store, doc_id)
@@ -343,7 +350,7 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
         # the same lock `engmem_complete_draft` holds: two supersedes of one document can no
         # longer both see `status: active`, and the later one replace the earlier's successor
         with drafts.locked(target, doc_id, drafts.MCP):
-            _mark_superseded_locked(target, doc_id, superseded_by)
+            _mark_superseded_locked(target, doc_id, superseded_by, expected_version)
     except _ToolError as exc:
         return str(exc), True
 
@@ -353,7 +360,9 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
     ), False
 
 
-def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> None:
+def _mark_superseded_locked(
+    target: Path, doc_id: str, superseded_by: str, expected_version: str | None
+) -> None:
     if not target.exists():
         raise _ToolError(
             f"no document found for id {doc_id!r}: sessions/{doc_id}.md does "
@@ -376,19 +385,26 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
             "superseded twice."
         )
 
+    # bytes, not `read_text`: this handler rebuilds the whole file from what it reads, and
+    # `read_text` drops the BOM and translates every line ending on the way in — see
+    # contracts/backfill.md, "Line endings". The bytes rebuilt are the bytes the version names
+    data = drafts.refuse_unless_version_read(
+        target,
+        doc_id,
+        expected_version,
+        drafts.MCP,
+        action="supersede",
+        tool=MARK_SUPERSEDED_TOOL_NAME,
+        redo="check that the document superseding it still holds against what it says now",
+    )
     try:
-        # bytes, not `read_text`: this handler rebuilds the whole file from what it reads,
-        # and `read_text` drops the BOM and translates every line ending on the way in —
-        # see contracts/backfill.md, "Line endings"
-        existing_text, bom = read_document(target, confined.SESSION_DEPTH)
-    # ValueError as well as OSError: `read_document` decodes what it read, so a document
-    # replaced with invalid UTF-8 between the two reads raises `UnicodeDecodeError` here.
-    # That is the document's problem, refused as one — not a -32603 server fault
-    except (OSError, ValueError) as exc:
+        existing_text, bom = decode_document(data)
+    # replaced with invalid UTF-8 since the validating parse: the document's problem, refused
+    # as one — not a -32603 server fault
+    except ValueError as exc:
         raise _ToolError(
             f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
         ) from exc
-    drafts.refuse_if_changed_since_read(target, existing, doc_id, "Call this tool again")
 
     front_matter_text, body = split_front_matter(existing_text)
     front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
@@ -407,6 +423,9 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
                 "internal error: patched front matter did not produce the "
                 "expected status/superseded_by — refusing to write it."
             )
+        # the lock excludes engmem writers only; a hand edit landing since the read above is
+        # caught here, as late as a check can run before the replace
+        drafts.refuse_if_changed_since_read(target, existing, doc_id, "Call this tool again")
         commit(tmp_path, target)
     # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
     # OSError of its own, and the staged file must go either way
@@ -729,13 +748,11 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                                 "returned it, or as a refusal of this tool "
                                 "reported it after you re-read the draft. The "
                                 "call is refused, and nothing written, if the "
-                                "draft on disk is no longer that version. "
-                                "Omitted, a draft changed since you read it is "
-                                "overwritten."
+                                "draft on disk is no longer that version."
                             ),
                         },
                     },
-                    "required": ["id", "content"],
+                    "required": ["id", "content", "expected_version"],
                 },
             },
             {
@@ -757,8 +774,20 @@ def _handle_tools_list(params: dict, store: Path) -> dict:
                                 "The id of the document that supersedes it."
                             ),
                         },
+                        "expected_version": {
+                            "type": "string",
+                            "description": (
+                                "The earlier document's version your new "
+                                "document was built on, as the `cite as` "
+                                "line of that search or engmem_read named it, or "
+                                "as a refusal of this tool reported it after "
+                                "you re-read the document. The call is "
+                                "refused, and nothing written, if the "
+                                "document on disk is no longer that version."
+                            ),
+                        },
                     },
-                    "required": ["id", "superseded_by"],
+                    "required": ["id", "superseded_by", "expected_version"],
                 },
             },
             {
@@ -880,8 +909,11 @@ _WRITE_TOOL_REQUIRED_STRING_ARGS = {
     RECORD_BASELINE_TOOL_NAME: ("session_id",),
 }
 
+# `expected_version` is required by both schemas, yet checked here only for its type: missing, it
+# is refused by the handler with the document's current version, which a protocol error lacks
 _WRITE_TOOL_OPTIONAL_STRING_ARGS = {
     COMPLETE_DRAFT_TOOL_NAME: ("expected_version",),
+    MARK_SUPERSEDED_TOOL_NAME: ("expected_version",),
     RECORD_FEEDBACK_TOOL_NAME: ("decision", "source"),
     READ_TOOL_NAME: ("role", "session_id"),
     RECORD_BASELINE_TOOL_NAME: ("call_id",),

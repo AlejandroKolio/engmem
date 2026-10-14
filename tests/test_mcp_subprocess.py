@@ -16,6 +16,7 @@ from conftest import (
     DRAFT_CONTENT,
     requires_symlinks,
 )
+from mcp_harness import versioned
 
 from engmem.spine import load_store
 
@@ -122,7 +123,7 @@ def test_create_then_complete_then_search_over_a_real_subprocess(client):
     # --- complete the draft: status draft -> active, body sections present ---
     complete_result = client.tool_call(
         "engmem_complete_draft",
-        {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
     assert not complete_result.get("isError"), _result_text(complete_result)
 
@@ -189,12 +190,16 @@ def test_mark_superseded_over_a_real_subprocess(client):
         "engmem_create_draft", {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
     client.tool_call(
-        "engmem_complete_draft", {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}
+        "engmem_complete_draft",
+        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     supersede_result = client.tool_call(
         "engmem_mark_superseded",
-        {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        versioned(
+            client.store,
+            {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        ),
     )
     assert not supersede_result.get("isError"), _result_text(supersede_result)
 
@@ -218,7 +223,8 @@ def test_cli_and_mcp_searches_against_the_same_store_are_distinguishable_by_chan
         "engmem_create_draft", {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
     client.tool_call(
-        "engmem_complete_draft", {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}
+        "engmem_complete_draft",
+        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     mcp_result = client.tool_call("engmem_search", {"query": "WidgetCache CacheWarmer"})
@@ -367,7 +373,8 @@ def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protoc
             "engmem_create_draft", {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
         )
         c.tool_call(
-            "engmem_complete_draft", {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}
+            "engmem_complete_draft",
+            versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
         )
 
         result = c.tool_call("engmem_search", {"query": "WidgetCache CacheWarmer"})
