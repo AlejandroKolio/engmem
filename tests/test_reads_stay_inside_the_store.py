@@ -422,13 +422,15 @@ def test_backfill_proposals_reread_inside_the_store(store):
 
 @requires_symlinks
 def test_a_completion_version_check_does_not_read_through_a_link(store):
-    from engmem.drafts import MCP, WriteRefused, _refuse_if_not_the_version_read
+    from engmem.drafts import MCP, WriteRefused, refuse_unless_version_read
 
     _result, doc = _loaded_then_linked(store)
     outside_version = version_of((_outside(store) / f"{LINKED}.md").read_bytes())
 
     with pytest.raises(WriteRefused, match="could not be re-read"):
-        _refuse_if_not_the_version_read(doc.path, ALLOWED, outside_version, MCP)
+        refuse_unless_version_read(
+            doc.path, ALLOWED, outside_version, MCP, action="complete", tool="t", redo="r"
+        )
 
 
 @requires_symlinks
@@ -436,6 +438,7 @@ def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, 
     from engmem import mcp_server
 
     path = store / "sessions" / f"{ALLOWED}.md"
+    read = version_of(path.read_bytes())
     real_parse = mcp_server.parse_document
 
     def parse_then_link(target):
@@ -452,7 +455,11 @@ def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, 
         _tools_call_msg(
             1,
             name="engmem_mark_superseded",
-            arguments={"id": ALLOWED, "superseded_by": "20260201-idempotency-adr-v2"},
+            arguments={
+                "id": ALLOWED,
+                "superseded_by": "20260201-idempotency-adr-v2",
+                "expected_version": read,
+            },
         ),
     )
     result = responses[0]["result"]

@@ -266,7 +266,7 @@ read it describes, not by `propose_backfill`, which runs later — for `--all`, 
 scan later — and would stamp the already-edited file, certifying the staleness. The comparison
 is made after `apply_backfill`'s own re-read, so one stat covers both reads; taken before it,
 an edit landing in between produced a write of stale values that had just passed the check
-(`mcp_server`'s `mark_superseded` orders it the same way). And `None` is not a match:
+(`mcp_server`'s `mark_superseded` compares later still, after it stages). And `None` is not a match:
 `None != None` is False, so a proposal with no stamp against a file that cannot be `stat`ed
 passed on no evidence; "unverifiable" is refused like "changed".
 
@@ -280,6 +280,18 @@ handed. Rejected: pairing the two positionally with a `zip`, which a dropped pro
 misaligned; the CLI loop carries each `doc` beside its own proposal, and the check is what
 stops a foreign `id` landing in a document's front matter, which `load_store` would then
 report as a duplicate id.
+
+### The write lock (US-25)
+
+`apply_backfill` holds `staging.document_lock`, the lock the MCP and CLI writers take, from its
+re-read to its commit. Without it the identity check above narrowed a race with
+`engmem_mark_superseded` and did not close it: a supersede committing between the check and the
+replace was overwritten by front matter derived from the document before it, and both commands
+reported success. Held, the two run one after the other. A supersede first changes the file,
+and the backfill's identity check refuses. A backfill first changes the version the supersede
+was given, and the supersede refuses with the current text. Either way exactly one writes, and
+the other says so. A lock still held after the wait is a `BackfillWriteError` that names it,
+exactly as the MCP tools refuse; the CLI reports it for that document and goes on to the next.
 
 ## Writing into front matter the author already started
 

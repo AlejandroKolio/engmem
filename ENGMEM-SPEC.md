@@ -724,7 +724,7 @@ assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and
 prints the same summary after its audit block. Rules: `docs/design/contracts/gate1.md`,
 "Usefulness feedback".
 
-### `engmem draft create DOC_ID` / `engmem draft complete DOC_ID [--expected-version V]` (document on stdin)
+### `engmem draft create DOC_ID` / `engmem draft complete DOC_ID --expected-version V` (document on stdin)
 
 *(US-24, owner decision 2026-10-13)* The two steps the installed templates take to start and
 finish a session document, for an agent with a shell. Before them, that agent wrote
@@ -734,8 +734,8 @@ writer as `engmem_create_draft` and `engmem_complete_draft` (`src/engmem/drafts.
 - path containment;
 - the configured `mode`;
 - create never overwrites, and of two creators of one id exactly one wins;
-- complete runs under the document lock, refuses a draft changed since `--expected-version`
-  and returns its current text;
+- complete runs under the document lock, refuses a draft changed since `--expected-version`,
+  or a call without one (US-25), and returns its current text and version;
 - the Reuse Log row checks;
 - the `draft -> active` transition.
 
@@ -869,8 +869,10 @@ take a document out of the store. Rules: `docs/design/contracts/export.md`.
    concrete (class/contract/decision/landmine); a row without a quote is invalid; do NOT
    estimate time saved — that's the author's judgment at review time; nothing used →
    exactly the line `Prior docs used: none.`
-4. Ask: "does this work supersede a decision from some prior doc?" → if yes, set that
-   doc's `status: superseded` and `superseded_by`.
+4. Ask: "does this work supersede a decision from some prior doc?" → if yes, call
+   `engmem_mark_superseded` with the version of that doc this one was built on (its Reuse
+   Log `<id>@<version>`), which refuses a doc changed since (US-25); an agent without the tool
+   sets that doc's `status: superseded` and `superseded_by` by hand.
 5. Flip `status: draft → active`, set `capture_minutes` only when a real start time is
    known (otherwise leave it blank — "never measured"), fill in `verified_at`: for each
    repository in `repos`, `git -C <its checkout> rev-parse HEAD`; a repository with no

@@ -276,11 +276,18 @@ def locked(target: Path, doc_id: str, surface: Surface) -> Iterator[None]:
         ) from None
 
 
-def _refuse_if_not_the_version_read(
-    target: Path, doc_id: str, expected_version: str, surface: Surface
-) -> None:
-    """A draft that changed since the client read it is refused with its current text and
-    version, never overwritten from the client's stale copy."""
+def refuse_unless_version_read(
+    target: Path,
+    doc_id: str,
+    expected_version: str | None,
+    surface: Surface,
+    *,
+    action: str,
+    tool: str,
+    redo: str,
+) -> bytes:
+    """The document's bytes, when they are the version the client read; otherwise refused with
+    its current text and version, never rewritten from the client's stale or unstated read."""
     try:
         data = confined.read_bytes(target, confined.SESSION_DEPTH)
     except OSError as exc:
@@ -288,13 +295,22 @@ def _refuse_if_not_the_version_read(
             f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
         ) from exc
     current = version_of(data)
-    if current == expected_version.strip():
-        return
+    stated = (expected_version or "").strip()
+    if stated == current:
+        return data
+    if stated:
+        why = (
+            f"it changed since you read it ({surface.version_argument} {expected_version!r}, "
+            f"current version {current!r})"
+        )
+    else:
+        why = (
+            f"no {surface.version_argument} was given, so there is no read to check it "
+            "against"
+        )
     raise WriteRefused(
-        f"refusing to complete sessions/{doc_id}.md: it changed since you read it "
-        f"({surface.version_argument} {expected_version!r}, current version {current!r}) — "
-        "nothing was written. Re-read the current draft below, carry its changes into "
-        f"your content, and {surface.verb} {surface.complete} again with "
+        f"refusing to {action} sessions/{doc_id}.md: {why} — nothing was written. Re-read "
+        f"the current document below, {redo}, and {surface.verb} {tool} again with "
         f"{surface.pass_version(current)}.\n"
         f"--- current sessions/{doc_id}.md ---\n"
         + data.decode("utf-8", errors="replace")
@@ -340,8 +356,15 @@ def _complete_draft_locked(
             f"is {existing.status!r}, not 'draft' — {surface.complete} "
             "only ever finishes a document still in draft."
         )
-    if expected_version is not None:
-        _refuse_if_not_the_version_read(target, doc_id, expected_version, surface)
+    refuse_unless_version_read(
+        target,
+        doc_id,
+        expected_version,
+        surface,
+        action="complete",
+        tool=surface.complete,
+        redo="carry its changes into your content",
+    )
 
     doc, tmp_path, parse_error = stage_content(target, content.encode("utf-8"))
     try:

@@ -244,13 +244,23 @@ One row per prior document that **actually influenced** this work:
 Ask the user: "does this work supersede a decision recorded in an earlier document?" If
 yes:
 
-- If you can edit files directly: set that earlier document's `status: superseded` and
-  `superseded_by:` to this document's `id`.
-- If your runtime exposes the `engmem_mark_superseded` MCP tool instead of a shell: call
-  it with `id` set to the earlier document's id and `superseded_by` set to this
-  document's id. It touches only those two fields — everything else in the earlier
-  document is left exactly as it was — and refuses unless that document's current
-  status is `active`.
+- If your runtime exposes the `engmem_mark_superseded` MCP tool: prefer it to editing the file
+  when you have both. Call it with `id` set to the earlier document's id, `superseded_by` set
+  to this document's id, and `expected_version` set to the version of the earlier document
+  this document was built on: the `<version>` of its `<id>@<version>` row in your Reuse Log,
+  as the `cite as` line of the search or read you took it from gave it. Do not read the
+  earlier document again to get a newer version: the check exists to catch a change made
+  after you built this document. Only if you have no such version, read it now with
+  `engmem_read`, check that this document really replaces what it says, and pass the version
+  on that read's `cite as` line. The tool touches only those two fields — everything else in
+  the earlier document is left exactly as it was — and refuses unless that document's
+  current status is `active`. If it refuses because the earlier document changed since you
+  read it, the refusal carries its current text and version: someone may have added a
+  decision your document drops. Read what changed, tell the user, and call again with that
+  version only if this document still replaces it.
+- Otherwise, if you can edit files directly: set that earlier document's `status: superseded`
+  and `superseded_by:` to this document's `id`. Nothing checks this edit against a change
+  made since you read the document, so read it again just before you edit it.
 
 ## 4. Close out
 
@@ -285,8 +295,9 @@ yes:
     because the draft changed since you read it, the refusal carries the current draft and
     its version: re-read it, carry what changed into your document, and call again with that
     version. Never retry the same content with the new version without reading what
-    changed. Leave the version out only if you no longer have it; the call then cannot tell
-    that the draft changed.
+    changed. If you no longer have the version, pass an empty `expected_version` (or
+    `--expected-version ""`): nothing is written, and the refusal carries the current draft
+    and its version the same way.
   - If you can do neither, or it fails for a reason you cannot fix in the document: do not
     write `sessions/<id>.md` yourself. Tell the user the document was not saved and why,
     and keep the finished text in your reply. The draft stays a draft, out of search. Only

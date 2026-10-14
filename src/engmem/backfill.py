@@ -20,7 +20,15 @@ from engmem.spine import (
     split_front_matter,
     stated,
 )
-from engmem.staging import commit, discard, newline_of, read_document, stage
+from engmem.staging import (
+    DocumentLockedError,
+    commit,
+    discard,
+    document_lock,
+    newline_of,
+    read_document,
+    stage,
+)
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -510,7 +518,20 @@ def apply_backfill(doc: Doc, proposal: BackfillProposal) -> str:
     """Writes `proposal`'s fields into the front matter, preserving the body byte-for-byte."""
     if proposal.already_complete or not proposal.fields:
         return "nothing to backfill"
+    try:
+        # the write lock the MCP and CLI writers hold: a supersede or completion of this
+        # document runs wholly before or after the backfill, never between its read and replace
+        with document_lock(doc.path):
+            return _apply_backfill_locked(doc, proposal)
+    except DocumentLockedError as exc:
+        raise BackfillWriteError(
+            f"{doc.path.name}: being written by another engmem call — refusing to write. "
+            "Re-run `engmem backfill`; if this repeats while no engmem process is running, "
+            f"an interrupted write left {exc.lock.name} behind: remove it"
+        ) from None
 
+
+def _apply_backfill_locked(doc: Doc, proposal: BackfillProposal) -> str:
     if proposal.doc_id != doc.id or proposal.path != doc.path:
         # the caller paired the wrong two objects; writing one document's derived values into
         # another would put a foreign `id` in its front matter and duplicate an id in the store

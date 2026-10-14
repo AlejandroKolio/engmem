@@ -957,7 +957,10 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     draft_complete_parser.add_argument(
         "--expected-version",
         default=None,
-        help="the version `engmem draft create` printed; a draft changed since is refused",
+        help=(
+            "the version `engmem draft create` printed (required); a draft changed since is "
+            "refused, and so is a call without it -- both refusals print the current version"
+        ),
     )
     _add_store_option(draft_complete_parser)
     draft_complete_parser.set_defaults(func=_cmd_draft_complete)

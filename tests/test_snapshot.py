@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from conftest import DRAFT_CONTENT, write_file
-from mcp_harness import _call, _run, _telemetry_lines, _text, _tools_call_msg
+from mcp_harness import _call, _run, _telemetry_lines, _text, _tools_call_msg, versioned
 
 from engmem import provenance
 from engmem.cli import main
@@ -677,7 +677,7 @@ def _complete(store: Path, content: str) -> tuple[str, bool]:
     write_file(store / "sessions", "20260101-widget-cache.md", DRAFT_CONTENT)
     result, is_error = _call(
         store, name="engmem_complete_draft",
-        arguments={"id": "20260101-widget-cache", "content": content},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": content}),
     )
     return _text(result), is_error
 

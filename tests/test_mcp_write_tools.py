@@ -16,10 +16,11 @@ from conftest import (
     requires_posix_modes,
     requires_symlinks,
 )
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
 
 from engmem import drafts, mcp_server
 from engmem.spine import load_store, split_front_matter
+from engmem.staging import version_of
 
 CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
 COMPLETE_TOOL = mcp_server.COMPLETE_DRAFT_TOOL_NAME
@@ -139,7 +140,9 @@ def test_a_write_tool_rejects_an_id_that_does_not_match_the_front_matter(
         _write_raw(store, "20260101-widget-cache", existing)
     before = _sessions_snapshot(store)
 
-    result, is_error = _call(store, name=tool, arguments={"id": doc_id, "content": content})
+    result, is_error = _call(
+        store, name=tool, arguments=versioned(store, {"id": doc_id, "content": content})
+    )
 
     assert is_error
     assert "20260101-something-else" in _text(result)
@@ -163,7 +166,11 @@ def test_a_write_tool_rejects_unparseable_content_without_a_traceback(
     broken = f"---\nid: 20260101-widget-cache\nstatus: {status}\n"  # unclosed front matter
 
     result, is_error = _call(
-        store, name=tool, arguments={"id": "20260101-widget-cache", "content": broken}
+        store,
+        name=tool,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": broken}
+        )
     )
 
     assert is_error
@@ -327,7 +334,7 @@ def test_complete_draft_transitions_status_from_draft_to_active(store):
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
@@ -391,7 +398,11 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
     content = _with_reuse_rows(f'| {cited} | "{quote}" | helped | reuse |')
 
     result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+        store,
+        name=COMPLETE_TOOL,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": content}
+        )
     )
 
     assert not is_error
@@ -413,7 +424,11 @@ def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
     content = _with_reuse_rows(f"| 20260101-other-doc | {_QUOTE} | helped | reuse |")
 
     result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+        store,
+        name=COMPLETE_TOOL,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": content}
+        )
     )
 
     assert not is_error
@@ -426,7 +441,11 @@ def _refused(store: Path, content: str) -> str:
     """Runs `engmem_complete_draft` and asserts the whole store survived the refusal intact."""
     before = _sessions_snapshot(store)
     result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+        store,
+        name=COMPLETE_TOOL,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": content}
+        )
     )
     assert is_error
     assert _sessions_snapshot(store) == before
@@ -515,7 +534,9 @@ def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": _with_reuse_rows(row)},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": _with_reuse_rows(row)}
+        ),
     )
 
     assert not is_error
@@ -533,7 +554,11 @@ def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
     )
 
     result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+        store,
+        name=COMPLETE_TOOL,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": content}
+        )
     )
 
     assert not is_error
@@ -552,7 +577,7 @@ def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
@@ -574,7 +599,7 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
@@ -599,7 +624,11 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
     content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
 
     result, is_error = _call(
-        store, name=COMPLETE_TOOL, arguments={"id": "20260101-widget-cache", "content": content}
+        store,
+        name=COMPLETE_TOOL,
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "content": content}
+        )
     )
 
     assert not is_error
@@ -614,7 +643,7 @@ def test_complete_draft_refuses_when_no_draft_exists(store):
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
@@ -630,7 +659,7 @@ def test_complete_draft_refuses_to_overwrite_a_non_draft_document(store):
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
@@ -648,7 +677,7 @@ def test_complete_draft_rejects_new_content_that_does_not_move_to_active(store):
     result, is_error = _call(
         store,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
     )
 
     assert is_error
@@ -669,7 +698,7 @@ def test_complete_draft_refuses_to_write_through_a_symlinked_target(tmp_path):
     result, is_error = _call(
         store_dir,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store_dir, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
@@ -718,7 +747,9 @@ def test_mark_superseded_sets_status_and_superseded_by(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert not is_error
@@ -739,7 +770,9 @@ def test_mark_superseded_refuses_on_nonexistent_document(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error
@@ -754,7 +787,9 @@ def test_mark_superseded_refuses_when_current_status_is_not_active(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error
@@ -770,7 +805,9 @@ def test_mark_superseded_refuses_self_supersede(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260101-widget-cache"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260101-widget-cache"}
+        ),
     )
 
     assert is_error
@@ -784,7 +821,9 @@ def test_mark_superseded_rejects_bad_superseded_by_shape(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "../../etc/passwd"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "../../etc/passwd"}
+        ),
     )
 
     assert is_error
@@ -806,7 +845,12 @@ def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
     complete_msg = _tools_call_msg(
         2,
         name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments={
+            "id": "20260101-widget-cache",
+            "content": ACTIVE_CONTENT,
+            # the draft the create above writes is DRAFT_CONTENT byte for byte
+            "expected_version": version_of(DRAFT_CONTENT.encode("utf-8")),
+        },
     )
     search_msg = _tools_call_msg(3, name="engmem_search", arguments={"query": "WidgetCache"})
 
@@ -829,8 +873,12 @@ def test_tools_list_write_tool_schemas_require_the_arguments_each_handler_reads(
 
     by_name = {t["name"]: t for t in responses[0]["result"]["tools"]}
     assert set(by_name[CREATE_TOOL]["inputSchema"]["required"]) == {"id", "content"}
-    assert set(by_name[COMPLETE_TOOL]["inputSchema"]["required"]) == {"id", "content"}
-    assert set(by_name[SUPERSEDE_TOOL]["inputSchema"]["required"]) == {"id", "superseded_by"}
+    assert set(by_name[COMPLETE_TOOL]["inputSchema"]["required"]) == {
+        "id", "content", "expected_version"
+    }
+    assert set(by_name[SUPERSEDE_TOOL]["inputSchema"]["required"]) == {
+        "id", "superseded_by", "expected_version"
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -863,7 +911,9 @@ def test_supersede_ignores_a_key_indented_inside_a_block_scalar(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert not is_error, _text(result)
@@ -889,7 +939,9 @@ def test_supersede_patches_the_real_key_when_a_quoted_value_holds_a_lookalike(st
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert not is_error, _text(result)
@@ -913,7 +965,9 @@ def test_supersede_refuses_when_front_matter_has_a_duplicate_status_key(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error
@@ -935,7 +989,9 @@ def test_supersede_refuses_when_superseded_by_is_a_block_sequence(store):
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error
@@ -959,7 +1015,9 @@ def test_supersede_discards_a_patch_that_did_not_produce_the_expected_state(stor
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error
@@ -984,10 +1042,10 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
         _tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
-            arguments={
+            arguments=versioned(store, {
                 "id": "20260101-widget-cache",
                 "superseded_by": "20260201-widget-cache-v2",
-            },
+            }),
         ),
     )
 
@@ -999,9 +1057,11 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
     assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
 
 
-def test_supersede_refuses_a_document_that_changed_between_its_two_reads(store, monkeypatch):
-    """The handler validates one read and rebuilds the file from another. A writer landing
-    between them must not have its version replaced by the copy read before it."""
+def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
+    store, monkeypatch
+):
+    """The handler rebuilds the file from the bytes its version check read. A writer landing
+    after that read must not have its version replaced by the copy read before it."""
     path = _write_doc(
         store,
         "20260101-widget-cache",
@@ -1012,21 +1072,22 @@ def test_supersede_refuses_a_document_that_changed_between_its_two_reads(store, 
         "status: active\n---\n\n## 8. Decision Log\n\nBody rewritten by another writer.\n"
     )
 
-    real_read_document = mcp_server.read_document
+    real_decode_document = mcp_server.decode_document
 
-    def racing_read(target: Path, depth: int | None = None):
-        # the concurrent write lands after this handler has its text, exactly where a
+    def racing_decode(data: bytes):
+        # the concurrent write lands after this handler has its bytes, exactly where a
         # staleness check that is not there cannot see it
-        text, bom = real_read_document(target, depth)
-        target.write_text(newer, encoding="utf-8")
-        return text, bom
+        path.write_text(newer, encoding="utf-8")
+        return real_decode_document(data)
 
-    monkeypatch.setattr(mcp_server, "read_document", racing_read)
+    monkeypatch.setattr(mcp_server, "decode_document", racing_decode)
 
     result, is_error = _call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments={"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+        arguments=versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
     )
 
     assert is_error, _text(result)
@@ -1046,6 +1107,12 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
         "id: 20260101-widget-cache\ntitle: Widget cache\ndate: 2026-01-01\nstatus: active\n",
     )
     corrupt = b"---\nid: 20260101-widget-cache\ntitle: \xff\xfe\n---\n\nBody.\n"
+    # the client read the corrupt bytes, so the version check passes and the decode meets them
+    arguments = {
+        "id": "20260101-widget-cache",
+        "superseded_by": "20260201-widget-cache-v2",
+        "expected_version": version_of(corrupt),
+    }
 
     real_parse_document = mcp_server.parse_document
 
@@ -1063,10 +1130,7 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
         _tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
-            arguments={
-                "id": "20260101-widget-cache",
-                "superseded_by": "20260201-widget-cache-v2",
-            },
+            arguments=arguments,
         ),
     )
 
@@ -1126,7 +1190,7 @@ def test_completing_a_draft_keeps_the_documents_file_mode(store):
     os.chmod(path, 0o640)
 
     _call(store, name=COMPLETE_TOOL,
-          arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT})
+          arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}))
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o640
     assert load_store(store / "sessions").docs[0].status == "active"
@@ -1179,7 +1243,9 @@ def test_a_failing_commit_still_discards_the_staged_file(
 
     # create and complete write through `drafts`; supersede is MCP-only and stays in mcp_server
     monkeypatch.setattr(mcp_server if name == SUPERSEDE_TOOL else drafts, committer, failing_commit)
-    _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
+    _, responses, _ = _run(
+        store, _tools_call_msg(1, name=name, arguments=versioned(store, arguments))
+    )
 
     # the code and the message together, so a renamed argument or tool cannot leave this green
     # while failing before anything is staged — where "no .tmp survived" is trivially true
@@ -1206,9 +1272,9 @@ def test_mark_superseded_preserves_the_documents_bytes(store, raw, nl):
         encoding="utf-8",
     )
 
-    result, is_error = _call(store, name=SUPERSEDE_TOOL, arguments={
+    result, is_error = _call(store, name=SUPERSEDE_TOOL, arguments=versioned(store, {
         "id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2",
-    })
+    }))
 
     assert not is_error, _text(result)
     after = path.read_bytes()
@@ -1278,9 +1344,8 @@ def test_supersede_refuses_a_key_that_is_not_a_line_of_its_own(store, front_matt
     path.write_text(f"---\n{front_matter}\n---\n\n# Title\n\nbody\n", encoding="utf-8")
     before = path.read_bytes()
 
-    _, responses, _ = _run(store, _tools_call_msg(1, name=SUPERSEDE_TOOL, arguments={
-        "id": "doc-a", "superseded_by": "20260201-widget-cache-v2",
-    }))
+    arguments = versioned(store, {"id": "doc-a", "superseded_by": "20260201-widget-cache-v2"})
+    _, responses, _ = _run(store, _tools_call_msg(1, name=SUPERSEDE_TOOL, arguments=arguments))
 
     # a regression escapes as a protocol fault, so name that rather than showing a KeyError
     assert "error" not in responses[0], responses[0]
@@ -1305,7 +1370,7 @@ def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(s
 
     result, is_error = _call(
         store, name=COMPLETE_TOOL,
-        arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
