@@ -18,7 +18,7 @@ from conftest import (
 )
 from mcp_harness import _call, _run, _text, _tools_call_msg
 
-from engmem import mcp_server
+from engmem import drafts, mcp_server
 from engmem.spine import load_store, split_front_matter
 
 CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
@@ -489,7 +489,7 @@ def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypat
     def _boom(_store):
         raise OSError("sessions/ unreadable")
 
-    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+    monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
     row = "| some-prior-doc | used it without a direct quote | helped | reuse |"
 
     text = _refused(store, _with_reuse_rows(row))
@@ -569,7 +569,7 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
     def _boom(_store):
         raise OSError("disk gremlin")
 
-    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+    monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
 
     result, is_error = _call(
         store,
@@ -595,7 +595,7 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
     def _boom(_store):
         raise OSError("sessions/ unreadable")
 
-    monkeypatch.setattr(mcp_server.gate1, "evaluate", _boom)
+    monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
     content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
 
     result, is_error = _call(
@@ -1177,7 +1177,8 @@ def test_a_failing_commit_still_discards_the_staged_file(
     def failing_commit(tmp_path, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(mcp_server, committer, failing_commit)
+    # create and complete write through `drafts`; supersede is MCP-only and stays in mcp_server
+    monkeypatch.setattr(mcp_server if name == SUPERSEDE_TOOL else drafts, committer, failing_commit)
     _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
 
     # the code and the message together, so a renamed argument or tool cannot leave this green
@@ -1294,13 +1295,13 @@ def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(s
     tool's copy over it would silently replace the newer document."""
     target = _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
     external = ACTIVE_CONTENT + "\nFinished elsewhere while the tool was working.\n"
-    real_stage = mcp_server._stage_content
+    real_stage = drafts.stage_content
 
     def stage_after_an_external_write(path, content):
         target.write_bytes(external.encode("utf-8"))
         return real_stage(path, content)
 
-    monkeypatch.setattr(mcp_server, "_stage_content", stage_after_an_external_write)
+    monkeypatch.setattr(drafts, "stage_content", stage_after_an_external_write)
 
     result, is_error = _call(
         store, name=COMPLETE_TOOL,

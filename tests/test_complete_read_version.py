@@ -12,7 +12,7 @@ import pytest
 from conftest import ACTIVE_CONTENT, DRAFT_CONTENT
 from mcp_harness import _call, _run, _text, _tools_call_msg
 
-from engmem import mcp_server, staging
+from engmem import drafts, mcp_server, staging
 from engmem.spine import load_store, parse_document
 
 CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
@@ -87,7 +87,7 @@ def test_a_completion_landing_inside_anothers_check_to_replace_window_is_refused
     """AC-04.2, deterministic: B starts while A has passed every check and is about to replace
     the draft — the window the old check-then-`os.replace` left open to a second completer."""
     version = _create(store)
-    real_commit = mcp_server.commit
+    real_commit = drafts.commit
     a_in_window, release_a = threading.Event(), threading.Event()
 
     def commit_pausing_a(tmp_path, path):
@@ -96,7 +96,7 @@ def test_a_completion_landing_inside_anothers_check_to_replace_window_is_refused
             assert release_a.wait(10)
         real_commit(tmp_path, path)
 
-    monkeypatch.setattr(mcp_server, "commit", commit_pausing_a)
+    monkeypatch.setattr(drafts, "commit", commit_pausing_a)
     results: dict[str, tuple[str, bool]] = {}
 
     def complete(name: str) -> None:
@@ -285,7 +285,7 @@ def test_the_lock_is_released_when_the_replace_itself_fails(store, target, monke
     def failing_commit(tmp_path, path):
         raise OSError(5, "simulated I/O error")
 
-    monkeypatch.setattr(mcp_server, "commit", failing_commit)
+    monkeypatch.setattr(drafts, "commit", failing_commit)
     with pytest.raises(OSError):
         _complete(store, ACTIVE_CONTENT, version)
 

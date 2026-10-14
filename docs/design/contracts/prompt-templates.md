@@ -60,6 +60,25 @@ already define. `ENGMEM-SPEC.md` §9 is a standing rejection list. If a template
 behaviour appears to need something from it, work stops and the author is asked
 (`ENGMEM-SPEC.md` §10, principle IX) — it is not built anyway.
 
+## Writes go through engmem (US-24)
+
+The start and save templates create and complete the session document only through engmem:
+`engmem draft create|complete` with a shell, `engmem_create_draft|complete_draft` over MCP.
+Neither tells an agent to write `sessions/<id>.md` itself, even when it could. A plain file
+write skips the checks those commands make (`contracts/mcp-server.md`, "One writer for every
+surface"), and the guarantee then depended on which client happened to run the task. The
+start draft records the working repository in `repos` next to `id` and `mode`.
+
+When neither channel is there, or a write fails for a reason the document cannot fix, there is
+no silent fallback:
+- start creates no draft and says so;
+- save tells the user the document was not saved and why, and keeps the text in the reply.
+
+Only an explicit request from the user makes the agent write the file by hand, and the agent
+then says it was saved outside engmem's checks. The full save spells out how the store path
+resolves for that one case. Start no longer needs it, because engmem resolves the store when it
+writes.
+
 ## The session id belongs inside the search instruction
 
 `engmem.start.md` step 3 states the session id in the CLI bullet and in the MCP bullet

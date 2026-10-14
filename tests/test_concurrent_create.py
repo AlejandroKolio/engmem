@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import errno
 import threading
-from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,7 @@ import pytest
 from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, requires_symlinks
 from mcp_harness import _call, _run, _text, _tools_call_msg
 
-from engmem import mcp_server, staging
+from engmem import drafts, mcp_server, staging
 from engmem.scoring import search
 from engmem.spine import load_store
 
@@ -59,13 +58,13 @@ def test_a_creator_that_lands_after_the_existence_check_is_refused_not_overwritt
     existence check and its commit, the window the old `exists()`-then-`os.replace` left open."""
     target = store / "sessions" / f"{DOC_ID}.md"
     other_writer = _draft(DOC_ID, "first")
-    real_stage = mcp_server._stage_content
+    real_stage = drafts.stage_content
 
     def stage_after_another_creator(path, content):
         target.write_bytes(other_writer.encode("utf-8"))
         return real_stage(path, content)
 
-    monkeypatch.setattr(mcp_server, "_stage_content", stage_after_another_creator)
+    monkeypatch.setattr(drafts, "stage_content", stage_after_another_creator)
 
     result, is_error = _call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "second")}
@@ -152,13 +151,13 @@ def test_a_symlink_planted_after_the_checks_is_never_written_through(store, monk
     exclusive create refuses it as occupied rather than replacing or following it."""
     target = store / "sessions" / f"{DOC_ID}.md"
     outside = tmp_path / "outside.md"
-    real_stage = mcp_server._stage_content
+    real_stage = drafts.stage_content
 
     def stage_after_a_link_appears(path, content):
         target.symlink_to(outside)
         return real_stage(path, content)
 
-    monkeypatch.setattr(mcp_server, "_stage_content", stage_after_a_link_appears)
+    monkeypatch.setattr(drafts, "stage_content", stage_after_a_link_appears)
 
     result, is_error = _call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "late")}
@@ -179,7 +178,7 @@ def test_an_interrupted_create_leaves_no_document_and_reports_no_success(store, 
     def interrupted(tmp_path, target):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(mcp_server, "commit_new", interrupted)
+    monkeypatch.setattr(drafts, "commit_new", interrupted)
     content = _draft(DOC_ID, UNIQUE_TERM)
 
     with pytest.raises(KeyboardInterrupt):
@@ -219,15 +218,3 @@ def test_a_link_failure_that_is_not_missing_hard_links_is_a_fault_not_a_success(
     assert responses[0]["error"]["code"] == -32603
     assert "Input/output error" in responses[0]["error"]["message"]
     assert _sessions_files(store) == []
-
-
-def test_the_start_template_tells_a_direct_writer_not_to_overwrite():
-    """The shell path never reaches `commit_new`; the template's instruction is all it has."""
-    template = (resources.files("engmem") / "templates" / "engmem.start.md").read_text(
-        encoding="utf-8"
-    )
-    bullet = template.split("- If you can write files directly:", 1)[1].split("\n- ", 1)[0]
-    words = " ".join(bullet.split())
-
-    assert "only if no file by that name exists yet" in words
-    assert "pick a new id" in words and "never overwrite" in words

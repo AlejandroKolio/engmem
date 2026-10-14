@@ -323,7 +323,8 @@ def test_the_template_keeps_the_draft_on_decline_and_does_not_call_complete():
     declined = text[text.index("**Declined**"):text.index("To publish,")]
 
     assert "publish nothing" in declined
-    assert "Do not call `engmem_complete_draft`" in declined
+    assert "Do not run `engmem draft complete`" in " ".join(declined.split())
+    assert "do not call `engmem_complete_draft`" in " ".join(declined.split())
     assert "stays as it is, `status: draft`" in declined
 
 

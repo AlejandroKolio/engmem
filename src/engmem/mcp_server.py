@@ -6,25 +6,21 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
 
-from engmem import __version__, confined, cost, feedback, gate1
-from engmem.cache import identity_for
+from engmem import __version__, confined, cost, drafts, feedback
 from engmem.read_report import ReadError, compose_read
-from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file, saved_mode
+from engmem.settings import ModeSettingError, mode_setting_file, saved_mode
 from engmem.scoring import Scope
 from engmem.search_report import compose
-from engmem.sections import CANONICAL_ROLES, split_sections
+from engmem.sections import CANONICAL_ROLES
 # imported, not reimplemented, so a document a write tool below produces is
 # validated by the exact rules load_store applies when reading it back
 from engmem.spine import (
-    Doc,
     LoadResult,
     load_store,
     parse_document,
@@ -33,18 +29,7 @@ from engmem.spine import (
     stray_documents,
     validate_doc_id,
 )
-from engmem.staging import (
-    DocumentLockedError,
-    commit,
-    commit_new,
-    discard,
-    document_lock,
-    newline_of,
-    read_document,
-    stage,
-    version_of,
-)
-from engmem.versions import is_version, split_reference
+from engmem.staging import commit, discard, newline_of, read_document
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -208,8 +193,7 @@ class _ProtocolError(Exception):
         self.message = message
 
 
-class _ToolError(Exception):
-    """Raised by the write-tool helpers for a failure the security contract calls for."""
+_ToolError = drafts.WriteRefused
 
 
 # ---------------------------------------------------------------------------
@@ -321,454 +305,23 @@ def _run_search_for_tool(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_sessions_dir(store: Path) -> Path:
-    """Resolved `store/sessions`, raising `_ToolError` when it is missing or escapes the store."""
-    sessions_dir = store / "sessions"
-    unreadable = sessions_dir_unreadable(sessions_dir)
-    if unreadable:
-        raise _ToolError(unreadable)
-    if not sessions_dir.is_dir():
-        raise _ToolError(
-            f"store not found: {sessions_dir} does not exist (run `engmem install` "
-            "to create the store, or check the configured store path)."
-        )
-    try:
-        resolved_store = store.resolve(strict=False)
-        resolved_sessions = sessions_dir.resolve(strict=True)
-    except OSError as exc:
-        raise _ToolError(f"could not resolve store path {store}: {exc}") from exc
-
-    if resolved_sessions != resolved_store / "sessions":
-        raise _ToolError(
-            f"refusing to write: {sessions_dir} resolves to {resolved_sessions}, "
-            f"outside {resolved_store} — sessions/ appears to be a symlink (or the "
-            "store path contains one) pointing somewhere the store does not own."
-        )
-    return resolved_sessions
-
-
-def _resolve_write_target(store: Path, doc_id: object) -> Path:
-    """The chokepoint every write tool calls first; never returns a path outside `sessions/`."""
-    reason = validate_doc_id(doc_id)
-    if reason is not None:
-        raise _ToolError(f"invalid document id {doc_id!r}: {reason}")
-
-    resolved_sessions = _resolve_sessions_dir(store)
-    target = resolved_sessions / f"{doc_id}.md"
-
-    # checked before resolve(), which would follow a symlink to its target
-    # and hide the real problem behind the containment check below
-    if target.is_symlink():
-        raise _ToolError(
-            f"refusing to write through a symlink: sessions/{doc_id}.md is a "
-            "symlink, not a plain file — this tool never follows or replaces one."
-        )
-
-    resolved_target = target.resolve(strict=False)
-    if resolved_target.parent != resolved_sessions or resolved_target.name != f"{doc_id}.md":
-        raise _ToolError(f"refusing to write outside sessions/: {doc_id!r}")
-
-    return target
-
-
-def _stage_content(target: Path, content: bytes) -> tuple[Doc | None, Path, str | None]:
-    """Stages `content` and parses it; the caller commits or discards what comes back."""
-    tmp_path = stage(target, content)
-    try:
-        doc = parse_document(tmp_path)
-    except (yaml.YAMLError, ValueError, OSError) as exc:
-        return None, tmp_path, f"content does not parse: {exc}"
-    return doc, tmp_path, None
-
-
-def _create_conflict(doc_id: str, detail: str | None = None) -> _ToolError:
-    reason = detail or "it already exists"
-    return _ToolError(
-        f"refusing to create sessions/{doc_id}.md: {reason} — "
-        f"{CREATE_DRAFT_TOOL_NAME} never overwrites. Use "
-        f"{COMPLETE_DRAFT_TOOL_NAME} to finish an existing draft, or choose a different id."
-    )
-
-
-def _mode_refusal(doc: Doc) -> str | None:
-    """Why `doc` may not start a session under the mode saved now, None when it may — see
-    contracts/mcp-server.md, "The mode a draft records"."""
-    setting = mode_setting_file()
-    try:
-        configured, unreadable = effective_mode(), None
-    except ModeSettingError as exc:
-        # a daily record is never a wrong observation, so only research waits for the repair
-        configured, unreadable = Mode.DAILY, exc
-    if doc.mode is None:
-        return (
-            f"content's front matter has no `mode` — state `mode: {configured}`, the "
-            f"configured mode (`engmem mode show`; saved in {setting}). If you followed an "
-            "installed engmem template or skill, it may predate modes: have the user run "
-            "`engmem install --agent <agent>` again to update it."
-        )
-    if doc.mode not in set(Mode):
-        return (
-            f"content's front matter mode {doc.mode!r} is not one of {', '.join(Mode)} — "
-            f"the configured mode is {configured} (`engmem mode show`)."
-        )
-    if unreadable is not None and doc.mode != Mode.DAILY:
-        return (
-            f"the saved mode cannot be read ({unreadable}), so a research session cannot be "
-            "confirmed — create this draft with `mode: daily`, or have the user repair the "
-            "file with `engmem mode set research` first."
-        )
-    if doc.mode != configured:
-        return (
-            f"content's front matter mode is {doc.mode}, but the configured mode is "
-            f"{configured} ({setting}) — record `mode: {configured}`, or have the user run "
-            f"`engmem mode set {doc.mode}` first if this session should be {doc.mode}."
-        )
-    has_prereg = any(s.canonical == "prereg" for s in split_sections(doc.body))
-    if doc.mode == Mode.RESEARCH and not has_prereg and doc.baseline_unavailable is None:
-        return (
-            "a research draft records its baseline before the first search — include the "
-            "`## Pre-reg` section, or state `baseline_unavailable: <reason>` in the front "
-            "matter when no uncontaminated baseline can be had (`engmem mode` decides "
-            "which protocol applies)."
-        )
-    return None
-
-
-def _mode_note(doc: Doc) -> str:
-    if doc.mode == Mode.DAILY:
-        return (
-            "Recorded mode: daily — no Pre-reg needed; this session stays outside the Gate 1 "
-            "experiment."
-        )
-    if doc.baseline_unavailable is not None:
-        return (
-            "Recorded mode: research, baseline_unavailable — search and save as usual; the "
-            "session is reported as an incomplete observation."
-        )
-    return "Recorded mode: research — the baseline is on disk before the first search."
-
-
 def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
-
     try:
-        target = _resolve_write_target(store, doc_id)
-
-        if target.exists():
-            raise _create_conflict(doc_id)
-
-        content_bytes = content.encode("utf-8")
-        doc, tmp_path, parse_error = _stage_content(target, content_bytes)
-        try:
-            if parse_error is not None:
-                raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
-            if doc.id != doc_id:
-                raise _ToolError(
-                    f"content's front matter id {doc.id!r} does not match the "
-                    f"'id' argument {doc_id!r} — they must be identical."
-                )
-            if doc.status != "draft":
-                raise _ToolError(
-                    f"content's front matter status is {doc.status!r}, not "
-                    f"'draft' — {CREATE_DRAFT_TOOL_NAME} only ever creates a draft."
-                )
-            mode_refusal = _mode_refusal(doc)
-            if mode_refusal is not None:
-                raise _ToolError(
-                    f"refusing to create sessions/{doc_id}.md: {mode_refusal}"
-                )
-            try:
-                commit_new(tmp_path, target)
-            except FileExistsError as exc:
-                # another creator took the id after the check above
-                detail = None if os.path.lexists(target) else exc.strerror
-                raise _create_conflict(doc_id, detail) from exc
-        # BaseException, not _ToolError: `commit_new` links or renames, so it can raise
-        # OSError of its own, and the staged file must go either way
-        except BaseException:
-            discard(tmp_path)
-            raise
+        return drafts.create_draft(store, doc_id, content, drafts.MCP), False
     except _ToolError as exc:
         return str(exc), True
-
-    return (
-        f"created sessions/{doc_id}.md (status: draft, version: {version_of(content_bytes)}). "
-        f'Now pass session_id: "{doc_id}" on every {TOOL_NAME} and {ROLE_TOOL_NAME} call '
-        "for the rest of this task — a search without it is logged unattributed "
-        "and drops out of the analysis. Keep the version: pass it as expected_version "
-        f"to {COMPLETE_DRAFT_TOOL_NAME} when you finish this draft. {_mode_note(doc)}"
-    ), False
-
-
-def _refuse_if_changed_since_read(target: Path, read: Doc, doc_id: str) -> None:
-    """`backfill.apply_backfill`'s rule: a document that moved under the read a write is based
-    on is refused, never overwritten from the copy that is already stale."""
-    if read.source_identity != identity_for(target):
-        raise _ToolError(
-            f"sessions/{doc_id}.md changed on disk while it was being read — "
-            "refusing to write, so a newer version is not replaced by a stale one. "
-            "Call this tool again."
-        )
-
-
-@contextmanager
-def _locked(target: Path, doc_id: str) -> Iterator[None]:
-    """`staging.document_lock`, with a lock held past the wait refused by name."""
-    try:
-        with document_lock(target):
-            yield
-    except DocumentLockedError as exc:
-        raise _ToolError(
-            f"sessions/{doc_id}.md is being written by another engmem call — nothing was "
-            "written; call this tool again. If this repeats while no engmem process is "
-            f"running, an interrupted write left sessions/{exc.lock.name} behind: remove it."
-        ) from None
-
-
-def _refuse_if_not_the_version_read(target: Path, doc_id: str, expected_version: str) -> None:
-    """A draft that changed since the client read it is refused with its current text and
-    version, never overwritten from the client's stale copy."""
-    try:
-        data = confined.read_bytes(target, confined.SESSION_DEPTH)
-    except OSError as exc:
-        raise _ToolError(
-            f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
-        ) from exc
-    current = version_of(data)
-    if current == expected_version.strip():
-        return
-    raise _ToolError(
-        f"refusing to complete sessions/{doc_id}.md: it changed since you read it "
-        f"(expected_version {expected_version!r}, current version {current!r}) — "
-        "nothing was written. Re-read the current draft below, carry its changes into "
-        f"your content, and call {COMPLETE_DRAFT_TOOL_NAME} again with "
-        f'expected_version: "{current}".\n'
-        f"--- current sessions/{doc_id}.md ---\n"
-        + data.decode("utf-8", errors="replace")
-    )
 
 
 def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
     doc_id = arguments.get("id") if isinstance(arguments, dict) else None
     content = arguments.get("content") if isinstance(arguments, dict) else None
     expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
-
     try:
-        target = _resolve_write_target(store, doc_id)
-        # held from the first look at the document to the replace: two completions of one
-        # draft can no longer both see `status: draft` and both commit
-        with _locked(target, doc_id):
-            doc = _complete_draft_locked(target, doc_id, content, expected_version)
+        return drafts.complete_draft(store, doc_id, content, expected_version, drafts.MCP), False
     except _ToolError as exc:
         return str(exc), True
-
-    message = f"completed sessions/{doc_id}.md (status: draft -> active)"
-    for note in [*_snapshot_notes(doc), *_citation_notes(store, doc)]:
-        message += f"\n{note}"
-    return message, False
-
-
-def _complete_draft_locked(
-    target: Path, doc_id: str, content: str, expected_version: str | None
-) -> Doc:
-    if not target.exists():
-        raise _ToolError(
-            f"no draft found for id {doc_id!r}: sessions/{doc_id}.md does not "
-            f"exist — create it first with {CREATE_DRAFT_TOOL_NAME}."
-        )
-    try:
-        existing = parse_document(target)
-    except (yaml.YAMLError, ValueError, OSError) as exc:
-        # can't confirm the current document is actually a draft; refuse
-        raise _ToolError(
-            f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
-            "overwrite a document that cannot first be confirmed to be a draft."
-        ) from exc
-    if existing.status != "draft":
-        raise _ToolError(
-            f"refusing to overwrite sessions/{doc_id}.md: its current status "
-            f"is {existing.status!r}, not 'draft' — {COMPLETE_DRAFT_TOOL_NAME} "
-            "only ever finishes a document still in draft."
-        )
-    if expected_version is not None:
-        _refuse_if_not_the_version_read(target, doc_id, expected_version)
-
-    doc, tmp_path, parse_error = _stage_content(target, content.encode("utf-8"))
-    try:
-        if parse_error is not None:
-            raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
-        if doc.id != doc_id:
-            raise _ToolError(
-                f"content's front matter id {doc.id!r} does not match the "
-                f"'id' argument {doc_id!r} — they must be identical."
-            )
-        if doc.status != "active":
-            raise _ToolError(
-                f"content's front matter status is {doc.status!r}, not "
-                f"'active' — {COMPLETE_DRAFT_TOOL_NAME} must complete the "
-                "sanctioned draft -> active transition; leave status as "
-                "'draft' and simply call this tool again later if the "
-                "document is not actually ready to finish yet."
-            )
-        _refuse_a_changed_observation(existing, doc, doc_id)
-        rejections = _reuse_log_rejections(doc, target.parent)
-        if rejections:
-            raise _ToolError(
-                "\n".join(
-                    [
-                        f"refusing to complete sessions/{doc_id}.md: its Reuse Log "
-                        "fails the mechanical rules Gate 1 counts by — fix the rows "
-                        "below in the content and call this tool again.",
-                        *rejections,
-                    ]
-                )
-            )
-        # the lock excludes engmem writers only; a hand edit or another tool landing since the
-        # read above is caught here, in a window the lock cannot close
-        _refuse_if_changed_since_read(target, existing, doc_id)
-        commit(tmp_path, target)
-    # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
-    # OSError of its own, and the staged file must go either way
-    except BaseException:
-        discard(tmp_path)
-        raise
-    return doc
-
-
-def _mode_label(mode: str | None) -> str:
-    return "no mode (written before modes existed)" if mode is None else repr(mode)
-
-
-def _refuse_a_changed_observation(draft: Doc, content: Doc, doc_id: str) -> None:
-    """A session keeps the condition it started under (AC-08.4), and a missing baseline once
-    recorded cannot be dropped at save time (AC-08.5)."""
-    if content.mode != draft.mode:
-        raise _ToolError(
-            f"refusing to complete sessions/{doc_id}.md: content's mode is "
-            f"{_mode_label(content.mode)}, but the draft was started with "
-            f"{_mode_label(draft.mode)} — a session keeps the mode it started in; copy "
-            "`mode` from the draft unchanged."
-        )
-    if draft.baseline_unavailable is not None and content.baseline_unavailable is None:
-        raise _ToolError(
-            f"refusing to complete sessions/{doc_id}.md: the draft records "
-            f"baseline_unavailable ({draft.baseline_unavailable!r}) and the content drops it — "
-            "a baseline cannot be supplied after the search; copy `baseline_unavailable` "
-            "from the draft unchanged."
-        )
-
-
-_CLASSIFICATION_CHOICES = " / ".join(
-    c for c in gate1.Classification if c in gate1.VALID_CLASSIFICATIONS
-)
-
-
-def _reuse_log_rejections(doc: Doc, sessions_dir: Path) -> list[str]:
-    """Row-shape defects decidable from the content, checked before the commit; the store is read
-    only to spare an existing id spelled with `@` (contracts/mcp-server.md, "Reuse Log rows —
-    refuse, then warn")."""
-    rejections: list[str] = []
-    existing_ids: set[str] | None = None
-    for section in split_sections(doc.body):
-        if section.canonical != "reuse":
-            continue
-        for row in gate1.reuse_log_rows(section.body):
-            line = row.line.strip()
-            reference = row.cells[0].strip("[] `")
-            _cited_id, version = split_reference(reference)
-            if version is not None and not is_version(version) and existing_ids is None:
-                existing_ids = {d.id for d in load_store(sessions_dir).docs}
-            # `gate1.cited_reference`'s rule: a cell naming an existing id exactly is that id
-            if version is not None and not is_version(version) and reference not in existing_ids:
-                rejections.append(
-                    f"Reuse Log row rejected — version {version!r} is not one a search showed "
-                    "(prior-doc is <id> or <id>@<16 lowercase hex digits>, copied from the "
-                    f"search result's `cite as` line): {line}"
-                )
-            if not gate1.quotes_in(row.cells[1]):
-                rejections.append(
-                    "Reuse Log row rejected — no quoted span of four or more characters: "
-                    f"{line}"
-                )
-            raw, classification = gate1.classification_of(row.cells)
-            if classification is gate1.Classification.MISSING:
-                rejections.append(
-                    "Reuse Log row rejected — no classification cell, or an empty one "
-                    f"(expected one of {_CLASSIFICATION_CHOICES}): {line}"
-                )
-            elif classification is gate1.Classification.UNRECOGNIZED:
-                rejections.append(
-                    f'Reuse Log row rejected — classification "{raw}" is not one of '
-                    f"{_CLASSIFICATION_CHOICES}: {line}"
-                )
-    return rejections
-
-
-def _snapshot_notes(doc: Doc) -> list[str]:
-    """A malformed anchor, named once at capture and never a refusal; see contracts/provenance.md,
-    "Recorded at capture"."""
-    return [
-        f"warning: sessions/{doc.id}.md: {warning}"
-        for warning in doc.field_warnings
-        if warning.startswith("verified_at")
-    ]
-
-
-def _citation_notes(store: Path, doc: Doc) -> list[str]:
-    """Non-fatal diagnostics on the document just completed to active — never demotes a
-    successful commit; see contracts/mcp-server.md, "Reuse Log rows — refuse, then warn"."""
-    notes: list[str] = []
-    if not any(s.canonical == "reuse" for s in split_sections(doc.body)):
-        notes.append(
-            f'warning: sessions/{doc.id}.md has no Reuse Log section — it is now active, '
-            'so gate1_audit counts it under "active documents missing a Reuse Log section"'
-        )
-        return notes
-
-    try:
-        verdicts = gate1.evaluate(store)
-    except Exception as exc:
-        notes.append(f"note: citation check did not run ({exc})")
-        return notes
-
-    problems: list[str] = []
-    legacy: list[str] = []
-    for row in verdicts.rows:
-        if row.citing.id != doc.id:
-            continue
-        if gate1.checked_against_current_text(row):
-            legacy.append(row.source)
-        if row.integrity == gate1.Integrity.VERSION_UNAVAILABLE:
-            problems.append(
-                f"{row.source}: cited version {gate1.cited_as_written(row)} cannot be "
-                f"checked — {row.version_problem}"
-            )
-        elif row.integrity == gate1.Integrity.CITED_MISSING:
-            problems.append(
-                f"{row.source}: cited document {gate1.cited_as_written(row)} is not in the "
-                "store — prior-doc takes the document's id, not its filename"
-            )
-        elif row.integrity == gate1.Integrity.QUOTE_NOT_FOUND:
-            for quote in row.unfound_quotes:
-                problems.append(
-                    f'{row.source}: quote not found in {gate1.cited_as_written(row)} — "{quote}"'
-                )
-    if problems:
-        notes.append(
-            f"warning: {len(problems)} Reuse Log citation problem(s) — run the engmem "
-            "checkout's checker, uv run --project <engmem-checkout> python "
-            "<engmem-checkout>/tools/verify_citations.py --store <store>: " + "; ".join(problems)
-        )
-    if legacy:
-        notes.append(
-            f"note: {len(legacy)} Reuse Log row(s) name no version, so their quotes are checked "
-            "against the cited document's current text, which can change later: "
-            + ", ".join(legacy)
-            + f" — next time cite the `<id>@<version>` the {TOOL_NAME} result's `cite as` "
-            "line gives"
-        )
-    return notes
 
 
 def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
@@ -776,7 +329,7 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
     superseded_by = arguments.get("superseded_by") if isinstance(arguments, dict) else None
 
     try:
-        target = _resolve_write_target(store, doc_id)
+        target = drafts.resolve_write_target(store, doc_id)
 
         reason = validate_doc_id(superseded_by)
         if reason is not None:
@@ -789,7 +342,7 @@ def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
 
         # the same lock `engmem_complete_draft` holds: two supersedes of one document can no
         # longer both see `status: active`, and the later one replace the earlier's successor
-        with _locked(target, doc_id):
+        with drafts.locked(target, doc_id, drafts.MCP):
             _mark_superseded_locked(target, doc_id, superseded_by)
     except _ToolError as exc:
         return str(exc), True
@@ -835,7 +388,7 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
         raise _ToolError(
             f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
         ) from exc
-    _refuse_if_changed_since_read(target, existing, doc_id)
+    drafts.refuse_if_changed_since_read(target, existing, doc_id, "Call this tool again")
 
     front_matter_text, body = split_front_matter(existing_text)
     front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
@@ -845,7 +398,7 @@ def _mark_superseded_locked(target: Path, doc_id: str, superseded_by: str) -> No
     newline = newline_of(front_matter_text) or newline_of(body) or "\n"
     new_content = f"---{newline}" + front_matter_text + f"---{newline}" + body
 
-    doc, tmp_path, parse_error = _stage_content(target, bom + new_content.encode("utf-8"))
+    doc, tmp_path, parse_error = drafts.stage_content(target, bom + new_content.encode("utf-8"))
     try:
         if parse_error is not None:
             raise _ToolError(f"sessions/{doc_id}.md {parse_error}")

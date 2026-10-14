@@ -5,11 +5,9 @@ description: Finish an engmem task — save what was learned as a complete sessi
 # /engmem.save — finish a task
 
 You are closing out the session started by `/engmem`. Find the `sessions/<id>.md` draft
-created at the start of this task (`status: draft`) — if you wrote it yourself via a
-shell, read it back from disk; if you created it through the `engmem_create_draft` MCP
-tool, its content is exactly what you passed as that call's `content`, so reuse that
-directly instead of trying to re-read the file, together with the `version` that call
-returned — and complete it in the two passes below.
+created at the start of this task (`status: draft`). Its content is exactly the text you passed
+to `engmem draft create` or to the `engmem_create_draft` MCP tool, so reuse that, together with
+the `version` it printed or returned — and complete it in the two passes below.
 
 This template produces the full knowledge-base shape: seventeen numbered sections plus
 engmem's own two operational ones, the list `ENGMEM-SPEC.md` §4 fixes. It is deliberately the
@@ -268,20 +266,37 @@ yes:
   a sha. It records which code the decision was checked against, not that the text is true;
   a search later shows each entry next to that checkout's current `HEAD`. Do not write the
   older single `verified_at_commit`.
-- Write the finished document:
-  - If you can write files directly: replace `sessions/<id>.md` with the complete
-    document (finalised front matter from step 1 plus all body sections from step 2).
-  - If your runtime exposes the `engmem_complete_draft` MCP tool instead of a shell:
-    call it with `id` set to `<id>`, `content` set to that complete document text, and
-    `expected_version` set to the version `engmem_create_draft` returned for this draft.
-    It refuses to run unless the document on disk is still `status: draft`, and
-    refuses the new content unless its own front matter states `status: active` —
-    so this is the one call that actually performs the `draft -> active` transition.
-    If it refuses because the draft changed since you read it, the refusal carries the
-    current draft and its version: re-read it, carry what changed into your document,
-    and call again with that version. Never retry the same content with the new version
-    without reading what changed. Leave `expected_version` out only if you no longer
-    have it; the call then cannot tell that the draft changed.
+- Write the finished document (finalised front matter from step 1 plus all body sections
+  from step 2) through engmem, never as a plain file write:
+  - If your runtime exposes the `engmem_complete_draft` MCP tool: call it with `id` set to
+    `<id>`, `content` set to the document, and `expected_version` set to the version create
+    gave. Prefer it to the shell when you have both.
+  - Otherwise, with a shell: pipe it to
+    `engmem draft complete <id> --expected-version <the version create gave>` with a quoted
+    delimiter, so nothing in the text is expanded or run. In a POSIX shell:
+    `engmem draft complete <id> --expected-version <version> <<'EOF'` … `EOF`, with a
+    delimiter no line of the text is. In PowerShell, first
+    `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, since Windows PowerShell 5.1
+    otherwise sends every non-ASCII character as `?`, then
+    `@'` … `'@ | engmem draft complete <id> --expected-version <version>`.
+  - Either way: it refuses to run unless the document on disk is still `status: draft`, and
+    refuses the new content unless its own front matter states `status: active` — so this is
+    the one call that actually performs the `draft -> active` transition. If it refuses
+    because the draft changed since you read it, the refusal carries the current draft and
+    its version: re-read it, carry what changed into your document, and call again with that
+    version. Never retry the same content with the new version without reading what
+    changed. Leave the version out only if you no longer have it; the call then cannot tell
+    that the draft changed.
+  - If you can do neither, or it fails for a reason you cannot fix in the document: do not
+    write `sessions/<id>.md` yourself. Tell the user the document was not saved and why,
+    and keep the finished text in your reply. The draft stays a draft, out of search. Only
+    if the user then explicitly asks you to write the file by hand, write it as
+    `sessions/<id>.md` in the store, and tell them it was saved outside engmem's checks: no
+    version check, no Reuse Log check and no lock against another writer. The store is the
+    path on the first line of `engmem store show`; without a shell it resolves in this order:
+    `$ENGMEM_HOME` if set, otherwise the one path saved in `$XDG_CONFIG_HOME/engmem/store`
+    (default `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file
+    exists, otherwise `~/Developer/engmem`.
 
 ### Usefulness feedback (optional)
 

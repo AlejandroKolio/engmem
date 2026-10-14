@@ -124,7 +124,7 @@ reader nowhere.
 Not `Path.resolve()`, because the path is what the user reads back in every message, and a
 symlinked store (`~/Developer/engmem` pointing into a synced folder or a dotfiles checkout) is
 a supported setup. No security invariant rides on this: `cli._sessions_is_contained` and
-`mcp_server._resolve_sessions_dir` re-resolve the store themselves, so a store handed to them
+`drafts._resolve_sessions_dir` re-resolve the store themselves, so a store handed to them
 already resolved changes neither half of their comparison. `..` segments are left alone for
 the same reason — `os.path.abspath` would collapse them lexically and, across a symlinked
 parent, name a directory the kernel would not reach.

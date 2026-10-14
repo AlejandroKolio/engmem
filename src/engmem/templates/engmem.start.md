@@ -77,20 +77,17 @@ documents are read, the baseline measures nothing at all.
 
 ## 2. Create the draft immediately
 
-The engmem store is the path on the first line of `engmem store show` (`store: <path>`);
-run it once before you write. When the first line is `store:`, use that path, and report any
-`error:` line further down to the user. When the first line is `error:`, report it and write
-the draft nowhere — another directory is another store, and the draft would be lost to every
-later search. Without a shell, the store resolves in this order: `$ENGMEM_HOME` if
-set, otherwise the one path saved in `$XDG_CONFIG_HOME/engmem/store` (default
-`~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file exists, otherwise
-`~/Developer/engmem`. Compose the draft as soon as step 0 (and, in research mode, step 1) is
-done: the **complete** front matter below — placeholder values, but every field present, so
-the document is valid to the parser from the moment it exists — with `mode` from step 0. In
-research mode it is followed by a `## Pre-reg` section containing the baseline from step 1
-plus its `pre-reg source:` line, or, when step 1 found no baseline, the front matter carries
-`baseline_unavailable: <reason>` and there is no Pre-reg section. In daily mode the draft is
-the front matter alone. Leave the other body sections for `/engmem.save`; the empty
+engmem writes the draft itself, so you never write a file in the store. With a shell, run
+`engmem store show` once first. When the first line is `store:`, that path is the store engmem
+writes to, and report any `error:` line further down to the user. When the first line is
+`error:`, report it and create no draft — another directory is another store, and the draft
+would be lost to every later search. Compose the draft as soon as step 0 (and, in research mode,
+step 1) is done: the **complete** front matter below — placeholder values, but every field
+present, so the document is valid to the parser from the moment it exists — with `mode` from
+step 0. In research mode it is followed by a `## Pre-reg` section containing the baseline from
+step 1 plus its `pre-reg source:` line, or, when step 1 found no baseline, the front matter
+carries `baseline_unavailable: <reason>` and there is no Pre-reg section. In daily mode the
+draft is the front matter alone. Leave the other body sections for `/engmem.save`; the empty
 `tags`/`entities` lists are expected in a draft (the parser reports empty entities as a warning,
 not an error — that's normal until save fills them in), and an empty daily draft draws no
 warning at all.
@@ -108,25 +105,33 @@ tags: []
 entities: []
 related: []
 covers_files: []
+repos: [<repository>]            # this task's repository as documents name it; [] if unknown
 verified_at:                     # left empty: filled per repository at save
 capture_minutes:                 # left empty: a draft has measured nothing yet
 mode: <daily|research from step 0>   # write the one word; left as is, it counts nowhere
 ---
 ```
 
-- If you can write files directly: write `sessions/<id>.md` there with that front
-  matter plus, in research mode, the `## Pre-reg` section, exactly as composed above. Write it only if no
-  file by that name exists yet; if one does, pick a new id — never overwrite it.
-- If your runtime exposes the `engmem_create_draft` MCP tool instead of a shell: call
-  it with `id` set to `<id>` and `content` set to the exact text above (the front
-  matter block, then any `## Pre-reg` section). It refuses a `mode` other than the
-  configured one and names the configured mode; take that one and compose again. It never
-  overwrites an existing
-  document, so a call that fails because the id is already taken means the id itself
-  needs to change, not something to retry as-is. Its result names the draft's
-  `version`; keep it, because `/engmem.save` passes it back when it completes the draft.
-- If you can do neither: skip creating the draft, say so in your final report, and
-  keep going — steps 3–6 below are not blocked by it.
+- If your runtime exposes the `engmem_create_draft` MCP tool: call it with `id` set to `<id>`
+  and `content` set to the exact text above (the front matter block, then any `## Pre-reg`
+  section). Prefer it to the shell when you have both: no shell quoting or pipe encoding
+  stands between the text and engmem.
+- Otherwise, with a shell: pipe that same text to `engmem draft create <id>` with a quoted
+  delimiter, so nothing in the text is expanded or run. In a POSIX shell:
+  `engmem draft create <id> <<'EOF'` … `EOF`, with a delimiter no line of the text is. In
+  PowerShell, first `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, since Windows
+  PowerShell 5.1 otherwise sends every non-ASCII character as `?`, then
+  `@'` … `'@ | engmem draft create <id>`.
+- Do not write `sessions/<id>.md` yourself, even though you could: these make the checks a plain
+  file write skips.
+- Either way: it refuses a `mode` other than the configured one and names the configured mode;
+  take that one and compose again. It never overwrites an existing document, so a refusal
+  because the id is already taken means the id itself needs to change, not something to retry
+  as-is. Its output names the draft's `version`; keep it, because `/engmem.save` passes it back
+  when it completes the draft.
+- If you can do neither, or it fails for any reason other than the two above: create no draft
+  and write no file yourself. Say so in your final report, and keep going — steps 3–6 below are
+  not blocked by it.
 
 ## 3. Search for prior context
 

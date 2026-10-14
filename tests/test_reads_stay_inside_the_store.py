@@ -422,13 +422,13 @@ def test_backfill_proposals_reread_inside_the_store(store):
 
 @requires_symlinks
 def test_a_completion_version_check_does_not_read_through_a_link(store):
-    from engmem.mcp_server import _ToolError, _refuse_if_not_the_version_read
+    from engmem.drafts import MCP, WriteRefused, _refuse_if_not_the_version_read
 
     _result, doc = _loaded_then_linked(store)
     outside_version = version_of((_outside(store) / f"{LINKED}.md").read_bytes())
 
-    with pytest.raises(_ToolError, match="could not be re-read"):
-        _refuse_if_not_the_version_read(doc.path, ALLOWED, outside_version)
+    with pytest.raises(WriteRefused, match="could not be re-read"):
+        _refuse_if_not_the_version_read(doc.path, ALLOWED, outside_version, MCP)
 
 
 @requires_symlinks
