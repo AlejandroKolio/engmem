@@ -12,6 +12,7 @@ import pytest
 
 from support import rpc
 from support.docs import write_file
+from support.search import cli_search
 
 from engmem import gate1, gate1_audit, mcp_server
 from engmem.cli import main
@@ -144,18 +145,13 @@ def _front_matter_id(record: str) -> str:
     return re.search(r"^id: (\S+)$", record, re.MULTILINE).group(1)
 
 
-def _cli_search(store: Path, query: str, capsys) -> str:
-    assert main(["search", query, "--store", str(store)]) == 0
-    return capsys.readouterr().out
-
-
 def _mcp_search(store: Path, query: str, capsys) -> str:
     result, is_error = rpc.call(store, name=mcp_server.TOOL_NAME, arguments={"query": query})
     assert not is_error
     return rpc.text(result)
 
 
-CHANNELS = [pytest.param(_cli_search, id="cli"), pytest.param(_mcp_search, id="mcp")]
+CHANNELS = [pytest.param(cli_search, id="cli"), pytest.param(_mcp_search, id="mcp")]
 
 
 def _with_absent(record: str, *labels: str) -> str:
@@ -277,7 +273,7 @@ def test_ac_07_2_a_record_marking_both_absences_completes_and_is_found(tmp_path,
 
     assert "warning" not in message
     assert _components(record)[0]["Source"] == ABSENT
-    assert _cli_search(store, "fixed backoff", capsys).startswith(f"### {EXAMPLE_ID} ")
+    assert cli_search(store, "fixed backoff", capsys).startswith(f"### {EXAMPLE_ID} ")
 
 
 def test_ac_07_2_marker_and_label_words_do_not_outrank_the_decision(tmp_path, capsys):
@@ -290,7 +286,7 @@ def test_ac_07_2_marker_and_label_words_do_not_outrank_the_decision(tmp_path, ca
         _complete(store, record, _create(store, record))
 
     headings = [
-        line for line in _cli_search(store, "fixed backoff reason material", capsys).splitlines()
+        line for line in cli_search(store, "fixed backoff reason material", capsys).splitlines()
         if line.startswith("### ")
     ]
 

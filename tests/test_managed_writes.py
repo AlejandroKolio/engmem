@@ -37,12 +37,6 @@ ACTIVE = (
 TEMPLATES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
 
 
-@pytest.fixture
-def store(tmp_path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
-
-
 def _cli(capsys, monkeypatch, store: Path, stdin: str | bytes | None, *args: str) -> tuple[int, str]:
     data = stdin.encode("utf-8") if isinstance(stdin, str) else stdin
     fake = io.TextIOWrapper(io.BytesIO(data or b""), encoding="utf-8")

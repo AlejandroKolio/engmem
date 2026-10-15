@@ -95,12 +95,6 @@ def _doc(doc_id: str, *, repos: str | None = None, verified_at: str | None = Non
     )
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
-
-
 def _add(store: Path, doc_id: str, **fields: str) -> None:
     write_file(store / "sessions", f"{doc_id}.md", _doc(doc_id, **fields))
 

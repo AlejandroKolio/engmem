@@ -90,12 +90,6 @@ def _doc(doc_id: str, *, repos: str, verified_at: str, covers: str) -> str:
     )
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
-
-
 def _add(store: Path, doc_id: str, anchor: str, covers: str, *, repos: str = f"[{ALPHA}]",
          verified_at: str | None = None) -> None:
     anchors = verified_at if verified_at is not None else f"{{{ALPHA}: '{anchor}'}}"

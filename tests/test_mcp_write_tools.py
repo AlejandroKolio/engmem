@@ -16,6 +16,7 @@ from support.platform import (
     requires_symlinks,
 )
 from support import rpc
+from support.fs import entry_names
 
 from engmem import drafts, mcp_server
 from engmem.spine import load_store, split_front_matter
@@ -30,10 +31,6 @@ SUPERSEDE_TOOL = mcp_server.MARK_SUPERSEDED_TOOL_NAME
 def store(tmp_path) -> Path:
     (tmp_path / "sessions").mkdir()
     return tmp_path
-
-
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
 
 
 def _sessions_snapshot(store: Path) -> dict[str, str]:
@@ -108,7 +105,7 @@ def test_create_draft_rejects_status_other_than_draft(store):
 
     assert is_error
     assert "draft" in rpc.text(result)
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 # --- the two content-writing tools share the same front-matter checks; each row differs only
@@ -237,7 +234,7 @@ def test_create_draft_rejects_every_escape_vector(store, bad_id):
     # nothing was created anywhere in or under the store — not even the temp
     # staging file `_stage_content` writes before validation
     assert set(p.name for p in store.iterdir()) == {"sessions"}
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 def test_create_draft_reports_missing_store_without_dying(tmp_path):
@@ -301,7 +298,7 @@ def test_create_draft_with_empty_id_is_invalid_params(store):
 
     assert responses[0]["error"]["code"] == -32602
     assert set(p.name for p in store.iterdir()) == {"sessions"}
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 @requires_symlinks
@@ -647,7 +644,7 @@ def test_complete_draft_refuses_when_no_draft_exists(store):
 
     assert is_error
     assert "no draft" in rpc.text(result).lower() or "does not exist" in rpc.text(result).lower()
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 def test_complete_draft_refuses_to_overwrite_a_non_draft_document(store):
@@ -775,7 +772,7 @@ def test_mark_superseded_refuses_on_nonexistent_document(store):
     )
 
     assert is_error
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 def test_mark_superseded_refuses_when_current_status_is_not_active(store):
@@ -1021,7 +1018,7 @@ def test_supersede_discards_a_patch_that_did_not_produce_the_expected_state(stor
 
     assert is_error
     assert path.read_text(encoding="utf-8") == before
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "no temp file left behind"
 
 
 def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(store):
@@ -1053,7 +1050,7 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
     assert result.get("isError")
     assert "anchor" in rpc.text(result)
     assert path.read_bytes() == before
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "no temp file left behind"
 
 
 def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
@@ -1092,7 +1089,7 @@ def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
     assert is_error, rpc.text(result)
     assert "changed on disk" in rpc.text(result)
     assert path.read_text(encoding="utf-8") == newer, "the newer version must survive intact"
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "no temp file left behind"
 
 
 def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_reads(
@@ -1138,7 +1135,7 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
     assert result.get("isError"), rpc.text(result)
     assert "could not be re-read" in rpc.text(result)
     assert path.read_bytes() == corrupt, "nothing may be written over the newer version"
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "no temp file left behind"
 
 
 def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
@@ -1160,7 +1157,7 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == content, "the document must arrive byte-for-byte"
     assert load_store(store / "sessions").errors == []
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "no staged file left behind"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "no staged file left behind"
 
 
 @pytest.mark.parametrize(
@@ -1177,7 +1174,7 @@ def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, argu
     _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=CREATE_TOOL, arguments=arguments))
 
     assert responses[0]["error"]["code"] == -32600
-    assert _sessions_files(store) == [], "nothing written, and no staged file left behind"
+    assert entry_names(store / "sessions") == [], "nothing written, and no staged file left behind"
 
 
 @requires_posix_modes
@@ -1250,7 +1247,7 @@ def test_a_failing_commit_still_discards_the_staged_file(
     # while failing before anything is staged — where "no .tmp survived" is trivially true
     assert responses[0]["error"]["code"] == -32603
     assert "No space left" in responses[0]["error"]["message"]
-    assert not [f for f in _sessions_files(store) if f.endswith(".tmp")]
+    assert not [f for f in entry_names(store / "sessions") if f.endswith(".tmp")]
 
 
 @pytest.mark.parametrize("raw", [b"\xef\xbb\xbf", b""], ids=["bom", "no-bom"])
@@ -1375,4 +1372,4 @@ def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(s
     assert is_error
     assert "changed on disk while it was being read" in rpc.text(result)
     assert target.read_bytes() == external.encode("utf-8")
-    assert _sessions_files(store) == ["20260101-widget-cache.md"], "the staged file must be gone"
+    assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "the staged file must be gone"

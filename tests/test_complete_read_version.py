@@ -11,6 +11,7 @@ import pytest
 
 from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.fs import entry_names
 
 from engmem import drafts, mcp_server, staging
 from engmem.spine import load_store, parse_document
@@ -32,10 +33,6 @@ def store(tmp_path) -> Path:
 @pytest.fixture
 def target(store) -> Path:
     return store / "sessions" / f"{DOC_ID}.md"
-
-
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
 
 
 def _finished(marker: str) -> str:
@@ -72,7 +69,7 @@ def test_completing_the_version_read_publishes_the_full_active_document(store, t
     assert target.read_bytes() == ACTIVE_CONTENT.encode("utf-8")
     loaded = load_store(store / "sessions")
     assert [d.status for d in loaded.docs] == ["active"]
-    assert _sessions_files(store) == [f"{DOC_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"], "no staged file or lock left behind"
 
 
 def test_the_version_create_reports_is_the_version_of_the_bytes_it_wrote(store, target):
@@ -116,7 +113,7 @@ def test_a_completion_landing_inside_anothers_check_to_replace_window_is_refused
     assert results["B"][1], "both completions were told they succeeded"
     assert "not 'draft'" in results["B"][0]
     assert target.read_bytes() == _finished("A").encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 @pytest.mark.parametrize("round_number", range(10))
@@ -141,7 +138,7 @@ def test_concurrent_completions_of_one_version_have_exactly_one_winner(store, ta
     winners = [i for i, result in enumerate(results) if result is not None and not result[1]]
     assert len(winners) == 1, [r[0] for r in results if r is not None and not r[1]]
     assert target.read_bytes() == _finished(f"writer-{winners[0]}").encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 def _recreate_through_engmem(store: Path, target: Path, newer: str) -> None:
@@ -169,7 +166,7 @@ def test_completing_a_version_the_draft_has_moved_past_is_refused_with_the_curre
     assert "Re-read" in text
     assert "Added by another agent after the read." in text, "the current draft was not handed back"
     assert target.read_bytes() == newer.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
     current = CURRENT_VERSION_RE.search(text)
     assert current and current.group(1) == staging.version_of(newer.encode("utf-8"))
@@ -197,7 +194,7 @@ def test_completing_a_finished_document_changes_neither_content_nor_status(
     assert is_error
     assert "not 'draft'" in text
     assert target.read_bytes() == on_disk.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 @pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
@@ -213,7 +210,7 @@ def test_a_completion_without_a_version_is_refused_with_the_current_one(store, t
     assert CURRENT_VERSION_RE.search(text).group(1) == version
     assert DRAFT_CONTENT in text, "the refusal must carry the current draft"
     assert target.read_bytes() == DRAFT_CONTENT.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
     retried, is_error = _complete(store, ACTIVE_CONTENT, CURRENT_VERSION_RE.search(text).group(1))
     assert not is_error, retried
@@ -298,7 +295,7 @@ def test_the_lock_is_released_when_the_replace_itself_fails(store, target, monke
     with pytest.raises(OSError):
         _complete(store, ACTIVE_CONTENT, version)
 
-    assert _sessions_files(store) == [f"{DOC_ID}.md"], "lock or staged file left behind"
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"], "lock or staged file left behind"
 
 
 def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypatch):
@@ -338,4 +335,4 @@ def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypat
     assert not results["A"][1], results["A"][0]
     assert results["B"][1], "both supersedes were told they succeeded"
     assert parse_document(target).superseded_by == successors["A"]
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]

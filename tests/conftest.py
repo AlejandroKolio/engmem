@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 from pathlib import Path
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from support.docs import FIXTURES
 from support.home import redirect_home
 
 
@@ -114,3 +116,16 @@ def env(tmp_path, monkeypatch):
     redirect_home(monkeypatch, home)
     monkeypatch.chdir(project)
     return home, project
+
+
+@pytest.fixture
+def store(tmp_path):
+    """An empty store; a module whose layout differs defines its own `store`, which wins."""
+    (tmp_path / "store" / "sessions").mkdir(parents=True)
+    return tmp_path / "store"
+
+
+@pytest.fixture
+def fixture_store(tmp_path):
+    shutil.copytree(FIXTURES, tmp_path / "store" / "sessions")
+    return tmp_path / "store"

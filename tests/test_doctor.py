@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from support.docs import FIXTURES
-from support.home import LEGACY_TRIGGER_RULE, claude_desktop_config_path, redirect_home
+from support.home import LEGACY_TRIGGER_RULE, claude_desktop_config_path
 from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
@@ -28,15 +28,11 @@ from engmem.cli import main
 from engmem.install import TUNNEL_BRIDGE_STATUS
 
 
-
 @pytest.fixture
-def home(tmp_path, monkeypatch) -> Path:
-    redirect_home(monkeypatch, tmp_path / "home")
-    project = tmp_path / "project"
-    project.mkdir()
+def home(env) -> Path:
+    home, project = env
     (project / ".git").mkdir()
-    monkeypatch.chdir(project)
-    return tmp_path / "home"
+    return home
 
 
 @pytest.fixture

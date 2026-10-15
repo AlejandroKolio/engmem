@@ -10,11 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from support import rpc
 from support.docs import write_file
+from support.search import cli_search, mcp_search
 
 from engmem import cache
-from engmem.cli import main
 from engmem.scoring import (
     _MARK_PLANES,
     _camel_expansion,
@@ -91,17 +90,6 @@ def test_ac_02_1_a_matrix_term_finds_its_record_and_names_the_match(tmp_path, la
     assert hits[0].matched_fields == {expected_place: [_token(term)]}
 
 
-def _cli_search(store: Path, query: str, capsys) -> str:
-    assert main(["search", query, "--store", str(store)]) == 0
-    return capsys.readouterr().out
-
-
-def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = rpc.call(store, name="engmem_search", arguments={"query": query})
-    assert not is_error
-    return rpc.text(result)
-
-
 def _result_lines(output: str) -> list[str]:
     return [
         line for line in output.splitlines() if not line.startswith(("docs: ", "note: "))
@@ -114,8 +102,8 @@ def test_ac_02_1_and_02_5_cli_and_mcp_render_the_same_unicode_match(
 ):
     _write_matrix_store(tmp_path)
 
-    cli = _cli_search(tmp_path, term, capsys)
-    mcp = _mcp_search(tmp_path, term, capsys)
+    cli = cli_search(tmp_path, term, capsys)
+    mcp = mcp_search(tmp_path, term, capsys)
 
     assert f"### 3000-{lang} " in cli
     place = "title" if where == "title" else "§1-decision-log"
@@ -326,7 +314,7 @@ def _stale_entry_for(path: Path) -> None:
     entry_path.write_text(json.dumps(record), encoding="utf-8")
 
 
-@pytest.mark.parametrize("run", [_cli_search, _mcp_search], ids=["cli", "mcp"])
+@pytest.mark.parametrize("run", [cli_search, mcp_search], ids=["cli", "mcp"])
 def test_ac_02_6_a_pre_upgrade_cache_entry_is_not_served(tmp_path, run, capsys):
     sessions = _write_matrix_store(tmp_path)
     ru_doc = sessions / "3000-ru.md"

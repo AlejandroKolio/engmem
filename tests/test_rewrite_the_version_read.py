@@ -12,6 +12,7 @@ import pytest
 
 from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.fs import entry_names
 
 from engmem import backfill, drafts, mcp_server, staging
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
@@ -63,10 +64,6 @@ def _supersede(store: Path, expected_version: str | None) -> tuple[str, bool]:
     return mcp_server._handle_mark_superseded(arguments, store)
 
 
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
-
-
 # ---------------------------------------------------------------------------
 # AC-25.1, AC-25.2: supersede names the version read
 # ---------------------------------------------------------------------------
@@ -95,7 +92,7 @@ def test_superseding_a_version_a_colleague_has_moved_past_is_refused_with_the_cu
     assert CURRENT_VERSION_RE.search(text).group(1) == version_of(v2_bytes)
     assert PROHIBITION.strip() in text, "the refusal must carry what the colleague added"
     assert path.read_bytes() == v2_bytes
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
 
     retried, is_error = _supersede(store, CURRENT_VERSION_RE.search(text).group(1))
     assert not is_error, retried
@@ -256,7 +253,7 @@ def test_a_supersede_committing_first_makes_the_backfill_refuse(store, monkeypat
     after = parse_document(path)
     assert after.status == "superseded" and after.superseded_by == SUCCESSOR_ID
     assert after.backfilled is not True, "the backfill must not have written over the supersede"
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"]
 
 
 def test_a_backfill_committing_first_makes_the_supersede_refuse(store, monkeypatch):
@@ -276,7 +273,7 @@ def test_a_backfill_committing_first_makes_the_supersede_refuse(store, monkeypat
     assert "changed since you read it" in text
     after = parse_document(path)
     assert after.status == "active" and after.backfilled is True
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +307,7 @@ def test_a_completion_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     assert is_error
     assert "changed on disk" in text
     assert path.read_bytes() == (DRAFT_CONTENT + EDIT).encode("utf-8"), "the edit stays"
-    assert _sessions_files(store) == [f"{DRAFT_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{DRAFT_ID}.md"], "no staged file or lock left behind"
 
 
 def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
@@ -322,7 +319,7 @@ def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     assert is_error
     assert "changed on disk" in text
     assert path.read_bytes() == (POLICY + EDIT).encode("utf-8"), "the edit stays"
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
 
 
 # ---------------------------------------------------------------------------
