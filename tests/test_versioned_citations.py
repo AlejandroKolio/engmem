@@ -134,7 +134,7 @@ def test_the_mcp_search_and_the_role_search_name_the_reference_too(tmp_path):
         tmp_path,
         rpc.tools_call_msg(1, arguments={"query": "widget flush"}),
         rpc.tools_call_msg(2, name=mcp_server.ROLE_TOOL_NAME,
-                        arguments={"query": "widget flush", "role": "decisions"}),
+                           arguments={"query": "widget flush", "role": "decisions"}),
     )
 
     assert all(expected in rpc.text(r["result"]) for r in responses)
@@ -476,7 +476,10 @@ def test_a_version_that_cannot_be_retained_is_named_and_not_offered(tmp_path, ca
     assert "can only be checked against the current text" in out
 
 
-@pytest.mark.parametrize("superseded", [False, True], ids=["active", "superseded-redirect"])
+@pytest.mark.parametrize("superseded", [
+    pytest.param(False, id="active"),
+    pytest.param(True, id="superseded-redirect"),
+])
 def test_a_related_document_the_result_gives_a_path_for_is_offered_too(tmp_path, capsys,
                                                                        superseded):
     """`/engmem` loads each hit's `related` documents at depth 1, so they are cited too; a
@@ -517,7 +520,7 @@ def _shown_reference(out: str) -> str | None:
 @pytest.mark.parametrize("call", [
     pytest.param(lambda: rpc.tools_call_msg(1, arguments={"query": "widget flush"}), id="search"),
     pytest.param(lambda: rpc.tools_call_msg(1, name=mcp_server.ROLE_TOOL_NAME,
-                                         arguments={"query": "widget flush", "role": "decisions"}),
+                                            arguments={"query": "widget flush", "role": "decisions"}),
                  id="role-search"),
 ])
 def test_d2_a_read_only_server_keeps_no_copy_and_offers_no_reference(tmp_path, call):

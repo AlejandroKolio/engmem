@@ -149,7 +149,9 @@ APOSTROPHES = {
 }
 
 
-@pytest.mark.parametrize("word", ["об{}єкт", "don{}t"], ids=["uk", "en"])
+@pytest.mark.parametrize(
+    "word", [pytest.param("об{}єкт", id="uk"), pytest.param("don{}t", id="en")]
+)
 @pytest.mark.parametrize("query_mark", APOSTROPHES.values(), ids=APOSTROPHES.keys())
 @pytest.mark.parametrize("document_mark", APOSTROPHES.values(), ids=APOSTROPHES.keys())
 def test_ac_02_2_every_apostrophe_form_separates_alike(tmp_path, word, document_mark, query_mark):
@@ -175,8 +177,14 @@ def test_the_double_apostrophe_letter_separates_too():
     assert tokenize_raw("a\u02eeb") == ["a", "b"]
 
 
-@pytest.mark.parametrize("document_form", [_nfc, _nfd], ids=["doc_nfc", "doc_nfd"])
-@pytest.mark.parametrize("query_form", [_nfc, _nfd], ids=["query_nfc", "query_nfd"])
+@pytest.mark.parametrize("document_form", [
+    pytest.param(_nfc, id="doc_nfc"),
+    pytest.param(_nfd, id="doc_nfd"),
+])
+@pytest.mark.parametrize("query_form", [
+    pytest.param(_nfc, id="query_nfc"),
+    pytest.param(_nfd, id="query_nfd"),
+])
 def test_ac_02_3_canonically_equivalent_spellings_match(tmp_path, document_form, query_form):
     sessions = tmp_path / "sessions"
     sessions.mkdir()
@@ -314,7 +322,10 @@ def _stale_entry_for(path: Path) -> None:
     entry_path.write_text(json.dumps(record), encoding="utf-8")
 
 
-@pytest.mark.parametrize("run", [cli_search, mcp_search], ids=["cli", "mcp"])
+@pytest.mark.parametrize("run", [
+    pytest.param(cli_search, id="cli"),
+    pytest.param(mcp_search, id="mcp"),
+])
 def test_ac_02_6_a_pre_upgrade_cache_entry_is_not_served(tmp_path, run, capsys):
     sessions = _write_matrix_store(tmp_path)
     ru_doc = sessions / "3000-ru.md"

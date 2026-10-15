@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from support import fs
 from support.docs import FIXTURES
 from support.home import LEGACY_TRIGGER_RULE, claude_desktop_config_path
 from support.platform import (
@@ -189,8 +190,10 @@ def test_an_empty_store_is_named_as_empty_memory(home, tmp_path, shell_path, cap
 
 @pytest.mark.parametrize(
     ("stamp", "reason"),
-    [("v0.0.1", "engmem 0.0.1"), (None, "no engmem version stamp")],
-    ids=["stale", "unstamped"],
+    [
+        pytest.param("v0.0.1", "engmem 0.0.1", id="stale"),
+        pytest.param(None, "no engmem version stamp", id="unstamped"),
+    ],
 )
 def test_a_template_another_version_installed_is_a_warning(
     home, tmp_path, shell_path, capsys, stamp, reason
@@ -348,7 +351,10 @@ def test_an_mcp_command_on_another_engmem_version_is_a_warning(home, tmp_path, c
     assert code == 0
 
 
-@pytest.mark.parametrize("pythonpath", [None, "."], ids=["cwd", "relative-pythonpath"])
+@pytest.mark.parametrize("pythonpath", [
+    pytest.param(None, id="cwd"),
+    pytest.param(".", id="relative-pythonpath"),
+])
 def test_no_probe_imports_an_engmem_package_from_the_current_directory(
     home, tmp_path, shell_path, monkeypatch, capsys, pythonpath
 ):
@@ -446,11 +452,8 @@ def test_a_sessions_directory_denying_reads_is_named(home, tmp_path, shell_path,
     store = tmp_path / "notes"
     _install("claude", store, capsys)
     sessions = store / "sessions"
-    sessions.chmod(0o000)
-    try:
+    with fs.without_access(sessions, restore_mode=0o755):
         code, lines = _doctor(capsys)
-    finally:
-        sessions.chmod(0o755)
 
     [line] = _with(lines, "error", "sessions")
     assert str(sessions) in line and "PermissionError" in line and "read access" in line
@@ -510,7 +513,10 @@ def test_templates_that_were_never_installed_are_named_with_the_install_command(
     assert code == 1
 
 
-@pytest.mark.parametrize("content", [None, "{not json"], ids=["absent", "unparseable"])
+@pytest.mark.parametrize("content", [
+    pytest.param(None, id="absent"),
+    pytest.param("{not json", id="unparseable"),
+])
 def test_a_missing_or_unreadable_mcp_entry_is_an_error(home, tmp_path, capsys, content):
     (tmp_path / "notes" / "sessions").mkdir(parents=True)
     main(["store", "set", str(tmp_path / "notes")])
@@ -531,8 +537,10 @@ def test_a_missing_or_unreadable_mcp_entry_is_an_error(home, tmp_path, capsys, c
 
 @pytest.mark.parametrize(
     ("rule", "status"),
-    [(LEGACY_TRIGGER_RULE, "warning"), ("Always run `engmem search` first.", "ok")],
-    ids=["earlier-wording", "own-wording"],
+    [
+        pytest.param(LEGACY_TRIGGER_RULE, "warning", id="earlier-wording"),
+        pytest.param("Always run `engmem search` first.", "ok", id="own-wording"),
+    ],
 )
 def test_the_trigger_rule_wording_decides_its_line(home, tmp_path, shell_path, capsys, rule, status):
     _install("claude", tmp_path / "notes", capsys)
@@ -579,7 +587,10 @@ def test_a_local_install_is_checked_where_it_was_written(home, tmp_path, shell_p
     assert code == 0
 
 
-@pytest.mark.parametrize("on_path", [True, False], ids=["on-path", "not-on-path"])
+@pytest.mark.parametrize("on_path", [
+    pytest.param(True, id="on-path"),
+    pytest.param(False, id="not-on-path"),
+])
 def test_a_bare_mcp_command_depends_on_the_clients_path(
     home, tmp_path, shell_path, monkeypatch, capsys, on_path
 ):
@@ -619,8 +630,10 @@ def test_an_mcp_entry_of_another_shape_is_not_run(home, tmp_path, monkeypatch, c
 
 @pytest.mark.parametrize(
     ("command", "status", "words"),
-    [("bin\x00python", "error", "NUL byte"), (os.path.join("bin", "python"), "warning", "relative path")],
-    ids=["nul", "relative"],
+    [
+        pytest.param("bin\x00python", "error", "NUL byte", id="nul"),
+        pytest.param(os.path.join("bin", "python"), "warning", "relative path", id="relative"),
+    ],
 )
 def test_an_mcp_command_that_names_no_fixed_file_is_named(
     home, tmp_path, capsys, command, status, words
@@ -986,7 +999,10 @@ def _fake_tunnel_client(bin_dir: Path, ran: Path) -> Path:
     return tool
 
 
-@pytest.mark.parametrize("present", [True, False], ids=["on-path", "missing"])
+@pytest.mark.parametrize("present", [
+    pytest.param(True, id="on-path"),
+    pytest.param(False, id="missing"),
+])
 def test_chatgpt_bridge_lines_name_what_was_seen_and_claim_no_protection(
     home, tmp_path, monkeypatch, capsys, present
 ):

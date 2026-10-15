@@ -89,8 +89,14 @@ def test_create_then_complete_then_search_over_a_real_subprocess(client):
 
 @pytest.mark.parametrize(
     "bad_id",
-    ["../../etc/passwd", "/etc/passwd", "..", ".", ".hidden-doc", "widget\\cache-job"],
-    ids=["dotdot-traversal", "absolute-path", "bare-dotdot", "bare-dot", "leading-dot", "backslash"],
+    [
+        pytest.param("../../etc/passwd", id="dotdot-traversal"),
+        pytest.param("/etc/passwd", id="absolute-path"),
+        pytest.param("..", id="bare-dotdot"),
+        pytest.param(".", id="bare-dot"),
+        pytest.param(".hidden-doc", id="leading-dot"),
+        pytest.param("widget\\cache-job", id="backslash"),
+    ],
 )
 def test_escape_vectors_are_refused_over_a_real_subprocess(client, bad_id):
     result = client.tool_call(

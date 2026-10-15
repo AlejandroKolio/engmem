@@ -724,7 +724,7 @@ def test_ac_12_4_finding_the_record_again_does_not_clear_the_review(store, moved
 
     lines = [_line(_cli(store, capsys), "1501-alpha") for _ in range(2)]
     _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, arguments={"query": QUERY}),
-                           rpc.tools_call_msg(2, arguments={"query": QUERY}))
+                              rpc.tools_call_msg(2, arguments={"query": QUERY}))
     lines += [_line(rpc.text(response["result"]), "1501-alpha") for response in responses]
     assert lines == [review] * 4
     assert _stored_files(store) == before, "no verdict is stored anywhere"

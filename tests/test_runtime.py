@@ -84,7 +84,10 @@ def test_a_blank_flag_and_a_blank_engmem_home_both_fall_through_to_the_default(h
     assert resolve_store(blank) == home / "Developer" / "engmem"
 
 
-@pytest.mark.parametrize("name", ["notes ", " notes"], ids=["trailing", "leading"])
+@pytest.mark.parametrize("name", [
+    pytest.param("notes ", id="trailing"),
+    pytest.param(" notes", id="leading"),
+])
 def test_a_path_that_merely_has_whitespace_at_an_end_is_kept_intact(home, monkeypatch, tmp_path, name):
     """Only an entirely blank value is discarded. A directory whose name really does end in a
     space is a legal POSIX path, and trimming it would silently point the store at a sibling."""

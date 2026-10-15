@@ -518,7 +518,10 @@ def test_a_session_with_no_document_is_named(store, capsys):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("with_baseline", [False, True], ids=["no-baseline", "baseline"])
+@pytest.mark.parametrize("with_baseline", [
+    pytest.param(False, id="no-baseline"),
+    pytest.param(True, id="baseline"),
+])
 def test_no_saving_is_claimed_and_the_observed_costs_are_named(store, capsys, with_baseline):
     _cli_ok(capsys, store, "search", QUERY, "--session", SESSION)
     if with_baseline:

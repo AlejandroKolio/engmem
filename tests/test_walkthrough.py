@@ -255,7 +255,10 @@ def test_a_directory_that_is_not_a_walkthrough_is_refused_untouched(home, tmp_pa
 @pytest.mark.parametrize(
     "child", ["store", "store/sessions", "codex-home", "workspace", "workspace/demo_orders"]
 )
-@pytest.mark.parametrize("seen_as_link", [True, False], ids=["symlink", "junction"])
+@pytest.mark.parametrize("seen_as_link", [
+    pytest.param(True, id="symlink"),
+    pytest.param(False, id="junction"),
+])
 def test_a_demo_directory_that_links_out_of_the_demo_is_refused(
     real_store, tmp_path, capsys, monkeypatch, child, seen_as_link
 ):

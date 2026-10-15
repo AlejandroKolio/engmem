@@ -1,9 +1,9 @@
 import json
-import os
 from datetime import datetime, timezone
 
 import pytest
 
+from support import fs
 from support.docs import fixture_docs
 from support.platform import requires_permission_enforcement
 
@@ -530,12 +530,9 @@ def test_read_session_rows_raises_on_a_file_that_cannot_be_read(tmp_path):
     """Matches `summarize()`'s own distinction: missing is zero rows, unreadable is not."""
     jsonl_path = tmp_path / "telemetry.jsonl"
     jsonl_path.write_text('{"session_id": "a"}\n', encoding="utf-8")
-    os.chmod(jsonl_path, 0o000)
-    try:
+    with fs.without_access(jsonl_path, restore_mode=0o644):
         with pytest.raises(OSError):
             read_session_rows(jsonl_path)
-    finally:
-        os.chmod(jsonl_path, 0o644)
 
 
 # ---------------------------------------------------------------------------

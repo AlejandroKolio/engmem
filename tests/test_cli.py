@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from support import fs
 from support.platform import on_a_shared_runner, requires_permission_enforcement
 from support.search import run_search
 
@@ -145,12 +146,9 @@ def test_unreadable_sessions_dir_is_not_a_phantom_empty_store(
     sessions_dir = store_dir / "sessions"
     sessions_dir.mkdir(parents=True)
     (sessions_dir / "control.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
-    os.chmod(sessions_dir, 0o000)
-    try:
+    with fs.without_access(sessions_dir, restore_mode=0o755):
         exit_code = main([*subcommand_args, "--store", str(store_dir)])
         captured = capsys.readouterr()
-    finally:
-        os.chmod(sessions_dir, 0o755)
 
     assert exit_code == 0, "an unreadable sessions/ is a degraded result, not a usage error"
     assert "unknown, not zero" in captured.out, (
@@ -787,12 +785,9 @@ def test_telemetry_reports_an_unlistable_sessions_directory(tmp_path, capsys):
     sessions.mkdir(parents=True)
     (store / "telemetry.jsonl").write_text("", encoding="utf-8")
 
-    os.chmod(sessions, 0o000)
-    try:
+    with fs.without_access(sessions, restore_mode=0o755):
         exit_code = main(["telemetry", "--store", str(store)])
         captured = capsys.readouterr()
-    finally:
-        os.chmod(sessions, 0o755)
 
     assert exit_code == 0
     # the agent reads stdout only, so the cause has to be there and not only on stderr

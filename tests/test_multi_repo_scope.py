@@ -455,7 +455,7 @@ def test_a_malformed_mcp_multi_repository_scope_is_invalid_params(
     )
     _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert cause in responses[0]["error"]["message"]
     assert not (store / "telemetry.jsonl").exists()
 
@@ -480,7 +480,7 @@ def test_a_scope_conflict_names_only_the_arguments_given_a_value(store, argument
     message = rpc.tools_call_msg(1, name="engmem_search", arguments={"query": "Retry", **arguments})
     _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert responses[0]["error"]["message"] == (
         f"invalid params: {named} are different scopes — pass one"
     )

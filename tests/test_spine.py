@@ -1,8 +1,8 @@
 import datetime
-import os
 
 import pytest
 
+from support import fs
 from support.docs import FIXTURES
 from support.platform import requires_permission_enforcement, requires_symlinks
 
@@ -432,11 +432,8 @@ capture_minutes: 1
 def test_unreadable_sessions_dir_is_reported_not_treated_as_empty(tmp_path):
     """An unreadable `sessions/` rendered byte-identical to a store holding zero documents."""
     (tmp_path / "control.md").write_text(_VALID_FRONT_MATTER.format(id="control"), encoding="utf-8")
-    os.chmod(tmp_path, 0o000)
-    try:
+    with fs.without_access(tmp_path, restore_mode=0o755):
         result = load_store(tmp_path)
-    finally:
-        os.chmod(tmp_path, 0o755)
 
     assert result.docs == []
     assert result.scan_error is not None
@@ -463,11 +460,8 @@ def test_stray_documents_reports_an_unreadable_subdirectory(tmp_path):
     locked = store / "sessions" / "archive"
     locked.mkdir()
     (locked / "buried-note.md").write_text("# Buried\n", encoding="utf-8")
-    locked.chmod(0o000)
-    try:
+    with fs.without_access(locked, restore_mode=0o755):
         strays, scan_errors = stray_documents(store)
-    finally:
-        locked.chmod(0o755)
 
     assert scan_errors, "an unlistable subdirectory must be named, not silently skipped"
     assert "archive" in " ".join(scan_errors)
@@ -635,8 +629,11 @@ def test_a_malformed_navigation_miss_warns_and_keeps_the_document(tmp_path, extr
 
 @pytest.mark.parametrize(
     "written, expected",
-    [("2026-01-01", "2026-01-01"), ("20260101", "20260101"), ("widget-cache-v2", "widget-cache-v2")],
-    ids=["yaml-date", "bare-int", "ordinary-id"],
+    [
+        pytest.param("2026-01-01", "2026-01-01", id="yaml-date"),
+        pytest.param("20260101", "20260101", id="bare-int"),
+        pytest.param("widget-cache-v2", "widget-cache-v2", id="ordinary-id"),
+    ],
 )
 def test_superseded_by_is_always_a_string(tmp_path, written, expected):
     """Unquoted, YAML makes `2026-01-01` a `date` and `20260101` an `int`, and either misses
@@ -704,11 +701,8 @@ def test_stray_documents_reports_an_unreadable_store_rather_than_raising(tmp_pat
     so the guard against an unreadable directory reading as "no strays" raised instead."""
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
-    os.chmod(store, 0o000)
-    try:
+    with fs.without_access(store, restore_mode=0o755):
         strays, scan_errors = stray_documents(store)
-    finally:
-        os.chmod(store, 0o755)
 
     assert strays == []
     assert any("cannot examine directory" in e for e in scan_errors)
@@ -730,18 +724,19 @@ def test_an_impossible_derived_date_falls_back_to_mtime(tmp_path):
 @pytest.mark.parametrize(
     "body",
     [
-        "- Date:\n\n2026-02-11 is when the vendor contract expires.\n",
-        "- Date:\n\n2026-02-11-old-flow.md\n",
-        "- Date:\n\n* 2026-02-11 team offsite\n",
-        "- Date:\n\n**2026-02-11** kickoff\n",
-        "- Updated:\n2026-02-11\n",
-        "- Date:\n  2026-02-11\n",
-        "-\nDate: 2026-02-11\n",
-        "- Date\n: 2026-02-11\n",
-        "- Date: see 2026-02-11-old-flow.md\n",
+        pytest.param(
+            "- Date:\n\n2026-02-11 is when the vendor contract expires.\n",
+            id="body-sentence",
+        ),
+        pytest.param("- Date:\n\n2026-02-11-old-flow.md\n", id="sibling-filename"),
+        pytest.param("- Date:\n\n* 2026-02-11 team offsite\n", id="bullet"),
+        pytest.param("- Date:\n\n**2026-02-11** kickoff\n", id="bold-run"),
+        pytest.param("- Updated:\n2026-02-11\n", id="bare-line"),
+        pytest.param("- Date:\n  2026-02-11\n", id="indented"),
+        pytest.param("-\nDate: 2026-02-11\n", id="empty-bullet"),
+        pytest.param("- Date\n: 2026-02-11\n", id="colon-on-next-line"),
+        pytest.param("- Date: see 2026-02-11-old-flow.md\n", id="value-names-another-document"),
     ],
-    ids=["body-sentence", "sibling-filename", "bullet", "bold-run", "bare-line",
-         "indented", "empty-bullet", "colon-on-next-line", "value-names-another-document"],
 )
 def test_a_date_label_that_states_no_date_falls_back_to_mtime(tmp_path, body):
     r"""`\s` spans the line break, so an unfilled `- Date:` reached past it and adopted the first
@@ -789,15 +784,13 @@ def test_a_placeholder_date_label_does_not_hide_a_real_one_below_it(tmp_path):
 @pytest.mark.parametrize(
     "line",
     [
-        "- Date:\xa02026-05-04",
-        "- Date:\u202f2026-05-04",
-        "- Date:\u30002026-05-04",
-        "- **Date:**\xa02026-05-04",
-        "- Date\xa0: 2026-05-04",
-        "-\xa0Date: 2026-05-04",
+        pytest.param("- Date:\xa02026-05-04", id="nbsp"),
+        pytest.param("- Date:\u202f2026-05-04", id="narrow-nbsp"),
+        pytest.param("- Date:\u30002026-05-04", id="ideographic"),
+        pytest.param("- **Date:**\xa02026-05-04", id="bold-label"),
+        pytest.param("- Date\xa0: 2026-05-04", id="before-the-colon"),
+        pytest.param("-\xa0Date: 2026-05-04", id="after-the-bullet"),
     ],
-    ids=["nbsp", "narrow-nbsp", "ideographic", "bold-label", "before-the-colon",
-         "after-the-bullet"],
 )
 def test_a_non_ascii_space_before_the_date_still_states_it(tmp_path, line):
     r"""The rule is "not across the line break", not "an ASCII space": every space `\s` accepted
@@ -815,8 +808,11 @@ def test_a_non_ascii_space_before_the_date_still_states_it(tmp_path, line):
 
 @pytest.mark.parametrize(
     "written, expected, warns",
-    [('"12"', 12, True), ("3.9", 3, True), ("12", 12, False)],
-    ids=["quoted", "float", "plain-int"],
+    [
+        pytest.param('"12"', 12, True, id="quoted"),
+        pytest.param("3.9", 3, True, id="float"),
+        pytest.param("12", 12, False, id="plain-int"),
+    ],
 )
 def test_capture_minutes_names_a_value_it_had_to_coerce(tmp_path, written, expected, warns):
     """`backfilled: "false"` warns, so the same quoting slip must not pass silently here."""

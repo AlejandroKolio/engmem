@@ -132,8 +132,13 @@ _SUPERSEDED_CONTENT = replaced(
 
 @pytest.mark.parametrize(
     "existing",
-    [DRAFT_CONTENT, ACTIVE_CONTENT, _SUPERSEDED_CONTENT, "", "not a document at all\n"],
-    ids=["draft", "active", "superseded", "empty", "unparseable"],
+    [
+        pytest.param(DRAFT_CONTENT, id="draft"),
+        pytest.param(ACTIVE_CONTENT, id="active"),
+        pytest.param(_SUPERSEDED_CONTENT, id="superseded"),
+        pytest.param("", id="empty"),
+        pytest.param("not a document at all\n", id="unparseable"),
+    ],
 )
 def test_re_creating_an_existing_id_is_refused_and_leaves_it_byte_identical(store, existing):
     """AC-03.2: refused whatever the occupant's status, or whether it parses at all."""
@@ -220,6 +225,6 @@ def test_a_link_failure_that_is_not_missing_hard_links_is_a_fault_not_a_success(
         1, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "mine")}
     ))
 
-    assert responses[0]["error"]["code"] == -32603
+    assert responses[0]["error"]["code"] == rpc.INTERNAL_ERROR
     assert "Input/output error" in responses[0]["error"]["message"]
     assert entry_names(store / "sessions") == []

@@ -367,7 +367,7 @@ def test_a_malformed_mcp_scope_is_invalid_params(store, arguments, cause, name, 
     }
     _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert cause in responses[0]["error"]["message"]
     assert not (store / "telemetry.jsonl").exists()
 

@@ -285,7 +285,7 @@ def test_the_next_session_finds_the_completed_record_and_reads_that_version(
 def test_the_mcp_tools_keep_their_own_wording_through_the_shared_writer(store):
     _code, responses, _raw = rpc.run(
         store, rpc.tools_call_msg(1, name="engmem_create_draft",
-                               arguments={"id": DOC_ID, "content": DRAFT}),
+                                  arguments={"id": DOC_ID, "content": DRAFT}),
     )
     text = rpc.text(responses[0]["result"])
 

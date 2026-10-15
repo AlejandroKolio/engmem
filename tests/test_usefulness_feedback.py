@@ -576,7 +576,7 @@ def test_a_complete_last_line_gets_no_blank_line_before_the_next(store, capsys):
 def test_the_summary_names_the_channel_that_recorded_each_assessment(store, capsys):
     _record(capsys, store, "widget-cache", "helped")
     rpc.call(store, name=FEEDBACK_TOOL,
-          arguments={"session_id": SESSION, "doc_id": "retry-backoff", "assessment": "harmful"})
+             arguments={"session_id": SESSION, "doc_id": "retry-backoff", "assessment": "harmful"})
 
     lines = _summary(capsys, store).splitlines()
 

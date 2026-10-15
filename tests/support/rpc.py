@@ -14,6 +14,12 @@ from engmem.staging import version_of
 
 PROTOCOL_VERSION = "2025-06-18"
 
+# fixed by JSON-RPC 2.0; literals, so a wrong value in the product cannot pass against itself
+INVALID_REQUEST = -32600
+METHOD_NOT_FOUND = -32601
+INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
+
 
 def stdin_of(*lines: str) -> io.StringIO:
     text = "".join(line if line.endswith("\n") else line + "\n" for line in lines)

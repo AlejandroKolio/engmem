@@ -242,8 +242,10 @@ def test_the_longer_of_two_matching_titles_is_cut_whole(store, out_dir, capsys):
     assert f"See {export.MARKER} again." in written
 
 
-@pytest.mark.parametrize(("front", "kept"), [("", True), ("related: [20260803-tuning]\n", False)],
-                         ids=["unreferenced", "related"])
+@pytest.mark.parametrize(("front", "kept"), [
+    pytest.param("", True, id="unreferenced"),
+    pytest.param("related: [20260803-tuning]\n", False, id="related"),
+])
 def test_a_one_word_title_is_cut_only_when_the_document_points_at_it(
     store, out_dir, capsys, front, kept
 ):
@@ -490,7 +492,10 @@ def test_a_setext_reuse_log_heading_is_found_too(store, out_dir, capsys):
     assert written.endswith(f"## Decision Log\n\nLRU.\n\n## Reuse Log\n\n{export.MARKER}\n")
 
 
-@pytest.mark.parametrize("content", ["\n\nPrior docs used: none.", ""], ids=["none-sentence", "empty"])
+@pytest.mark.parametrize("content", [
+    pytest.param("\n\nPrior docs used: none.", id="none-sentence"),
+    pytest.param("", id="empty"),
+])
 def test_a_reuse_log_that_names_nothing_is_kept(store, out_dir, capsys, content):
     _rewrite(store, SELECTED, body=f"## Decision Log\n\nLRU.\n\n## Reuse Log{content}")
 
@@ -553,7 +558,11 @@ def test_a_document_without_a_title_exports_none_and_says_so(store, out_dir, cap
 
 
 @pytest.mark.parametrize(
-    "replacement", [None, "---\n- a list\n---\n", "---\nid: x\n"], ids=["gone", "list", "unclosed"]
+    "replacement", [
+        pytest.param(None, id="gone"),
+        pytest.param("---\n- a list\n---\n", id="list"),
+        pytest.param("---\nid: x\n", id="unclosed"),
+    ]
 )
 def test_a_document_that_changed_under_the_load_is_refused(store, replacement):
     result = load_store(store / "sessions")
@@ -613,7 +622,10 @@ def test_previewing_and_exporting_leave_the_store_byte_identical(store, out_dir,
 
 
 @pytest.mark.parametrize(
-    "raw", [b"\r\n", b"\xef\xbb\xbf"], ids=["crlf", "bom"],
+    "raw", [
+        pytest.param(b"\r\n", id="crlf"),
+        pytest.param(b"\xef\xbb\xbf", id="bom"),
+    ],
 )
 def test_the_file_is_utf8_with_lf_endings_whatever_the_source_used(store, out_dir, capsys, raw):
     path = store / "sessions" / f"{SELECTED}.md"
@@ -659,8 +671,10 @@ def test_a_preview_alone_writes_nothing_anywhere(store, tmp_path, capsys, monkey
     assert _tree(tmp_path) == before
 
 
-@pytest.mark.parametrize("flags", [["--out", "s.md"], ["--confirm", "0123456789abcdef"]],
-                         ids=["out-only", "confirm-only"])
+@pytest.mark.parametrize("flags", [
+    pytest.param(["--out", "s.md"], id="out-only"),
+    pytest.param(["--confirm", "0123456789abcdef"], id="confirm-only"),
+])
 def test_out_and_confirm_only_work_together(store, tmp_path, capsys, monkeypatch, flags):
     monkeypatch.chdir(tmp_path)
     before = _tree(tmp_path)

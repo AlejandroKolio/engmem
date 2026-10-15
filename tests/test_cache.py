@@ -8,6 +8,7 @@ import unicodedata
 
 import pytest
 
+from support import fs
 from support.platform import requires_symlinks, requires_permission_enforcement
 
 from engmem import cache
@@ -221,11 +222,8 @@ def test_unreadable_cache_file_degrades_to_a_miss_and_warns(cache_home, doc, cap
     cache.store(doc, key, {"sections": ["fine"]})
     entry_path = cache._entry_path(doc)[0]
 
-    os.chmod(entry_path, 0o000)
-    try:
+    with fs.without_access(entry_path, restore_mode=0o644):
         result = cache.load(doc, key)
-    finally:
-        os.chmod(entry_path, 0o644)
 
     assert result is None
     captured = capsys.readouterr()

@@ -86,7 +86,10 @@ def test_the_mode_file_sits_next_to_the_store_file(mode_file):
     assert settings.mode_setting_file().parent == runtime.store_setting_file().parent
 
 
-@pytest.mark.parametrize("appdata", [True, False], ids=["appdata", "no-appdata"])
+@pytest.mark.parametrize("appdata", [
+    pytest.param(True, id="appdata"),
+    pytest.param(False, id="no-appdata"),
+])
 def test_on_windows_the_mode_file_lives_under_appdata(monkeypatch, tmp_path, appdata):
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setattr("engmem.settings.sys.platform", "win32")
@@ -123,8 +126,12 @@ def test_mode_set_persists_the_choice_for_the_next_command(mode_file, capsys, mo
 
 
 @pytest.mark.parametrize(
-    "content", [b"research", b"research\r\n", b"\xef\xbb\xbfresearch\n", b"  Research \n"],
-    ids=["bare", "crlf", "bom", "case-and-spaces"],
+    "content", [
+        pytest.param(b"research", id="bare"),
+        pytest.param(b"research\r\n", id="crlf"),
+        pytest.param(b"\xef\xbb\xbfresearch\n", id="bom"),
+        pytest.param(b"  Research \n", id="case-and-spaces"),
+    ],
 )
 def test_a_hand_written_mode_file_is_read(mode_file, content):
     _save_mode(mode_file, content)
@@ -135,13 +142,12 @@ def test_a_hand_written_mode_file_is_read(mode_file, content):
 @pytest.mark.parametrize(
     ("content", "reason"),
     [
-        (b"", "empty"),
-        (b"   \n", "empty"),
-        (b"daily\nresearch\n", "exactly one line"),
-        (b"experiment\n", "'experiment'"),
-        (b"\xff\xfe", "not valid UTF-8"),
+        pytest.param(b"", "empty", id="empty"),
+        pytest.param(b"   \n", "empty", id="blank"),
+        pytest.param(b"daily\nresearch\n", "exactly one line", id="two-lines"),
+        pytest.param(b"experiment\n", "'experiment'", id="unknown-word"),
+        pytest.param(b"\xff\xfe", "not valid UTF-8", id="not-utf8"),
     ],
-    ids=["empty", "blank", "two-lines", "unknown-word", "not-utf8"],
 )
 def test_a_garbled_mode_file_is_a_named_error_never_daily(mode_file, capsys, content, reason):
     _save_mode(mode_file, content)
@@ -335,14 +341,17 @@ def test_ac_08_2_a_research_draft_with_neither_baseline_nor_reason_is_refused(mo
 @pytest.mark.parametrize(
     ("configured", "content", "expected"),
     [
-        (None, None, "no `mode`"),
-        (b"research\n", None, "no `mode`"),
-        (None, "research", "configured mode is daily"),
-        (b"research\n", "daily", "configured mode is research"),
-        (None, "experiment", "'experiment'"),
+        pytest.param(None, None, "no `mode`", id="missing-daily"),
+        pytest.param(b"research\n", None, "no `mode`", id="missing-research"),
+        pytest.param(None, "research", "configured mode is daily", id="research-under-daily"),
+        pytest.param(
+            b"research\n",
+            "daily",
+            "configured mode is research",
+            id="daily-under-research",
+        ),
+        pytest.param(None, "experiment", "'experiment'", id="unknown"),
     ],
-    ids=["missing-daily", "missing-research", "research-under-daily", "daily-under-research",
-         "unknown"],
 )
 def test_create_draft_refuses_a_mode_other_than_the_configured_one(
     mode_file, tmp_path, configured, content, expected
@@ -414,8 +423,11 @@ def test_ac_08_4_a_research_draft_completes_as_research_after_a_switch(mode_file
 
 @pytest.mark.parametrize(
     ("draft_mode", "content_mode"),
-    [("research", "daily"), ("research", None), (None, "daily")],
-    ids=["research-to-daily", "research-dropped", "legacy-gains-a-mode"],
+    [
+        pytest.param("research", "daily", id="research-to-daily"),
+        pytest.param("research", None, id="research-dropped"),
+        pytest.param(None, "daily", id="legacy-gains-a-mode"),
+    ],
 )
 def test_ac_08_4_completing_a_draft_never_changes_its_mode(
     mode_file, tmp_path, draft_mode, content_mode
@@ -486,16 +498,39 @@ def _doc_text(doc_id: str, front: str, body: str = "## Decision Log\n\nBody.\n")
 @pytest.mark.parametrize(
     ("front", "mode", "unavailable", "warning"),
     [
-        ("", None, None, None),
-        ("mode: daily\n", "daily", None, None),
-        ("mode: Research\n", "research", None, None),
-        ("mode: experiment\n", "experiment", None, "mode is not a recognized value"),
-        ("baseline_unavailable: no sub-agent\n", None, "no sub-agent", None),
-        ("baseline_unavailable: true\n", None, "(no reason stated)", "baseline_unavailable"),
-        ("baseline_unavailable: ''\n", None, "(no reason stated)", "baseline_unavailable"),
-        ("mode:\nbaseline_unavailable:\n", None, None, None),
+        pytest.param("", None, None, None, id="legacy"),
+        pytest.param("mode: daily\n", "daily", None, None, id="daily"),
+        pytest.param("mode: Research\n", "research", None, None, id="case"),
+        pytest.param(
+            "mode: experiment\n",
+            "experiment",
+            None,
+            "mode is not a recognized value",
+            id="unknown",
+        ),
+        pytest.param(
+            "baseline_unavailable: no sub-agent\n",
+            None,
+            "no sub-agent",
+            None,
+            id="reason",
+        ),
+        pytest.param(
+            "baseline_unavailable: true\n",
+            None,
+            "(no reason stated)",
+            "baseline_unavailable",
+            id="bool",
+        ),
+        pytest.param(
+            "baseline_unavailable: ''\n",
+            None,
+            "(no reason stated)",
+            "baseline_unavailable",
+            id="blank",
+        ),
+        pytest.param("mode:\nbaseline_unavailable:\n", None, None, None, id="keys-without-values"),
     ],
-    ids=["legacy", "daily", "case", "unknown", "reason", "bool", "blank", "keys-without-values"],
 )
 def test_the_loader_reads_mode_and_baseline_unavailable(tmp_path, front, mode, unavailable, warning):
     sessions = tmp_path / "sessions"
@@ -790,12 +825,11 @@ def test_a_dangling_store_symlink_keeps_the_us05_wording(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("front", "warned"),
     [
-        ("status: draft\nmode: daily\n", False),
-        ("status: draft\nmode: research\n", True),
-        ("status: draft\n", True),
-        ("status: active\nmode: daily\n", True),
+        pytest.param("status: draft\nmode: daily\n", False, id="daily-draft"),
+        pytest.param("status: draft\nmode: research\n", True, id="research-draft"),
+        pytest.param("status: draft\n", True, id="legacy-draft"),
+        pytest.param("status: active\nmode: daily\n", True, id="daily-active"),
     ],
-    ids=["daily-draft", "research-draft", "legacy-draft", "daily-active"],
 )
 def test_only_a_daily_draft_may_be_empty_without_a_warning(tmp_path, front, warned):
     sessions = tmp_path / "sessions"

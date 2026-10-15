@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from support import fs
 from support.docs import write_file
 from support.platform import requires_permission_enforcement, requires_symlinks
 from support.search import cli_search, mcp_search
@@ -37,7 +38,10 @@ def _write_note(store: Path, word: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize("run", [cli_search, mcp_search], ids=["cli", "mcp"])
+@pytest.mark.parametrize("run", [
+    pytest.param(cli_search, id="cli"),
+    pytest.param(mcp_search, id="mcp"),
+])
 def test_ac_21_1_a_same_size_edit_under_the_old_mtime_is_searched_as_written(
     tmp_path, run, capsys
 ):
@@ -144,11 +148,8 @@ def test_ac_21_3_an_unreadable_entry_is_rebuilt_from_the_source(tmp_path, capsys
     expected = cli_search(tmp_path, "alphaword", capsys)
     entry = cache._entry_path(path)[0]
 
-    entry.chmod(0o000)
-    try:
+    with fs.without_access(entry, restore_mode=0o644):
         found = cli_search(tmp_path, "alphaword", capsys)
-    finally:
-        entry.chmod(0o644)
 
     assert found == expected
     assert "### 0001-note " in found

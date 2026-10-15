@@ -25,13 +25,6 @@ from engmem.sections import Section
 from engmem.spine import load_store
 
 
-@pytest.fixture(autouse=True)
-def _isolated_body_cache(tmp_path, monkeypatch):
-    """Every test gets its own cache directory, isolated from `~/.cache/engmem` and from every
-    other test."""
-    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "engmem-cache-dir")
-
-
 def _top_id(outcome):
     return outcome.hits[0].doc.id
 

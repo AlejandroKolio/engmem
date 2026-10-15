@@ -98,7 +98,11 @@ def test_superseding_a_version_a_colleague_has_moved_past_is_refused_with_the_cu
     assert not is_error, retried
 
 
-@pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
+@pytest.mark.parametrize("missing", [
+    pytest.param(None, id="absent"),
+    pytest.param("", id="empty"),
+    pytest.param("  ", id="blank"),
+])
 def test_a_supersede_without_a_version_is_refused_with_the_current_one(store, missing):
     """AC-25.2 for supersede: no read is not a match, and the refusal is enough to retry."""
     path = _policy(store)
@@ -154,7 +158,10 @@ def _cli(capsys, monkeypatch, store: Path, stdin: str, *args: str) -> tuple[int,
 
 
 @pytest.mark.parametrize(
-    "flag", [(), ("--expected-version", "")], ids=["absent", "empty"]
+    "flag", [
+        pytest.param((), id="absent"),
+        pytest.param(("--expected-version", ""), id="empty"),
+    ]
 )
 def test_a_cli_completion_without_a_version_exits_2_with_the_current_one(
     store, capsys, monkeypatch, flag

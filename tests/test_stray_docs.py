@@ -1,10 +1,10 @@
 """Markdown in the store root is never searched; the first dogfooding session reported `none
 found` while the answer sat on disk."""
 
-import os
 
 import pytest
 
+from support import fs
 from support.platform import requires_permission_enforcement
 from support.search import run_search
 
@@ -134,11 +134,8 @@ def test_unreadable_nested_subdirectory_is_reported_not_treated_as_clean(fixture
     locked = fixture_store / "sessions" / "locked-archive"
     locked.mkdir()
     (locked / "my-old-notes.md").write_text(STRAY_DOC, encoding="utf-8")
-    os.chmod(locked, 0o000)
-    try:
+    with fs.without_access(locked, restore_mode=0o755):
         code, out, err = run_search(fixture_store, "platform", capsys=capsys)
-    finally:
-        os.chmod(locked, 0o755)
 
     assert code == 0
     assert "cannot list directory for stray documents" in out

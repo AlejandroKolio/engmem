@@ -177,8 +177,13 @@ def test_completing_a_version_the_draft_has_moved_past_is_refused_with_the_curre
 
 @pytest.mark.parametrize(
     "on_disk",
-    [ACTIVE_CONTENT, replaced(ACTIVE_CONTENT, "status: active", "status: superseded")],
-    ids=["active", "superseded"],
+    [
+        pytest.param(ACTIVE_CONTENT, id="active"),
+        pytest.param(
+            replaced(ACTIVE_CONTENT, "status: active", "status: superseded"),
+            id="superseded",
+        ),
+    ],
 )
 @pytest.mark.parametrize("version_kind", ["its own version", "no version"])
 def test_completing_a_finished_document_changes_neither_content_nor_status(
@@ -197,7 +202,11 @@ def test_completing_a_finished_document_changes_neither_content_nor_status(
     assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
-@pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
+@pytest.mark.parametrize("missing", [
+    pytest.param(None, id="absent"),
+    pytest.param("", id="empty"),
+    pytest.param("  ", id="blank"),
+])
 def test_a_completion_without_a_version_is_refused_with_the_current_one(store, target, missing):
     """AC-25.2: no read to check against is not a match. The refusal carries what the client
     needs to retry, so the error is one it can fix in the same turn."""
@@ -264,10 +273,19 @@ def _lock_of(target: Path) -> Path:
 @pytest.mark.parametrize(
     "tool, arguments, on_disk",
     [
-        (COMPLETE_TOOL, {"id": DOC_ID, "content": ACTIVE_CONTENT}, DRAFT_CONTENT),
-        (SUPERSEDE_TOOL, {"id": DOC_ID, "superseded_by": "20260201-widget-cache-v2"}, ACTIVE_CONTENT),
+        pytest.param(
+            COMPLETE_TOOL,
+            {"id": DOC_ID, "content": ACTIVE_CONTENT},
+            DRAFT_CONTENT,
+            id="complete",
+        ),
+        pytest.param(
+            SUPERSEDE_TOOL,
+            {"id": DOC_ID, "superseded_by": "20260201-widget-cache-v2"},
+            ACTIVE_CONTENT,
+            id="supersede",
+        ),
     ],
-    ids=["complete", "supersede"],
 )
 def test_a_lock_left_by_an_interrupted_write_refuses_by_name_and_writes_nothing(
     store, target, monkeypatch, tool, arguments, on_disk

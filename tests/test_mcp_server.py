@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from support import fs
 from support import rpc
 from support.docs import FIXTURES
 from support.platform import requires_permission_enforcement
@@ -166,12 +167,17 @@ def test_ping_returns_an_empty_result(store):
 @pytest.mark.parametrize(
     "notification",
     [
-        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        pytest.param(
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            id="valid_notification",
+        ),
         # no "method", no "id" — unanswerable either way
-        {"jsonrpc": "2.0", "params": {}},
-        {"jsonrpc": "1.0", "method": "notifications/initialized"},
+        pytest.param({"jsonrpc": "2.0", "params": {}}, id="no_method"),
+        pytest.param(
+            {"jsonrpc": "1.0", "method": "notifications/initialized"},
+            id="wrong_jsonrpc_version",
+        ),
     ],
-    ids=["valid_notification", "no_method", "wrong_jsonrpc_version"],
 )
 def test_a_notification_shaped_message_gets_no_response(store, notification):
     exit_code, responses, raw = rpc.run(store, notification)
@@ -303,7 +309,10 @@ def test_a_tool_result_is_a_single_stdout_line_even_with_multiline_content(
 
 
 @pytest.mark.parametrize(
-    "message", [_search_call(), _role_search_call()], ids=["search", "role_search"]
+    "message", [
+        pytest.param(_search_call(), id="search"),
+        pytest.param(_role_search_call(), id="role_search"),
+    ]
 )
 def test_a_missing_store_is_reported_in_the_result_without_dying(empty_store, message):
     exit_code, responses, _ = rpc.run(empty_store, message)
@@ -319,17 +328,19 @@ def test_a_missing_store_is_reported_in_the_result_without_dying(empty_store, me
 @pytest.mark.parametrize(
     "message",
     [
-        rpc.tools_call_msg(3, arguments={}),
-        rpc.tools_call_msg(3, arguments={"query": "   "}),
-        rpc.tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"}),
-        rpc.prompts_get_msg(5, name="not-a-real-prompt"),
+        pytest.param(rpc.tools_call_msg(3, arguments={}), id="missing_query"),
+        pytest.param(rpc.tools_call_msg(3, arguments={"query": "   "}), id="blank_query"),
+        pytest.param(
+            rpc.tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"}),
+            id="unknown_tool",
+        ),
+        pytest.param(rpc.prompts_get_msg(5, name="not-a-real-prompt"), id="unknown_prompt"),
     ],
-    ids=["missing_query", "blank_query", "unknown_tool", "unknown_prompt"],
 )
 def test_a_request_the_schema_does_not_admit_is_invalid_params(store, message):
     _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
 
 
 # --- a `name` that is missing entirely (no params, null params, or params of the wrong JSON
@@ -342,8 +353,12 @@ _NO_PARAMS_KEY = object()  # sentinel: omit the "params" key entirely, vs. expli
 @pytest.mark.parametrize("method", ["tools/call", "prompts/get"])
 @pytest.mark.parametrize(
     "params",
-    [_NO_PARAMS_KEY, None, [1, 2], "engmem"],
-    ids=["omitted", "null", "array", "string"],
+    [
+        pytest.param(_NO_PARAMS_KEY, id="omitted"),
+        pytest.param(None, id="null"),
+        pytest.param([1, 2], id="array"),
+        pytest.param("engmem", id="string"),
+    ],
 )
 def test_malformed_params_name_the_missing_field(store, method, params):
     msg = {"jsonrpc": "2.0", "id": 3, "method": method}
@@ -352,7 +367,7 @@ def test_malformed_params_name_the_missing_field(store, method, params):
     _, responses, _ = rpc.run(store, msg)
 
     error = responses[0]["error"]
-    assert error["code"] == -32602
+    assert error["code"] == rpc.INVALID_PARAMS
     assert "name" in error["message"].lower()
     # never "unknown tool: None" or "unknown prompt: 'engmem'" — `name` is missing, not
     # present-but-wrong
@@ -564,10 +579,13 @@ def test_role_tool_states_when_no_matched_document_has_the_role(role_store):
 @pytest.mark.parametrize(
     "arguments, expected_substring",
     [
-        ({"query": "WidgetCache"}, " (missing)"),
-        ({"query": "WidgetCache", "role": "not-a-real-role"}, " (got 'not-a-real-role')"),
+        pytest.param({"query": "WidgetCache"}, " (missing)", id="missing_role"),
+        pytest.param(
+            {"query": "WidgetCache", "role": "not-a-real-role"},
+            " (got 'not-a-real-role')",
+            id="unknown_role_value_names_valid_ones",
+        ),
     ],
-    ids=["missing_role", "unknown_role_value_names_valid_ones"],
 )
 def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, expected_substring):
     _, responses, _ = rpc.run(
@@ -575,7 +593,7 @@ def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, ex
     )
 
     error = responses[0]["error"]
-    assert error["code"] == -32602
+    assert error["code"] == rpc.INVALID_PARAMS
     assert expected_substring in error["message"].lower()
 
 
@@ -689,7 +707,10 @@ def test_prompts_get_engmem_substitutes_supplied_argument_into_arguments_placeho
 # — leaking `{'a': 1}`-style text into a prompt body.
 
 
-@pytest.mark.parametrize("supplied", [None, ""], ids=["absent", "explicit_empty_string"])
+@pytest.mark.parametrize("supplied", [
+    pytest.param(None, id="absent"),
+    pytest.param("", id="explicit_empty_string"),
+])
 def test_prompts_get_an_absent_or_empty_argument_substitutes_to_empty_not_the_literal(
     store, supplied
 ):
@@ -702,7 +723,12 @@ def test_prompts_get_an_absent_or_empty_argument_substitutes_to_empty_not_the_li
 
 
 @pytest.mark.parametrize(
-    "bad_value", [0, False, {"a": 1}, ["a", "b"]], ids=["int", "bool", "dict", "list"]
+    "bad_value", [
+        pytest.param(0, id="int"),
+        pytest.param(False, id="bool"),
+        pytest.param({"a": 1}, id="dict"),
+        pytest.param(["a", "b"], id="list"),
+    ]
 )
 def test_prompts_get_non_string_argument_is_rejected_not_stringified(store, bad_value):
     arg_name = _engmem_arg_name(store)
@@ -710,7 +736,7 @@ def test_prompts_get_non_string_argument_is_rejected_not_stringified(store, bad_
     _, responses, _ = rpc.run(store, msg)
 
     error = responses[0]["error"]
-    assert error["code"] == -32602
+    assert error["code"] == rpc.INVALID_PARAMS
     assert "must be a string" in error["message"].lower()
     # never a Python repr of the bad value leaking into the message
     assert repr(bad_value) not in error["message"]
@@ -761,8 +787,12 @@ def test_load_template_falls_back_on_a_malformed_template_file(
 
 @pytest.mark.parametrize(
     "bad_name",
-    [{"engmem": 1}, ["engmem"], 7, None],
-    ids=["object", "array", "number", "null"],
+    [
+        pytest.param({"engmem": 1}, id="object"),
+        pytest.param(["engmem"], id="array"),
+        pytest.param(7, id="number"),
+        pytest.param(None, id="null"),
+    ],
 )
 def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(store, bad_name):
     # an object or array `name` is unhashable: looked up in PROMPT_TEMPLATES it raises
@@ -771,7 +801,7 @@ def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(sto
     _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name=bad_name))
 
     error = responses[0]["error"]
-    assert error["code"] == -32602
+    assert error["code"] == rpc.INVALID_PARAMS
     assert "unknown prompt" in error["message"]
 
 
@@ -783,11 +813,10 @@ def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(sto
 @pytest.mark.parametrize(
     "unparseable_line",
     [
-        "{not valid json",
+        pytest.param("{not valid json", id="syntax_error"),
         # a pathologically nested array raises RecursionError past json.JSONDecodeError
-        "[" * 100_000 + "]" * 100_000,
+        pytest.param("[" * 100_000 + "]" * 100_000, id="deeply_nested"),
     ],
-    ids=["syntax_error", "deeply_nested"],
 )
 def test_an_unparseable_line_returns_parse_error_and_the_loop_keeps_running(
     store, unparseable_line
@@ -811,7 +840,7 @@ def test_unknown_method_returns_method_not_found_and_the_loop_keeps_running(stor
     unknown = {"jsonrpc": "2.0", "id": 10, "method": "totally/unknown"}
     _, responses, _ = rpc.run(store, unknown, rpc.initialize_msg(msg_id=11))
 
-    assert responses[0]["error"]["code"] == -32601
+    assert responses[0]["error"]["code"] == rpc.METHOD_NOT_FOUND
     assert responses[1]["id"] == 11
 
 
@@ -846,17 +875,25 @@ def test_stdin_closing_makes_serve_return_cleanly(store):
 @pytest.mark.parametrize(
     "message",
     [
-        {"jsonrpc": "2.0", "id": "\ud800", "method": "ping"},
-        {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "\ud800"}},
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": "engmem_search", "arguments": {"query": "cache \udfff"}},
-        },
-        {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"\ud800": "value"}},
+        pytest.param({"jsonrpc": "2.0", "id": "\ud800", "method": "ping"}, id="in_the_id"),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "\ud800"}},
+            id="in_a_prompt_name",
+        ),
+        pytest.param(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "engmem_search", "arguments": {"query": "cache \udfff"}},
+            },
+            id="in_a_tool_argument",
+        ),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"\ud800": "value"}},
+            id="in_a_params_key",
+        ),
     ],
-    ids=["in_the_id", "in_a_prompt_name", "in_a_tool_argument", "in_a_params_key"],
 )
 def test_an_unpaired_surrogate_anywhere_in_a_message_is_invalid_request(store, message):
     stdin = rpc.stdin_of(json.dumps(message), json.dumps(rpc.initialize_msg(msg_id=14)))
@@ -867,7 +904,7 @@ def test_an_unpaired_surrogate_anywhere_in_a_message_is_invalid_request(store, m
     lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
     assert len(lines) == 2
     first = json.loads(lines[0])
-    assert first["error"]["code"] == -32600
+    assert first["error"]["code"] == rpc.INVALID_REQUEST
     assert "surrogate" in first["error"]["message"]
     # the id may itself be the unencodable value, so it is never echoed
     assert first["id"] is None
@@ -895,7 +932,7 @@ def test_a_non_object_top_level_message_is_invalid_request(store):
 
     lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
     assert len(lines) == 1
-    assert json.loads(lines[0])["error"]["code"] == -32600
+    assert json.loads(lines[0])["error"]["code"] == rpc.INVALID_REQUEST
 
 
 # ---------------------------------------------------------------------------
@@ -906,16 +943,21 @@ def test_a_non_object_top_level_message_is_invalid_request(store):
 @pytest.mark.parametrize(
     "message",
     [
-        {"jsonrpc": "1.0", "id": 1, "method": "initialize", "params": {}},
-        {"jsonrpc": 99, "id": 1, "method": "initialize", "params": {}},
-        {"id": 1, "method": "initialize", "params": {}},
+        pytest.param(
+            {"jsonrpc": "1.0", "id": 1, "method": "initialize", "params": {}},
+            id="wrong_version_string",
+        ),
+        pytest.param(
+            {"jsonrpc": 99, "id": 1, "method": "initialize", "params": {}},
+            id="wrong_version_type",
+        ),
+        pytest.param({"id": 1, "method": "initialize", "params": {}}, id="field_missing"),
     ],
-    ids=["wrong_version_string", "wrong_version_type", "field_missing"],
 )
 def test_invalid_jsonrpc_field_is_invalid_request(store, message):
     _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32600
+    assert responses[0]["error"]["code"] == rpc.INVALID_REQUEST
 
 
 # --- a request-shaped message with no usable `method` at all is answered, where the same
@@ -924,8 +966,11 @@ def test_invalid_jsonrpc_field_is_invalid_request(store, message):
 
 @pytest.mark.parametrize(
     "method",
-    [None, "", 123],
-    ids=["absent", "empty_string", "wrong_type"],
+    [
+        pytest.param(None, id="absent"),
+        pytest.param("", id="empty_string"),
+        pytest.param(123, id="wrong_type"),
+    ],
 )
 def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method):
     msg = {"jsonrpc": "2.0", "id": 1, "params": {}}
@@ -933,7 +978,7 @@ def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method
         msg["method"] = method
     _, responses, _ = rpc.run(store, msg)
 
-    assert responses[0]["error"]["code"] == -32600
+    assert responses[0]["error"]["code"] == rpc.INVALID_REQUEST
     assert "method" in responses[0]["error"]["message"].lower()
 
 
@@ -946,14 +991,17 @@ def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method
     "bad_id",
     # `isinstance(True, int)` is True, so a plain `(str, int, float)` check waves `id: true`
     # through and echoes it back as an id JSON-RPC 2.0 does not allow
-    [{"a": 1}, [1, 2], True],
-    ids=["object_id", "array_id", "boolean_id"],
+    [
+        pytest.param({"a": 1}, id="object_id"),
+        pytest.param([1, 2], id="array_id"),
+        pytest.param(True, id="boolean_id"),
+    ],
 )
 def test_a_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store, bad_id):
     msg = {"jsonrpc": "2.0", "id": bad_id, "method": "initialize", "params": {}}
     _, responses, _ = rpc.run(store, msg)
 
-    assert responses[0]["error"]["code"] == -32600
+    assert responses[0]["error"]["code"] == rpc.INVALID_REQUEST
     # the error's own id is null, never an echo of an id that could not be trusted in the first place
     assert responses[0]["id"] is None
 
@@ -1141,7 +1189,12 @@ def test_the_unattributed_note_does_not_inflate_context_bytes(store):
 
 
 @pytest.mark.parametrize(
-    "bad_value", [0, False, {"a": 1}, ["x"]], ids=["int", "bool", "dict", "list"]
+    "bad_value", [
+        pytest.param(0, id="int"),
+        pytest.param(False, id="bool"),
+        pytest.param({"a": 1}, id="dict"),
+        pytest.param(["x"], id="list"),
+    ]
 )
 def test_non_string_session_id_is_rejected_not_stringified(store, bad_value):
     """A wrongly-typed value is a malformed request, not something to coerce — `str()` on a dict
@@ -1151,7 +1204,7 @@ def test_non_string_session_id_is_rejected_not_stringified(store, bad_value):
         rpc.tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": bad_value}),
     )
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert "session_id" in responses[0]["error"]["message"]
     assert rpc.telemetry_lines(store) == [], "a rejected call must not be logged as a search"
 
@@ -1296,15 +1349,12 @@ def test_an_unreadable_store_is_a_tool_error_not_an_internal_error(tmp_path):
 
     # the *parent*: `is_dir()` on `sessions` itself still succeeds while `store` is readable,
     # and `load_store` then reports the unlistable directory in its own words
-    os.chmod(store, 0o000)
-    try:
+    with fs.without_access(store, restore_mode=0o755):
         _, responses, _ = rpc.run(
             store,
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
              "params": {"name": "engmem_search", "arguments": {"query": "anything"}}},
         )
-    finally:
-        os.chmod(store, 0o755)
 
     result = responses[0]["result"]
     assert result.get("isError") is True
@@ -1322,11 +1372,8 @@ def test_an_unlistable_sessions_directory_reads_unknown_not_zero_over_mcp(tmp_pa
     sessions = tmp_path / "store" / "sessions"
     sessions.mkdir(parents=True)
     (sessions / "control.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
-    os.chmod(sessions, 0o000)
-    try:
+    with fs.without_access(sessions, restore_mode=0o755):
         result, is_error = rpc.call(tmp_path / "store", name="engmem_search", arguments={"query": "hello"})
-    finally:
-        os.chmod(sessions, 0o755)
 
     assert not is_error
     first = rpc.text(result).splitlines()[0]

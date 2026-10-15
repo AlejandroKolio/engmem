@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
+from support import fs, rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
+from support.fs import entry_names
 from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
     requires_symlinks,
 )
-from support import rpc
-from support.fs import entry_names
 
 from engmem import drafts, mcp_server
 from engmem.spine import load_store, split_front_matter
@@ -178,13 +178,26 @@ def test_a_write_tool_rejects_unparseable_content_without_a_traceback(
 @pytest.mark.parametrize(
     "name, arguments, missing_field",
     [
-        (CREATE_TOOL, {"content": DRAFT_CONTENT}, "id"),
-        (CREATE_TOOL, {"id": "20260101-widget-cache"}, "content"),
-        (COMPLETE_TOOL, {"id": "20260101-widget-cache"}, "content"),
-        (SUPERSEDE_TOOL, {"id": "20260101-widget-cache"}, "superseded_by"),
+        pytest.param(CREATE_TOOL, {"content": DRAFT_CONTENT}, "id", id="create_missing_id"),
+        pytest.param(
+            CREATE_TOOL,
+            {"id": "20260101-widget-cache"},
+            "content",
+            id="create_missing_content",
+        ),
+        pytest.param(
+            COMPLETE_TOOL,
+            {"id": "20260101-widget-cache"},
+            "content",
+            id="complete_missing_content",
+        ),
+        pytest.param(
+            SUPERSEDE_TOOL,
+            {"id": "20260101-widget-cache"},
+            "superseded_by",
+            id="supersede_missing_superseded_by",
+        ),
     ],
-    ids=["create_missing_id", "create_missing_content", "complete_missing_content",
-         "supersede_missing_superseded_by"],
 )
 def test_a_write_tool_missing_a_required_argument_is_invalid_params(
     store, name, arguments, missing_field
@@ -193,7 +206,7 @@ def test_a_write_tool_missing_a_required_argument_is_invalid_params(
     document has to exist on disk for any of these."""
     _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=name, arguments=arguments))
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert missing_field in responses[0]["error"]["message"]
 
 
@@ -206,22 +219,13 @@ def test_a_write_tool_missing_a_required_argument_is_invalid_params(
 @pytest.mark.parametrize(
     "bad_id",
     [
-        "../../etc/passwd",
-        "/etc/passwd",
-        "..",
-        ".",
-        ".hidden-doc",
-        "widget\x00cache-job",
-        "widget\\cache-job",
-    ],
-    ids=[
-        "dotdot-traversal",
-        "absolute-path",
-        "bare-dotdot",
-        "bare-dot",
-        "leading-dot",
-        "embedded-nul",
-        "backslash-separator",
+        pytest.param("../../etc/passwd", id="dotdot-traversal"),
+        pytest.param("/etc/passwd", id="absolute-path"),
+        pytest.param("..", id="bare-dotdot"),
+        pytest.param(".", id="bare-dot"),
+        pytest.param(".hidden-doc", id="leading-dot"),
+        pytest.param("widget\x00cache-job", id="embedded-nul"),
+        pytest.param("widget\\cache-job", id="backslash-separator"),
     ],
 )
 def test_create_draft_rejects_every_escape_vector(store, bad_id):
@@ -296,7 +300,7 @@ def test_create_draft_with_empty_id_is_invalid_params(store):
         store, rpc.tools_call_msg(1, name=CREATE_TOOL, arguments={"id": "", "content": DRAFT_CONTENT})
     )
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert set(p.name for p in store.iterdir()) == {"sessions"}
     assert entry_names(store / "sessions") == []
 
@@ -517,11 +521,10 @@ def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypat
 @pytest.mark.parametrize(
     "quoted",
     [
-        '"Chose CacheWarmer over a lazy cache fill"',
-        "“Chose CacheWarmer over a lazy cache fill”",
-        "«Chose CacheWarmer over a lazy cache fill»",
+        pytest.param('"Chose CacheWarmer over a lazy cache fill"', id="straight"),
+        pytest.param("“Chose CacheWarmer over a lazy cache fill”", id="curly"),
+        pytest.param("«Chose CacheWarmer over a lazy cache fill»", id="guillemets"),
     ],
-    ids=["straight", "curly", "guillemets"],
 )
 def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted):
     _write_cited_doc(store)
@@ -1164,17 +1167,22 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"id": "20260101-widget-cache", "content": DRAFT_CONTENT + "\ud800"},
-        {"id": "20260101-widget-cache\ud800", "content": DRAFT_CONTENT},
+        pytest.param(
+            {"id": "20260101-widget-cache", "content": DRAFT_CONTENT + "\ud800"},
+            id="in_the_content",
+        ),
+        pytest.param(
+            {"id": "20260101-widget-cache\ud800", "content": DRAFT_CONTENT},
+            id="in_the_id",
+        ),
     ],
-    ids=["in_the_content", "in_the_id"],
 )
 def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, arguments):
     """`content.encode("utf-8")` raises on an unpaired surrogate. Refused at the envelope, so it
     never reaches the write path — and never as a -32603 blamed on the server."""
     _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=CREATE_TOOL, arguments=arguments))
 
-    assert responses[0]["error"]["code"] == -32600
+    assert responses[0]["error"]["code"] == rpc.INVALID_REQUEST
     assert entry_names(store / "sessions") == [], "nothing written, and no staged file left behind"
 
 
@@ -1182,12 +1190,12 @@ def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, argu
 def test_completing_a_draft_keeps_the_documents_file_mode(store):
     """The MCP write path replaces the file too, so it inherits the same rule `backfill` does."""
     rpc.call(store, name=CREATE_TOOL,
-          arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT})
+             arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT})
     path = store / "sessions" / "20260101-widget-cache.md"
     os.chmod(path, 0o640)
 
     rpc.call(store, name=COMPLETE_TOOL,
-          arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}))
+             arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}))
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o640
     assert load_store(store / "sessions").docs[0].status == "active"
@@ -1199,7 +1207,7 @@ def test_a_documents_line_endings_survive_the_mcp_write(store):
     content = DRAFT_CONTENT.replace("\n", "\r\n")
 
     rpc.call(store, name=CREATE_TOOL,
-          arguments={"id": "20260101-widget-cache", "content": content})
+             arguments={"id": "20260101-widget-cache", "content": content})
 
     written = (store / "sessions" / "20260101-widget-cache.md").read_bytes()
     assert written == content.encode("utf-8")
@@ -1216,16 +1224,32 @@ def _make_active(store: Path) -> None:
 @pytest.mark.parametrize(
     "setup, name, arguments, committer",
     [
-        (lambda store: None, CREATE_TOOL,
-         {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}, "commit_new"),
-        (lambda store: rpc.call(store, name=CREATE_TOOL,
-                             arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
-         COMPLETE_TOOL,
-         {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}, "commit"),
-        (_make_active, SUPERSEDE_TOOL,
-         {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}, "commit"),
+        pytest.param(
+            lambda store: None,
+            CREATE_TOOL,
+            {"id": "20260101-widget-cache", "content": DRAFT_CONTENT},
+            "commit_new",
+            id="create",
+        ),
+        pytest.param(
+            lambda store: rpc.call(
+                store,
+                name=CREATE_TOOL,
+                arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT},
+            ),
+            COMPLETE_TOOL,
+            {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+            "commit",
+            id="complete",
+        ),
+        pytest.param(
+            _make_active,
+            SUPERSEDE_TOOL,
+            {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
+            "commit",
+            id="supersede",
+        ),
     ],
-    ids=["create", "complete", "supersede"],
 )
 def test_a_failing_commit_still_discards_the_staged_file(
     store, monkeypatch, setup, name, arguments, committer
@@ -1246,13 +1270,20 @@ def test_a_failing_commit_still_discards_the_staged_file(
 
     # the code and the message together, so a renamed argument or tool cannot leave this green
     # while failing before anything is staged — where "no .tmp survived" is trivially true
-    assert responses[0]["error"]["code"] == -32603
+    assert responses[0]["error"]["code"] == rpc.INTERNAL_ERROR
     assert "No space left" in responses[0]["error"]["message"]
     assert not [f for f in entry_names(store / "sessions") if f.endswith(".tmp")]
 
 
-@pytest.mark.parametrize("raw", [b"\xef\xbb\xbf", b""], ids=["bom", "no-bom"])
-@pytest.mark.parametrize("nl", ["\r\n", "\r", "\n"], ids=["crlf", "cr", "lf"])
+@pytest.mark.parametrize("raw", [
+    pytest.param(b"\xef\xbb\xbf", id="bom"),
+    pytest.param(b"", id="no-bom"),
+])
+@pytest.mark.parametrize("nl", [
+    pytest.param("\r\n", id="crlf"),
+    pytest.param("\r", id="cr"),
+    pytest.param("\n", id="lf"),
+])
 def test_mark_superseded_preserves_the_documents_bytes(store, raw, nl):
     """It rebuilds the whole file from what it read, so `read_text` dropped the BOM and
     rewrote every line ending — see contracts/backfill.md, "Line endings"."""
@@ -1296,12 +1327,23 @@ def test_mark_superseded_preserves_the_documents_bytes(store, raw, nl):
 @pytest.mark.parametrize(
     "name, arguments",
     [
-        (CREATE_TOOL, {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
-        (COMPLETE_TOOL, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
-        (SUPERSEDE_TOOL, {"id": "20260101-widget-cache",
-                          "superseded_by": "20260201-widget-cache-v2"}),
+        pytest.param(
+            CREATE_TOOL,
+            {"id": "20260101-widget-cache", "content": DRAFT_CONTENT},
+            id="create",
+        ),
+        pytest.param(
+            COMPLETE_TOOL,
+            {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT},
+            id="complete",
+        ),
+        pytest.param(
+            SUPERSEDE_TOOL,
+            {"id": "20260101-widget-cache",
+                              "superseded_by": "20260201-widget-cache-v2"},
+            id="supersede",
+        ),
     ],
-    ids=["create", "complete", "supersede"],
 )
 def test_a_write_tool_reports_an_unreadable_store_as_a_tool_error(tmp_path, name, arguments):
     """`_resolve_sessions_dir` had the same bare `is_dir()`, so every write tool turned an
@@ -1309,11 +1351,8 @@ def test_a_write_tool_reports_an_unreadable_store_as_a_tool_error(tmp_path, name
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
 
-    os.chmod(store, 0o000)
-    try:
+    with fs.without_access(store, restore_mode=0o755):
         result, is_error = rpc.call(store, name=name, arguments=arguments)
-    finally:
-        os.chmod(store, 0o755)
 
     assert is_error
     assert "store not readable" in rpc.text(result)
@@ -1322,15 +1361,23 @@ def test_a_write_tool_reports_an_unreadable_store_as_a_tool_error(tmp_path, name
 @pytest.mark.parametrize(
     "front_matter",
     [
-        "{id: doc-a, title: T, date: 2026-01-01, task_date: 2026-01-01, "
-        "status: active, tags: [x], entities: [E]}",
+        pytest.param(
+            "{id: doc-a, title: T, date: 2026-01-01, task_date: 2026-01-01, "
+            "status: active, tags: [x], entities: [E]}",
+            id="flow-one-line",
+        ),
         # a root flow mapping can put a key at column 0, so the column test alone missed it
-        "{\nid: doc-a,\ntitle: T,\ndate: 2026-01-01,\ntask_date: 2026-01-01,\n"
-        "status: active,\ntags: [x],\nentities: [E]\n}",
-        "  id: doc-a\n  title: T\n  date: 2026-01-01\n  task_date: 2026-01-01\n"
-        "  status: active\n  tags: [x]\n  entities: [E]",
+        pytest.param(
+            "{\nid: doc-a,\ntitle: T,\ndate: 2026-01-01,\ntask_date: 2026-01-01,\n"
+            "status: active,\ntags: [x],\nentities: [E]\n}",
+            id="flow-multi-line",
+        ),
+        pytest.param(
+            "  id: doc-a\n  title: T\n  date: 2026-01-01\n  task_date: 2026-01-01\n"
+            "  status: active\n  tags: [x]\n  entities: [E]",
+            id="indented",
+        ),
     ],
-    ids=["flow-one-line", "flow-multi-line", "indented"],
 )
 def test_supersede_refuses_a_key_that_is_not_a_line_of_its_own(store, front_matter):
     """The replacement is written at column 0 alone on its line. `flow-multi-line` pins the

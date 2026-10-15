@@ -473,7 +473,10 @@ def _run_setup_script(tmp_path: Path, with_tunnel: bool) -> tuple[str, list[str]
 @pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None, reason="a bash script, POSIX only"
 )
-@pytest.mark.parametrize("with_tunnel", [True, False], ids=["tunnel-initialised", "no-tunnel"])
+@pytest.mark.parametrize("with_tunnel", [
+    pytest.param(True, id="tunnel-initialised"),
+    pytest.param(False, id="no-tunnel"),
+])
 def test_setup_script_summary_names_the_tunnel_only_when_it_initialised_one(tmp_path, with_tunnel):
     """AC-19.4 for scripts/setup-openai.sh: its summary says only what the run itself did."""
     out, called = _run_setup_script(tmp_path, with_tunnel)
