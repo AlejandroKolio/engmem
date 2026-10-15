@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engmem import confined
+from engmem import __version__, confined
 from engmem.output import _escape_controls
 from engmem.telemetry import (
     BYTES_PER_TOKEN_ESTIMATE,
@@ -33,7 +33,12 @@ class CostError(Exception):
 
 def _append(store: Path, op_id: str, record: dict) -> None:
     """One line, never swallowed by a torn line before it; raises `OSError`."""
-    line = json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "op_id": op_id, **record})
+    line = json.dumps({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "engmem_version": __version__,
+        "op_id": op_id,
+        **record,
+    })
     confined.append_line(store / COST_FILE, confined.LOG_DEPTH, line.encode("utf-8"))
 
 

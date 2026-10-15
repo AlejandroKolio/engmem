@@ -29,29 +29,6 @@ from engmem.cli import main
 from engmem.install import TUNNEL_BRIDGE_STATUS
 
 
-@pytest.fixture
-def home(env) -> Path:
-    home, project = env
-    (project / ".git").mkdir()
-    return home
-
-
-@pytest.fixture
-def shell_path(tmp_path, monkeypatch) -> Path:
-    """A launcher for this interpreter first on PATH: the developer's own PATH may carry another
-    engmem, or none; the rest of PATH stays, for the `git` install runs."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    if sys.platform == "win32":
-        (bin_dir / "engmem.bat").write_bytes(f'@"{sys.executable}" -m engmem.cli %*\r\n'.encode())
-    else:
-        launcher = bin_dir / "engmem"
-        launcher.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -m engmem.cli \"$@\"\n")
-        launcher.chmod(0o755)
-    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
-    return bin_dir
-
-
 def _install(agent: str, store: Path, capsys) -> None:
     assert main(["install", "--agent", agent, "--store", str(store)]) == 0
     assert main(["store", "set", str(store)]) == 0
@@ -137,9 +114,12 @@ EXPECTED_SUBJECTS = {
     "claude": {"template", "trigger rule", "engmem command", "sandbox"},
     "copilot-ide": {"template", "trigger rule", "engmem command", "sandbox"},
     "copilot-cli": {"skill", "engmem command", "sandbox"},
-    "codex": {"skill", "trigger rule", "engmem command", "mcp entry", "mcp command", "sandbox"},
-    "claude-desktop": {"mcp entry", "mcp command", "sandbox"},
-    "chatgpt": {"tunnel", "public bridge"},
+    "codex": {
+        "skill", "trigger rule", "engmem command", "mcp entry", "mcp command", "mcp runtime",
+        "sandbox",
+    },
+    "claude-desktop": {"mcp entry", "mcp command", "mcp runtime", "sandbox"},
+    "chatgpt": {"tunnel", "public bridge", "mcp runtime"},
 }
 
 
@@ -185,30 +165,6 @@ def test_an_empty_store_is_named_as_empty_memory(home, tmp_path, shell_path, cap
 
     [line] = _with(lines, "warning", "sessions")
     assert "no documents" in line
-    assert code == 0
-
-
-@pytest.mark.parametrize(
-    ("stamp", "reason"),
-    [
-        pytest.param("v0.0.1", "engmem 0.0.1", id="stale"),
-        pytest.param(None, "no engmem version stamp", id="unstamped"),
-    ],
-)
-def test_a_template_another_version_installed_is_a_warning(
-    home, tmp_path, shell_path, capsys, stamp, reason
-):
-    _install("claude", tmp_path / "notes", capsys)
-    template = home / ".claude" / "commands" / "engmem.md"
-    text = template.read_text(encoding="utf-8")
-    current = f"v{__version__} -->"
-    text = text.replace(current, f"{stamp} -->") if stamp else text.replace("engmem-template:", "x:")
-    template.write_text(text, encoding="utf-8")
-
-    code, lines = _doctor(capsys)
-
-    [line] = _with(lines, "warning", "template")
-    assert str(template) in line and reason in line and "engmem install --agent claude" in line
     assert code == 0
 
 

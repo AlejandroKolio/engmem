@@ -129,13 +129,67 @@ successful probe says "runs engmem X" and nothing about the client.
 ## Templates, skills and the trigger rule
 
 Each installed file must carry the stamp `install` writes (`<!-- engmem-template: <name>
-v<version> -->`). A missing file is an error with the install command. A stamp from another
-version, or no stamp at all, is a warning: the file works, but it may describe steps the
-installed CLI no longer has. The trigger rule is `ok` in the current wording or in the user's
+v<version> workflow <level> sha256:<digest> -->`; `contracts/install.md`, "An installed template
+is engmem's until someone edits it"). A missing file is an error with the install command.
+
+**Severity follows compatibility, not age (US-26).** Until US-26 a stamp from any other version
+was a warning and doctor exited 0. The audit found what that hid: a Codex start skill from 0.1.2
+asked for a baseline the runtime no longer required and wrote a draft without `mode`, which the
+0.1.4 MCP server refuses. The user saw a warning, and every capture failed. A version number
+cannot tell which old templates still work: two releases can ship the same workflow, and an
+unreleased build carries the last release's number. So the stamp also carries a workflow level,
+`template_stamps.WORKFLOW`. It is raised in the same change that makes the runtime refuse a step
+the previous level's templates take. A stamp of a lower level, or of none (every stamp before
+US-26 is level 0), is an `error`, so doctor exits 1. The line names the version that installed
+the file, this version, the client, the install command, and the new session the client needs
+to load the result. Level 0 is incompatible for a recorded reason: its save step supersedes
+without the version US-25 requires, and before 0.1.3 its drafts lacked `mode`. A higher level is
+an `error` too, because this runtime cannot vouch for steps from a newer engmem. A stamp of the
+current level from an older version is `ok` with a note, since nothing in it fails.
+
+A file whose body no longer matches its digest, or, without a digest, none of the released
+bodies, was edited after install. At the current level that is a `warning`: the stamp is
+compatible, but engmem cannot vouch for steps someone changed. At another level the `error` says
+that install will keep the edit and put its own version beside it. A `.engmem-new` file left by
+such an install is a `warning` until the user keeps one of the two. A file with no stamp at all
+is a `warning`: engmem cannot tell which workflow it follows, and install will treat it as the
+user's.
+
+The trigger rule is `ok` in the current wording or in the user's
 own wording (`TRIGGER_MARKER`, the same rule install uses to leave it alone). It is a warning in
 an earlier engmem wording, because those searches go unattributed, and a warning when it is
 absent. Without the rule the agent is never told to search, but the templates still work. For
 Codex, an `AGENTS.override.md` is a warning, because Codex then never reads the rule.
+
+## The MCP runtime is what the server logged (US-26)
+
+A client starts `engmem mcp` once and keeps that process. After `uv tool upgrade engmem` the
+package on disk is new, and the server answering the client is still the old one until the
+client restarts. The `mcp command` probe runs the configured command afresh, so it reports the
+package, never the running process. Calling that "updated" would be the claim AC-26.4 forbids.
+
+Every `telemetry.jsonl` and `cost.jsonl` row records the `engmem_version` that wrote it (owner
+decision, 2026-10-15). For each MCP client (Claude Desktop, Codex, the ChatGPT bridge), doctor
+reads both logs of the store that client's server writes to, and takes the newest row whose
+`channel` is `mcp`. That store is the one the MCP entry names with an absolute `--store`, even
+when it differs from the CLI's: doctor accepts two stores as a choice, and reading the CLI's
+would judge one server by another's rows. For an entry that resolves its store at launch, and
+for the ChatGPT bridge, whose entry engmem does not hold, doctor reads the CLI's store and says
+it is assuming so. The rules for the newest row:
+- that row came from this version: `ok`, naming the time;
+- it came from another version, or predates the field: `unverified`, with the restart to do,
+  one search through the client, and doctor again;
+- there is none: `unverified`, with the same steps.
+
+It is never an error. An old row proves only that an old server ran at that time, not that one
+runs now: a client restarted since has made no call yet. The rows do not say which client made
+them, so with several MCP clients on one store an `ok` says a current server is running, not
+whose; the line says so. Doctor reads only these two logs' rows, never a document. A line it
+cannot parse, a log it cannot read, and a row whose `ts` is not a timestamp with a zone, as the
+writers format it, are skipped: a string that merely sorts last must not become the newest row
+forever. Anyone who can write the store can write these rows, so the time and version doctor
+prints from them are escaped (`output._escape_controls`): a line break in a version cannot forge
+an `error:` line for the walkthrough gate that reads doctor's output by prefix.
 
 ## Accepted limits (owner, 2026-10-08)
 
@@ -201,6 +255,7 @@ the value quoted, so the NUL byte never reaches the terminal raw.
 It fixes nothing. Every action is printed for the user to run (US-17 owns any guided
 walkthrough). It writes one probe file and removes it. It creates no directory, rewrites no
 config, saves no store choice and moves no document. It reads the configs, the templates, the
-instructions file and the listing of `sessions/`, never a document's content.
+instructions file, the listing of `sessions/` and the rows of `telemetry.jsonl` and `cost.jsonl`,
+never a document's content.
 `tests/install/test_doctor.py` compares byte snapshots of the whole sandbox, configs and store
 included, before and after a run.

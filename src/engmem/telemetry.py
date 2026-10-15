@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engmem import confined
+from engmem import __version__, confined
 from engmem.output import SCOPE_NAME_DISPLAY_MAX, only_weak_shown, surfaced_ids
 from engmem.scoring import Scope, SearchOutcome
 
@@ -96,6 +96,9 @@ def log_search(
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
+        # the runtime that answered, so doctor can tell a restarted client from one still
+        # running the server it started before an upgrade (contracts/doctor.md)
+        "engmem_version": __version__,
         **_query_fields(query),
         # explicit null, not omitted: distinguishes "no --session passed" from
         # "row predates this field" and from "no search happened"
@@ -137,6 +140,9 @@ def log_role_search(
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
+        # the runtime that answered, so doctor can tell a restarted client from one still
+        # running the server it started before an upgrade (contracts/doctor.md)
+        "engmem_version": __version__,
         **_query_fields(query),
         "role": role,
         "session_id": session_id,

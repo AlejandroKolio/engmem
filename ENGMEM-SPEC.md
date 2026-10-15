@@ -255,7 +255,15 @@ Idempotent (re-running = upgrade, nothing breaks):
    `.claude/commands/` with `--local`); copilot-ide → `./.github/prompts/`; copilot-cli →
    `~/.copilot/skills/`; codex → `~/.agents/skills/` (skills, mentioned as `$engmem`);
    claude-desktop and chatgpt get no templates.
-3. Stamps the first line of every installed file: `<!-- engmem-template: <name> v<package version> -->`.
+3. Stamps the first line of every installed file:
+   `<!-- engmem-template: <name> v<package version> workflow <level> sha256:<digest> -->`, the
+   digest covering the file without that line. A file the user edited since engmem wrote it
+   (its digest no longer matches, or, for a file from v0.1.4 or earlier, it is none of the
+   released bodies) is never overwritten: the new version goes beside it as
+   `<file>.engmem-new`, a `conflict:` line says how to compare and resolve, and install exits 2
+   after finishing everything else. *(US-26, owner decisions 2026-10-15: a conflict file beside
+   the edit; released bodies recognised by their digests.)* See
+   `docs/design/contracts/install.md`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` /
    `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`) if not
    already present: "Before proposing a plan, run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
@@ -333,9 +341,14 @@ counts the results: `engmem doctor --agent A: E error(s), W warning(s), U unveri
 this shell's override would use); `sessions/` listed, its documents counted, and its
 writability probed with one file that is created and removed; this engmem's version and Python;
 the shell `engmem` the templates call (run as `engmem --version`); the client's templates or
-skills and their version stamps; the trigger rule; the MCP entry (Claude Desktop, Codex)
-compared with the CLI store, and its command (stat-checked, then run as
-`<command> -m engmem.cli --version` when it has the shape install writes). Each probe is
+skills, judged by the workflow level in their stamp: one this runtime refuses is an `error`
+naming both versions, the client and the commands to run, an older one of the same level is
+`ok`, and an edited one is a `warning` *(US-26)*; the trigger rule; the MCP entry (Claude
+Desktop, Codex) compared with the CLI store, and its command (stat-checked, then run as
+`<command> -m engmem.cli --version` when it has the shape install writes); and, for the MCP
+clients, `mcp runtime`: the engmem the newest MCP row in `telemetry.jsonl` or `cost.jsonl`
+says it ran, `ok` only when that is this version and `unverified` with the restart to do
+otherwise, since a client keeps the server it started before an upgrade *(US-26)*. Each probe is
 time-bounded. Different CLI and MCP stores are a warning that names both paths and sources,
 never an error. An error line names the path, the error type and the fix. Access from inside a
 client's own sandbox is never `ok`: Codex's `sandbox_mode` and `writable_roots` are read, and
@@ -599,7 +612,9 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    apart found 0 of 33 and 2 of 44 searches attributed; the template's instruction alone did
    not hold.)*
 
-6a. Two more fields ride the same line, both English additions not covered above:
+6a. Two more fields ride the same line, both English additions not covered above (a third,
+    `engmem_version`, the package version that wrote the row, joined in US-26 and is on every
+    `cost.jsonl` row too; doctor reads it, no Gate 1 figure does):
     `channel` (`"cli"` or `"mcp"` — which surface ran the search, set by the caller,
     never inferred; distinct from a document's own Search Trace vocabulary, which
     describes how a result reached the agent, not which process ran it) and
@@ -1060,6 +1075,9 @@ exception — `cost.jsonl`, `engmem read`, `engmem cost record-baseline|summary`
 cost included only its searches, while the documents it read were invisible — and because an
 MCP-only client had no way to read a whole document; it is not a grep replacement. The
 telemetry row and every Gate 1 figure are unchanged; see §5, `engmem read` and `engmem cost`.)*
+*(2026-10-15, owner decision: US-26 adds `engmem_version` to every `telemetry.jsonl` and
+`cost.jsonl` row, so `engmem doctor` can tell a restarted client's server from one still
+running the engmem it started with. No reader of Gate 1 figures uses it; see §5, search 6a.)*
 
 ## 10. Principles
 

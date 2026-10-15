@@ -124,8 +124,14 @@ prompts, one per template. With `--read-only` it offers the two search tools onl
 searches keep no version copy, print no `cite as` line and record no cost row; each still
 writes its telemetry row.
 
-`install` is idempotent — re-running it upgrades templates in place and never duplicates
-the trigger rule or touches existing store content.
+`install` is idempotent — re-running it brings unedited templates up to date and never duplicates
+the trigger rule or touches existing store content. A template or skill you edited is never
+overwritten: install leaves it, puts its new version beside it as `<file>.engmem-new`, prints a
+`conflict:` line with both paths and exits 2. Carry any edit you want to keep into the new file,
+move it over the old one, and re-run. After an upgrade,
+`engmem doctor --agent <agent>` says whether the installed workflow is one this engmem runs (an
+`error` when it is not) and, for an MCP client, whether the server it is running already logged
+a call from the new version. A client keeps its old server until you restart it.
 
 To remove the wiring again, mirror it with the same `--agent`:
 
@@ -529,9 +535,10 @@ taken from an absolute `PATH` entry, never from the project directory. It runs n
 `git status` nor `git diff`, because both can start a program the repository configures, so
 uncommitted changes are not seen.
 
-**`engmem doctor` changes nothing.** It reads configs and templates, runs `engmem --version`
-and `<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into `sessions/`,
-removed straight away, even when interrupted.
+**`engmem doctor` changes nothing.** It reads configs, templates and the rows of
+`telemetry.jsonl` and `cost.jsonl`, runs `engmem --version` and
+`<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into
+`sessions/`, removed straight away, even when interrupted.
 
 **`engmem walkthrough` writes only inside the directory you give it.** It creates a demo
 store, a demo Codex config and workspaces there, and runs `git init` in each, `engmem doctor`,

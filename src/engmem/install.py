@@ -27,6 +27,7 @@ from engmem.runtime import (
     store_path_of,
 )
 from engmem.staging import commit, discard, newline_of, read_document, stage
+from engmem.template_stamps import digest, read_stamp, stamp_line, written_by_engmem
 
 
 # source filename -> installed filename; engmem.start.md installs as engmem.md
@@ -188,11 +189,9 @@ def _replace_user_file(path: Path, text: str, bom: bytes = b"") -> None:
 
 
 def _write_template(path: Path, text: str) -> None:
-    # engmem's own file, rewritten whole by every install: a torn write costs a re-run, not data
-    try:
-        path.write_text(text, encoding="utf-8")
-    except OSError as exc:
-        raise _SetupError(f"cannot write the template {path}: {exc}") from exc
+    # staged and replaced, never written in place: a torn template no longer matches its digest,
+    # so the next install would keep it as the user's edit instead of repairing it
+    _replace_user_file(path, text)
 
 
 def _ensure_store(store: Path) -> None:
@@ -235,22 +234,84 @@ def _stamp_after_front_matter(content: str, stamp: str) -> str:
     return stamp + "\n" + content
 
 
-def _version_stamp(source_name: str) -> str:
-    return f"<!-- engmem-template: {source_name.removesuffix('.md')} v{__version__} -->"
+# where install puts its new version of a template the user edited, for them to compare; not
+# `.md`, so no client loads it as a command or a skill
+PENDING_SUFFIX = ".engmem-new"
+
+
+def pending_path(path: Path) -> Path:
+    return path.with_name(path.name + PENDING_SUFFIX)
+
+
+def _is_replaceable(path: Path, content: str) -> bool:
+    """`path` is absent, or holds a body engmem wrote or is about to write: replacing it loses
+    nothing of the user's."""
+    try:
+        existing, _bom = read_document(path)
+    except FileNotFoundError:
+        return True
+    except UnicodeDecodeError:
+        return False
+    except OSError as exc:
+        raise _SetupError(f"cannot read the template {path}: {exc}") from exc
+    stamp, body = read_stamp(existing)
+    return written_by_engmem(stamp, body) or digest(body) == digest(content)
+
+
+def pending_is_engmems(pending: Path) -> bool:
+    """`pending` is absent, or as an install wrote it: nobody has carried an edit into it."""
+    try:
+        text, _bom = read_document(pending)
+    except FileNotFoundError:
+        return True
+    except UnicodeDecodeError:
+        return False
+    except OSError as exc:
+        raise _SetupError(f"cannot read {pending}: {exc}") from exc
+    return written_by_engmem(*read_stamp(text))
+
+
+@dataclass(frozen=True)
+class Conflict:
+    pending: Path
+    # the user is carrying edits into `pending`, so this install left it as it was too
+    merging: bool
+
+
+def _place_template(path: Path, content: str, source_name: str) -> Conflict | None:
+    """Writes the stamped template over `path`, or, when the user edited `path`, beside it,
+    never over a `.engmem-new` the user is editing."""
+    text = _stamp_after_front_matter(content, stamp_line(source_name, __version__, content))
+    pending = pending_path(path)
+    unedited = pending_is_engmems(pending)
+    if not _is_replaceable(path, content):
+        if not unedited:
+            return Conflict(pending, merging=True)
+        _write_template(pending, text)
+        return Conflict(pending, merging=False)
+    _write_template(path, text)
+    if unedited:
+        try:
+            # left by an earlier install whose conflict the user has since resolved
+            pending.unlink(missing_ok=True)
+        except OSError as exc:
+            raise _SetupError(
+                f"cannot remove {pending}, left by an earlier install: {exc}"
+            ) from exc
+    return None
 
 
 def _template_source(source_name: str) -> str:
     return (resources.files("engmem") / "templates" / source_name).read_text(encoding="utf-8")
 
 
-def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> None:
+def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> list[Conflict]:
     _ensure_directory(dest_dir, "templates directory")
-    for source_name, installed_name in install_map.items():
-        content = _template_source(source_name)
-        _write_template(
-            dest_dir / installed_name,
-            _stamp_after_front_matter(content, _version_stamp(source_name)),
-        )
+    placed = (
+        _place_template(dest_dir / installed_name, _template_source(source_name), source_name)
+        for source_name, installed_name in install_map.items()
+    )
+    return [pending for pending in placed if pending is not None]
 
 
 def _to_skill_front_matter(content: str, skill_name: str) -> str:
@@ -287,16 +348,17 @@ _SKILL_BODY_REWRITES = {
 }
 
 
-def _install_skill_templates(skills_root: Path, agent: str) -> None:
+def _install_skill_templates(skills_root: Path, agent: str) -> list[Conflict]:
+    conflicts = []
     for source_name, skill_name in COPILOT_CLI_SKILL_MAP.items():
         content = _SKILL_BODY_REWRITES[agent](_template_source(source_name))
         content = _to_skill_front_matter(content, skill_name)
         skill_dir = skills_root / skill_name
         _ensure_directory(skill_dir, "skill directory")
-        _write_template(
-            skill_dir / "SKILL.md",
-            _stamp_after_front_matter(content, _version_stamp(source_name)),
-        )
+        pending = _place_template(skill_dir / "SKILL.md", content, source_name)
+        if pending is not None:
+            conflicts.append(pending)
+    return conflicts
 
 
 def _with_current_trigger_rule(text: str) -> tuple[str, bool]:
@@ -345,9 +407,27 @@ def _unlink_reporting_failure(path: Path) -> bool:
         return False
 
 
+def _remove_pending(path: Path) -> None:
+    """The new version an install left beside `path`: engmem's file, gone with the rest, unless
+    the user has been carrying edits into it."""
+    pending = pending_path(path)
+    if not pending.is_file():
+        return
+    try:
+        unedited = pending_is_engmems(pending)
+    except _SetupError as exc:
+        print(f"error: could not check {pending}: {exc}", file=sys.stderr)
+        return
+    if not unedited:
+        print(f"kept {pending}: it holds edits you made, not engmem's text")
+        return
+    _unlink_reporting_failure(pending)
+
+
 def _remove_files(paths: Iterable[Path]) -> tuple[int, int]:
     removed = failed = 0
     for path in paths:
+        _remove_pending(path)
         if not path.is_file():
             continue
         if _unlink_reporting_failure(path):
@@ -362,6 +442,7 @@ def _remove_skill_dirs(skills_root: Path) -> tuple[int, int]:
     for skill_name in COPILOT_CLI_SKILL_MAP.values():
         skill_dir = skills_root / skill_name
         skill_file = skill_dir / "SKILL.md"
+        _remove_pending(skill_file)
         if not skill_file.is_file():
             continue
         if not _unlink_reporting_failure(skill_file):
@@ -1030,8 +1111,9 @@ def _run_install(args: argparse.Namespace) -> int:
     _ensure_store(store)
 
     trigger_outcome: TriggerRuleOutcome | None = None
+    conflicts: list[Conflict] = []
     if args.agent in ("claude", "copilot-ide"):
-        _install_templates(
+        conflicts = _install_templates(
             _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent]
         )
         trigger_outcome = _append_trigger_rule(
@@ -1042,16 +1124,22 @@ def _run_install(args: argparse.Namespace) -> int:
         _install_claude_desktop(store)
     elif args.agent == "copilot-cli":
         # skills are self-invoked, no global-instructions file to append to
-        _install_skill_templates(_agent_command_dir("copilot-cli", args.local), "copilot-cli")
+        conflicts = _install_skill_templates(
+            _agent_command_dir("copilot-cli", args.local), "copilot-cli"
+        )
     elif args.agent == "codex":
         # Codex runs a shell and an MCP client both; the templates pick whichever is there. The
         # config goes first: it is the step that can refuse, and a refusal must leave nothing
         codex_outcome = _install_codex_mcp(store)
-        _install_skill_templates(_agent_command_dir("codex", args.local), "codex")
+        conflicts = _install_skill_templates(_agent_command_dir("codex", args.local), "codex")
         trigger_outcome = _append_trigger_rule(_agent_instructions_file("codex", args.local))
 
     trigger_note = _TRIGGER_RULE_NOTES.get(trigger_outcome, "")
-    print(f"engmem installed: store={store}, agent={args.agent}{trigger_note}")
+    # the verb itself carries the outcome for a reader who stops at line one
+    verb = "engmem install incomplete" if conflicts else "engmem installed"
+    print(f"{verb}: store={store}, agent={args.agent}{trigger_note}")
+    for conflict in conflicts:
+        print(_conflict_note(conflict))
     if args.agent == "codex":
         print(f"{_CODEX_MCP_NOTES[codex_outcome]} in {_codex_config_path()}")
         override = _codex_home() / "AGENTS.override.md"
@@ -1071,7 +1159,26 @@ def _run_install(args: argparse.Namespace) -> int:
     note = _store_note(store, args.agent)
     if note is not None:
         print(note)
-    return 0
+    return 2 if conflicts else 0
+
+
+def _conflict_note(conflict: Conflict) -> str:
+    pending = conflict.pending
+    edited = pending.with_name(pending.name.removesuffix(PENDING_SUFFIX))
+    if conflict.merging:
+        return (
+            f"conflict: {edited} was edited after engmem installed it, and {pending} holds "
+            f"edits you are carrying into it, so both were left as they are. Move "
+            f"{pending.name} over {edited.name} when it is ready; to start again from this "
+            f"version's template, delete {pending.name} and re-run install"
+        )
+    return (
+        f"conflict: {edited} was edited after engmem installed it, so it was left as it is; "
+        f"this version's template is beside it, {pending}. Compare the two, carry any edit "
+        f"you want to keep into {pending.name}, then move it over {edited.name}. Until then "
+        f"{edited.name} keeps the workflow it was installed with; a file you keep editing is "
+        f"compared again on every install"
+    )
 
 
 def _store_note(store: Path, agent: str) -> str | None:
