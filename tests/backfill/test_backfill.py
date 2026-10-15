@@ -1,10 +1,9 @@
-"""Unit tests for `engmem.backfill`; the CLI surface lives in `tests/test_backfill_cli.py`."""
+"""Unit tests for `engmem.backfill`; the CLI surface lives in `tests/backfill/test_backfill_cli.py`."""
 
 from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 import stat
 import datetime
 
@@ -12,6 +11,7 @@ import pytest
 import yaml
 
 from support.docs import replaced, write_file
+from support.paths import REPO_ROOT
 from support.platform import requires_posix_modes, requires_symlinks
 
 from engmem import backfill
@@ -592,7 +592,7 @@ def test_extract_related_ids_behavior(body, self_id, expected):
 # ---------------------------------------------------------------------------
 
 
-CONTRACT = Path(__file__).resolve().parent.parent / "docs" / "design" / "contracts" / "backfill.md"
+CONTRACT = REPO_ROOT / "docs" / "design" / "contracts" / "backfill.md"
 
 
 def _contract_field_order() -> list[str]:

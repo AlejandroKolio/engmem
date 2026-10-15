@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from support.home import TRIGGER_RULE
+from support.paths import REPO_ROOT
 
 from engmem.cli import main
 
@@ -410,7 +411,7 @@ def test_chatgpt_install_prints_a_tunnel_command_that_launches_this_store(env, t
     assert "note: installed templates" not in out, "the tunnel command carries the store itself"
 
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = REPO_ROOT
 SETUP_SCRIPT = REPO / "scripts" / "setup-openai.sh"
 _UNNEGATED_PROTECTED = re.compile(r"(?<!not )\bprotected\b", re.IGNORECASE)
 # the exact claims, pinned here once: engmem observes neither bridge's access control

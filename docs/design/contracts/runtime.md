@@ -234,7 +234,7 @@ store, where every later read would trust them.
 - a swap between the listing and the open, and between the check and the open;
 - each re-read after a load;
 - which reparse points count as links, and a directory refused before it is opened;
-- a linked `sessions/` in the stray scan (`tests/test_doctor.py` covers it in doctor);
+- a linked `sessions/` in the stray scan (`tests/install/test_doctor.py` covers it in doctor);
 - a junction, on Windows only.
 
 ## Logs are written inside the store (US-23)

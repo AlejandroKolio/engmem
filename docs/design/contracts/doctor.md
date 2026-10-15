@@ -202,5 +202,5 @@ It fixes nothing. Every action is printed for the user to run (US-17 owns any gu
 walkthrough). It writes one probe file and removes it. It creates no directory, rewrites no
 config, saves no store choice and moves no document. It reads the configs, the templates, the
 instructions file and the listing of `sessions/`, never a document's content.
-`tests/test_doctor.py` compares byte snapshots of the whole sandbox, configs and store
+`tests/install/test_doctor.py` compares byte snapshots of the whole sandbox, configs and store
 included, before and after a run.
