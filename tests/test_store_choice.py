@@ -10,14 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    DRAFT_CONTENT,
-    FIXTURES,
-    claude_desktop_config_path,
-    redirect_home,
-    requires_permission_enforcement,
-    requires_symlinks,
-)
+from support.docs import DRAFT_CONTENT, FIXTURES
+from support.home import claude_desktop_config_path, redirect_home
+from support.platform import requires_permission_enforcement, requires_symlinks
 
 from engmem import runtime
 from engmem.cli import main

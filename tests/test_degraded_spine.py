@@ -2,7 +2,7 @@ import datetime
 from importlib import resources
 from pathlib import Path
 
-from conftest import write_file
+from support.docs import write_file
 
 from engmem.output import render_scoreboard
 from engmem.scoring import search

@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from conftest import requires_symlinks, write_file
-from mcp_harness import _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
+from support.platform import requires_symlinks
 
 from engmem import confined, spine
 from engmem.cli import main
@@ -209,12 +210,12 @@ def test_a_retained_version_behind_a_link_is_not_served(store, capsys, linked):
 def test_the_read_only_mcp_search_never_returns_the_linked_advice(store):
     _link_document(store)
 
-    _code, responses, _raw = _run(
+    _code, responses, _raw = rpc.run(
         store,
-        _tools_call_msg(1, arguments={"query": "PaymentCommand IdempotencyKey"}),
+        rpc.tools_call_msg(1, arguments={"query": "PaymentCommand IdempotencyKey"}),
         read_only=True,
     )
-    text = _text(responses[0]["result"])
+    text = rpc.text(responses[0]["result"])
 
     assert ALLOWED in text
     assert CANARY not in text and "1 failed to load" in text
@@ -224,14 +225,14 @@ def test_the_read_only_mcp_search_never_returns_the_linked_advice(store):
 def test_the_mcp_read_refuses_the_linked_document_and_says_why(store):
     _link_document(store)
 
-    _code, responses, _raw = _run(
-        store, _tools_call_msg(1, name="engmem_read", arguments={"id": LINKED})
+    _code, responses, _raw = rpc.run(
+        store, rpc.tools_call_msg(1, name="engmem_read", arguments={"id": LINKED})
     )
     result = responses[0]["result"]
 
     assert result.get("isError") is True
-    assert CANARY not in _text(result)
-    assert "passes through a link" in _text(result)
+    assert CANARY not in rpc.text(result)
+    assert "passes through a link" in rpc.text(result)
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +451,9 @@ def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, 
 
     monkeypatch.setattr(mcp_server, "parse_document", parse_then_link)
 
-    _code, responses, _raw = _run(
+    _code, responses, _raw = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name="engmem_mark_superseded",
             arguments={
@@ -465,7 +466,7 @@ def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, 
     result = responses[0]["result"]
 
     assert result.get("isError") is True
-    assert "passes through a link" in _text(result) and CANARY not in _text(result)
+    assert "passes through a link" in rpc.text(result) and CANARY not in rpc.text(result)
     assert path.is_symlink(), "the link was neither followed nor written over"
 
 

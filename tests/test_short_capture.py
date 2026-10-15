@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _prompts_get_msg, _run, _telemetry_lines, _text
+from support import rpc
+from support.docs import write_file
 
 from engmem import gate1, gate1_audit, mcp_server
 from engmem.cli import main
@@ -116,25 +116,25 @@ def _store(tmp_path: Path) -> Path:
 
 def _create(store: Path, record: str) -> str:
     doc_id = _front_matter_id(record)
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=mcp_server.CREATE_DRAFT_TOOL_NAME,
         arguments={"id": doc_id, "content": _draft_of(record)},
     )
-    assert not is_error, _text(result)
-    return re.search(r"version: ([0-9a-f]+)\)", _text(result)).group(1)
+    assert not is_error, rpc.text(result)
+    return re.search(r"version: ([0-9a-f]+)\)", rpc.text(result)).group(1)
 
 
 def _complete(store: Path, record: str, version: str) -> str:
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
         arguments={"id": _front_matter_id(record), "content": record, "expected_version": version},
     )
-    assert not is_error, _text(result)
-    return _text(result)
+    assert not is_error, rpc.text(result)
+    return rpc.text(result)
 
 
 def _attributed_search(store: Path, doc_id: str, query: str) -> None:
-    _, is_error = _call(
+    _, is_error = rpc.call(
         store, name=mcp_server.TOOL_NAME, arguments={"query": query, "session_id": doc_id}
     )
     assert not is_error
@@ -150,9 +150,9 @@ def _cli_search(store: Path, query: str, capsys) -> str:
 
 
 def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = _call(store, name=mcp_server.TOOL_NAME, arguments={"query": query})
+    result, is_error = rpc.call(store, name=mcp_server.TOOL_NAME, arguments={"query": query})
     assert not is_error
-    return _text(result)
+    return rpc.text(result)
 
 
 CHANNELS = [pytest.param(_cli_search, id="cli"), pytest.param(_mcp_search, id="mcp")]
@@ -215,7 +215,7 @@ def test_every_agent_receives_the_short_capture_as_written(agent, env, tmp_path)
     store = tmp_path / "store"
     if agent == "mcp":
         (store / "sessions").mkdir(parents=True)
-        _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem-save-quick"))
+        _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem-save-quick"))
         text = responses[0]["result"]["messages"][0]["content"]["text"]
     else:
         text = _installed_texts(agent, home, project, store)
@@ -375,8 +375,8 @@ def _answer_text(response: dict) -> str:
     result = response["result"]
     if "messages" in result:
         return result["messages"][0]["content"]["text"]
-    assert not result.get("isError"), _text(result)
-    return _text(result)
+    assert not result.get("isError"), rpc.text(result)
+    return rpc.text(result)
 
 
 def _replay(blocks: list[_Block], store: Path) -> list[str]:
@@ -419,7 +419,7 @@ def _replay(blocks: list[_Block], store: Path) -> list[str]:
                 assert message["params"]["arguments"]["content"] == confirmed
                 published.append(message["params"]["arguments"]["id"])
                 confirmed = None
-            _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": index, **message})
+            _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": index, **message})
             answer = _answer_text(responses[0])
             evidence.append(answer)
             expected = blocks[index + 1]
@@ -450,7 +450,7 @@ def test_the_acceptance_transcript_replays_against_a_fresh_store(tmp_path):
     audit = gate1_audit.evaluate(store, gate1.evaluate(store))
     assert not (audit.active_missing_reuse or audit.active_missing_trace)
     assert not (audit.unreconstructable_docs or audit.orphan_session_ids)
-    assert {row.get("session_id") for row in _telemetry_lines(store)} >= set(statuses)
+    assert {row.get("session_id") for row in rpc.telemetry_lines(store)} >= set(statuses)
 
 
 def test_a_source_only_the_agent_has_said_is_an_invention(tmp_path):

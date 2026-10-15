@@ -11,21 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, requires_permission_enforcement
-from mcp_harness import (
-    PROTOCOL_VERSION,
-    _call,
-    _initialize_msg,
-    _prompts_get_msg,
-    _result_text,
-    _role_tools_call_msg,
-    _run,
-    _stdin_of,
-    _stdin_of_messages,
-    _telemetry_lines,
-    _text,
-    _tools_call_msg,
-)
+from support import rpc
+from support.docs import FIXTURES
+from support.platform import requires_permission_enforcement
 
 from engmem import __version__, mcp_server
 from engmem.mcp_server import serve
@@ -58,7 +46,7 @@ def _real_stdout_must_stay_empty(capsys):
 
 
 # ---------------------------------------------------------------------------
-# helpers — the JSON-RPC plumbing itself lives in mcp_harness.py, shared with
+# helpers — the JSON-RPC plumbing itself lives in support/rpc.py, shared with
 # test_mcp_write_tools.py
 # ---------------------------------------------------------------------------
 
@@ -67,7 +55,7 @@ def _engmem_arg_name(store) -> str:
     """Discovered via prompts/list the way a real client would, so an argument rename cannot
     silently desync these tests."""
     list_msg = {"jsonrpc": "2.0", "id": 999, "method": "prompts/list"}
-    _, responses, _ = _run(store, list_msg)
+    _, responses, _ = rpc.run(store, list_msg)
     prompt = next(p for p in responses[0]["result"]["prompts"] if p["name"] == "engmem")
     return prompt["arguments"][0]["name"]
 
@@ -76,11 +64,11 @@ def _search_call(session_id=None) -> dict:
     arguments = {"query": "WidgetCache"}
     if session_id is not None:
         arguments["session_id"] = session_id
-    return _tools_call_msg(3, arguments=arguments)
+    return rpc.tools_call_msg(3, arguments=arguments)
 
 
 def _role_search_call(session_id=None) -> dict:
-    return _role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id=session_id)
+    return rpc.role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id=session_id)
 
 
 # The two read tools answer the same contract questions; each row names the store fixture its
@@ -136,11 +124,11 @@ def empty_store(tmp_path) -> Path:
 
 
 def test_initialize_returns_protocol_version_capabilities_and_server_info(store):
-    _, responses, _ = _run(store, _initialize_msg())
+    _, responses, _ = rpc.run(store, rpc.initialize_msg())
 
     assert len(responses) == 1
     result = responses[0]["result"]
-    assert result["protocolVersion"] == PROTOCOL_VERSION
+    assert result["protocolVersion"] == rpc.PROTOCOL_VERSION
     assert result["capabilities"] == {"tools": {}, "prompts": {}}
     assert result["serverInfo"] == {"name": "engmem", "version": __version__}
     assert responses[0]["id"] == 1
@@ -149,10 +137,10 @@ def test_initialize_returns_protocol_version_capabilities_and_server_info(store)
 
 def test_initialize_with_unsupported_client_version_does_not_error(store):
     # version negotiation: respond with the version we support, never error
-    _, responses, _ = _run(store, _initialize_msg(protocol_version="1999-01-01"))
+    _, responses, _ = rpc.run(store, rpc.initialize_msg(protocol_version="1999-01-01"))
 
     assert "error" not in responses[0]
-    assert responses[0]["result"]["protocolVersion"] == PROTOCOL_VERSION
+    assert responses[0]["result"]["protocolVersion"] == rpc.PROTOCOL_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +151,7 @@ def test_initialize_with_unsupported_client_version_does_not_error(store):
 
 def test_ping_returns_an_empty_result(store):
     msg = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     assert responses[0]["result"] == {}
     assert "error" not in responses[0]
@@ -186,7 +174,7 @@ def test_ping_returns_an_empty_result(store):
     ids=["valid_notification", "no_method", "wrong_jsonrpc_version"],
 )
 def test_a_notification_shaped_message_gets_no_response(store, notification):
-    exit_code, responses, raw = _run(store, notification)
+    exit_code, responses, raw = rpc.run(store, notification)
 
     assert exit_code == 0
     assert responses == []
@@ -195,7 +183,7 @@ def test_a_notification_shaped_message_gets_no_response(store, notification):
 
 def test_notifications_initialized_then_a_real_request_still_works(store):
     notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-    _, responses, _ = _run(store, notification, _initialize_msg(msg_id=7))
+    _, responses, _ = rpc.run(store, notification, rpc.initialize_msg(msg_id=7))
 
     assert len(responses) == 1  # the notification produced nothing
     assert responses[0]["id"] == 7
@@ -209,7 +197,7 @@ def test_notifications_initialized_then_a_real_request_still_works(store):
 def test_tools_list_exposes_engmem_search_first(store):
     """`engmem_search` stays first: every test that indexes `tools[0]` depends on this order."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     tools = responses[0]["result"]["tools"]
     tool = tools[0]
@@ -223,7 +211,7 @@ def test_tools_list_exposes_exactly_the_eight_documented_tools(store):
     than passing by omission. Role-addressed retrieval is a second named tool of its own, not a
     parameter bolted onto the first."""
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     tools = responses[0]["result"]["tools"]
     names = {tool["name"] for tool in tools}
@@ -241,7 +229,7 @@ def test_tools_list_exposes_exactly_the_eight_documented_tools(store):
 
 def test_tools_list_role_tool_schema_declares_role_enum_and_requires_it(store):
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     tools = {tool["name"]: tool for tool in responses[0]["result"]["tools"]}
     role_tool = tools["engmem_search_by_role"]
@@ -260,7 +248,7 @@ def test_tools_list_role_tool_schema_declares_role_enum_and_requires_it(store):
 
 def test_tools_list_input_schema_requires_string_query_and_leaves_session_id_optional(store):
     msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     schema = responses[0]["result"]["tools"][0]["inputSchema"]
     assert schema["type"] == "object"
@@ -275,7 +263,7 @@ def test_tools_list_input_schema_requires_string_query_and_leaves_session_id_opt
 
 
 def test_tools_call_hit_returns_same_rendered_shape_the_cli_prints(store):
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     result = responses[0]["result"]
     assert "isError" not in result
@@ -288,8 +276,8 @@ def test_tools_call_hit_returns_same_rendered_shape_the_cli_prints(store):
 
 
 def test_tools_call_no_match_returns_the_cli_no_match_sentence(store):
-    _, responses, _ = _run(
-        store, _tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"})
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"})
     )
 
     text = responses[0]["result"]["content"][0]["text"]
@@ -303,7 +291,7 @@ def test_a_tool_result_is_a_single_stdout_line_even_with_multiline_content(
 ):
     # a rendered result embeds whole section lines; the JSON encoding must escape those as \n,
     # not raw newlines, or the frame breaks
-    _, _, raw = _run(request.getfixturevalue(store_fixture), build_call())
+    _, _, raw = rpc.run(request.getfixturevalue(store_fixture), build_call())
 
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     assert len(lines) == 1
@@ -318,7 +306,7 @@ def test_a_tool_result_is_a_single_stdout_line_even_with_multiline_content(
     "message", [_search_call(), _role_search_call()], ids=["search", "role_search"]
 )
 def test_a_missing_store_is_reported_in_the_result_without_dying(empty_store, message):
-    exit_code, responses, _ = _run(empty_store, message)
+    exit_code, responses, _ = rpc.run(empty_store, message)
 
     assert exit_code == 0
     result = responses[0]["result"]
@@ -331,15 +319,15 @@ def test_a_missing_store_is_reported_in_the_result_without_dying(empty_store, me
 @pytest.mark.parametrize(
     "message",
     [
-        _tools_call_msg(3, arguments={}),
-        _tools_call_msg(3, arguments={"query": "   "}),
-        _tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"}),
-        _prompts_get_msg(5, name="not-a-real-prompt"),
+        rpc.tools_call_msg(3, arguments={}),
+        rpc.tools_call_msg(3, arguments={"query": "   "}),
+        rpc.tools_call_msg(3, name="not_a_real_tool", arguments={"query": "x"}),
+        rpc.prompts_get_msg(5, name="not-a-real-prompt"),
     ],
     ids=["missing_query", "blank_query", "unknown_tool", "unknown_prompt"],
 )
 def test_a_request_the_schema_does_not_admit_is_invalid_params(store, message):
-    _, responses, _ = _run(store, message)
+    _, responses, _ = rpc.run(store, message)
 
     assert responses[0]["error"]["code"] == -32602
 
@@ -361,7 +349,7 @@ def test_malformed_params_name_the_missing_field(store, method, params):
     msg = {"jsonrpc": "2.0", "id": 3, "method": method}
     if params is not _NO_PARAMS_KEY:
         msg["params"] = params
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     error = responses[0]["error"]
     assert error["code"] == -32602
@@ -386,8 +374,8 @@ def test_tools_call_unreadable_store_root_scan_is_a_tool_error_not_a_protocol_fa
     # spine's `stray_documents` is the seam the scan runs through, and the one this test drives
     monkeypatch.setattr("engmem.mcp_server.stray_documents", _boom)
 
-    exit_code, responses, _ = _run(
-        store, _tools_call_msg(3, arguments={"query": "WidgetCache"})
+    exit_code, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"})
     )
 
     assert exit_code == 0
@@ -420,7 +408,7 @@ Body text with no entities listed.
         encoding="utf-8",
     )
 
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     # asserted here, not drained and left for the autouse fixture: draining capsys inside the
     # test would make `_real_stdout_must_stay_empty`'s teardown check pass vacuously
@@ -445,7 +433,7 @@ def test_notification_shaped_tools_call_never_runs_the_store_scan(store, monkeyp
         "params": {"name": "engmem_search", "arguments": {"query": "WidgetCache"}},
     }
 
-    exit_code, responses, raw = _run(store, notification, _initialize_msg(msg_id=20))
+    exit_code, responses, raw = rpc.run(store, notification, rpc.initialize_msg(msg_id=20))
 
     assert calls == []
     assert exit_code == 0
@@ -478,12 +466,12 @@ WidgetCache serves cached widgets.
     (sessions / "broken-yaml.md").write_text("---\nid: broken\ntitle: no closing delimiter\n")
     (sessions / "shadow-dir.md").mkdir()  # a directory, not a file — unreadable as a doc
 
-    exit_code, responses, raw = _run(
-        tmp_path, _tools_call_msg(3, arguments={"query": "WidgetCache"})
+    exit_code, responses, raw = rpc.run(
+        tmp_path, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"})
     )
 
     assert exit_code == 0
-    # `_run` already asserts every stdout line parses as JSON; the explicit check here pins the
+    # `rpc.run` already asserts every stdout line parses as JSON; the explicit check here pins the
     # hazard this store shape creates — a raw print() leaking from an error-reporting path.
     for line in raw.splitlines():
         json.loads(line)
@@ -549,8 +537,8 @@ Follow-up notes about WidgetCache with no Decision Log section at all.
 
 
 def test_role_tool_returns_the_requested_role_section(role_store):
-    _, responses, _ = _run(
-        role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions")
+    _, responses, _ = rpc.run(
+        role_store, rpc.role_tools_call_msg(3, query="WidgetCache", role="decisions")
     )
 
     result = responses[0]["result"]
@@ -564,8 +552,8 @@ def test_role_tool_returns_the_requested_role_section(role_store):
 
 
 def test_role_tool_states_when_no_matched_document_has_the_role(role_store):
-    _, responses, _ = _run(
-        role_store, _role_tools_call_msg(3, query="WidgetCache", role="production")
+    _, responses, _ = rpc.run(
+        role_store, rpc.role_tools_call_msg(3, query="WidgetCache", role="production")
     )
 
     text = responses[0]["result"]["content"][0]["text"]
@@ -582,8 +570,8 @@ def test_role_tool_states_when_no_matched_document_has_the_role(role_store):
     ids=["missing_role", "unknown_role_value_names_valid_ones"],
 )
 def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, expected_substring):
-    _, responses, _ = _run(
-        role_store, _tools_call_msg(3, name="engmem_search_by_role", arguments=arguments)
+    _, responses, _ = rpc.run(
+        role_store, rpc.tools_call_msg(3, name="engmem_search_by_role", arguments=arguments)
     )
 
     error = responses[0]["error"]
@@ -592,12 +580,12 @@ def test_role_tool_bad_role_argument_is_invalid_params(role_store, arguments, ex
 
 
 def test_role_tool_writes_its_own_telemetry_line_with_role_and_session(role_store):
-    _run(
+    rpc.run(
         role_store,
-        _role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id="s-1"),
+        rpc.role_tools_call_msg(3, query="WidgetCache", role="decisions", session_id="s-1"),
     )
 
-    telemetry = _telemetry_lines(role_store)[-1]
+    telemetry = rpc.telemetry_lines(role_store)[-1]
     assert telemetry["role"] == "decisions"
     assert telemetry["session_id"] == "s-1"
     assert telemetry["surfaced"] == ["20260101-widget-cache"]
@@ -606,8 +594,8 @@ def test_role_tool_writes_its_own_telemetry_line_with_role_and_session(role_stor
 def test_role_tool_notes_stray_files_when_no_role_hits(role_store):
     (role_store / "some-stray-notes.md").write_text("not in sessions/", encoding="utf-8")
 
-    _, responses, _ = _run(
-        role_store, _role_tools_call_msg(3, query="WidgetCache", role="production")
+    _, responses, _ = rpc.run(
+        role_store, rpc.role_tools_call_msg(3, query="WidgetCache", role="production")
     )
 
     text = responses[0]["result"]["content"][0]["text"]
@@ -621,7 +609,7 @@ def test_role_tool_notes_stray_files_when_no_role_hits(role_store):
 
 def test_prompts_list_exposes_all_three_prompts(store):
     msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     prompts = responses[0]["result"]["prompts"]
     names = {p["name"] for p in prompts}
@@ -640,8 +628,8 @@ def test_prompt_descriptions_come_from_front_matter_not_body(store, prompt_name,
     """Both listings read the same front matter, so neither may fall back to the body's first
     line."""
     list_msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
-    _, list_responses, _ = _run(store, list_msg)
-    _, get_responses, _ = _run(store, _prompts_get_msg(5, name=prompt_name))
+    _, list_responses, _ = rpc.run(store, list_msg)
+    _, get_responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name=prompt_name))
 
     listed = {p["name"]: p for p in list_responses[0]["result"]["prompts"]}[prompt_name]
     assert expected_phrase in listed["description"].lower()
@@ -650,7 +638,7 @@ def test_prompt_descriptions_come_from_front_matter_not_body(store, prompt_name,
 
 def test_prompts_list_engmem_declares_one_argument_the_others_declare_none(store):
     msg = {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     by_name = {p["name"]: p for p in responses[0]["result"]["prompts"]}
     assert len(by_name["engmem"]["arguments"]) == 1
@@ -667,7 +655,7 @@ def test_prompts_list_engmem_declares_one_argument_the_others_declare_none(store
 
 
 def test_prompts_get_strips_yaml_front_matter_from_the_body(store):
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem-save"))
+    _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem-save"))
 
     text = responses[0]["result"]["messages"][0]["content"]["text"]
     assert not text.lstrip().startswith("---")
@@ -675,7 +663,7 @@ def test_prompts_get_strips_yaml_front_matter_from_the_body(store):
 
 
 def test_prompts_get_message_shape_is_a_single_user_text_message(store):
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem-save-quick"))
+    _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem-save-quick"))
 
     messages = responses[0]["result"]["messages"]
     assert len(messages) == 1
@@ -686,10 +674,10 @@ def test_prompts_get_message_shape_is_a_single_user_text_message(store):
 
 def test_prompts_get_engmem_substitutes_supplied_argument_into_arguments_placeholder(store):
     arg_name = _engmem_arg_name(store)
-    msg = _prompts_get_msg(
+    msg = rpc.prompts_get_msg(
         5, name="engmem", arguments={arg_name: "roll out WidgetCache eviction"}
     )
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     text = responses[0]["result"]["messages"][0]["content"]["text"]
     assert "roll out WidgetCache eviction" in text
@@ -706,7 +694,7 @@ def test_prompts_get_an_absent_or_empty_argument_substitutes_to_empty_not_the_li
     store, supplied
 ):
     arguments = None if supplied is None else {_engmem_arg_name(store): supplied}
-    _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem", arguments=arguments))
+    _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem", arguments=arguments))
 
     text = responses[0]["result"]["messages"][0]["content"]["text"]
     assert "$ARGUMENTS" not in text
@@ -718,8 +706,8 @@ def test_prompts_get_an_absent_or_empty_argument_substitutes_to_empty_not_the_li
 )
 def test_prompts_get_non_string_argument_is_rejected_not_stringified(store, bad_value):
     arg_name = _engmem_arg_name(store)
-    msg = _prompts_get_msg(5, name="engmem", arguments={arg_name: bad_value})
-    _, responses, _ = _run(store, msg)
+    msg = rpc.prompts_get_msg(5, name="engmem", arguments={arg_name: bad_value})
+    _, responses, _ = rpc.run(store, msg)
 
     error = responses[0]["error"]
     assert error["code"] == -32602
@@ -780,7 +768,7 @@ def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(sto
     # an object or array `name` is unhashable: looked up in PROMPT_TEMPLATES it raises
     # TypeError, which the last-resort guard would report as -32603 — a client's malformed
     # request dressed up as a server bug
-    _, responses, _ = _run(store, _prompts_get_msg(5, name=bad_name))
+    _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name=bad_name))
 
     error = responses[0]["error"]
     assert error["code"] == -32602
@@ -804,7 +792,7 @@ def test_prompts_get_non_string_name_is_invalid_params_not_an_internal_error(sto
 def test_an_unparseable_line_returns_parse_error_and_the_loop_keeps_running(
     store, unparseable_line
 ):
-    stdin = _stdin_of(unparseable_line, json.dumps(_initialize_msg(msg_id=9)))
+    stdin = rpc.stdin_of(unparseable_line, json.dumps(rpc.initialize_msg(msg_id=9)))
     stdout = io.StringIO()
 
     exit_code = serve(store, stdin=stdin, stdout=stdout)
@@ -815,20 +803,20 @@ def test_an_unparseable_line_returns_parse_error_and_the_loop_keeps_running(
     assert first["error"]["code"] == -32700
     second = json.loads(lines[1])
     assert second["id"] == 9
-    assert second["result"]["protocolVersion"] == PROTOCOL_VERSION
+    assert second["result"]["protocolVersion"] == rpc.PROTOCOL_VERSION
     assert exit_code == 0
 
 
 def test_unknown_method_returns_method_not_found_and_the_loop_keeps_running(store):
     unknown = {"jsonrpc": "2.0", "id": 10, "method": "totally/unknown"}
-    _, responses, _ = _run(store, unknown, _initialize_msg(msg_id=11))
+    _, responses, _ = rpc.run(store, unknown, rpc.initialize_msg(msg_id=11))
 
     assert responses[0]["error"]["code"] == -32601
     assert responses[1]["id"] == 11
 
 
 def test_blank_and_whitespace_only_lines_produce_no_response(store):
-    stdin = _stdin_of("", "   ", "\t", json.dumps(_initialize_msg(msg_id=12)))
+    stdin = rpc.stdin_of("", "   ", "\t", json.dumps(rpc.initialize_msg(msg_id=12)))
     stdout = io.StringIO()
 
     serve(store, stdin=stdin, stdout=stdout)
@@ -871,7 +859,7 @@ def test_stdin_closing_makes_serve_return_cleanly(store):
     ids=["in_the_id", "in_a_prompt_name", "in_a_tool_argument", "in_a_params_key"],
 )
 def test_an_unpaired_surrogate_anywhere_in_a_message_is_invalid_request(store, message):
-    stdin = _stdin_of(json.dumps(message), json.dumps(_initialize_msg(msg_id=14)))
+    stdin = rpc.stdin_of(json.dumps(message), json.dumps(rpc.initialize_msg(msg_id=14)))
     stdout = io.StringIO()
 
     exit_code = serve(store, stdin=stdin, stdout=stdout)
@@ -892,15 +880,15 @@ def test_an_unpaired_surrogate_anywhere_in_a_message_is_invalid_request(store, m
 def test_a_valid_surrogate_pair_is_not_mistaken_for_an_unpaired_one(store):
     """Guard against over-rejection: an astral character arrives as two `\\u` escapes that the
     decoder joins into one code point, which encodes to UTF-8 perfectly well."""
-    msg = _tools_call_msg(15, arguments={"query": "widget \U0001f600 cache"})
-    _, responses, _ = _run(store, msg)
+    msg = rpc.tools_call_msg(15, arguments={"query": "widget \U0001f600 cache"})
+    _, responses, _ = rpc.run(store, msg)
 
     assert "error" not in responses[0], responses[0]
     assert responses[0]["result"]["content"][0]["text"]
 
 
 def test_a_non_object_top_level_message_is_invalid_request(store):
-    stdin = _stdin_of(json.dumps([1, 2, 3]))
+    stdin = rpc.stdin_of(json.dumps([1, 2, 3]))
     stdout = io.StringIO()
 
     serve(store, stdin=stdin, stdout=stdout)
@@ -925,7 +913,7 @@ def test_a_non_object_top_level_message_is_invalid_request(store):
     ids=["wrong_version_string", "wrong_version_type", "field_missing"],
 )
 def test_invalid_jsonrpc_field_is_invalid_request(store, message):
-    _, responses, _ = _run(store, message)
+    _, responses, _ = rpc.run(store, message)
 
     assert responses[0]["error"]["code"] == -32600
 
@@ -943,7 +931,7 @@ def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method
     msg = {"jsonrpc": "2.0", "id": 1, "params": {}}
     if method is not None:
         msg["method"] = method
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     assert responses[0]["error"]["code"] == -32600
     assert "method" in responses[0]["error"]["message"].lower()
@@ -963,7 +951,7 @@ def test_missing_or_malformed_method_with_an_id_is_invalid_request(store, method
 )
 def test_a_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store, bad_id):
     msg = {"jsonrpc": "2.0", "id": bad_id, "method": "initialize", "params": {}}
-    _, responses, _ = _run(store, msg)
+    _, responses, _ = rpc.run(store, msg)
 
     assert responses[0]["error"]["code"] == -32600
     # the error's own id is null, never an echo of an id that could not be trusted in the first place
@@ -973,10 +961,10 @@ def test_a_non_scalar_id_is_invalid_request_with_a_null_id_in_the_response(store
 def test_falsy_ids_zero_and_empty_string_are_still_handled_correctly(store):
     # Regression guard: `"id" in message` must keep being used to detect
     # presence, never truthiness — `0` and `""` are valid ids.
-    _, zero_responses, _ = _run(store, _initialize_msg(msg_id=0))
+    _, zero_responses, _ = rpc.run(store, rpc.initialize_msg(msg_id=0))
     assert zero_responses[0]["id"] == 0
 
-    _, blank_responses, _ = _run(store, _initialize_msg(msg_id=""))
+    _, blank_responses, _ = rpc.run(store, rpc.initialize_msg(msg_id=""))
     assert blank_responses[0]["id"] == ""
 
 
@@ -998,7 +986,7 @@ class _BrokenPipeStdout:
 
 
 def test_broken_pipe_while_writing_exits_cleanly_without_raising(store):
-    stdin = _stdin_of_messages(_initialize_msg())
+    stdin = rpc.stdin_of_messages(rpc.initialize_msg())
 
     exit_code = serve(store, stdin=stdin, stdout=_BrokenPipeStdout())
 
@@ -1021,7 +1009,7 @@ def test_broken_pipe_teardown_leaves_the_stdout_fd_pointing_somewhere_harmless(s
     120 instead of 0."""
     read_fd, write_fd = os.pipe()
     os.close(read_fd)
-    stdin = _stdin_of_messages(_initialize_msg())
+    stdin = rpc.stdin_of_messages(rpc.initialize_msg())
 
     try:
         exit_code = serve(store, stdin=stdin, stdout=_BrokenPipeStdoutOnARealFd(write_fd))
@@ -1072,9 +1060,9 @@ def test_a_tool_result_reports_an_unreadable_subdirectory(tmp_path, monkeypatch,
 
 
 def test_tools_call_writes_a_telemetry_line(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
-    rows = _telemetry_lines(store)
+    rows = rpc.telemetry_lines(store)
     assert len(rows) == 1
     assert rows[0]["query"] == "WidgetCache"
     assert rows[0]["result"] == "hit"
@@ -1094,9 +1082,9 @@ def test_tools_call_writes_a_telemetry_line(store):
 def test_the_session_id_argument_is_logged_the_same_way_the_cli_logs_it(store, session_id, logged):
     """Blank is absent, not an unknown session, and the value is stripped — both mirroring
     cli.py's `_session_id`. The key is always present, so an unattributed row is explicit."""
-    _run(store, _search_call(session_id))
+    rpc.run(store, _search_call(session_id))
 
-    row = _telemetry_lines(store)[0]
+    row = rpc.telemetry_lines(store)[0]
     assert "session_id" in row
     assert row["session_id"] == logged
 
@@ -1117,9 +1105,9 @@ UNATTRIBUTED_NOTE = "note: unattributed search — pass session_id <draft-id>"
 def test_the_unattributed_note_ends_exactly_the_searches_with_no_session_id(
     request, store_fixture, build_call, session_id, note_expected
 ):
-    _, responses, _ = _run(request.getfixturevalue(store_fixture), build_call(session_id))
+    _, responses, _ = rpc.run(request.getfixturevalue(store_fixture), build_call(session_id))
 
-    text = _result_text(responses)
+    text = rpc.result_text(responses)
     lines = text.rstrip("\n").splitlines()
     if note_expected:
         assert lines[-1] == UNATTRIBUTED_NOTE
@@ -1132,9 +1120,9 @@ def test_the_unattributed_note_ends_exactly_the_searches_with_no_session_id(
 def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store):
     (store / "telemetry.jsonl").mkdir()
 
-    _, responses, _ = _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
-    tail = _result_text(responses).rstrip("\n").splitlines()[-3:]
+    tail = rpc.result_text(responses).rstrip("\n").splitlines()[-3:]
     assert tail[0].startswith("docs: ")
     assert tail[1].startswith("note: telemetry not recorded")
     assert tail[2] == UNATTRIBUTED_NOTE
@@ -1142,13 +1130,13 @@ def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store):
 
 
 def test_the_unattributed_note_does_not_inflate_context_bytes(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
-    _run(
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(
         store,
-        _tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": "20260823-draft"}),
+        rpc.tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": "20260823-draft"}),
     )
 
-    rows = _telemetry_lines(store)
+    rows = rpc.telemetry_lines(store)
     assert rows[0]["context_bytes"] == rows[1]["context_bytes"]
 
 
@@ -1158,20 +1146,20 @@ def test_the_unattributed_note_does_not_inflate_context_bytes(store):
 def test_non_string_session_id_is_rejected_not_stringified(store, bad_value):
     """A wrongly-typed value is a malformed request, not something to coerce — `str()` on a dict
     would log Python repr syntax."""
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": bad_value}),
+        rpc.tools_call_msg(3, arguments={"query": "WidgetCache", "session_id": bad_value}),
     )
 
     assert responses[0]["error"]["code"] == -32602
     assert "session_id" in responses[0]["error"]["message"]
-    assert _telemetry_lines(store) == [], "a rejected call must not be logged as a search"
+    assert rpc.telemetry_lines(store) == [], "a rejected call must not be logged as a search"
 
 
 def test_a_search_that_found_nothing_is_still_logged(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"}))
 
-    rows = _telemetry_lines(store)
+    rows = rpc.telemetry_lines(store)
     assert len(rows) == 1
     assert rows[0]["result"] == "miss"
     assert rows[0]["surfaced"] == []
@@ -1180,9 +1168,9 @@ def test_a_search_that_found_nothing_is_still_logged(store):
 def test_missing_store_is_not_logged_as_a_search(empty_store):
     """No store means no measurement; a row here would inflate the search count with runs that
     never happened."""
-    _run(empty_store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(empty_store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
-    assert _telemetry_lines(empty_store) == []
+    assert rpc.telemetry_lines(empty_store) == []
 
 
 @pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
@@ -1193,16 +1181,16 @@ def test_a_telemetry_failure_note_reaches_the_agent_without_breaking_the_protoco
     store = request.getfixturevalue(store_fixture)
     (store / "telemetry.jsonl").mkdir()
 
-    _, responses, _ = _run(store, build_call())
+    _, responses, _ = rpc.run(store, build_call())
 
-    text = _result_text(responses)
+    text = rpc.result_text(responses)
     assert "note: telemetry not recorded" in text
     assert "20260101-widget-cache" in text, "the search result itself must still be complete"
     assert "isError" not in responses[0]["result"], "the search succeeded; only the log failed"
 
 
 def _search_tools(store) -> dict:
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tools = {t["name"]: t for t in responses[0]["result"]["tools"]}
     return {name: tools[name] for name in (mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME)}
 
@@ -1241,25 +1229,25 @@ def test_a_read_tool_records_mcp_as_the_channel(request, store_fixture, build_ca
     """A Desktop search and a terminal search stay distinguishable in telemetry.jsonl."""
     store = request.getfixturevalue(store_fixture)
 
-    _run(store, build_call())
+    rpc.run(store, build_call())
 
-    assert _telemetry_lines(store)[-1]["channel"] == "mcp"
+    assert rpc.telemetry_lines(store)[-1]["channel"] == "mcp"
 
 
 def test_tools_call_context_bytes_matches_the_rendered_result_for_a_hit(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
     docs = load_store(store / "sessions").docs
     outcome = run_search(docs, "WidgetCache")
     expected_text = render_search_results(outcome, docs)
 
-    assert _telemetry_lines(store)[0]["context_bytes"] == len(expected_text.encode("utf-8"))
+    assert rpc.telemetry_lines(store)[0]["context_bytes"] == len(expected_text.encode("utf-8"))
 
 
 def test_tools_call_context_bytes_is_near_zero_for_a_miss(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"}))
 
-    row = _telemetry_lines(store)[0]
+    row = rpc.telemetry_lines(store)[0]
     expected = len(render_no_match().encode("utf-8"))
     assert row["context_bytes"] == expected
     assert row["context_bytes"] < 50, "a miss must put almost nothing in context"
@@ -1269,32 +1257,32 @@ def test_tools_call_context_bytes_excludes_the_stray_files_note(store):
     """Stray-file housekeeping is not prior-document content and must not inflate `context_bytes`."""
     (store / "some-stray-notes.md").write_text("not in sessions/", encoding="utf-8")
 
-    _, responses, _ = _run(
-        store, _tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"})
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(3, arguments={"query": "SomethingNeverIndexed"})
     )
     text = responses[0]["result"]["content"][0]["text"]
     assert "sit outside the searched set" in text, "the stray note must still render"
 
-    row = _telemetry_lines(store)[0]
+    row = rpc.telemetry_lines(store)[0]
     assert row["context_bytes"] == len(render_no_match().encode("utf-8"))
 
 
 def test_role_tool_context_bytes_matches_the_rendered_role_result(role_store):
-    _run(role_store, _role_tools_call_msg(3, query="WidgetCache", role="decisions"))
+    rpc.run(role_store, rpc.role_tools_call_msg(3, query="WidgetCache", role="decisions"))
 
     docs = load_store(role_store / "sessions").docs
     outcome, role_map = search_with_role_sections(docs, "WidgetCache")
     expected_text = render_role_search_results(outcome, role_map, "decisions")
 
-    assert _telemetry_lines(role_store)[-1]["context_bytes"] == len(
+    assert rpc.telemetry_lines(role_store)[-1]["context_bytes"] == len(
         expected_text.encode("utf-8")
     )
 
 
 def test_tools_call_records_a_token_estimate_derived_from_context_bytes(store):
-    _run(store, _tools_call_msg(3, arguments={"query": "WidgetCache"}))
+    rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
 
-    row = _telemetry_lines(store)[0]
+    row = rpc.telemetry_lines(store)[0]
     assert row["context_tokens_estimate"] == estimate_tokens(row["context_bytes"])
 
 
@@ -1310,7 +1298,7 @@ def test_an_unreadable_store_is_a_tool_error_not_an_internal_error(tmp_path):
     # and `load_store` then reports the unlistable directory in its own words
     os.chmod(store, 0o000)
     try:
-        _, responses, _ = _run(
+        _, responses, _ = rpc.run(
             store,
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
              "params": {"name": "engmem_search", "arguments": {"query": "anything"}}},
@@ -1336,13 +1324,13 @@ def test_an_unlistable_sessions_directory_reads_unknown_not_zero_over_mcp(tmp_pa
     (sessions / "control.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
     os.chmod(sessions, 0o000)
     try:
-        result, is_error = _call(tmp_path / "store", name="engmem_search", arguments={"query": "hello"})
+        result, is_error = rpc.call(tmp_path / "store", name="engmem_search", arguments={"query": "hello"})
     finally:
         os.chmod(sessions, 0o755)
 
     assert not is_error
-    first = _text(result).splitlines()[0]
-    assert first.startswith("error: ") and "unknown, not zero" in first, _text(result)
+    first = rpc.text(result).splitlines()[0]
+    assert first.startswith("error: ") and "unknown, not zero" in first, rpc.text(result)
 
 
 PARITY_QUERIES = [
@@ -1367,9 +1355,9 @@ def test_mcp_text_is_the_cli_stdout_with_the_channels_own_note(tmp_path, capsys,
     cli_stdout = capsys.readouterr().out
     arguments = {"query": query, **({"role": role} if role else {})}
     name = "engmem_search_by_role" if role else "engmem_search"
-    result, is_error = _call(store, name=name, arguments=arguments)
+    result, is_error = rpc.call(store, name=name, arguments=arguments)
 
     assert not is_error
-    assert _text(result) == cli_stdout.rstrip("\n").replace(
+    assert rpc.text(result) == cli_stdout.rstrip("\n").replace(
         UNATTRIBUTED_CLI_NOTE, UNATTRIBUTED_MCP_NOTE
     )

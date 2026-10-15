@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         # POSIX-only tests (chmod-based permission checks, symlink containment)
-        # skip themselves on Windows via tests/conftest.py rather than failing.
+        # skip themselves on Windows via tests/support/platform.py rather than failing.
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
 

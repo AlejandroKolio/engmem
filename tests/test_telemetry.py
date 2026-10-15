@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from conftest import fixture_docs, requires_permission_enforcement
+from support.docs import fixture_docs
+from support.platform import requires_permission_enforcement
 
 import engmem.telemetry as telemetry
 from engmem.output import SCOPE_NAME_DISPLAY_MAX, RoleHit

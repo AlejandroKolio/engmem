@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _text
+from support import rpc
+from support.docs import write_file
 
 from engmem import cache
 from engmem.cli import main
@@ -97,9 +97,9 @@ def _cli_search(store: Path, query: str, capsys) -> str:
 
 
 def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": query})
+    result, is_error = rpc.call(store, name="engmem_search", arguments={"query": query})
     assert not is_error
-    return _text(result)
+    return rpc.text(result)
 
 
 def _result_lines(output: str) -> list[str]:

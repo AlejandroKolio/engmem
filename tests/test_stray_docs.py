@@ -6,10 +6,8 @@ import shutil
 
 import pytest
 
-from conftest import (
-    FIXTURES,
-    requires_permission_enforcement,
-)
+from support.docs import FIXTURES
+from support.platform import requires_permission_enforcement
 
 from engmem.cli import main
 

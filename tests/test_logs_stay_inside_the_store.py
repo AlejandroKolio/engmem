@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import requires_permission_enforcement, requires_symlinks, write_file
-from mcp_harness import _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
+from support.platform import requires_permission_enforcement, requires_symlinks
 
 from engmem import confined
 from engmem.cli import main
@@ -119,10 +120,10 @@ def test_a_linked_log_is_never_appended_to_and_the_miss_is_shown(
 def test_the_read_only_mcp_search_does_not_append_telemetry_through_a_link(store, writer):
     outside = _sentinel(store, "telemetry.jsonl")
 
-    _code, responses, _raw = _run(
-        store, _tools_call_msg(1, arguments={"query": QUERY}), read_only=True
+    _code, responses, _raw = rpc.run(
+        store, rpc.tools_call_msg(1, arguments={"query": QUERY}), read_only=True
     )
-    text = _text(responses[0]["result"])
+    text = rpc.text(responses[0]["result"])
 
     assert outside.read_bytes() == SENTINEL
     assert FOUND in text and "telemetry not recorded" in text
@@ -145,10 +146,10 @@ def test_the_mcp_write_paths_do_not_append_through_a_link(store, capsys, log, na
     _search(capsys, store)
     outside = _sentinel(store, log)
 
-    _code, responses, _raw = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
+    _code, responses, _raw = rpc.run(store, rpc.tools_call_msg(1, name=name, arguments=arguments))
 
     assert outside.read_bytes() == SENTINEL
-    assert "passes through a link" in _text(responses[0]["result"])
+    assert "passes through a link" in rpc.text(responses[0]["result"])
 
 
 @requires_symlinks

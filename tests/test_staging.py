@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from conftest import requires_posix_modes, requires_symlinks
+from support.platform import requires_posix_modes, requires_symlinks
 
 from engmem import staging
 from engmem.staging import commit, commit_new, discard, stage

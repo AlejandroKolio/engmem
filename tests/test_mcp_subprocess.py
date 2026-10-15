@@ -7,16 +7,12 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
-from conftest import (
-    ACTIVE_CONTENT,
-    DRAFT_CONTENT,
-    requires_symlinks,
-)
-from mcp_harness import versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.platform import requires_symlinks
 
 from engmem.spine import load_store
 
@@ -25,67 +21,12 @@ requires_broken_pipe_semantics = pytest.mark.skipif(
     reason="Windows has no SIGPIPE/EPIPE write semantics to exercise here",
 )
 
-ENGMEM_BIN = Path(sys.executable).parent / (
-    "engmem.exe" if sys.platform == "win32" else "engmem"
-)
-
-
-class _Client:
-    """Records every line read from the child's stdout, so one teardown assertion covers the whole
-    session, not just inspected calls."""
-
-    def __init__(self, store: Path, *flags: str) -> None:
-        assert ENGMEM_BIN.exists(), f"expected installed console script at {ENGMEM_BIN}"
-        self.proc = subprocess.Popen(
-            [str(ENGMEM_BIN), "mcp", "--store", str(store), *flags],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-        )
-        self.all_stdout_lines: list[str] = []
-        self._next_id = 1
-
-    def call(self, method: str, params: dict | None = None) -> dict:
-        msg_id = self._next_id
-        self._next_id += 1
-        request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
-        if params is not None:
-            request["params"] = params
-        assert self.proc.stdin is not None and self.proc.stdout is not None
-        self.proc.stdin.write(json.dumps(request) + "\n")
-        self.proc.stdin.flush()
-
-        line = self.proc.stdout.readline()
-        assert line, (
-            "subprocess closed stdout with no response — stderr:\n"
-            f"{self.proc.stderr.read() if self.proc.stderr else ''}"
-        )
-        self.all_stdout_lines.append(line)
-        response = json.loads(line)  # raises loudly if a frame is not valid JSON
-        assert response.get("id") == msg_id
-        return response
-
-    def tool_call(self, name: str, arguments: dict) -> dict:
-        response = self.call(
-            "tools/call", {"name": name, "arguments": arguments}
-        )
-        assert "result" in response, f"expected a tool result, got {response!r}"
-        return response["result"]
-
-    def close(self) -> None:
-        assert self.proc.stdin is not None
-        self.proc.stdin.close()
-        self.proc.wait(timeout=5)
-
 
 @pytest.fixture
 def client(tmp_path):
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
-    c = _Client(store)
+    c = rpc.McpClient(store)
     c.store = store  # type: ignore[attr-defined]
     yield c
     c.close()
@@ -123,7 +64,7 @@ def test_create_then_complete_then_search_over_a_real_subprocess(client):
     # --- complete the draft: status draft -> active, body sections present ---
     complete_result = client.tool_call(
         "engmem_complete_draft",
-        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        rpc.versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
     assert not complete_result.get("isError"), _result_text(complete_result)
 
@@ -168,7 +109,7 @@ def test_sessions_symlink_escape_is_refused_over_a_real_subprocess(tmp_path):
     store.mkdir()
     (store / "sessions").symlink_to(outside, target_is_directory=True)
 
-    c = _Client(store)
+    c = rpc.McpClient(store)
     c.store = store  # type: ignore[attr-defined]
     try:
         c.call("initialize", {"protocolVersion": "2025-06-18"})
@@ -191,12 +132,12 @@ def test_mark_superseded_over_a_real_subprocess(client):
     )
     client.tool_call(
         "engmem_complete_draft",
-        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        rpc.versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     supersede_result = client.tool_call(
         "engmem_mark_superseded",
-        versioned(
+        rpc.versioned(
             client.store,
             {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"},
         ),
@@ -211,7 +152,7 @@ def test_mark_superseded_over_a_real_subprocess(client):
 
 # ---------------------------------------------------------------------------
 # telemetry `channel` — a CLI search (`engmem search`, a plain subprocess) and
-# an MCP search (this file's `_Client`, a real `engmem mcp` subprocess) against
+# an MCP search (`rpc.McpClient`, a real `engmem mcp` subprocess) against
 # the SAME store must both land in `telemetry.jsonl`, distinguishable from each
 # other by `channel`, so the two populations can never silently merge.
 # ---------------------------------------------------------------------------
@@ -224,14 +165,14 @@ def test_cli_and_mcp_searches_against_the_same_store_are_distinguishable_by_chan
     )
     client.tool_call(
         "engmem_complete_draft",
-        versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        rpc.versioned(client.store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     mcp_result = client.tool_call("engmem_search", {"query": "WidgetCache CacheWarmer"})
     assert not mcp_result.get("isError"), _result_text(mcp_result)
 
     cli_run = subprocess.run(
-        [str(ENGMEM_BIN), "search", "WidgetCache", "--store", str(client.store)],
+        [str(rpc.ENGMEM_BIN), "search", "WidgetCache", "--store", str(client.store)],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -262,7 +203,7 @@ def test_broken_pipe_on_the_real_process_stdout_exits_cleanly_without_a_tracebac
     (store / "sessions").mkdir(parents=True)
 
     proc = subprocess.Popen(
-        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        [str(rpc.ENGMEM_BIN), "mcp", "--store", str(store)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -295,7 +236,7 @@ def test_a_block_buffered_stdout_leaves_nothing_for_the_interpreter_shutdown_flu
     env = {key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"}
 
     proc = subprocess.Popen(
-        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        [str(rpc.ENGMEM_BIN), "mcp", "--store", str(store)],
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -335,7 +276,7 @@ def test_an_undecodable_stdin_byte_does_not_kill_the_session(tmp_path):
         LC_ALL="en_US.UTF-8",
     )
     proc = subprocess.Popen(
-        [str(ENGMEM_BIN), "mcp", "--store", str(store)],
+        [str(rpc.ENGMEM_BIN), "mcp", "--store", str(store)],
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -365,7 +306,7 @@ def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protoc
     (store / "sessions").mkdir(parents=True)
     (store / "telemetry.jsonl").mkdir()
 
-    c = _Client(store)
+    c = rpc.McpClient(store)
     c.store = store  # type: ignore[attr-defined]
     try:
         c.call("initialize", {"protocolVersion": "2025-06-18"})
@@ -374,7 +315,7 @@ def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protoc
         )
         c.tool_call(
             "engmem_complete_draft",
-            versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+            rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
         )
 
         result = c.tool_call("engmem_search", {"query": "WidgetCache CacheWarmer"})
@@ -393,7 +334,7 @@ def test_telemetry_write_failure_over_a_real_subprocess_leaves_search_and_protoc
 def test_read_only_flag_reaches_the_real_server(tmp_path):
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
-    c = _Client(store, "--read-only")
+    c = rpc.McpClient(store, "--read-only")
     try:
         tools = [tool["name"] for tool in c.call("tools/list")["result"]["tools"]]
         refused = c.call(

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import TRIGGER_RULE
+from support.home import TRIGGER_RULE
 
 from engmem.cli import main
 

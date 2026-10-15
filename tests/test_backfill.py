@@ -11,11 +11,8 @@ import datetime
 import pytest
 import yaml
 
-from conftest import (
-    requires_posix_modes,
-    requires_symlinks,
-    write_file,
-)
+from support.docs import write_file
+from support.platform import requires_posix_modes, requires_symlinks
 
 from engmem import backfill
 

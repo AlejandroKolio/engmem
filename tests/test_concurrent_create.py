@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, requires_symlinks
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.platform import requires_symlinks
 
 from engmem import drafts, mcp_server, staging
 from engmem.scoring import search
@@ -66,12 +67,12 @@ def test_a_creator_that_lands_after_the_existence_check_is_refused_not_overwritt
 
     monkeypatch.setattr(drafts, "stage_content", stage_after_another_creator)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "second")}
     )
 
     assert is_error, "the second creator was told it succeeded"
-    assert DOC_ID in _text(result) and "already exists" in _text(result)
+    assert DOC_ID in rpc.text(result) and "already exists" in rpc.text(result)
     assert target.read_bytes() == other_writer.encode("utf-8")
     assert _sessions_files(store) == [f"{DOC_ID}.md"], "the staged file must be gone"
 
@@ -135,12 +136,12 @@ def test_re_creating_an_existing_id_is_refused_and_leaves_it_byte_identical(stor
     target = store / "sessions" / f"{DOC_ID}.md"
     target.write_bytes(existing.encode("utf-8"))
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "late")}
     )
 
     assert is_error
-    assert DOC_ID in _text(result) and "already exists" in _text(result)
+    assert DOC_ID in rpc.text(result) and "already exists" in rpc.text(result)
     assert target.read_bytes() == existing.encode("utf-8")
     assert _sessions_files(store) == [f"{DOC_ID}.md"]
 
@@ -159,12 +160,12 @@ def test_a_symlink_planted_after_the_checks_is_never_written_through(store, monk
 
     monkeypatch.setattr(drafts, "stage_content", stage_after_a_link_appears)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "late")}
     )
 
     assert is_error
-    assert "already exists" in _text(result)
+    assert "already exists" in rpc.text(result)
     assert target.is_symlink()
     assert not outside.exists()
 
@@ -197,7 +198,7 @@ def test_a_staged_file_left_by_a_crash_is_never_a_search_result(store):
 
     assert loaded.docs == [] and loaded.errors == []
     assert search(loaded.docs, UNIQUE_TERM).hits == []
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "retry")}
     )
     assert not is_error, "the leftover must not block the id either"
@@ -211,7 +212,7 @@ def test_a_link_failure_that_is_not_missing_hard_links_is_a_fault_not_a_success(
 
     monkeypatch.setattr(staging.os, "link", io_error)
 
-    _, responses, _ = _run(store, _tools_call_msg(
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(
         1, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "mine")}
     ))
 

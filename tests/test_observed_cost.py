@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import pytest
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
 
 from engmem import cost, mcp_server, read_report, versions
 from engmem.cli import main
@@ -87,16 +87,16 @@ def _delivered(stdout: str) -> int:
 def test_each_delivery_counts_the_bytes_of_the_whole_response_it_sent(store, capsys):
     searched = _cli_ok(capsys, store, "search", QUERY, "--session", SESSION)
     read = _cli_ok(capsys, store, "read", "widget-cache", "--session", SESSION)
-    result, is_error = _call(store, name=READ_TOOL, arguments={"id": "widget-cache", "session_id": SESSION})
+    result, is_error = rpc.call(store, name=READ_TOOL, arguments={"id": "widget-cache", "session_id": SESSION})
     assert not is_error
-    mcp_search, _ = _call(store, name="engmem_search", arguments={"query": QUERY, "session_id": SESSION})
+    mcp_search, _ = rpc.call(store, name="engmem_search", arguments={"query": QUERY, "session_id": SESSION})
 
     rows = _rows(store)
     assert [(r["op"], r["channel"], r["bytes"]) for r in rows] == [
         ("search", "cli", _delivered(searched)),
         ("read", "cli", _delivered(read)),
-        ("read", "mcp", len(_text(result).encode("utf-8"))),
-        ("search", "mcp", len(_text(mcp_search).encode("utf-8"))),
+        ("read", "mcp", len(rpc.text(result).encode("utf-8"))),
+        ("search", "mcp", len(rpc.text(mcp_search).encode("utf-8"))),
     ]
     assert len({r["op_id"] for r in rows}) == 4
     assert set(rows[0]) == {"ts", "op_id", "op", "session_id", "channel", "bytes"}
@@ -161,12 +161,12 @@ def test_a_role_read_delivers_only_that_roles_sections(store, capsys):
 
 def test_a_read_through_mcp_delivers_the_text_the_cli_prints(store, capsys):
     cli_text = _cli_ok(capsys, store, "read", "widget-cache", "--role", "decisions", "--session", SESSION)
-    result, _ = _call(
+    result, _ = rpc.call(
         store, name=READ_TOOL,
         arguments={"id": "widget-cache", "role": "decisions", "session_id": SESSION},
     )
 
-    assert _text(result) == cli_text.removesuffix("\n")
+    assert rpc.text(result) == cli_text.removesuffix("\n")
     cli_row, mcp_row = _rows(store)
     for row in (cli_row, mcp_row):
         del row["ts"], row["op_id"], row["channel"]
@@ -216,8 +216,8 @@ def test_a_superseded_document_is_read_with_its_successor_named(store, capsys):
 
 
 def test_an_mcp_read_with_an_unknown_role_is_a_protocol_fault(store):
-    _, responses, _ = _run(
-        store, _tools_call_msg(1, name=READ_TOOL, arguments={"id": "widget-cache", "role": "nonsense"})
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(1, name=READ_TOOL, arguments={"id": "widget-cache", "role": "nonsense"})
     )
 
     assert responses[0]["error"]["code"] == mcp_server.INVALID_PARAMS
@@ -276,12 +276,12 @@ def test_an_mcp_read_of_a_draft_delivers_what_the_cli_prints(store, capsys):
     _doc(store / "sessions", "20260902-wip", status="draft", body=DRAFT_BODY)
     printed = _cli_ok(capsys, store, "read", "20260902-wip", "--session", SESSION)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=READ_TOOL, arguments={"id": "20260902-wip", "session_id": SESSION}
     )
 
     assert not is_error
-    assert _text(result) == printed.rstrip("\n")
+    assert rpc.text(result) == printed.rstrip("\n")
 
 
 def test_an_unrecorded_delivery_is_named_in_the_response(store, capsys):
@@ -303,8 +303,8 @@ def test_a_search_row_in_telemetry_keeps_exactly_the_keys_it_had(store, capsys):
 
 
 def test_a_read_only_search_records_no_delivery(store):
-    _, responses, _ = _run(
-        store, _tools_call_msg(1, arguments={"query": QUERY, "session_id": SESSION}), read_only=True
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(1, arguments={"query": QUERY, "session_id": SESSION}), read_only=True
     )
 
     assert "error" not in responses[0]
@@ -312,7 +312,7 @@ def test_a_read_only_search_records_no_delivery(store):
 
 
 def test_a_search_logged_without_a_delivery_is_named_as_missing(store, capsys):
-    _run(store, _tools_call_msg(1, arguments={"query": QUERY, "session_id": SESSION}), read_only=True)
+    rpc.run(store, rpc.tools_call_msg(1, arguments={"query": QUERY, "session_id": SESSION}), read_only=True)
     _cli_ok(capsys, store, "search", QUERY, "--session", SESSION)
 
     out = _summary(capsys, store)
@@ -345,11 +345,11 @@ def test_a_baseline_the_client_reported_is_shown_as_measured_by_it_and_tied_to_i
 
 
 def test_a_baseline_reported_through_mcp_is_the_same_record(store, capsys):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=BASELINE_TOOL,
         arguments={"session_id": SESSION, "tokens": 900, "call_id": "c1"},
     )
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
 
     summary = _summary(capsys, store)
 
@@ -402,16 +402,16 @@ def test_a_refused_baseline_writes_nothing(store, capsys, args, reason):
     ],
 )
 def test_an_mcp_baseline_of_the_wrong_type_is_a_protocol_fault(store, arguments):
-    _, responses, _ = _run(store, _tools_call_msg(1, name=BASELINE_TOOL, arguments=arguments))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=BASELINE_TOOL, arguments=arguments))
 
     assert responses[0]["error"]["code"] == mcp_server.INVALID_PARAMS
     assert not (store / cost.COST_FILE).exists()
 
 
 def test_an_mcp_baseline_with_no_figure_is_refused_as_a_tool_error(store):
-    result, is_error = _call(store, name=BASELINE_TOOL, arguments={"session_id": SESSION})
+    result, is_error = rpc.call(store, name=BASELINE_TOOL, arguments={"session_id": SESSION})
 
-    assert is_error and "nothing to record" in _text(result)
+    assert is_error and "nothing to record" in rpc.text(result)
     assert not (store / cost.COST_FILE).exists()
 
 
@@ -673,7 +673,7 @@ def test_an_mcp_read_of_a_cited_version_delivers_what_the_cli_prints(store, caps
     path.write_text(path.read_text(encoding="utf-8").replace("LRU", "LFU"), encoding="utf-8")
     printed = _cli_ok(capsys, store, "read", ref, "--session", SESSION)
 
-    result, is_error = _call(store, name=READ_TOOL, arguments={"id": ref, "session_id": SESSION})
+    result, is_error = rpc.call(store, name=READ_TOOL, arguments={"id": ref, "session_id": SESSION})
 
     assert not is_error
-    assert _text(result) == printed.rstrip("\n")
+    assert rpc.text(result) == printed.rstrip("\n")

@@ -9,14 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    ACTIVE_CONTENT,
-    DRAFT_CONTENT,
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
     requires_symlinks,
 )
-from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
+from support import rpc
 
 from engmem import drafts, mcp_server
 from engmem.spine import load_store, split_front_matter
@@ -55,12 +54,12 @@ def _write_raw(store: Path, doc_id: str, content: str) -> Path:
 
 
 def test_create_draft_writes_a_document_load_store_parses_cleanly(store):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
 
     assert not is_error
-    assert "20260101-widget-cache" in _text(result)
+    assert "20260101-widget-cache" in rpc.text(result)
 
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == DRAFT_CONTENT
@@ -74,10 +73,10 @@ def test_create_draft_writes_a_document_load_store_parses_cleanly(store):
 def test_create_draft_success_text_carries_the_id_into_the_next_search(store):
     """The draft id is produced here and needed on the next search call; without the directive
     nothing carries it across, and every search of the task is logged unattributed."""
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
-    text = _text(result)
+    text = rpc.text(result)
 
     assert not is_error
     assert "session_id" in text, "the id alone does not say what to do with it"
@@ -93,22 +92,22 @@ def test_create_draft_refuses_to_overwrite_an_existing_file(store):
     existing = store / "sessions" / "20260101-widget-cache.md"
     existing.write_text("not touched", encoding="utf-8")
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
 
     assert is_error
-    assert "already exists" in _text(result)
+    assert "already exists" in rpc.text(result)
     assert existing.read_text(encoding="utf-8") == "not touched"
 
 
 def test_create_draft_rejects_status_other_than_draft(store):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}
     )
 
     assert is_error
-    assert "draft" in _text(result)
+    assert "draft" in rpc.text(result)
     assert _sessions_files(store) == []
 
 
@@ -140,13 +139,13 @@ def test_a_write_tool_rejects_an_id_that_does_not_match_the_front_matter(
         _write_raw(store, "20260101-widget-cache", existing)
     before = _sessions_snapshot(store)
 
-    result, is_error = _call(
-        store, name=tool, arguments=versioned(store, {"id": doc_id, "content": content})
+    result, is_error = rpc.call(
+        store, name=tool, arguments=rpc.versioned(store, {"id": doc_id, "content": content})
     )
 
     assert is_error
-    assert "20260101-something-else" in _text(result)
-    assert "20260101-widget-cache" in _text(result)
+    assert "20260101-something-else" in rpc.text(result)
+    assert "20260101-widget-cache" in rpc.text(result)
     assert _sessions_snapshot(store) == before
 
 
@@ -165,17 +164,17 @@ def test_a_write_tool_rejects_unparseable_content_without_a_traceback(
     before = _sessions_snapshot(store)
     broken = f"---\nid: 20260101-widget-cache\nstatus: {status}\n"  # unclosed front matter
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=tool,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": broken}
         )
     )
 
     assert is_error
-    assert "does not parse" in _text(result)
-    assert "Traceback" not in _text(result)
+    assert "does not parse" in rpc.text(result)
+    assert "Traceback" not in rpc.text(result)
     assert _sessions_snapshot(store) == before
 
 
@@ -195,7 +194,7 @@ def test_a_write_tool_missing_a_required_argument_is_invalid_params(
 ):
     """The schema check runs in `_handle_tools_call` before the handler reads anything, so no
     document has to exist on disk for any of these."""
-    _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=name, arguments=arguments))
 
     assert responses[0]["error"]["code"] == -32602
     assert missing_field in responses[0]["error"]["message"]
@@ -229,12 +228,12 @@ def test_a_write_tool_missing_a_required_argument_is_invalid_params(
     ],
 )
 def test_create_draft_rejects_every_escape_vector(store, bad_id):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": bad_id, "content": DRAFT_CONTENT}
     )
 
     assert is_error
-    assert "Traceback" not in _text(result)
+    assert "Traceback" not in rpc.text(result)
     # nothing was created anywhere in or under the store — not even the temp
     # staging file `_stage_content` writes before validation
     assert set(p.name for p in store.iterdir()) == {"sessions"}
@@ -244,12 +243,12 @@ def test_create_draft_rejects_every_escape_vector(store, bad_id):
 def test_create_draft_reports_missing_store_without_dying(tmp_path):
     """Parallel to the read tools' `store not found` result: `sessions/` was never created, e.g. no
     `engmem install` ran yet."""
-    result, is_error = _call(
+    result, is_error = rpc.call(
         tmp_path, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
 
     assert is_error
-    assert "store not found" in _text(result)
+    assert "store not found" in rpc.text(result)
 
 
 def test_write_tool_reports_an_unresolvable_sessions_path_as_a_tool_error(store, monkeypatch):
@@ -264,12 +263,12 @@ def test_write_tool_reports_an_unresolvable_sessions_path_as_a_tool_error(store,
 
     monkeypatch.setattr(Path, "resolve", flaky_resolve)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
 
     assert is_error
-    assert "could not resolve" in _text(result).lower()
+    assert "could not resolve" in rpc.text(result).lower()
 
 
 def test_write_tool_refuses_when_the_resolved_target_escapes_sessions(store, monkeypatch):
@@ -285,19 +284,19 @@ def test_write_tool_refuses_when_the_resolved_target_escapes_sessions(store, mon
 
     monkeypatch.setattr(Path, "resolve", flaky_resolve)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
 
     assert is_error
-    assert "outside sessions" in _text(result).lower()
+    assert "outside sessions" in rpc.text(result).lower()
 
 
 def test_create_draft_with_empty_id_is_invalid_params(store):
     """An empty `id` fails the schema check at protocol level, before `_ToolError` is even in
     play."""
-    _, responses, _ = _run(
-        store, _tools_call_msg(1, name=CREATE_TOOL, arguments={"id": "", "content": DRAFT_CONTENT})
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(1, name=CREATE_TOOL, arguments={"id": "", "content": DRAFT_CONTENT})
     )
 
     assert responses[0]["error"]["code"] == -32602
@@ -313,7 +312,7 @@ def test_create_draft_rejects_a_sessions_dir_that_is_a_symlink_out_of_the_store(
     store_dir.mkdir()
     (store_dir / "sessions").symlink_to(outside, target_is_directory=True)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store_dir,
         name=CREATE_TOOL,
         arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT},
@@ -331,14 +330,14 @@ def test_create_draft_rejects_a_sessions_dir_that_is_a_symlink_out_of_the_store(
 def test_complete_draft_transitions_status_from_draft_to_active(store):
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "draft" in text and "active" in text
 
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
@@ -397,16 +396,16 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
     content = _with_reuse_rows(f'| {cited} | "{quote}" | helped | reuse |')
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": content}
         )
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "draft" in text and "active" in text
     assert "warning" in text.lower()
     assert cited in text
@@ -423,16 +422,16 @@ def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
     content = _with_reuse_rows(f"| 20260101-other-doc | {_QUOTE} | helped | reuse |")
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": content}
         )
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "draft" in text and "active" in text
     assert "warning" not in text.lower()
 
@@ -440,16 +439,16 @@ def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
 def _refused(store: Path, content: str) -> str:
     """Runs `engmem_complete_draft` and asserts the whole store survived the refusal intact."""
     before = _sessions_snapshot(store)
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": content}
         )
     )
     assert is_error
     assert _sessions_snapshot(store) == before
-    text = _text(result)
+    text = rpc.text(result)
     assert "draft -> active" not in text
     return text
 
@@ -531,16 +530,16 @@ def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
     row = f"| 20260101-other-doc | {quoted} | helped | anti-reuse |"
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": _with_reuse_rows(row)}
         ),
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "rejected" not in text
     assert "warning" not in text.lower()
 
@@ -553,16 +552,16 @@ def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
         "| helped | reuse |"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": content}
         )
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "quote not found in" in text
     assert "this exact sentence is not in the cited document" in text
 
@@ -574,14 +573,14 @@ def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
     _write_raw(store, "20260101-other-doc", other_content)
     _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "leaked-sentinel-doc.md" not in text
     assert "warning" not in text.lower()
 
@@ -596,14 +595,14 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
 
     monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "draft" in text and "active" in text
     assert "note: citation check did not run" in text
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
@@ -623,16 +622,16 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
     monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
     content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "content": content}
         )
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "no Reuse Log section" in text
     assert "it is now active" in text
     assert "active documents missing a Reuse Log section" in text
@@ -640,14 +639,14 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
 
 
 def test_complete_draft_refuses_when_no_draft_exists(store):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
-    assert "no draft" in _text(result).lower() or "does not exist" in _text(result).lower()
+    assert "no draft" in rpc.text(result).lower() or "does not exist" in rpc.text(result).lower()
     assert _sessions_files(store) == []
 
 
@@ -656,14 +655,14 @@ def test_complete_draft_refuses_to_overwrite_a_non_draft_document(store):
         encoding="utf-8"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
-    assert "active" in _text(result)
+    assert "active" in rpc.text(result)
     assert (store / "sessions" / "20260101-widget-cache.md").read_text(
         encoding="utf-8"
     ) == original
@@ -674,14 +673,14 @@ def test_complete_draft_rejects_new_content_that_does_not_move_to_active(store):
         encoding="utf-8"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
     )
 
     assert is_error
-    assert "active" in _text(result)
+    assert "active" in rpc.text(result)
     assert (store / "sessions" / "20260101-widget-cache.md").read_text(
         encoding="utf-8"
     ) == original
@@ -695,14 +694,14 @@ def test_complete_draft_refuses_to_write_through_a_symlinked_target(tmp_path):
     outside_target.write_text("not engmem's to touch", encoding="utf-8")
     (store_dir / "sessions" / "20260101-widget-cache.md").symlink_to(outside_target)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store_dir,
         name=COMPLETE_TOOL,
-        arguments=versioned(store_dir, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store_dir, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
-    assert "symlink" in _text(result).lower()
+    assert "symlink" in rpc.text(result).lower()
     assert outside_target.read_text(encoding="utf-8") == "not engmem's to touch"
 
 
@@ -727,10 +726,10 @@ def test_a_write_tool_refuses_a_document_on_disk_that_does_not_parse(store, tool
     unparseable = "---\nid: 20260101-widget-cache\nstatus: active\n"  # unclosed front matter
     _write_raw(store, "20260101-widget-cache", unparseable)
 
-    result, is_error = _call(store, name=tool, arguments=arguments)
+    result, is_error = rpc.call(store, name=tool, arguments=arguments)
 
     assert is_error
-    assert "does not parse" in _text(result)
+    assert "does not parse" in rpc.text(result)
     assert (store / "sessions" / "20260101-widget-cache.md").read_text(
         encoding="utf-8"
     ) == unparseable
@@ -744,16 +743,16 @@ def test_a_write_tool_refuses_a_document_on_disk_that_does_not_parse(store, tool
 def test_mark_superseded_sets_status_and_superseded_by(store):
     _write_raw(store, "20260101-widget-cache", ACTIVE_CONTENT)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
     assert not is_error
-    text = _text(result)
+    text = rpc.text(result)
     assert "20260101-widget-cache" in text
     assert "20260201-widget-cache-v2" in text
 
@@ -767,10 +766,10 @@ def test_mark_superseded_sets_status_and_superseded_by(store):
 
 
 def test_mark_superseded_refuses_on_nonexistent_document(store):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
@@ -784,16 +783,16 @@ def test_mark_superseded_refuses_when_current_status_is_not_active(store):
         encoding="utf-8"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
     assert is_error
-    assert "draft" in _text(result)
+    assert "draft" in rpc.text(result)
     assert (store / "sessions" / "20260101-widget-cache.md").read_text(
         encoding="utf-8"
     ) == original
@@ -802,10 +801,10 @@ def test_mark_superseded_refuses_when_current_status_is_not_active(store):
 def test_mark_superseded_refuses_self_supersede(store):
     _write_raw(store, "20260101-widget-cache", ACTIVE_CONTENT)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260101-widget-cache"}
         ),
     )
@@ -818,10 +817,10 @@ def test_mark_superseded_rejects_bad_superseded_by_shape(store):
         encoding="utf-8"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "../../etc/passwd"}
         ),
     )
@@ -839,10 +838,10 @@ def test_mark_superseded_rejects_bad_superseded_by_shape(store):
 
 
 def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
-    create_msg = _tools_call_msg(
+    create_msg = rpc.tools_call_msg(
         1, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
     )
-    complete_msg = _tools_call_msg(
+    complete_msg = rpc.tools_call_msg(
         2,
         name=COMPLETE_TOOL,
         arguments={
@@ -852,9 +851,9 @@ def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
             "expected_version": version_of(DRAFT_CONTENT.encode("utf-8")),
         },
     )
-    search_msg = _tools_call_msg(3, name="engmem_search", arguments={"query": "WidgetCache"})
+    search_msg = rpc.tools_call_msg(3, name="engmem_search", arguments={"query": "WidgetCache"})
 
-    _, responses, _ = _run(store, create_msg, complete_msg, search_msg)
+    _, responses, _ = rpc.run(store, create_msg, complete_msg, search_msg)
 
     assert not responses[0]["result"].get("isError")
     assert not responses[1]["result"].get("isError")
@@ -869,7 +868,7 @@ def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
 
 
 def test_tools_list_write_tool_schemas_require_the_arguments_each_handler_reads(store):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     by_name = {t["name"]: t for t in responses[0]["result"]["tools"]}
     assert set(by_name[CREATE_TOOL]["inputSchema"]["required"]) == {"id", "content"}
@@ -908,15 +907,15 @@ def test_supersede_ignores_a_key_indented_inside_a_block_scalar(store):
         "  status: this line is prose, not a key\n",
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     text = path.read_text(encoding="utf-8")
     assert "  status: this line is prose, not a key\n" in text
     doc = {d.id: d for d in load_store(store / "sessions").docs}["20260101-widget-cache"]
@@ -936,15 +935,15 @@ def test_supersede_patches_the_real_key_when_a_quoted_value_holds_a_lookalike(st
         "status: active\n",
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     after = path.read_text(encoding="utf-8")
     assert "status: still inside the quoted title" in after
     assert "\nstatus: superseded\n" in after
@@ -962,16 +961,16 @@ def test_supersede_refuses_when_front_matter_has_a_duplicate_status_key(store):
     )
     before = path.read_bytes()
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
     assert is_error
-    assert "more than one" in _text(result)
+    assert "more than one" in rpc.text(result)
     assert path.read_bytes() == before
 
 
@@ -986,16 +985,16 @@ def test_supersede_refuses_when_superseded_by_is_a_block_sequence(store):
     )
     before = path.read_bytes()
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
     assert is_error
-    assert "spans more than one line" in _text(result)
+    assert "spans more than one line" in rpc.text(result)
     assert path.read_bytes() == before
 
 
@@ -1012,10 +1011,10 @@ def test_supersede_discards_a_patch_that_did_not_produce_the_expected_state(stor
         mcp_server, "_patch_front_matter_line", lambda text, key, value: text
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
@@ -1037,12 +1036,12 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
     )
     before = path.read_bytes()
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
-            arguments=versioned(store, {
+            arguments=rpc.versioned(store, {
                 "id": "20260101-widget-cache",
                 "superseded_by": "20260201-widget-cache-v2",
             }),
@@ -1052,7 +1051,7 @@ def test_supersede_refuses_front_matter_whose_anchor_the_first_patch_would_drop(
     assert "error" not in responses[0], responses[0]
     result = responses[0]["result"]
     assert result.get("isError")
-    assert "anchor" in _text(result)
+    assert "anchor" in rpc.text(result)
     assert path.read_bytes() == before
     assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
 
@@ -1082,16 +1081,16 @@ def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
 
     monkeypatch.setattr(mcp_server, "decode_document", racing_decode)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(
+        arguments=rpc.versioned(
             store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
         ),
     )
 
-    assert is_error, _text(result)
-    assert "changed on disk" in _text(result)
+    assert is_error, rpc.text(result)
+    assert "changed on disk" in rpc.text(result)
     assert path.read_text(encoding="utf-8") == newer, "the newer version must survive intact"
     assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
 
@@ -1125,9 +1124,9 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
 
     monkeypatch.setattr(mcp_server, "parse_document", racing_parse)
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
             arguments=arguments,
@@ -1136,8 +1135,8 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
 
     assert "error" not in responses[0], responses[0]
     result = responses[0]["result"]
-    assert result.get("isError"), _text(result)
-    assert "could not be re-read" in _text(result)
+    assert result.get("isError"), rpc.text(result)
+    assert "could not be re-read" in rpc.text(result)
     assert path.read_bytes() == corrupt, "nothing may be written over the newer version"
     assert _sessions_files(store) == ["20260101-widget-cache.md"], "no temp file left behind"
 
@@ -1151,13 +1150,13 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
         f"status: draft\nmode: daily\n---\n\n## Pre-reg\n\n{body}\n"
     )
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=CREATE_TOOL,
         arguments={"id": "20260101-widget-cache", "content": content},
     )
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == content, "the document must arrive byte-for-byte"
     assert load_store(store / "sessions").errors == []
@@ -1175,7 +1174,7 @@ def test_a_large_document_round_trips_and_leaves_no_staged_file(store):
 def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, arguments):
     """`content.encode("utf-8")` raises on an unpaired surrogate. Refused at the envelope, so it
     never reaches the write path — and never as a -32603 blamed on the server."""
-    _, responses, _ = _run(store, _tools_call_msg(1, name=CREATE_TOOL, arguments=arguments))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=CREATE_TOOL, arguments=arguments))
 
     assert responses[0]["error"]["code"] == -32600
     assert _sessions_files(store) == [], "nothing written, and no staged file left behind"
@@ -1184,13 +1183,13 @@ def test_create_draft_refuses_content_that_cannot_be_encoded_as_utf8(store, argu
 @requires_posix_modes
 def test_completing_a_draft_keeps_the_documents_file_mode(store):
     """The MCP write path replaces the file too, so it inherits the same rule `backfill` does."""
-    _call(store, name=CREATE_TOOL,
+    rpc.call(store, name=CREATE_TOOL,
           arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT})
     path = store / "sessions" / "20260101-widget-cache.md"
     os.chmod(path, 0o640)
 
-    _call(store, name=COMPLETE_TOOL,
-          arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}))
+    rpc.call(store, name=COMPLETE_TOOL,
+          arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}))
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o640
     assert load_store(store / "sessions").docs[0].status == "active"
@@ -1201,7 +1200,7 @@ def test_a_documents_line_endings_survive_the_mcp_write(store):
     `os.linesep` is `\n`, so this passes either way; `test_staging.py` pins the rest."""
     content = DRAFT_CONTENT.replace("\n", "\r\n")
 
-    _call(store, name=CREATE_TOOL,
+    rpc.call(store, name=CREATE_TOOL,
           arguments={"id": "20260101-widget-cache", "content": content})
 
     written = (store / "sessions" / "20260101-widget-cache.md").read_bytes()
@@ -1221,7 +1220,7 @@ def _make_active(store: Path) -> None:
     [
         (lambda store: None, CREATE_TOOL,
          {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}, "commit_new"),
-        (lambda store: _call(store, name=CREATE_TOOL,
+        (lambda store: rpc.call(store, name=CREATE_TOOL,
                              arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}),
          COMPLETE_TOOL,
          {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}, "commit"),
@@ -1243,8 +1242,8 @@ def test_a_failing_commit_still_discards_the_staged_file(
 
     # create and complete write through `drafts`; supersede is MCP-only and stays in mcp_server
     monkeypatch.setattr(mcp_server if name == SUPERSEDE_TOOL else drafts, committer, failing_commit)
-    _, responses, _ = _run(
-        store, _tools_call_msg(1, name=name, arguments=versioned(store, arguments))
+    _, responses, _ = rpc.run(
+        store, rpc.tools_call_msg(1, name=name, arguments=rpc.versioned(store, arguments))
     )
 
     # the code and the message together, so a renamed argument or tool cannot leave this green
@@ -1272,11 +1271,11 @@ def test_mark_superseded_preserves_the_documents_bytes(store, raw, nl):
         encoding="utf-8",
     )
 
-    result, is_error = _call(store, name=SUPERSEDE_TOOL, arguments=versioned(store, {
+    result, is_error = rpc.call(store, name=SUPERSEDE_TOOL, arguments=rpc.versioned(store, {
         "id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2",
     }))
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     after = path.read_bytes()
     assert after.startswith(raw)
     # every line ending is the document's own: `^` under `re.MULTILINE` anchors after `\n`
@@ -1314,12 +1313,12 @@ def test_a_write_tool_reports_an_unreadable_store_as_a_tool_error(tmp_path, name
 
     os.chmod(store, 0o000)
     try:
-        result, is_error = _call(store, name=name, arguments=arguments)
+        result, is_error = rpc.call(store, name=name, arguments=arguments)
     finally:
         os.chmod(store, 0o755)
 
     assert is_error
-    assert "store not readable" in _text(result)
+    assert "store not readable" in rpc.text(result)
 
 
 @pytest.mark.parametrize(
@@ -1344,8 +1343,8 @@ def test_supersede_refuses_a_key_that_is_not_a_line_of_its_own(store, front_matt
     path.write_text(f"---\n{front_matter}\n---\n\n# Title\n\nbody\n", encoding="utf-8")
     before = path.read_bytes()
 
-    arguments = versioned(store, {"id": "doc-a", "superseded_by": "20260201-widget-cache-v2"})
-    _, responses, _ = _run(store, _tools_call_msg(1, name=SUPERSEDE_TOOL, arguments=arguments))
+    arguments = rpc.versioned(store, {"id": "doc-a", "superseded_by": "20260201-widget-cache-v2"})
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=SUPERSEDE_TOOL, arguments=arguments))
 
     # a regression escapes as a protocol fault, so name that rather than showing a KeyError
     assert "error" not in responses[0], responses[0]
@@ -1368,12 +1367,12 @@ def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(s
 
     monkeypatch.setattr(drafts, "stage_content", stage_after_an_external_write)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=COMPLETE_TOOL,
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
     )
 
     assert is_error
-    assert "changed on disk while it was being read" in _text(result)
+    assert "changed on disk while it was being read" in rpc.text(result)
     assert target.read_bytes() == external.encode("utf-8")
     assert _sessions_files(store) == ["20260101-widget-cache.md"], "the staged file must be gone"

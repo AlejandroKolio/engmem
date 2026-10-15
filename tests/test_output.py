@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import fixture_docs
+from support.docs import fixture_docs
 
 from engmem import cache
 from engmem.output import render_no_match, render_scoreboard, render_search_results

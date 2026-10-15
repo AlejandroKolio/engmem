@@ -11,7 +11,8 @@ from pathlib import PureWindowsPath
 
 import pytest
 
-from conftest import redirect_home, requires_symlinks, requires_windows
+from support.home import redirect_home
+from support.platform import requires_symlinks, requires_windows
 
 from engmem import runtime
 from engmem.runtime import default_store, fail, resolve_store

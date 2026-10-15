@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
 
 from engmem import search_report
 from engmem.cli import main
@@ -124,9 +124,9 @@ def _cli_search(store: Path, query: str, capsys) -> str:
 
 
 def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": query})
+    result, is_error = rpc.call(store, name="engmem_search", arguments={"query": query})
     assert not is_error
-    return _text(result)
+    return rpc.text(result)
 
 
 CHANNELS = [
@@ -345,10 +345,10 @@ def test_the_drafts_line_names_at_most_a_few_ids(tmp_path, capsys):
 def test_a_read_only_search_names_no_draft(tmp_path):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
 
-    _, responses, _ = _run(
-        tmp_path, _tools_call_msg(1, name="engmem_search", arguments={"query": QUERY}),
+    _, responses, _ = rpc.run(
+        tmp_path, rpc.tools_call_msg(1, name="engmem_search", arguments={"query": QUERY}),
         read_only=True,
     )
 
-    out = _text(responses[0]["result"])
+    out = rpc.text(responses[0]["result"])
     assert _drafts_line(out) is None and "drafts: 1" in out

@@ -15,11 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    FIXTURES,
-    LEGACY_TRIGGER_RULE,
-    claude_desktop_config_path,
-    redirect_home,
+from support.docs import FIXTURES
+from support.home import LEGACY_TRIGGER_RULE, claude_desktop_config_path, redirect_home
+from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
     requires_symlinks,

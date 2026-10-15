@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, write_file
-from mcp_harness import _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, write_file
 
 from engmem.mcp_server import INVALID_PARAMS
 
@@ -51,13 +51,13 @@ def _snapshot(store):
 
 
 def test_read_only_lists_only_the_search_tools(store):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, read_only=True)
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, read_only=True)
 
     assert [tool["name"] for tool in responses[0]["result"]["tools"]] == SEARCH_TOOLS
 
 
 def test_the_default_server_still_lists_the_write_tools(store):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     assert len(responses[0]["result"]["tools"]) == len(SEARCH_TOOLS) + len(WRITE_CALLS)
 
@@ -66,7 +66,7 @@ def test_the_default_server_still_lists_the_write_tools(store):
 def test_read_only_refuses_every_write_tool_and_leaves_the_store_alone(store, name, arguments):
     before = _snapshot(store)
 
-    _, responses, _ = _run(store, _tools_call_msg(1, name=name, arguments=arguments), read_only=True)
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=name, arguments=arguments), read_only=True)
 
     error = responses[0]["error"]
     assert error["code"] == INVALID_PARAMS
@@ -75,19 +75,19 @@ def test_read_only_refuses_every_write_tool_and_leaves_the_store_alone(store, na
 
 
 def test_read_only_still_searches(store):
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(1, name="engmem_search", arguments={"query": "WidgetCache"}),
+        rpc.tools_call_msg(1, name="engmem_search", arguments={"query": "WidgetCache"}),
         read_only=True,
     )
 
     result = responses[0]["result"]
     assert not result.get("isError")
-    assert "20260101-widget-cache" in _text(result)
+    assert "20260101-widget-cache" in rpc.text(result)
 
 
 def test_read_only_keeps_the_missing_name_diagnosis(store):
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {}}, read_only=True
     )
 

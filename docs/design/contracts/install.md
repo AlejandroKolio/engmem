@@ -77,7 +77,7 @@ was never migrated still removes exactly engmem's lines.
 
 `LEGACY_TRIGGER_RULES` grows by one entry each time the wording changes and never shrinks: an
 entry dropped is a file somewhere that install will skip and uninstall will leave behind.
-`tests/conftest.py` carries its own copy of both the current and the legacy text, so a change
+`tests/support/home.py` carries its own copy of both the current and the legacy text, so a change
 to either constant fails a test rather than silently moving the goalposts.
 
 ## `--store` is used once, and said to be used once

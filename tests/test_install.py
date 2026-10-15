@@ -2,13 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
+from support.home import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
     LEGACY_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
+)
+from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
     requires_symlinks,

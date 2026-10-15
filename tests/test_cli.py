@@ -10,11 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    FIXTURES,
-    on_a_shared_runner,
-    requires_permission_enforcement,
-)
+from support.docs import FIXTURES
+from support.platform import on_a_shared_runner, requires_permission_enforcement
 
 from engmem import cache
 from engmem.cli import build_parser, main

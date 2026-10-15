@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import requires_symlinks
+from support.platform import requires_symlinks
 
 from engmem import cli
 from engmem.cli import main

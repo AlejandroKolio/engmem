@@ -8,7 +8,7 @@ import unicodedata
 
 import pytest
 
-from conftest import requires_symlinks, requires_permission_enforcement
+from support.platform import requires_symlinks, requires_permission_enforcement
 
 from engmem import cache
 

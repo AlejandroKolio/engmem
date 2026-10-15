@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, FIXTURES, run_tool, write_file
-from mcp_harness import _call, _prompts_get_msg, _run, _telemetry_lines, _text, versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, FIXTURES, write_file
+from support.tools import run_tool
 
 from engmem import gate1, gate1_audit, mcp_server, runtime, settings
 from engmem.cli import main
@@ -62,19 +63,19 @@ def _active(mode: str | None, *, prereg: bool = True, extra: str = "") -> str:
 
 
 def _create(store: Path, content: str) -> tuple[str, bool]:
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=mcp_server.CREATE_DRAFT_TOOL_NAME,
         arguments={"id": DRAFT_ID, "content": content},
     )
-    return _text(result), is_error
+    return rpc.text(result), is_error
 
 
 def _complete(store: Path, content: str) -> tuple[str, bool]:
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
-        arguments=versioned(store, {"id": DRAFT_ID, "content": content}),
+        arguments=rpc.versioned(store, {"id": DRAFT_ID, "content": content}),
     )
-    return _text(result), is_error
+    return rpc.text(result), is_error
 
 
 # --- the setting: where it lives, what it holds, what a broken one does ----------------------
@@ -209,7 +210,7 @@ def test_every_agent_reads_the_mode_before_any_baseline(agent, env, tmp_path):
     store = tmp_path / "store"
     if agent == "mcp":
         (store / "sessions").mkdir(parents=True)
-        _, responses, _ = _run(store, _prompts_get_msg(5, name="engmem"))
+        _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem"))
         text = responses[0]["result"]["messages"][0]["content"]["text"]
     else:
         text = _installed_start(agent, home, project, store)
@@ -271,12 +272,12 @@ def test_ac_08_1_a_daily_draft_without_prereg_is_created_and_searched(mode_file,
     assert not is_error, text
     assert "mode: daily" in text and "no Pre-reg" in text
 
-    _, responses, _ = _run(store, {
+    _, responses, _ = rpc.run(store, {
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": {"name": "engmem_search", "arguments": {"query": "widget", "session_id": DRAFT_ID}},
     })
     assert not responses[0]["result"].get("isError")
-    assert [row["session_id"] for row in _telemetry_lines(store)] == [DRAFT_ID]
+    assert [row["session_id"] for row in rpc.telemetry_lines(store)] == [DRAFT_ID]
 
 
 def test_ac_08_1_a_daily_draft_completes_as_a_short_record_without_prereg(mode_file, tmp_path):
@@ -310,11 +311,11 @@ def test_ac_08_2_a_research_baseline_is_on_disk_before_the_attributed_search(mod
 
     on_disk = (store / "sessions" / f"{DRAFT_ID}.md").read_text(encoding="utf-8")
     assert "## Pre-reg" in on_disk and "Naive baseline" in on_disk
-    _run(store, {
+    rpc.run(store, {
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": {"name": "engmem_search", "arguments": {"query": "widget", "session_id": DRAFT_ID}},
     })
-    assert [row["session_id"] for row in _telemetry_lines(store)] == [DRAFT_ID]
+    assert [row["session_id"] for row in rpc.telemetry_lines(store)] == [DRAFT_ID]
 
 
 def test_ac_08_2_a_research_draft_with_neither_baseline_nor_reason_is_refused(mode_file, tmp_path):
@@ -452,7 +453,7 @@ def test_ac_08_5_a_research_draft_records_why_the_baseline_is_missing(mode_file,
 
     doc = load_store(store / "sessions").docs[0]
     assert doc.baseline_unavailable == "the sub-agent failed and the store was already open"
-    _, responses, _ = _run(store, {
+    _, responses, _ = rpc.run(store, {
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": {"name": "engmem_search", "arguments": {"query": "widget", "session_id": DRAFT_ID}},
     })

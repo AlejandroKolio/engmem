@@ -3,11 +3,8 @@ import os
 
 import pytest
 
-from conftest import (
-    FIXTURES,
-    requires_permission_enforcement,
-    requires_symlinks,
-)
+from support.docs import FIXTURES
+from support.platform import requires_permission_enforcement, requires_symlinks
 
 from engmem.spine import load_store, parse_document, stray_documents, validate_doc_id
 

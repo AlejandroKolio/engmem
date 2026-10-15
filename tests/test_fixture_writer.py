@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import write_file
+from support.docs import write_file
 
 
 @pytest.mark.parametrize(

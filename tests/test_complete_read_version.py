@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT
-from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
 
 from engmem import drafts, mcp_server, staging
 from engmem.spine import load_store, parse_document
@@ -44,10 +44,10 @@ def _finished(marker: str) -> str:
 
 def _create(store: Path, content: str = DRAFT_CONTENT) -> str:
     """Creates the draft through the tool and returns the version it reported."""
-    result, is_error = _call(store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": content})
-    assert not is_error, _text(result)
-    match = VERSION_RE.search(_text(result))
-    assert match, f"create_draft did not report a version: {_text(result)}"
+    result, is_error = rpc.call(store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": content})
+    assert not is_error, rpc.text(result)
+    match = VERSION_RE.search(rpc.text(result))
+    assert match, f"create_draft did not report a version: {rpc.text(result)}"
     return match.group(1)
 
 
@@ -62,13 +62,13 @@ def test_completing_the_version_read_publishes_the_full_active_document(store, t
     """AC-04.1."""
     version = _create(store)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
         arguments={"id": DOC_ID, "content": ACTIVE_CONTENT, "expected_version": version},
     )
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     assert target.read_bytes() == ACTIVE_CONTENT.encode("utf-8")
     loaded = load_store(store / "sessions")
     assert [d.status for d in loaded.docs] == ["active"]
@@ -231,9 +231,9 @@ def test_surrounding_whitespace_in_the_version_is_not_a_conflict(store, target):
 def test_a_non_string_expected_version_is_invalid_params(store, target, bad):
     _create(store)
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name=COMPLETE_TOOL,
             arguments={"id": DOC_ID, "content": ACTIVE_CONTENT, "expected_version": bad},
@@ -247,7 +247,7 @@ def test_a_non_string_expected_version_is_invalid_params(store, target, bad):
 
 @pytest.mark.parametrize("tool", [COMPLETE_TOOL, SUPERSEDE_TOOL])
 def test_both_rewriting_schemas_require_expected_version(store, tool):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     schema = next(t for t in responses[0]["result"]["tools"] if t["name"] == tool)
     assert schema["inputSchema"]["properties"]["expected_version"]["type"] == "string"
@@ -279,11 +279,11 @@ def test_a_lock_left_by_an_interrupted_write_refuses_by_name_and_writes_nothing(
     target.write_bytes(on_disk.encode("utf-8"))
     _lock_of(target).mkdir()
 
-    result, is_error = _call(store, name=tool, arguments=versioned(store, arguments))
+    result, is_error = rpc.call(store, name=tool, arguments=rpc.versioned(store, arguments))
 
     assert is_error
-    assert f".{DOC_ID}.md.write-lock" in _text(result)
-    assert "nothing was written" in _text(result)
+    assert f".{DOC_ID}.md.write-lock" in rpc.text(result)
+    assert "nothing was written" in rpc.text(result)
     assert target.read_bytes() == on_disk.encode("utf-8")
     assert _lock_of(target).is_dir(), "another holder's lock must not be removed"
 

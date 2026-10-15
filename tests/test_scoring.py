@@ -3,7 +3,7 @@ golden tables of ENGMEM-SPEC.md §8 included."""
 
 import pytest
 
-from conftest import fixture_docs
+from support.docs import fixture_docs
 
 import dataclasses
 import json

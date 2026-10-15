@@ -56,7 +56,7 @@ the fix is usually the change, not the test.
   step, so any per-pair work shows as a non-zero second difference on any machine.
 - **Docs match the code.** `test_docs_match_the_code.py` checks that names, constants,
   and CLI flags quoted in the documentation still exist.
-- **Fixtures land as bytes.** `write_file` in `tests/conftest.py` writes exactly the
+- **Fixtures land as bytes.** `write_file` in `tests/support/docs.py` writes exactly the
   text it is given. Text mode translates every `\n` to `\r\n` on Windows, so a test
   pinning a document's line endings, byte-order mark, or exact bytes was handed a
   document it never asked for — and the failure only ever showed up on the Windows leg.

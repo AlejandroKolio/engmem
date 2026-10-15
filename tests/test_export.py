@@ -8,8 +8,9 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import requires_symlinks, write_file
-from mcp_harness import _run
+from support import rpc
+from support.docs import write_file
+from support.platform import requires_symlinks
 
 from engmem import export, staging
 from engmem.cli import main
@@ -810,6 +811,6 @@ def test_a_failed_write_leaves_no_partial_file(store, out_dir, capsys, monkeypat
 
 
 def test_no_mcp_tool_can_export(store):
-    _code, responses, _raw = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _code, responses, _raw = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     assert not [t["name"] for t in responses[0]["result"]["tools"] if "export" in t["name"]]

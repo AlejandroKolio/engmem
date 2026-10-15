@@ -7,16 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
+from support.home import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
     LEGACY_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
-    requires_permission_enforcement,
-    requires_symlinks,
 )
+from support.platform import requires_permission_enforcement, requires_symlinks
 
 from engmem.cli import main
 from engmem.install import TRIGGER_SENTINEL
