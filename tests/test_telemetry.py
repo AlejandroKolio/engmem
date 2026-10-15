@@ -8,6 +8,7 @@ from support.docs import fixture_docs
 from support.platform import requires_permission_enforcement
 
 import engmem.telemetry as telemetry
+from engmem import __version__
 from engmem.output import SCOPE_NAME_DISPLAY_MAX, RoleHit
 from engmem.scoring import Scope, search, search_with_role_sections
 from engmem.spine import load_store
@@ -562,13 +563,15 @@ def _write(jsonl_path, *, role=None, query="nothing-matches-xyz", names=("svc-a"
 
 ORDINARY_ROWS = [
     pytest.param(None, (
-        '{"ts": "2026-01-02T03:04:05+00:00", "query": "nothing-matches-xyz", '
+        '{"ts": "2026-01-02T03:04:05+00:00", "engmem_version": "' + __version__ + '", '
+        '"query": "nothing-matches-xyz", '
         '"session_id": "sess-1", "channel": "mcp", "n_docs": 7, "hits": [], "surfaced": [], '
         '"result": "miss", "context_bytes": 42, "context_tokens_estimate": 12, '
         '"scope": {"repos": ["svc-a", "svc-b"], "n_searched": 3}}\n'
     ), id="search"),
     pytest.param("decisions", (
-        '{"ts": "2026-01-02T03:04:05+00:00", "query": "nothing-matches-xyz", '
+        '{"ts": "2026-01-02T03:04:05+00:00", "engmem_version": "' + __version__ + '", '
+        '"query": "nothing-matches-xyz", '
         '"role": "decisions", "session_id": "sess-1", "channel": "mcp", "n_docs": 7, '
         '"hits": [], "surfaced": [], "result": "miss", "context_bytes": 42, '
         '"context_tokens_estimate": 12, "scope": {"repos": ["svc-a", "svc-b"], '

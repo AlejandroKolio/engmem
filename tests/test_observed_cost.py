@@ -24,8 +24,8 @@ WIDGET_BODY = (
     "## Lessons Learned\n\nMeasure before tuning."
 )
 SEARCH_ROW_KEYS = {
-    "ts", "query", "session_id", "channel", "n_docs", "hits", "surfaced", "result",
-    "context_bytes", "context_tokens_estimate", "scope",
+    "ts", "engmem_version", "query", "session_id", "channel", "n_docs", "hits", "surfaced",
+    "result", "context_bytes", "context_tokens_estimate", "scope",
 }
 
 
@@ -99,8 +99,10 @@ def test_each_delivery_counts_the_bytes_of_the_whole_response_it_sent(store, cap
         ("search", "mcp", len(rpc.text(mcp_search).encode("utf-8"))),
     ]
     assert len({r["op_id"] for r in rows}) == 4
-    assert set(rows[0]) == {"ts", "op_id", "op", "session_id", "channel", "bytes"}
-    assert set(rows[1]) == {"ts", "op_id", "op", "session_id", "channel", "bytes", "doc_id", "role"}
+    assert set(rows[0]) == {"ts", "engmem_version", "op_id", "op", "session_id", "channel", "bytes"}
+    assert set(rows[1]) == {
+        "ts", "engmem_version", "op_id", "op", "session_id", "channel", "bytes", "doc_id", "role"
+    }
 
 
 def test_the_summary_shows_search_responses_and_reads_apart_and_in_total(store, capsys):

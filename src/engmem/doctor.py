@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 import enum
+import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,10 +36,12 @@ from engmem.install import (
     _template_paths_for_agent,
     _validate_agent,
     mcp_wiring,
+    pending_path,
     rewire_action,
     wiring_verdict,
 )
 from engmem.executables import on_path
+from engmem.output import _escape_controls
 from engmem.runtime import (
     StoreChoice,
     StoreSettingError,
@@ -49,11 +52,11 @@ from engmem.runtime import (
     source_description,
 )
 from engmem.staging import discard, read_document, stage
+from engmem.template_stamps import WORKFLOW, read_stamp, written_by_engmem
 
 _PROBE_SECONDS = 15.0
 _PROBE_OUTPUT_BYTES = 64 * 1024
 _PROBE_TARGET = "engmem-doctor-probe.md"
-_STAMP = re.compile(r"<!-- engmem-template: \S+ v(\S+) -->")
 # the agents whose templates or skills run `engmem` as a shell command
 _SHELL_AGENTS = ("claude", "copilot-ide", "copilot-cli", "codex")
 _CLIENT_NAMES = {
@@ -62,6 +65,7 @@ _CLIENT_NAMES = {
     "copilot-cli": "Copilot CLI",
     "claude-desktop": "Claude Desktop",
     "codex": "Codex",
+    "chatgpt": "the ChatGPT bridge's engmem server",
 }
 
 
@@ -121,6 +125,8 @@ def diagnose(agent: str, local: bool, explicit: str | None) -> list[Finding]:
     findings += _trigger_rule_findings(agent, local)
     if agent in MCP_CONFIGS:
         findings += _mcp_findings(agent, choice)
+    if (agent in MCP_CONFIGS or agent == "chatgpt") and choice is not None:
+        findings.append(_mcp_runtime_finding(agent, *_server_store(agent, choice.path)))
     if agent == "chatgpt":
         findings += _bridge_findings()
     else:
@@ -285,12 +291,12 @@ def _template_findings(agent: str, local: bool) -> list[Finding]:
     subject = "skill" if agent in _SKILL_AGENTS else "template"
     install = _install_command(agent, local)
     return [
-        _template_finding(subject, path, install)
+        _template_finding(subject, path, install, _CLIENT_NAMES.get(agent, agent))
         for path in _template_paths_for_agent(agent, local)
     ]
 
 
-def _template_finding(subject: str, path: Path, install: str) -> Finding:
+def _template_finding(subject: str, path: Path, install: str, client: str) -> Finding:
     try:
         text, _bom = read_document(path)
     except FileNotFoundError as exc:
@@ -304,20 +310,137 @@ def _template_finding(subject: str, path: Path, install: str) -> Finding:
             Status.ERROR, subject,
             f"cannot read {path} ({_cause(exc)}) — give your user read access, or run `{install}`",
         )
-    stamp = _STAMP.search(text)
+    stamp, body = read_stamp(text)
+    pending = pending_path(path)
     if stamp is None:
         return Finding(
             Status.WARNING, subject,
-            f"{path} carries no engmem version stamp — edited by hand or installed by an old "
-            f"engmem; `{install}` rewrites it",
+            f"{path} carries no engmem stamp, so engmem cannot tell which workflow it follows — "
+            f"`{install}` leaves it as it is and puts engmem's version beside it to compare",
         )
-    if stamp.group(1) != __version__:
+    edited = not written_by_engmem(stamp, body)
+    yours = (
+        f"; you edited it, so `{install}` leaves it and puts the new version beside it, "
+        f"{pending.name}, to compare" if edited else ""
+    )
+    restart = f"then start a new {client} session so it loads the new {subject}"
+    if stamp.workflow < WORKFLOW:
+        return Finding(
+            Status.ERROR, subject,
+            f"{path} is incompatible: {client} follows the workflow engmem {stamp.version} "
+            f"installed (level {stamp.workflow}), and engmem {__version__} refuses its steps "
+            f"(level {WORKFLOW}) — run `{install}`, {restart}{yours}",
+        )
+    if stamp.workflow > WORKFLOW:
+        return Finding(
+            Status.ERROR, subject,
+            f"{path} is incompatible: engmem {stamp.version} installed it for workflow level "
+            f"{stamp.workflow}, newer than this engmem {__version__} (level {WORKFLOW}) runs — "
+            f"upgrade the engmem {client} runs, or run `{install}` with this one, {restart}",
+        )
+    if pending.exists():
         return Finding(
             Status.WARNING, subject,
-            f"{path} was installed by engmem {stamp.group(1)}, this is {__version__} — run "
-            f"`{install}` to update it",
+            f"{path} was left as it is by an install, because you edited it; engmem's version "
+            f"waits beside it, {pending} — compare them and keep one",
+        )
+    if edited:
+        return Finding(
+            Status.WARNING, subject,
+            f"{path} was edited after engmem {stamp.version} installed it — compatible by its "
+            f"stamp, but engmem cannot vouch for the edited steps",
+        )
+    if stamp.version != __version__:
+        return Finding(
+            Status.OK, subject,
+            f"{path} (installed by engmem {stamp.version}, compatible with {__version__}; "
+            f"`{install}` brings its newer wording)",
         )
     return Finding(Status.OK, subject, f"{path} (v{__version__})")
+
+
+# the files the MCP server logs to, each row stamped with the engmem that wrote it
+_RUNTIME_LOGS = ("telemetry.jsonl", "cost.jsonl")
+
+
+def _newest_mcp_row(store: Path) -> dict | None:
+    newest: tuple[datetime, dict] | None = None
+    for name in _RUNTIME_LOGS:
+        try:
+            lines = confined.read_log_lines(store / name, confined.LOG_DEPTH)
+        except (OSError, ValueError):
+            continue
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or row.get("channel") != "mcp":
+                continue
+            when = _logged_at(row.get("ts"))
+            if when is not None and (newest is None or when > newest[0]):
+                newest = (when, row)
+    return None if newest is None else newest[1]
+
+
+def _logged_at(ts: object) -> datetime | None:
+    """`ts` as the writers format it; anything else cannot be ordered and is not evidence."""
+    if not isinstance(ts, str):
+        return None
+    try:
+        when = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else None
+
+
+def _server_store(agent: str, cli_store: Path) -> tuple[Path, str]:
+    """The store the client's server logs to, and how doctor knows it: the entry's own absolute
+    `--store`, or else the CLI's, which the server is then only assumed to share."""
+    try:
+        wiring = mcp_wiring(agent) if agent in MCP_CONFIGS else None
+    except _SetupError:
+        wiring = None
+    if wiring is not None and wiring_verdict(wiring, cli_store) in (
+        WiringVerdict.MATCHES, WiringVerdict.MISMATCH
+    ):
+        return Path(wiring.store), f"the store its MCP entry names, {wiring.store}"
+    return cli_store, f"{cli_store}, the CLI's store, which the server is assumed to use"
+
+
+def _mcp_runtime_finding(agent: str, store: Path, where: str) -> Finding:
+    """What the running server reported about itself, never the package on disk: a client
+    keeps the server it started until it is restarted."""
+    client = _CLIENT_NAMES.get(agent, agent)
+    check = f"restart {client}, run one engmem search through it, then run doctor again"
+    row = _newest_mcp_row(store)
+    if row is None:
+        return Finding(
+            Status.UNVERIFIED, "mcp runtime",
+            f"no MCP call is logged in {where} yet, so the engmem a running server uses is "
+            f"unknown — {check}",
+        )
+    # both come from a file anyone with access to the store can write
+    version, ts = row.get("engmem_version"), _escape_controls(row["ts"])
+    if not isinstance(version, str):
+        return Finding(
+            Status.UNVERIFIED, "mcp runtime",
+            f"the newest MCP call in {where}, at {ts}, came from an engmem that did not log its "
+            f"version (0.1.4 or earlier) — {check}",
+        )
+    if version != __version__:
+        return Finding(
+            Status.UNVERIFIED, "mcp runtime",
+            f"the newest MCP call in {where}, at {ts}, came from engmem "
+            f"{_escape_controls(version)}, and this is "
+            f"{__version__}: a client started before an upgrade runs its old server until it "
+            f"restarts — {check}",
+        )
+    return Finding(
+        Status.OK, "mcp runtime",
+        f"the newest MCP call in {where}, at {ts}, came from engmem {version} (the log does not "
+        f"say which client made it)",
+    )
 
 
 def _trigger_rule_findings(agent: str, local: bool) -> list[Finding]:

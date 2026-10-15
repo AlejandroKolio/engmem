@@ -6,9 +6,14 @@ Source: `src/engmem/install.py`. What each agent mode writes, and where, is `ENG
 ## Two kinds of file, and only one of them is engmem's
 
 **engmem's own files** — the templates in `~/.claude/commands/`, `.github/prompts/`,
-`~/.copilot/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md` — are rewritten whole by every install and can be rebuilt
-from the package at any time, so `_write_template` writes them in place: a torn write costs a
-re-run of an idempotent command.
+`~/.copilot/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md` — are rewritten whole
+by every install and can be rebuilt from the package at any time. They stay engmem's only until
+the user edits one (next section). Since US-26 `_write_template` stages and replaces them through
+`_replace_user_file`, like the user's files. Before that they were written in place, on the
+grounds that a torn write cost only a re-run. That no longer holds: a torn template no longer
+matches its digest, so the next install would keep it as the user's edit, and the client would
+go on loading half a command. A new template is therefore created `0600`, as below; the client
+that reads it runs as the same user.
 
 **The user's files** — the trigger-rule file (`CLAUDE.md`, `.github/copilot-instructions.md`,
 Codex's `AGENTS.md`), `claude_desktop_config.json` and Codex's `config.toml` — hold content engmem cannot regenerate (the user's own
@@ -40,6 +45,55 @@ Four consequences follow, each deliberate:
   worked around: the alternative is truncate-and-rewrite in place, which trades a broken link
   for a destroyed file on a full disk or a crash, and a hard link to a config file is rare
   where a symlink is the setup engmem protects.
+
+## An installed template is engmem's until someone edits it (US-26)
+
+Before US-26 install overwrote every template whole, and doctor compared only the version in its
+stamp. An edit the user made to a skill, such as a team step, was lost without a word on the
+next upgrade. AC-26.3 asks for the edit to survive or for a reviewable conflict.
+
+**Knowing what engmem wrote.** The stamp carries `sha256:<digest>`: the first 16 hex digits of
+the SHA-256 of the file without its stamp line, line endings read as `\n`
+(`template_stamps.digest`). A file whose body still matches is one engmem wrote and nobody
+changed, so install replaces it. Stamps written before US-26 have no digest. For them
+`template_stamps.RELEASED_DIGESTS` lists the digest of every template v0.1.1 to v0.1.4
+installed, for every agent. They were computed by installing each tag into a scratch home, and
+an unedited old file is recognised by that list (owner decision, 2026-10-15). Treating every old
+file as an edit was rejected: the first upgrade from 0.1.4 would then stop on every template of
+every client. Overwriting them unchecked was rejected because it is the silent loss this story
+removes. A body that matches neither, including a file with no stamp, cannot be shown to be
+engmem's, so it is kept. A file identical to the one about to be written is replaced whatever
+its stamp, since nothing can be lost.
+
+**The conflict is a file beside the edit** (owner decision, 2026-10-15). The user's file is left
+as it is, byte for byte; bytes that are not UTF-8 count as an edit too, since nothing shows them
+to be engmem's. This version's template goes next to it as `<name>.engmem-new`, a name no client
+loads as a command or a skill, because it does not end in `.md`. Install finishes everything
+else, says `engmem install incomplete` on its first line, prints one `conflict:` line per file
+with both paths, and exits 2. The way out it prints is one: carry any edit worth keeping into
+the new file, then move it over the old one. The result carries this version's stamp, so doctor
+reports at most an edited file, never an incompatible one. Merging the other way, into the old
+file, was the first wording and was wrong: the old file keeps its old stamp, so it stays
+incompatible to doctor and conflicting to every install however much of the new text it holds.
+The line says so: until the move, the file keeps the workflow it was installed with.
+
+The `.engmem-new` file is where the user is told to put the edits they keep, so it can hold
+their work too. Install overwrites it only while its body still matches its own stamp, which
+means nobody has touched it since an install wrote it. Once the user has carried an edit into
+it, a re-run leaves both files as they are. The `conflict:` line then says the merge is in
+progress, and that deleting the file starts again from this version's template. Without this
+rule, re-running install mid-merge (a dotfiles bootstrap, or a "did it work?" check) erased the
+carried edit without a word. `uninstall` follows the same rule. It removes a `.engmem-new` only
+while it is engmem's text, and says so when it keeps one.
+
+A file the user keeps editing stays theirs, and is compared again on every install. Once the
+file is engmem's again, the next install removes a `.engmem-new` it left earlier and nobody
+edited, and so does `uninstall`. Stopping before writing anything was rejected, because it leaves the user nothing
+to compare against. Replacing the file and keeping a backup was rejected, because the edit
+would silently stop taking effect.
+
+`uninstall` still removes an edited template. It is the user's own request to remove engmem's
+files, and refusing it would leave a command the user just asked to be rid of.
 
 ## The file is read as bytes, and appended to in its own dialect
 

@@ -19,10 +19,20 @@ from support.platform import (
 from engmem import __version__
 from engmem.cli import main
 from engmem.install import TRIGGER_SENTINEL
+from engmem.template_stamps import WORKFLOW, read_stamp, written_by_engmem
 
 SOURCE_TEMPLATE_NAMES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
 def _stamp(template: str) -> str:
-    return f"<!-- engmem-template: {template} v{__version__} -->"
+    """The stamp's fixed part; the digest after it is checked against the body."""
+    return f"<!-- engmem-template: {template} v{__version__} workflow {WORKFLOW} sha256:"
+
+
+def _assert_stamped(path: Path, line: str, expected: str) -> None:
+    assert line.startswith(expected), (
+        f"{path.name}: version stamp must be the first line after front matter; got {line!r}"
+    )
+    stamp, body = read_stamp(path.read_text(encoding="utf-8"))
+    assert written_by_engmem(stamp, body), f"{path.name}: the stamp's digest must cover its body"
 
 
 COPILOT_CLI_SKILLS = {
@@ -60,9 +70,7 @@ def _assert_installed_template(path: Path, installed_name: str) -> None:
         f"(Claude Code ignores it otherwise); got {lines[0]!r}"
     )
     closing = lines.index("---", 1)
-    assert lines[closing + 1] == STAMPS[installed_name], (
-        f"{installed_name}: version stamp must be the first line after front matter"
-    )
+    _assert_stamped(path, lines[closing + 1], STAMPS[installed_name])
 
 
 def _assert_installed_skill(skills_root: Path, skill_name: str) -> None:
@@ -80,9 +88,7 @@ def _assert_installed_skill(skills_root: Path, skill_name: str) -> None:
         f"{skill_name}/SKILL.md: argument-hint is not a Copilot skill field and "
         f"must be stripped"
     )
-    assert lines[closing + 1] == COPILOT_CLI_SKILLS[skill_name], (
-        f"{skill_name}/SKILL.md: version stamp must be the first line after front matter"
-    )
+    _assert_stamped(path, lines[closing + 1], COPILOT_CLI_SKILLS[skill_name])
 
 
 _SOURCE_FILENAME_REASON = (
