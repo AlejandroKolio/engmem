@@ -11,7 +11,7 @@ import datetime
 import pytest
 import yaml
 
-from support.docs import write_file
+from support.docs import replaced, write_file
 from support.platform import requires_posix_modes, requires_symlinks
 
 from engmem import backfill
@@ -60,8 +60,10 @@ WidgetRepository.
 
 # the only shape that proposes every field: `superseded_by` is offered only when the
 # `- Status:` line both says superseded and names the successor
-SUPERSEDED_WIDGET_CACHE = LEGACY_WIDGET_CACHE.replace(
-    "- Status:      Delivered", "- Status:      Superseded by [v2](widget-cache-v2.md)"
+SUPERSEDED_WIDGET_CACHE = replaced(
+    LEGACY_WIDGET_CACHE,
+    "- Status:      Delivered",
+    "- Status:      Superseded by [v2](widget-cache-v2.md)",
 )
 
 

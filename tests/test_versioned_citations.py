@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from support import rpc
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.platform import requires_permission_enforcement, requires_symlinks
 from support.tools import run_tool
 
@@ -369,9 +369,10 @@ def test_gate1_report_names_the_cited_version_and_its_state(edited):
 
 def _complete(store: Path, prior_doc: str, quote: str) -> tuple[str, bool]:
     (store / "sessions" / "20260101-story-doc.md").write_text(
-        DRAFT_CONTENT.replace("20260101-widget-cache", "20260101-story-doc"), encoding="utf-8"
+        replaced(DRAFT_CONTENT, "20260101-widget-cache", "20260101-story-doc"), encoding="utf-8"
     )
-    content = ACTIVE_CONTENT.replace("20260101-widget-cache", "20260101-story-doc").replace(
+    content = replaced(
+        replaced(ACTIVE_CONTENT, "20260101-widget-cache", "20260101-story-doc"),
         "## Reuse Log\n\nPrior docs used: none.\n\n",
         "## Reuse Log\n\n| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
         f'| {prior_doc} | flush order: "{quote}" | kept it | reuse |\n\n',

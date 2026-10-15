@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from support import rpc
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.fs import entry_names
 
 from engmem import drafts, mcp_server, staging
@@ -177,7 +177,7 @@ def test_completing_a_version_the_draft_has_moved_past_is_refused_with_the_curre
 
 @pytest.mark.parametrize(
     "on_disk",
-    [ACTIVE_CONTENT, ACTIVE_CONTENT.replace("status: active", "status: superseded")],
+    [ACTIVE_CONTENT, replaced(ACTIVE_CONTENT, "status: active", "status: superseded")],
     ids=["active", "superseded"],
 )
 @pytest.mark.parametrize("version_kind", ["its own version", "no version"])

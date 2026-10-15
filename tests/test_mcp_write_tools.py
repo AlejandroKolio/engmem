@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
@@ -111,8 +111,8 @@ def test_create_draft_rejects_status_other_than_draft(store):
 # --- the two content-writing tools share the same front-matter checks; each row differs only
 # in which leg of the draft -> active transition is being asked for.
 
-_MISMATCHED_ACTIVE = ACTIVE_CONTENT.replace(
-    "id: 20260101-widget-cache", "id: 20260101-something-else"
+_MISMATCHED_ACTIVE = replaced(
+    ACTIVE_CONTENT, "id: 20260101-widget-cache", "id: 20260101-something-else"
 )
 
 
@@ -356,7 +356,8 @@ _QUOTE = '"Chose CacheWarmer over a lazy cache fill"'
 
 
 def _with_reuse_rows(*rows: str) -> str:
-    return ACTIVE_CONTENT.replace(
+    return replaced(
+        ACTIVE_CONTENT,
         "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
         "## Reuse Log\n\n"
         "| prior-doc | taken | impact | classification |\n"
@@ -369,7 +370,7 @@ def _write_cited_doc(store: Path) -> None:
     _write_raw(
         store,
         "20260101-other-doc",
-        ACTIVE_CONTENT.replace("id: 20260101-widget-cache", "id: 20260101-other-doc"),
+        replaced(ACTIVE_CONTENT, "id: 20260101-widget-cache", "id: 20260101-other-doc"),
     )
 
 
@@ -617,7 +618,7 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
         raise OSError("sessions/ unreadable")
 
     monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
-    content = ACTIVE_CONTENT.replace("## Reuse Log\n\nPrior docs used: none.\n\n", "")
+    content = replaced(ACTIVE_CONTENT, "## Reuse Log\n\nPrior docs used: none.\n\n", "")
 
     result, is_error = rpc.call(
         store,
@@ -1264,7 +1265,7 @@ def test_mark_superseded_preserves_the_documents_bytes(store, raw, nl):
     path = sessions / "20260101-widget-cache.md"
     path.write_bytes(raw + document.encode("utf-8"))
     (sessions / "20260201-widget-cache-v2.md").write_text(
-        ACTIVE_CONTENT.replace("20260101-widget-cache", "20260201-widget-cache-v2"),
+        replaced(ACTIVE_CONTENT, "20260101-widget-cache", "20260201-widget-cache-v2"),
         encoding="utf-8",
     )
 

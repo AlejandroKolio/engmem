@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from support import rpc
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.fs import entry_names
 from support.platform import requires_symlinks
 
@@ -28,7 +28,7 @@ def store(tmp_path) -> Path:
 
 
 def _draft(doc_id: str, marker: str) -> str:
-    return DRAFT_CONTENT.replace("20260101-widget-cache", doc_id) + f"\nWriter marker: {marker}\n"
+    return replaced(DRAFT_CONTENT, "20260101-widget-cache", doc_id) + f"\nWriter marker: {marker}\n"
 
 
 def _create_concurrently(store: Path, requests: list[tuple[str, str]]) -> list[tuple[str, bool]]:
@@ -118,9 +118,16 @@ def test_concurrent_creators_of_different_ids_both_keep_their_full_documents(sto
     assert sorted(d.id for d in loaded.docs) == sorted(doc_id for doc_id, _ in requests)
 
 
-_SUPERSEDED_CONTENT = ACTIVE_CONTENT.replace(
-    "status: active", "status: superseded\nsuperseded_by: 20260201-widget-cache-v2"
-).replace("superseded_by:\n", "", 1)
+_SUPERSEDED_CONTENT = replaced(
+    replaced(
+        ACTIVE_CONTENT,
+        "status: active",
+        "status: superseded\nsuperseded_by: 20260201-widget-cache-v2",
+    ),
+    "superseded_by:\n",
+    "",
+    1,
+)
 
 
 @pytest.mark.parametrize(

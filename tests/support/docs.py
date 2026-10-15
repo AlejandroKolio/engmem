@@ -13,6 +13,12 @@ def fixture_docs():
     return load_store(FIXTURES).docs
 
 
+def replaced(text: str, old: str, new: str, count: int = -1) -> str:
+    """`str.replace` that fails when `old` is gone, so a variant cannot quietly equal its source."""
+    assert old in text, f"variant source changed: {old!r} not found"
+    return text.replace(old, new, count)
+
+
 def write_file(dir_path: Path, name: str, text: str) -> Path:
     r"""Writes `text` verbatim: `write_text` translates every `\n` to `\r\n` on Windows, so a
     caller pinning a document's line endings was handed a document it never asked for."""
