@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT
-from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.fs import entry_names
 
 from engmem import backfill, drafts, mcp_server, staging
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
@@ -63,10 +64,6 @@ def _supersede(store: Path, expected_version: str | None) -> tuple[str, bool]:
     return mcp_server._handle_mark_superseded(arguments, store)
 
 
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
-
-
 # ---------------------------------------------------------------------------
 # AC-25.1, AC-25.2: supersede names the version read
 # ---------------------------------------------------------------------------
@@ -95,13 +92,17 @@ def test_superseding_a_version_a_colleague_has_moved_past_is_refused_with_the_cu
     assert CURRENT_VERSION_RE.search(text).group(1) == version_of(v2_bytes)
     assert PROHIBITION.strip() in text, "the refusal must carry what the colleague added"
     assert path.read_bytes() == v2_bytes
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
 
     retried, is_error = _supersede(store, CURRENT_VERSION_RE.search(text).group(1))
     assert not is_error, retried
 
 
-@pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
+@pytest.mark.parametrize("missing", [
+    pytest.param(None, id="absent"),
+    pytest.param("", id="empty"),
+    pytest.param("  ", id="blank"),
+])
 def test_a_supersede_without_a_version_is_refused_with_the_current_one(store, missing):
     """AC-25.2 for supersede: no read is not a match, and the refusal is enough to retry."""
     path = _policy(store)
@@ -117,9 +118,9 @@ def test_a_supersede_without_a_version_is_refused_with_the_current_one(store, mi
 def test_a_non_string_supersede_version_is_invalid_params(store):
     path = _policy(store)
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name=SUPERSEDE_TOOL,
             arguments={"id": POLICY_ID, "superseded_by": SUCCESSOR_ID, "expected_version": 7},
@@ -136,14 +137,14 @@ def test_a_draft_named_by_its_version_is_still_not_superseded(store):
     path = store / "sessions" / f"{DRAFT_ID}.md"
     path.write_bytes(DRAFT_CONTENT.encode("utf-8"))
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
-        arguments=versioned(store, {"id": DRAFT_ID, "superseded_by": SUCCESSOR_ID}),
+        arguments=rpc.versioned(store, {"id": DRAFT_ID, "superseded_by": SUCCESSOR_ID}),
     )
 
     assert is_error
-    assert "not 'active'" in _text(result)
+    assert "not 'active'" in rpc.text(result)
     assert path.read_bytes() == DRAFT_CONTENT.encode("utf-8")
 
 
@@ -157,7 +158,10 @@ def _cli(capsys, monkeypatch, store: Path, stdin: str, *args: str) -> tuple[int,
 
 
 @pytest.mark.parametrize(
-    "flag", [(), ("--expected-version", "")], ids=["absent", "empty"]
+    "flag", [
+        pytest.param((), id="absent"),
+        pytest.param(("--expected-version", ""), id="empty"),
+    ]
 )
 def test_a_cli_completion_without_a_version_exits_2_with_the_current_one(
     store, capsys, monkeypatch, flag
@@ -256,7 +260,7 @@ def test_a_supersede_committing_first_makes_the_backfill_refuse(store, monkeypat
     after = parse_document(path)
     assert after.status == "superseded" and after.superseded_by == SUCCESSOR_ID
     assert after.backfilled is not True, "the backfill must not have written over the supersede"
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"]
 
 
 def test_a_backfill_committing_first_makes_the_supersede_refuse(store, monkeypatch):
@@ -276,7 +280,7 @@ def test_a_backfill_committing_first_makes_the_supersede_refuse(store, monkeypat
     assert "changed since you read it" in text
     after = parse_document(path)
     assert after.status == "active" and after.backfilled is True
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +306,7 @@ def _edit_after_staging(monkeypatch, target: Path) -> None:
 def test_a_completion_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     path = store / "sessions" / f"{DRAFT_ID}.md"
     path.write_bytes(DRAFT_CONTENT.encode("utf-8"))
-    arguments = versioned(store, {"id": DRAFT_ID, "content": ACTIVE_CONTENT})
+    arguments = rpc.versioned(store, {"id": DRAFT_ID, "content": ACTIVE_CONTENT})
     _edit_after_staging(monkeypatch, path)
 
     text, is_error = mcp_server._handle_complete_draft(arguments, store)
@@ -310,7 +314,7 @@ def test_a_completion_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     assert is_error
     assert "changed on disk" in text
     assert path.read_bytes() == (DRAFT_CONTENT + EDIT).encode("utf-8"), "the edit stays"
-    assert _sessions_files(store) == [f"{DRAFT_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{DRAFT_ID}.md"], "no staged file or lock left behind"
 
 
 def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
@@ -322,7 +326,7 @@ def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     assert is_error
     assert "changed on disk" in text
     assert path.read_bytes() == (POLICY + EDIT).encode("utf-8"), "the edit stays"
-    assert _sessions_files(store) == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{POLICY_ID}.md"], "no staged file or lock left behind"
 
 
 # ---------------------------------------------------------------------------
@@ -332,14 +336,14 @@ def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
 
 def test_a_prohibition_added_after_the_read_stays_active_and_found(store):
     _policy(store)
-    read_text = _text(_call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
+    read_text = rpc.text(rpc.call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
     cited = re.search(rf"cite as \(Reuse Log prior-doc\): {POLICY_ID}@([0-9a-f]+)", read_text)
     assert cited, read_text
     # the colleague adds the prohibition after the agent read the policy
     path = store / "sessions" / f"{POLICY_ID}.md"
     path.write_bytes((POLICY + PROHIBITION).encode("utf-8"))
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=SUPERSEDE_TOOL,
         arguments={
@@ -349,18 +353,18 @@ def test_a_prohibition_added_after_the_read_stays_active_and_found(store):
         },
     )
 
-    assert is_error, _text(result)
-    assert PROHIBITION.strip() in _text(result)
+    assert is_error, rpc.text(result)
+    assert PROHIBITION.strip() in rpc.text(result)
     assert parse_document(path).status == "active"
     # the next fresh session, searching its own repository
-    found, is_error = _call(
+    found, is_error = rpc.call(
         store,
         name=mcp_server.TOOL_NAME,
         arguments={"query": "PaymentRetrier fraud retry", "repo": "payments-api"},
     )
-    assert not is_error, _text(found)
-    assert POLICY_ID in _text(found)
-    read_again = _text(_call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
+    assert not is_error, rpc.text(found)
+    assert POLICY_ID in rpc.text(found)
+    read_again = rpc.text(rpc.call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
     assert "Never retry a charge the card network declined as fraud" in read_again
 
 

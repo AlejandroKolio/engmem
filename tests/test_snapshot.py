@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import DRAFT_CONTENT, write_file
-from mcp_harness import _call, _run, _telemetry_lines, _text, _tools_call_msg, versioned
+from support import rpc
+from support.docs import DRAFT_CONTENT, write_file
 
 from engmem import provenance
 from engmem.cli import main
@@ -95,12 +95,6 @@ def _doc(doc_id: str, *, repos: str | None = None, verified_at: str | None = Non
     )
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
-
-
 def _add(store: Path, doc_id: str, **fields: str) -> None:
     write_file(store / "sessions", f"{doc_id}.md", _doc(doc_id, **fields))
 
@@ -111,9 +105,9 @@ def _cli(store: Path, capsys, *extra: str) -> str:
 
 
 def _mcp(store: Path, **arguments) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": QUERY, **arguments})
-    assert not is_error, _text(result)
-    return _text(result)
+    result, is_error = rpc.call(store, name="engmem_search", arguments={"query": QUERY, **arguments})
+    assert not is_error, rpc.text(result)
+    return rpc.text(result)
 
 
 def _snapshot_line(output: str, doc_id: str) -> str | None:
@@ -572,8 +566,8 @@ def test_cli_and_mcp_show_the_same_snapshot_lines(anchored_store, capsys, role):
     tool, extra = ("engmem_search_by_role", {"role": role}) if role else ("engmem_search", {})
 
     cli_out = _cli(store, capsys, *cli_args)
-    result, is_error = _call(store, name=tool, arguments={"query": QUERY, **extra})
-    mcp_out = _text(result)
+    result, is_error = rpc.call(store, name=tool, arguments={"query": QUERY, **extra})
+    mcp_out = rpc.text(result)
 
     assert not is_error
     assert [l for l in cli_out.splitlines() if l != UNATTRIBUTED_CLI_NOTE] == [
@@ -617,10 +611,10 @@ def test_one_mcp_session_looks_the_checkout_up_again_for_every_call(anchored_sto
     real = provenance.find_checkout
     monkeypatch.setattr(provenance, "find_checkout", lambda d: calls.append(d) or real(d))
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(1, arguments={"query": QUERY}),
-        _tools_call_msg(2, arguments={"query": QUERY}),
+        rpc.tools_call_msg(1, arguments={"query": QUERY}),
+        rpc.tools_call_msg(2, arguments={"query": QUERY}),
     )
 
     assert len(responses) == 2 and len(calls) == 2
@@ -640,7 +634,7 @@ def test_the_snapshot_line_is_inside_the_budget_and_context_bytes(
                              checkout=SessionCheckout())
 
     assert len(rendered.text.encode("utf-8")) <= MAX_OUTPUT_BYTES - SCOREBOARD_RESERVE
-    (row,) = _telemetry_lines(store)
+    (row,) = rpc.telemetry_lines(store)
     assert row["context_bytes"] == len(rendered.text.encode("utf-8"))
     assert out.startswith(rendered.text)
 
@@ -675,11 +669,11 @@ def test_a_repository_pointed_to_by_git_dir_does_not_answer_for_the_checkout(
 
 def _complete(store: Path, content: str) -> tuple[str, bool]:
     write_file(store / "sessions", "20260101-widget-cache.md", DRAFT_CONTENT)
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name="engmem_complete_draft",
-        arguments=versioned(store, {"id": "20260101-widget-cache", "content": content}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": content}),
     )
-    return _text(result), is_error
+    return rpc.text(result), is_error
 
 
 def _active(front_matter: str) -> str:

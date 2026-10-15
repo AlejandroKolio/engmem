@@ -478,7 +478,7 @@ uv run pytest -q
 
 Python ≥3.11. Runtime dependencies: `pyyaml` and `markdown-it-py`, and nothing else
 (hard constraint — see `ENGMEM-SPEC.md` §2). Search correctness is defined by the golden fixture tests in
-`tests/test_scoring.py` / `tests/test_cli.py`; at any conflict between the scoring
+`tests/search/test_scoring.py` / `tests/test_cli.py`; at any conflict between the scoring
 formula and a golden test, the test wins.
 
 ## What engmem touches on your machine

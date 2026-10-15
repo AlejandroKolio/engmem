@@ -10,11 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _text
+from support.docs import write_file
+from support.search import cli_search, mcp_search
 
 from engmem import cache
-from engmem.cli import main
 from engmem.scoring import (
     _MARK_PLANES,
     _camel_expansion,
@@ -91,17 +90,6 @@ def test_ac_02_1_a_matrix_term_finds_its_record_and_names_the_match(tmp_path, la
     assert hits[0].matched_fields == {expected_place: [_token(term)]}
 
 
-def _cli_search(store: Path, query: str, capsys) -> str:
-    assert main(["search", query, "--store", str(store)]) == 0
-    return capsys.readouterr().out
-
-
-def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": query})
-    assert not is_error
-    return _text(result)
-
-
 def _result_lines(output: str) -> list[str]:
     return [
         line for line in output.splitlines() if not line.startswith(("docs: ", "note: "))
@@ -114,8 +102,8 @@ def test_ac_02_1_and_02_5_cli_and_mcp_render_the_same_unicode_match(
 ):
     _write_matrix_store(tmp_path)
 
-    cli = _cli_search(tmp_path, term, capsys)
-    mcp = _mcp_search(tmp_path, term, capsys)
+    cli = cli_search(tmp_path, term, capsys)
+    mcp = mcp_search(tmp_path, term, capsys)
 
     assert f"### 3000-{lang} " in cli
     place = "title" if where == "title" else "§1-decision-log"
@@ -161,7 +149,9 @@ APOSTROPHES = {
 }
 
 
-@pytest.mark.parametrize("word", ["об{}єкт", "don{}t"], ids=["uk", "en"])
+@pytest.mark.parametrize(
+    "word", [pytest.param("об{}єкт", id="uk"), pytest.param("don{}t", id="en")]
+)
 @pytest.mark.parametrize("query_mark", APOSTROPHES.values(), ids=APOSTROPHES.keys())
 @pytest.mark.parametrize("document_mark", APOSTROPHES.values(), ids=APOSTROPHES.keys())
 def test_ac_02_2_every_apostrophe_form_separates_alike(tmp_path, word, document_mark, query_mark):
@@ -187,8 +177,14 @@ def test_the_double_apostrophe_letter_separates_too():
     assert tokenize_raw("a\u02eeb") == ["a", "b"]
 
 
-@pytest.mark.parametrize("document_form", [_nfc, _nfd], ids=["doc_nfc", "doc_nfd"])
-@pytest.mark.parametrize("query_form", [_nfc, _nfd], ids=["query_nfc", "query_nfd"])
+@pytest.mark.parametrize("document_form", [
+    pytest.param(_nfc, id="doc_nfc"),
+    pytest.param(_nfd, id="doc_nfd"),
+])
+@pytest.mark.parametrize("query_form", [
+    pytest.param(_nfc, id="query_nfc"),
+    pytest.param(_nfd, id="query_nfd"),
+])
 def test_ac_02_3_canonically_equivalent_spellings_match(tmp_path, document_form, query_form):
     sessions = tmp_path / "sessions"
     sessions.mkdir()
@@ -326,7 +322,10 @@ def _stale_entry_for(path: Path) -> None:
     entry_path.write_text(json.dumps(record), encoding="utf-8")
 
 
-@pytest.mark.parametrize("run", [_cli_search, _mcp_search], ids=["cli", "mcp"])
+@pytest.mark.parametrize("run", [
+    pytest.param(cli_search, id="cli"),
+    pytest.param(mcp_search, id="mcp"),
+])
 def test_ac_02_6_a_pre_upgrade_cache_entry_is_not_served(tmp_path, run, capsys):
     sessions = _write_matrix_store(tmp_path)
     ru_doc = sessions / "3000-ru.md"

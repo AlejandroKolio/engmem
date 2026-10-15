@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
+from support.search import cli_search, mcp_search
 
 from engmem import search_report
 from engmem.cli import main
@@ -118,20 +119,9 @@ def test_ac_01_1_a_draft_does_not_move_published_results(
     assert _published_signature(sessions, query, ranker) == expected
 
 
-def _cli_search(store: Path, query: str, capsys) -> str:
-    assert main(["search", query, "--store", str(store)]) == 0
-    return capsys.readouterr().out
-
-
-def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": query})
-    assert not is_error
-    return _text(result)
-
-
 CHANNELS = [
-    pytest.param(_cli_search, id="cli"),
-    pytest.param(_mcp_search, id="mcp"),
+    pytest.param(cli_search, id="cli"),
+    pytest.param(mcp_search, id="mcp"),
 ]
 
 
@@ -271,13 +261,13 @@ def test_the_sessions_own_draft_is_not_named(tmp_path, capsys):
 def test_a_draft_with_no_decision_log_is_not_named(tmp_path, capsys):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, "## Pre-reg\n\nidempotency retry.\n")})
 
-    assert _drafts_line(_cli_search(tmp_path, QUERY, capsys)) is None
+    assert _drafts_line(cli_search(tmp_path, QUERY, capsys)) is None
 
 
 def test_a_draft_that_does_not_match_the_query_is_not_named(tmp_path, capsys):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, "## Decision Log\n\nZebra stripes.\n", title="Zebra")})
 
-    assert _drafts_line(_cli_search(tmp_path, QUERY, capsys)) is None
+    assert _drafts_line(cli_search(tmp_path, QUERY, capsys)) is None
 
 
 @pytest.mark.parametrize(
@@ -302,7 +292,7 @@ def test_a_scoped_search_names_a_draft_in_scope_or_linking_no_repository(
 def test_the_drafts_line_sits_after_the_cite_line_and_before_the_scoreboard(tmp_path, capsys):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
 
-    lines = _cli_search(tmp_path, QUERY, capsys).splitlines()
+    lines = cli_search(tmp_path, QUERY, capsys).splitlines()
 
     cite = next(i for i, line in enumerate(lines) if line.startswith("cite as"))
     drafts = next(i for i, line in enumerate(lines) if line.startswith(DRAFTS_LINE))
@@ -313,7 +303,7 @@ def test_the_drafts_line_sits_after_the_cite_line_and_before_the_scoreboard(tmp_
 def test_the_drafts_line_is_counted_in_the_delivered_bytes(tmp_path, capsys):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
 
-    out = _cli_search(tmp_path, QUERY, capsys)
+    out = cli_search(tmp_path, QUERY, capsys)
 
     rows = [json.loads(line) for line in (tmp_path / "cost.jsonl").read_text().splitlines()]
     assert _drafts_line(out) is not None
@@ -336,7 +326,7 @@ def test_the_drafts_line_names_at_most_a_few_ids(tmp_path, capsys):
         f"1099-wip-{n}": _draft_with(f"1099-wip-{n}", DECIDED) for n in range(many)
     })
 
-    line = _drafts_line(_cli_search(tmp_path, QUERY, capsys))
+    line = _drafts_line(cli_search(tmp_path, QUERY, capsys))
 
     assert line.count("1099-wip-") == search_report.DRAFTS_NAMED_MAX
     assert " +2 more -- " in line
@@ -345,10 +335,10 @@ def test_the_drafts_line_names_at_most_a_few_ids(tmp_path, capsys):
 def test_a_read_only_search_names_no_draft(tmp_path):
     _write_store(tmp_path, {DRAFT_ID: _draft_with(DRAFT_ID, DECIDED)})
 
-    _, responses, _ = _run(
-        tmp_path, _tools_call_msg(1, name="engmem_search", arguments={"query": QUERY}),
+    _, responses, _ = rpc.run(
+        tmp_path, rpc.tools_call_msg(1, name="engmem_search", arguments={"query": QUERY}),
         read_only=True,
     )
 
-    out = _text(responses[0]["result"])
+    out = rpc.text(responses[0]["result"])
     assert _drafts_line(out) is None and "drafts: 1" in out

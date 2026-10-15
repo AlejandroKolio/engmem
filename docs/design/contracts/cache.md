@@ -140,7 +140,7 @@ as a warned miss (`contracts/scoring.md`, "A shape mismatch is a miss, never a c
 Warnings go to stderr only. The agent reads stdout (`ENGMEM-SPEC.md` §4), so a
 slow-but-correct search must never look like a failed one, and under `engmem mcp` (§5) stdout
 carries protocol frames only, where one stray line kills the client session — `_warn` runs on
-that path too. `tests/test_cache.py` asserts `captured.out == ""` on every degraded path, the
+that path too. `tests/search/test_cache.py` asserts `captured.out == ""` on every degraded path, the
 silent ones included.
 
 ## Writing

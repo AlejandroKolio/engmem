@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _run, _telemetry_lines, _text, _tools_call_msg
-from test_mcp_subprocess import _Client
+from support import rpc
+from support.docs import write_file
 
 from engmem.cli import main
 from engmem.output import (
@@ -82,9 +81,9 @@ def _cli(store: Path, capsys, *extra: str, query: str = "Retry") -> str:
 
 
 def _mcp(store: Path, arguments: dict, name: str = "engmem_search") -> str:
-    result, is_error = _call(store, name=name, arguments={"query": "Retry", **arguments})
-    assert not is_error, _text(result)
-    return _text(result)
+    result, is_error = rpc.call(store, name=name, arguments={"query": "Retry", **arguments})
+    assert not is_error, rpc.text(result)
+    return rpc.text(result)
 
 
 def _shown_ids(output: str) -> list[str]:
@@ -160,7 +159,7 @@ def test_repeated_names_collapse_to_one_repository(store, capsys, names):
     repeated = _cli(store, capsys, *[arg for name in names for arg in ("--repo", name)])
 
     assert repeated == single
-    rows = _telemetry_lines(store)
+    rows = rpc.telemetry_lines(store)
     assert rows[0]["scope"] == rows[1]["scope"] == {"repos": [ALPHA], "n_searched": 2}
 
 
@@ -269,7 +268,7 @@ def test_without_a_flag_the_default_output_is_unchanged(store, capsys):
     out = _cli(store, capsys)
 
     assert not any(line.startswith(("scope:", "repos:")) for line in out.splitlines())
-    (row,) = _telemetry_lines(store)
+    (row,) = rpc.telemetry_lines(store)
     assert row["scope"] is None
 
 
@@ -296,7 +295,7 @@ def test_ac_10_4_a_plain_cli_search_after_scoped_ones_is_the_whole_store_default
     after = _cli(store, capsys, *role_args)
 
     assert after == before
-    assert _telemetry_lines(store)[-1]["scope"] is None
+    assert rpc.telemetry_lines(store)[-1]["scope"] is None
 
 
 SCOPED_MCP_ARGS = [
@@ -314,25 +313,25 @@ SCOPED_MCP_ARGS = [
 def test_ac_10_4_one_mcp_server_does_not_carry_a_scope_into_the_next_call(store, name, extra):
     plain = {"query": "Retry", **extra}
     calls = [plain] + [{**plain, **scoped} for scoped in SCOPED_MCP_ARGS] + [plain]
-    messages = [_tools_call_msg(i, name=name, arguments=a) for i, a in enumerate(calls, 1)]
+    messages = [rpc.tools_call_msg(i, name=name, arguments=a) for i, a in enumerate(calls, 1)]
 
-    _, responses, _ = _run(store, *messages)
-    texts = [_text(r["result"]) for r in responses]
+    _, responses, _ = rpc.run(store, *messages)
+    texts = [rpc.text(r["result"]) for r in responses]
 
     assert texts[-1] == texts[0]
     assert not texts[-1].startswith("scope:")
-    assert [row["scope"] is None for row in _telemetry_lines(store)] == (
+    assert [row["scope"] is None for row in rpc.telemetry_lines(store)] == (
         [True] + [False] * len(SCOPED_MCP_ARGS) + [True]
     )
 
 
 def test_ac_10_4_a_real_mcp_subprocess_does_not_carry_a_scope_either(store):
-    client = _Client(store)
+    client = rpc.McpClient(store)
     try:
-        first = _text(client.tool_call("engmem_search", {"query": "Retry"}))
+        first = rpc.text(client.tool_call("engmem_search", {"query": "Retry"}))
         client.tool_call("engmem_search", {"query": "Retry", "repos": [BETA]})
         client.tool_call("engmem_search", {"query": "Retry", "all_repos": True})
-        last = _text(client.tool_call("engmem_search", {"query": "Retry"}))
+        last = rpc.text(client.tool_call("engmem_search", {"query": "Retry"}))
     finally:
         client.close()
 
@@ -342,12 +341,12 @@ def test_ac_10_4_a_real_mcp_subprocess_does_not_carry_a_scope_either(store):
 
 def test_ac_10_4_a_second_scoped_call_does_not_inherit_the_first_scope(store):
     messages = [
-        _tools_call_msg(1, arguments={"query": "Retry", "repo": ALPHA}),
-        _tools_call_msg(2, arguments={"query": "Retry", "repo": BETA}),
+        rpc.tools_call_msg(1, arguments={"query": "Retry", "repo": ALPHA}),
+        rpc.tools_call_msg(2, arguments={"query": "Retry", "repo": BETA}),
     ]
-    _, responses, _ = _run(store, *messages)
+    _, responses, _ = rpc.run(store, *messages)
 
-    assert set(_shown_ids(_text(responses[1]["result"]))) == {
+    assert set(_shown_ids(rpc.text(responses[1]["result"]))) == {
         "3002-beta-retry", "3003-shared-retry",
     }
 
@@ -378,14 +377,14 @@ def test_cli_and_mcp_apply_the_same_multi_repository_scope(
     assert _result_lines(cli_out, UNATTRIBUTED_CLI_NOTE) == _result_lines(
         mcp_out, UNATTRIBUTED_MCP_NOTE
     )
-    cli_row, mcp_row = _telemetry_lines(store)
+    cli_row, mcp_row = rpc.telemetry_lines(store)
     assert cli_row["scope"] == mcp_row["scope"]
 
 
 @pytest.mark.parametrize("name", ["engmem_search", "engmem_search_by_role"])
 @pytest.mark.parametrize("read_only", [False, True])
 def test_both_search_tools_declare_repos_and_all_repos(store, name, read_only):
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, read_only=read_only
     )
     tool = next(t for t in responses[0]["result"]["tools"] if t["name"] == name)
@@ -451,19 +450,19 @@ def test_a_blank_name_among_several_is_refused_not_dropped(store, capsys):
 def test_a_malformed_mcp_multi_repository_scope_is_invalid_params(
     store, arguments, cause, name, extra
 ):
-    message = _tools_call_msg(
+    message = rpc.tools_call_msg(
         1, name=name, arguments={"query": "Retry", **extra, **arguments}
     )
-    _, responses, _ = _run(store, message)
+    _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert cause in responses[0]["error"]["message"]
     assert not (store / "telemetry.jsonl").exists()
 
 
 @pytest.mark.parametrize("name", ["engmem_search", "engmem_search_by_role"])
 def test_repos_declares_that_it_is_never_empty(store, name):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tool = next(t for t in responses[0]["result"]["tools"] if t["name"] == name)
 
     assert tool["inputSchema"]["properties"]["repos"]["minItems"] == 1
@@ -478,10 +477,10 @@ def test_repos_declares_that_it_is_never_empty(store, name):
                  "'repo'/'repos' and 'unscoped'", id="both-present"),
 ])
 def test_a_scope_conflict_names_only_the_arguments_given_a_value(store, arguments, named):
-    message = _tools_call_msg(1, name="engmem_search", arguments={"query": "Retry", **arguments})
-    _, responses, _ = _run(store, message)
+    message = rpc.tools_call_msg(1, name="engmem_search", arguments={"query": "Retry", **arguments})
+    _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert responses[0]["error"]["message"] == (
         f"invalid params: {named} are different scopes — pass one"
     )
@@ -516,7 +515,7 @@ def test_the_scope_value_object_refuses_two_modes_or_none():
 def test_the_telemetry_row_records_the_multi_repository_scope(store, capsys, cli_args, expected):
     _cli(store, capsys, *cli_args)
 
-    (row,) = _telemetry_lines(store)
+    (row,) = rpc.telemetry_lines(store)
     assert row["scope"] == expected
     assert row["n_docs"] == len(STORE), "n_docs stays the whole store"
 
@@ -527,7 +526,7 @@ def test_a_capped_row_keeps_its_session_and_measures_the_same_result(store, caps
     args = [arg for name in names for arg in ("--repo", name)]
     out = _cli(store, capsys, *args, "--session", "sess-7", query=query)
 
-    (row,) = _telemetry_lines(store)
+    (row,) = rpc.telemetry_lines(store)
     rendered = render_result(_docs(store), query, None, Scope(repos=tuple(names)))
     assert row["session_id"] == "sess-7"
     assert row["context_bytes"] == len(rendered.text.encode("utf-8"))

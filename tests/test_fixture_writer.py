@@ -5,21 +5,20 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import write_file
+from support.docs import write_file
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        "lf\nlf\n",
-        "crlf\r\ncrlf\r\n",
-        "cr\rcr\r",
-        "crlf\r\nlf\ncr\r",
-        "\ufeffbom\n",
-        "no line break at all",
-        "na\u00efve caf\u00e9\n",
+        pytest.param("lf\nlf\n", id="lf"),
+        pytest.param("crlf\r\ncrlf\r\n", id="crlf"),
+        pytest.param("cr\rcr\r", id="cr"),
+        pytest.param("crlf\r\nlf\ncr\r", id="mixed"),
+        pytest.param("\ufeffbom\n", id="bom"),
+        pytest.param("no line break at all", id="no-line-break"),
+        pytest.param("na\u00efve caf\u00e9\n", id="non-ascii"),
     ],
-    ids=["lf", "crlf", "cr", "mixed", "bom", "no-line-break", "non-ascii"],
 )
 def test_write_file_puts_exactly_the_given_bytes_on_disk(tmp_path, text):
     r"""Regression for the Windows CI leg: `write_text` translated every `\n` to `\r\n` there, so

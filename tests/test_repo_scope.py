@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _run, _telemetry_lines, _text
+from support import rpc
+from support.docs import write_file
 
 from engmem.cli import main
 from engmem.output import (
@@ -93,9 +93,9 @@ def _cli(store: Path, capsys, *extra: str, query: str = "Settings") -> str:
 
 
 def _mcp(store: Path, arguments: dict, name: str = "engmem_search") -> str:
-    result, is_error = _call(store, name=name, arguments={"query": "Settings", **arguments})
-    assert not is_error, _text(result)
-    return _text(result)
+    result, is_error = rpc.call(store, name=name, arguments={"query": "Settings", **arguments})
+    assert not is_error, rpc.text(result)
+    return rpc.text(result)
 
 
 def _shown_ids(output: str) -> list[str]:
@@ -307,14 +307,14 @@ def test_ac_09_4_cli_and_mcp_apply_the_same_scope(store, capsys, cli_args, mcp_a
     assert _result_lines(cli_out, UNATTRIBUTED_CLI_NOTE) == _result_lines(
         mcp_out, UNATTRIBUTED_MCP_NOTE
     )
-    cli_row, mcp_row = _telemetry_lines(store)
+    cli_row, mcp_row = rpc.telemetry_lines(store)
     assert cli_row["scope"] == mcp_row["scope"]
 
 
 @pytest.mark.parametrize("name", ["engmem_search", "engmem_search_by_role"])
 @pytest.mark.parametrize("read_only", [False, True])
 def test_ac_09_4_both_search_tools_declare_the_scope_arguments(store, name, read_only):
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, read_only=read_only
     )
     tool = next(t for t in responses[0]["result"]["tools"] if t["name"] == name)
@@ -365,9 +365,9 @@ def test_a_malformed_mcp_scope_is_invalid_params(store, arguments, cause, name, 
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": name, "arguments": {"query": "Settings", **extra, **arguments}},
     }
-    _, responses, _ = _run(store, message)
+    _, responses, _ = rpc.run(store, message)
 
-    assert responses[0]["error"]["code"] == -32602
+    assert responses[0]["error"]["code"] == rpc.INVALID_PARAMS
     assert cause in responses[0]["error"]["message"]
     assert not (store / "telemetry.jsonl").exists()
 
@@ -391,7 +391,7 @@ def test_an_mcp_scope_argument_left_null_or_false_is_the_whole_store(store, argu
 def test_the_telemetry_row_records_the_scope(store, capsys, cli_args, expected):
     _cli(store, capsys, *cli_args)
 
-    (row,) = _telemetry_lines(store)
+    (row,) = rpc.telemetry_lines(store)
     assert "scope" in row, "an explicit null tells a whole-store row from one predating the field"
     assert row["scope"] == expected
 

@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from conftest import requires_posix_modes, requires_symlinks
+from support.platform import requires_posix_modes, requires_symlinks
 
 from engmem import staging
 from engmem.staging import commit, commit_new, discard, stage
@@ -273,7 +273,11 @@ def _link_failing_with(monkeypatch, exc: OSError) -> None:
 
 
 @pytest.mark.parametrize(
-    "code", [errno.EIO, errno.ENOSPC, errno.EACCES], ids=["EIO", "ENOSPC", "EACCES"]
+    "code", [
+        pytest.param(errno.EIO, id="EIO"),
+        pytest.param(errno.ENOSPC, id="ENOSPC"),
+        pytest.param(errno.EACCES, id="EACCES"),
+    ]
 )
 def test_commit_new_propagates_a_link_failure_that_is_not_missing_hard_links(
     tmp_path, monkeypatch, code
@@ -310,7 +314,10 @@ def test_commit_new_falls_back_to_the_lock_where_hard_links_are_unavailable(
     assert target.read_bytes() == b"new"
 
 
-@pytest.mark.parametrize("winerror", [1, 50], ids=["ERROR_INVALID_FUNCTION", "ERROR_NOT_SUPPORTED"])
+@pytest.mark.parametrize("winerror", [
+    pytest.param(1, id="ERROR_INVALID_FUNCTION"),
+    pytest.param(50, id="ERROR_NOT_SUPPORTED"),
+])
 def test_commit_new_falls_back_on_the_windows_no_hard_links_codes(tmp_path, monkeypatch, winerror):
     """Windows reports these as `EINVAL`, which on its own is no evidence links are missing."""
     exc = OSError(errno.EINVAL, "Incorrect function")
@@ -324,7 +331,10 @@ def test_commit_new_falls_back_on_the_windows_no_hard_links_codes(tmp_path, monk
     assert target.read_bytes() == b"new"
 
 
-@pytest.mark.parametrize("windows", [True, False], ids=["windows", "posix"])
+@pytest.mark.parametrize("windows", [
+    pytest.param(True, id="windows"),
+    pytest.param(False, id="posix"),
+])
 def test_an_access_denied_lock_is_busy_on_windows_only(tmp_path, monkeypatch, windows):
     """NTFS answers `mkdir` of a name still pending delete with access denied; that is a lock
     another creator just released, a conflict to report, not a host fault."""

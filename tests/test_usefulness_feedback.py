@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import run_tool
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.tools import run_tool
 
 from engmem import feedback, mcp_server
 from engmem.cli import main
@@ -219,7 +219,7 @@ def test_the_latest_assessment_of_a_find_replaces_an_earlier_one(store, capsys):
 
 def test_the_mcp_tool_records_the_same_row_as_the_cli(store, capsys):
     _record(capsys, store, "widget-cache", "helped", "--decision", "d", "--source", "s")
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=FEEDBACK_TOOL,
         arguments={
             "session_id": SESSION, "doc_id": "widget-cache", "assessment": "helped",
@@ -227,8 +227,8 @@ def test_the_mcp_tool_records_the_same_row_as_the_cli(store, capsys):
         },
     )
 
-    assert not is_error, _text(result)
-    assert "user assessment" in _text(result)
+    assert not is_error, rpc.text(result)
+    assert "user assessment" in rpc.text(result)
     cli_row, mcp_row = _feedback_rows(store)
     for row in (cli_row, mcp_row):
         del row["ts"]
@@ -446,13 +446,13 @@ def test_a_real_attributed_search_yields_finds_the_user_can_assess(tmp_path, cap
 
 
 def test_the_mcp_tool_refuses_what_the_cli_refuses(store):
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=FEEDBACK_TOOL,
         arguments={"session_id": SESSION, "doc_id": "widget-cache", "assessment": "useful"},
     )
 
     assert is_error
-    assert "helped, not-applicable, harmful" in _text(result)
+    assert "helped, not-applicable, harmful" in rpc.text(result)
     assert _feedback_rows(store) == []
 
 
@@ -462,7 +462,7 @@ def test_the_mcp_tool_refuses_what_the_cli_refuses(store):
     {"session_id": SESSION, "doc_id": 7, "assessment": "helped"},
 ])
 def test_a_malformed_mcp_call_is_a_protocol_fault(store, arguments):
-    _, responses, _ = _run(store, _tools_call_msg(1, name=FEEDBACK_TOOL, arguments=arguments))
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, name=FEEDBACK_TOOL, arguments=arguments))
 
     assert responses[0]["error"]["code"] == mcp_server.INVALID_PARAMS
     assert _feedback_rows(store) == []
@@ -470,10 +470,10 @@ def test_a_malformed_mcp_call_is_a_protocol_fault(store, arguments):
 
 def test_a_read_only_server_neither_lists_nor_runs_the_feedback_tool(store):
     arguments = {"session_id": SESSION, "doc_id": "widget-cache", "assessment": "helped"}
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
         {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-        _tools_call_msg(2, name=FEEDBACK_TOOL, arguments=arguments),
+        rpc.tools_call_msg(2, name=FEEDBACK_TOOL, arguments=arguments),
         read_only=True,
     )
 
@@ -575,8 +575,8 @@ def test_a_complete_last_line_gets_no_blank_line_before_the_next(store, capsys):
 
 def test_the_summary_names_the_channel_that_recorded_each_assessment(store, capsys):
     _record(capsys, store, "widget-cache", "helped")
-    _call(store, name=FEEDBACK_TOOL,
-          arguments={"session_id": SESSION, "doc_id": "retry-backoff", "assessment": "harmful"})
+    rpc.call(store, name=FEEDBACK_TOOL,
+             arguments={"session_id": SESSION, "doc_id": "retry-backoff", "assessment": "harmful"})
 
     lines = _summary(capsys, store).splitlines()
 
@@ -592,13 +592,13 @@ def test_an_id_read_back_from_telemetry_reaches_a_refusal_escaped(store, capsys)
     _doc(store / "sessions", "never-shown")
 
     code, out, err = _record(capsys, store, "never-shown", "helped")
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=FEEDBACK_TOOL,
         arguments={"session_id": SESSION, "doc_id": "never-shown", "assessment": "helped"},
     )
 
     assert code == 2 and is_error
-    for text in (out, err, _text(result)):
+    for text in (out, err, rpc.text(result)):
         assert "\x1b" not in text and "\x07" not in text
         assert "evil\\x1b" in text
 
@@ -607,12 +607,12 @@ def test_a_recorded_id_reaches_the_confirmation_escaped(store, capsys):
     _telemetry(store, _search_row(SESSION, [TAMPERED]))
 
     code, out, _ = _record(capsys, store, TAMPERED, "helped")
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=FEEDBACK_TOOL,
         arguments={"session_id": SESSION, "doc_id": TAMPERED, "assessment": "helped"},
     )
 
     assert code == 0 and not is_error
-    for text in (out, _text(result)):
+    for text in (out, rpc.text(result)):
         assert "\x1b" not in text and "\x07" not in text
         assert "evil\\x1b" in text

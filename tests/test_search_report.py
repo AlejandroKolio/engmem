@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES
+from support.docs import FIXTURES
 
 from engmem.search_report import compose, render_result
 from engmem.spine import load_store

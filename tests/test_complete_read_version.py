@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT
-from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
+from support.fs import entry_names
 
 from engmem import drafts, mcp_server, staging
 from engmem.spine import load_store, parse_document
@@ -34,20 +35,16 @@ def target(store) -> Path:
     return store / "sessions" / f"{DOC_ID}.md"
 
 
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
-
-
 def _finished(marker: str) -> str:
     return ACTIVE_CONTENT + f"\nWriter marker: {marker}\n"
 
 
 def _create(store: Path, content: str = DRAFT_CONTENT) -> str:
     """Creates the draft through the tool and returns the version it reported."""
-    result, is_error = _call(store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": content})
-    assert not is_error, _text(result)
-    match = VERSION_RE.search(_text(result))
-    assert match, f"create_draft did not report a version: {_text(result)}"
+    result, is_error = rpc.call(store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": content})
+    assert not is_error, rpc.text(result)
+    match = VERSION_RE.search(rpc.text(result))
+    assert match, f"create_draft did not report a version: {rpc.text(result)}"
     return match.group(1)
 
 
@@ -62,17 +59,17 @@ def test_completing_the_version_read_publishes_the_full_active_document(store, t
     """AC-04.1."""
     version = _create(store)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
         arguments={"id": DOC_ID, "content": ACTIVE_CONTENT, "expected_version": version},
     )
 
-    assert not is_error, _text(result)
+    assert not is_error, rpc.text(result)
     assert target.read_bytes() == ACTIVE_CONTENT.encode("utf-8")
     loaded = load_store(store / "sessions")
     assert [d.status for d in loaded.docs] == ["active"]
-    assert _sessions_files(store) == [f"{DOC_ID}.md"], "no staged file or lock left behind"
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"], "no staged file or lock left behind"
 
 
 def test_the_version_create_reports_is_the_version_of_the_bytes_it_wrote(store, target):
@@ -116,7 +113,7 @@ def test_a_completion_landing_inside_anothers_check_to_replace_window_is_refused
     assert results["B"][1], "both completions were told they succeeded"
     assert "not 'draft'" in results["B"][0]
     assert target.read_bytes() == _finished("A").encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 @pytest.mark.parametrize("round_number", range(10))
@@ -141,7 +138,7 @@ def test_concurrent_completions_of_one_version_have_exactly_one_winner(store, ta
     winners = [i for i, result in enumerate(results) if result is not None and not result[1]]
     assert len(winners) == 1, [r[0] for r in results if r is not None and not r[1]]
     assert target.read_bytes() == _finished(f"writer-{winners[0]}").encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 def _recreate_through_engmem(store: Path, target: Path, newer: str) -> None:
@@ -169,7 +166,7 @@ def test_completing_a_version_the_draft_has_moved_past_is_refused_with_the_curre
     assert "Re-read" in text
     assert "Added by another agent after the read." in text, "the current draft was not handed back"
     assert target.read_bytes() == newer.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
     current = CURRENT_VERSION_RE.search(text)
     assert current and current.group(1) == staging.version_of(newer.encode("utf-8"))
@@ -180,8 +177,13 @@ def test_completing_a_version_the_draft_has_moved_past_is_refused_with_the_curre
 
 @pytest.mark.parametrize(
     "on_disk",
-    [ACTIVE_CONTENT, ACTIVE_CONTENT.replace("status: active", "status: superseded")],
-    ids=["active", "superseded"],
+    [
+        pytest.param(ACTIVE_CONTENT, id="active"),
+        pytest.param(
+            replaced(ACTIVE_CONTENT, "status: active", "status: superseded"),
+            id="superseded",
+        ),
+    ],
 )
 @pytest.mark.parametrize("version_kind", ["its own version", "no version"])
 def test_completing_a_finished_document_changes_neither_content_nor_status(
@@ -197,10 +199,14 @@ def test_completing_a_finished_document_changes_neither_content_nor_status(
     assert is_error
     assert "not 'draft'" in text
     assert target.read_bytes() == on_disk.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
-@pytest.mark.parametrize("missing", [None, "", "  "], ids=["absent", "empty", "blank"])
+@pytest.mark.parametrize("missing", [
+    pytest.param(None, id="absent"),
+    pytest.param("", id="empty"),
+    pytest.param("  ", id="blank"),
+])
 def test_a_completion_without_a_version_is_refused_with_the_current_one(store, target, missing):
     """AC-25.2: no read to check against is not a match. The refusal carries what the client
     needs to retry, so the error is one it can fix in the same turn."""
@@ -213,7 +219,7 @@ def test_a_completion_without_a_version_is_refused_with_the_current_one(store, t
     assert CURRENT_VERSION_RE.search(text).group(1) == version
     assert DRAFT_CONTENT in text, "the refusal must carry the current draft"
     assert target.read_bytes() == DRAFT_CONTENT.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
     retried, is_error = _complete(store, ACTIVE_CONTENT, CURRENT_VERSION_RE.search(text).group(1))
     assert not is_error, retried
@@ -231,9 +237,9 @@ def test_surrounding_whitespace_in_the_version_is_not_a_conflict(store, target):
 def test_a_non_string_expected_version_is_invalid_params(store, target, bad):
     _create(store)
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         store,
-        _tools_call_msg(
+        rpc.tools_call_msg(
             1,
             name=COMPLETE_TOOL,
             arguments={"id": DOC_ID, "content": ACTIVE_CONTENT, "expected_version": bad},
@@ -247,7 +253,7 @@ def test_a_non_string_expected_version_is_invalid_params(store, target, bad):
 
 @pytest.mark.parametrize("tool", [COMPLETE_TOOL, SUPERSEDE_TOOL])
 def test_both_rewriting_schemas_require_expected_version(store, tool):
-    _, responses, _ = _run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
     schema = next(t for t in responses[0]["result"]["tools"] if t["name"] == tool)
     assert schema["inputSchema"]["properties"]["expected_version"]["type"] == "string"
@@ -267,10 +273,19 @@ def _lock_of(target: Path) -> Path:
 @pytest.mark.parametrize(
     "tool, arguments, on_disk",
     [
-        (COMPLETE_TOOL, {"id": DOC_ID, "content": ACTIVE_CONTENT}, DRAFT_CONTENT),
-        (SUPERSEDE_TOOL, {"id": DOC_ID, "superseded_by": "20260201-widget-cache-v2"}, ACTIVE_CONTENT),
+        pytest.param(
+            COMPLETE_TOOL,
+            {"id": DOC_ID, "content": ACTIVE_CONTENT},
+            DRAFT_CONTENT,
+            id="complete",
+        ),
+        pytest.param(
+            SUPERSEDE_TOOL,
+            {"id": DOC_ID, "superseded_by": "20260201-widget-cache-v2"},
+            ACTIVE_CONTENT,
+            id="supersede",
+        ),
     ],
-    ids=["complete", "supersede"],
 )
 def test_a_lock_left_by_an_interrupted_write_refuses_by_name_and_writes_nothing(
     store, target, monkeypatch, tool, arguments, on_disk
@@ -279,11 +294,11 @@ def test_a_lock_left_by_an_interrupted_write_refuses_by_name_and_writes_nothing(
     target.write_bytes(on_disk.encode("utf-8"))
     _lock_of(target).mkdir()
 
-    result, is_error = _call(store, name=tool, arguments=versioned(store, arguments))
+    result, is_error = rpc.call(store, name=tool, arguments=rpc.versioned(store, arguments))
 
     assert is_error
-    assert f".{DOC_ID}.md.write-lock" in _text(result)
-    assert "nothing was written" in _text(result)
+    assert f".{DOC_ID}.md.write-lock" in rpc.text(result)
+    assert "nothing was written" in rpc.text(result)
     assert target.read_bytes() == on_disk.encode("utf-8")
     assert _lock_of(target).is_dir(), "another holder's lock must not be removed"
 
@@ -298,7 +313,7 @@ def test_the_lock_is_released_when_the_replace_itself_fails(store, target, monke
     with pytest.raises(OSError):
         _complete(store, ACTIVE_CONTENT, version)
 
-    assert _sessions_files(store) == [f"{DOC_ID}.md"], "lock or staged file left behind"
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"], "lock or staged file left behind"
 
 
 def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypatch):
@@ -338,4 +353,4 @@ def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypat
     assert not results["A"][1], results["A"][0]
     assert results["B"][1], "both supersedes were told they succeeded"
     assert parse_document(target).superseded_by == successors["A"]
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]

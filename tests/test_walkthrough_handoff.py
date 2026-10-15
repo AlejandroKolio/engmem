@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import TRIGGER_RULE, redirect_home
+from support.home import TRIGGER_RULE, redirect_home
 
 from engmem.cli import main
 

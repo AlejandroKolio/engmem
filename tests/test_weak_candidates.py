@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import fixture_docs, write_file
+from support.docs import fixture_docs, write_file
 
 from engmem.output import NO_RELIABLE_MATCH, WEAK_TAG, render_telemetry_summary, surfaced_ids
 from engmem.scoring import (

@@ -10,14 +10,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import (
-    ACTIVE_CONTENT,
-    DRAFT_CONTENT,
-    requires_permission_enforcement,
-    requires_symlinks,
-    run_tool,
-)
-from mcp_harness import _call, _run, _text, _tools_call_msg, versioned
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
+from support.platform import requires_permission_enforcement, requires_symlinks
+from support.tools import run_tool
 
 from engmem import gate1, mcp_server, versions
 from engmem.cli import main
@@ -134,14 +130,14 @@ def test_the_mcp_search_and_the_role_search_name_the_reference_too(tmp_path):
     version = version_of(path.read_bytes())
     expected = f"cite as (Reuse Log prior-doc): 20260101-widget-cache@{version}"
 
-    _, responses, _ = _run(
+    _, responses, _ = rpc.run(
         tmp_path,
-        _tools_call_msg(1, arguments={"query": "widget flush"}),
-        _tools_call_msg(2, name=mcp_server.ROLE_TOOL_NAME,
-                        arguments={"query": "widget flush", "role": "decisions"}),
+        rpc.tools_call_msg(1, arguments={"query": "widget flush"}),
+        rpc.tools_call_msg(2, name=mcp_server.ROLE_TOOL_NAME,
+                           arguments={"query": "widget flush", "role": "decisions"}),
     )
 
-    assert all(expected in _text(r["result"]) for r in responses)
+    assert all(expected in rpc.text(r["result"]) for r in responses)
 
 
 def test_a_draft_is_never_shown_and_never_retained(tmp_path, capsys):
@@ -172,9 +168,9 @@ def test_the_reference_is_not_in_context_bytes(tmp_path):
     rendered result the agent reads for content, unchanged by US-13."""
     _source(tmp_path / "sessions", V1_SENTENCE)
 
-    _, responses, _ = _run(tmp_path, _tools_call_msg(1, arguments={"query": "widget flush"}))
+    _, responses, _ = rpc.run(tmp_path, rpc.tools_call_msg(1, arguments={"query": "widget flush"}))
 
-    text = _text(responses[0]["result"])
+    text = rpc.text(responses[0]["result"])
     rendered = text.split("\ncite as")[0]
     row = (tmp_path / "telemetry.jsonl").read_text(encoding="utf-8")
     assert f'"context_bytes": {len(rendered.encode("utf-8"))}' in row
@@ -373,19 +369,20 @@ def test_gate1_report_names_the_cited_version_and_its_state(edited):
 
 def _complete(store: Path, prior_doc: str, quote: str) -> tuple[str, bool]:
     (store / "sessions" / "20260101-story-doc.md").write_text(
-        DRAFT_CONTENT.replace("20260101-widget-cache", "20260101-story-doc"), encoding="utf-8"
+        replaced(DRAFT_CONTENT, "20260101-widget-cache", "20260101-story-doc"), encoding="utf-8"
     )
-    content = ACTIVE_CONTENT.replace("20260101-widget-cache", "20260101-story-doc").replace(
+    content = replaced(
+        replaced(ACTIVE_CONTENT, "20260101-widget-cache", "20260101-story-doc"),
         "## Reuse Log\n\nPrior docs used: none.\n\n",
         "## Reuse Log\n\n| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
         f'| {prior_doc} | flush order: "{quote}" | kept it | reuse |\n\n',
     )
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store,
         name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
-        arguments=versioned(store, {"id": "20260101-story-doc", "content": content}),
+        arguments=rpc.versioned(store, {"id": "20260101-story-doc", "content": content}),
     )
-    return _text(result), is_error
+    return rpc.text(result), is_error
 
 
 def test_complete_draft_refuses_a_malformed_version_reference(edited):
@@ -479,7 +476,10 @@ def test_a_version_that_cannot_be_retained_is_named_and_not_offered(tmp_path, ca
     assert "can only be checked against the current text" in out
 
 
-@pytest.mark.parametrize("superseded", [False, True], ids=["active", "superseded-redirect"])
+@pytest.mark.parametrize("superseded", [
+    pytest.param(False, id="active"),
+    pytest.param(True, id="superseded-redirect"),
+])
 def test_a_related_document_the_result_gives_a_path_for_is_offered_too(tmp_path, capsys,
                                                                        superseded):
     """`/engmem` loads each hit's `related` documents at depth 1, so they are cited too; a
@@ -518,17 +518,17 @@ def _shown_reference(out: str) -> str | None:
 
 
 @pytest.mark.parametrize("call", [
-    pytest.param(lambda: _tools_call_msg(1, arguments={"query": "widget flush"}), id="search"),
-    pytest.param(lambda: _tools_call_msg(1, name=mcp_server.ROLE_TOOL_NAME,
-                                         arguments={"query": "widget flush", "role": "decisions"}),
+    pytest.param(lambda: rpc.tools_call_msg(1, arguments={"query": "widget flush"}), id="search"),
+    pytest.param(lambda: rpc.tools_call_msg(1, name=mcp_server.ROLE_TOOL_NAME,
+                                            arguments={"query": "widget flush", "role": "decisions"}),
                  id="role-search"),
 ])
 def test_d2_a_read_only_server_keeps_no_copy_and_offers_no_reference(tmp_path, call):
     _source(tmp_path / "sessions", V1_SENTENCE)
 
-    _, responses, _ = _run(tmp_path, call(), read_only=True)
+    _, responses, _ = rpc.run(tmp_path, call(), read_only=True)
 
-    text = _text(responses[0]["result"])
+    text = rpc.text(responses[0]["result"])
     assert "### 20260101-widget-cache" in text
     assert "cite as" not in text and "not retained" not in text
     assert not (tmp_path / versions.VERSIONS_DIR).exists()

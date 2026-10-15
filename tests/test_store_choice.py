@@ -10,14 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    DRAFT_CONTENT,
-    FIXTURES,
-    claude_desktop_config_path,
-    redirect_home,
-    requires_permission_enforcement,
-    requires_symlinks,
-)
+from support.docs import DRAFT_CONTENT, FIXTURES
+from support.home import claude_desktop_config_path, redirect_home
+from support.platform import requires_permission_enforcement, requires_symlinks
 
 from engmem import runtime
 from engmem.cli import main
@@ -85,7 +80,10 @@ def test_a_relative_xdg_config_home_is_ignored(home, monkeypatch):
     assert runtime.store_setting_file() == home / ".config" / "engmem" / "store"
 
 
-@pytest.mark.parametrize("appdata", [True, False], ids=["appdata", "no-appdata"])
+@pytest.mark.parametrize("appdata", [
+    pytest.param(True, id="appdata"),
+    pytest.param(False, id="no-appdata"),
+])
 def test_on_windows_the_setting_lives_under_appdata(home, monkeypatch, tmp_path, appdata):
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setattr("engmem.runtime.sys.platform", "win32")
@@ -118,7 +116,11 @@ def test_a_saved_choice_is_used_without_overrides(home, setting, tmp_path):
     assert choice.source is StoreSource.SAVED
 
 
-@pytest.mark.parametrize("ending", ["", "\n", "\r\n"], ids=["bare", "lf", "crlf"])
+@pytest.mark.parametrize("ending", [
+    pytest.param("", id="bare"),
+    pytest.param("\n", id="lf"),
+    pytest.param("\r\n", id="crlf"),
+])
 def test_the_one_line_may_end_with_or_without_a_newline(home, setting, tmp_path, ending):
     _save(setting, f"{tmp_path / 'notes'}{ending}".encode())
 
@@ -571,7 +573,10 @@ def test_store_set_shows_the_wiring_it_now_disagrees_with(home, setting, tmp_pat
 # --- store set: usage failures ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize("raw", ["", "  "], ids=["empty", "blank"])
+@pytest.mark.parametrize("raw", [
+    pytest.param("", id="empty"),
+    pytest.param("  ", id="blank"),
+])
 def test_store_set_refuses_a_blank_path(home, setting, capsys, raw):
     assert main(["store", "set", raw]) == 2
 
@@ -654,7 +659,10 @@ def _wiring_report(capsys, agent: str) -> str:
 
 
 @pytest.mark.parametrize("agent", ["codex", "claude-desktop"])
-@pytest.mark.parametrize("spelling", [["--store", "~/notes"], ["--store=~/notes"]], ids=["split", "joined"])
+@pytest.mark.parametrize("spelling", [
+    pytest.param(["--store", "~/notes"], id="split"),
+    pytest.param(["--store=~/notes"], id="joined"),
+])
 def test_a_tilde_in_the_wiring_is_the_store_the_server_expands_it_to(home, setting, capsys, agent, spelling):
     """Neither client runs the args through a shell; `engmem mcp` expands the `~` itself."""
     _save(setting, b"~/notes\n")

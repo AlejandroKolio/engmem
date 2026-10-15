@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
 
 from engmem import provenance
 from engmem.cli import main
@@ -90,12 +90,6 @@ def _doc(doc_id: str, *, repos: str, verified_at: str, covers: str) -> str:
     )
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
-
-
 def _add(store: Path, doc_id: str, anchor: str, covers: str, *, repos: str = f"[{ALPHA}]",
          verified_at: str | None = None) -> None:
     anchors = verified_at if verified_at is not None else f"{{{ALPHA}: '{anchor}'}}"
@@ -109,9 +103,9 @@ def _cli(store: Path, capsys) -> str:
 
 
 def _mcp(store: Path) -> str:
-    result, is_error = _call(store, name="engmem_search", arguments={"query": QUERY})
-    assert not is_error, _text(result)
-    return _text(result)
+    result, is_error = rpc.call(store, name="engmem_search", arguments={"query": QUERY})
+    assert not is_error, rpc.text(result)
+    return rpc.text(result)
 
 
 def _line(output: str, doc_id: str) -> str:
@@ -729,9 +723,9 @@ def test_ac_12_4_finding_the_record_again_does_not_clear_the_review(store, moved
     before = _stored_files(store)
 
     lines = [_line(_cli(store, capsys), "1501-alpha") for _ in range(2)]
-    _, responses, _ = _run(store, _tools_call_msg(1, arguments={"query": QUERY}),
-                           _tools_call_msg(2, arguments={"query": QUERY}))
-    lines += [_line(_text(response["result"]), "1501-alpha") for response in responses]
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(1, arguments={"query": QUERY}),
+                              rpc.tools_call_msg(2, arguments={"query": QUERY}))
+    lines += [_line(rpc.text(response["result"]), "1501-alpha") for response in responses]
     assert lines == [review] * 4
     assert _stored_files(store) == before, "no verdict is stored anywhere"
 

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import write_file
-from mcp_harness import _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import write_file
 
 from engmem import drafts
 from engmem.cli import main
@@ -35,12 +35,6 @@ ACTIVE = (
     "## Reuse Log\n\nPrior docs used: none.\n"
 )
 TEMPLATES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
-
-
-@pytest.fixture
-def store(tmp_path) -> Path:
-    (tmp_path / "store" / "sessions").mkdir(parents=True)
-    return tmp_path / "store"
 
 
 def _cli(capsys, monkeypatch, store: Path, stdin: str | bytes | None, *args: str) -> tuple[int, str]:
@@ -289,11 +283,11 @@ def test_the_next_session_finds_the_completed_record_and_reads_that_version(
 
 
 def test_the_mcp_tools_keep_their_own_wording_through_the_shared_writer(store):
-    _code, responses, _raw = _run(
-        store, _tools_call_msg(1, name="engmem_create_draft",
-                               arguments={"id": DOC_ID, "content": DRAFT}),
+    _code, responses, _raw = rpc.run(
+        store, rpc.tools_call_msg(1, name="engmem_create_draft",
+                                  arguments={"id": DOC_ID, "content": DRAFT}),
     )
-    text = _text(responses[0]["result"])
+    text = rpc.text(responses[0]["result"])
 
     assert f'pass session_id: "{DOC_ID}" on every engmem_search' in text
     assert "expected_version to engmem_complete_draft" in text

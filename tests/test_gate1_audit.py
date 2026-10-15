@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import requires_permission_enforcement
+from support.platform import requires_permission_enforcement
 
 from engmem import gate1, gate1_audit
 

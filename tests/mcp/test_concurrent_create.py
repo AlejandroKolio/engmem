@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ACTIVE_CONTENT, DRAFT_CONTENT, requires_symlinks
-from mcp_harness import _call, _run, _text, _tools_call_msg
+from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
+from support.fs import entry_names
+from support.platform import requires_symlinks
 
 from engmem import drafts, mcp_server, staging
 from engmem.scoring import search
@@ -26,11 +28,7 @@ def store(tmp_path) -> Path:
 
 
 def _draft(doc_id: str, marker: str) -> str:
-    return DRAFT_CONTENT.replace("20260101-widget-cache", doc_id) + f"\nWriter marker: {marker}\n"
-
-
-def _sessions_files(store: Path) -> list[str]:
-    return sorted(p.name for p in (store / "sessions").iterdir())
+    return replaced(DRAFT_CONTENT, "20260101-widget-cache", doc_id) + f"\nWriter marker: {marker}\n"
 
 
 def _create_concurrently(store: Path, requests: list[tuple[str, str]]) -> list[tuple[str, bool]]:
@@ -66,14 +64,14 @@ def test_a_creator_that_lands_after_the_existence_check_is_refused_not_overwritt
 
     monkeypatch.setattr(drafts, "stage_content", stage_after_another_creator)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "second")}
     )
 
     assert is_error, "the second creator was told it succeeded"
-    assert DOC_ID in _text(result) and "already exists" in _text(result)
+    assert DOC_ID in rpc.text(result) and "already exists" in rpc.text(result)
     assert target.read_bytes() == other_writer.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"], "the staged file must be gone"
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"], "the staged file must be gone"
 
 
 @pytest.fixture(params=["link", "no-hard-links"])
@@ -102,7 +100,7 @@ def test_concurrent_creators_of_one_id_get_exactly_one_success(store, round_, li
             assert DOC_ID in text and "never overwrites" in text
     stored = (store / "sessions" / f"{DOC_ID}.md").read_text(encoding="utf-8")
     assert stored == contents[winners[0]]
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 def test_concurrent_creators_of_different_ids_both_keep_their_full_documents(store, link_support):
@@ -120,29 +118,41 @@ def test_concurrent_creators_of_different_ids_both_keep_their_full_documents(sto
     assert sorted(d.id for d in loaded.docs) == sorted(doc_id for doc_id, _ in requests)
 
 
-_SUPERSEDED_CONTENT = ACTIVE_CONTENT.replace(
-    "status: active", "status: superseded\nsuperseded_by: 20260201-widget-cache-v2"
-).replace("superseded_by:\n", "", 1)
+_SUPERSEDED_CONTENT = replaced(
+    replaced(
+        ACTIVE_CONTENT,
+        "status: active",
+        "status: superseded\nsuperseded_by: 20260201-widget-cache-v2",
+    ),
+    "superseded_by:\n",
+    "",
+    1,
+)
 
 
 @pytest.mark.parametrize(
     "existing",
-    [DRAFT_CONTENT, ACTIVE_CONTENT, _SUPERSEDED_CONTENT, "", "not a document at all\n"],
-    ids=["draft", "active", "superseded", "empty", "unparseable"],
+    [
+        pytest.param(DRAFT_CONTENT, id="draft"),
+        pytest.param(ACTIVE_CONTENT, id="active"),
+        pytest.param(_SUPERSEDED_CONTENT, id="superseded"),
+        pytest.param("", id="empty"),
+        pytest.param("not a document at all\n", id="unparseable"),
+    ],
 )
 def test_re_creating_an_existing_id_is_refused_and_leaves_it_byte_identical(store, existing):
     """AC-03.2: refused whatever the occupant's status, or whether it parses at all."""
     target = store / "sessions" / f"{DOC_ID}.md"
     target.write_bytes(existing.encode("utf-8"))
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "late")}
     )
 
     assert is_error
-    assert DOC_ID in _text(result) and "already exists" in _text(result)
+    assert DOC_ID in rpc.text(result) and "already exists" in rpc.text(result)
     assert target.read_bytes() == existing.encode("utf-8")
-    assert _sessions_files(store) == [f"{DOC_ID}.md"]
+    assert entry_names(store / "sessions") == [f"{DOC_ID}.md"]
 
 
 @requires_symlinks
@@ -159,12 +169,12 @@ def test_a_symlink_planted_after_the_checks_is_never_written_through(store, monk
 
     monkeypatch.setattr(drafts, "stage_content", stage_after_a_link_appears)
 
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "late")}
     )
 
     assert is_error
-    assert "already exists" in _text(result)
+    assert "already exists" in rpc.text(result)
     assert target.is_symlink()
     assert not outside.exists()
 
@@ -184,7 +194,7 @@ def test_an_interrupted_create_leaves_no_document_and_reports_no_success(store, 
     with pytest.raises(KeyboardInterrupt):
         mcp_server._handle_create_draft({"id": DOC_ID, "content": content}, store)
 
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []
 
 
 def test_a_staged_file_left_by_a_crash_is_never_a_search_result(store):
@@ -197,7 +207,7 @@ def test_a_staged_file_left_by_a_crash_is_never_a_search_result(store):
 
     assert loaded.docs == [] and loaded.errors == []
     assert search(loaded.docs, UNIQUE_TERM).hits == []
-    result, is_error = _call(
+    result, is_error = rpc.call(
         store, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "retry")}
     )
     assert not is_error, "the leftover must not block the id either"
@@ -211,10 +221,10 @@ def test_a_link_failure_that_is_not_missing_hard_links_is_a_fault_not_a_success(
 
     monkeypatch.setattr(staging.os, "link", io_error)
 
-    _, responses, _ = _run(store, _tools_call_msg(
+    _, responses, _ = rpc.run(store, rpc.tools_call_msg(
         1, name=CREATE_TOOL, arguments={"id": DOC_ID, "content": _draft(DOC_ID, "mine")}
     ))
 
-    assert responses[0]["error"]["code"] == -32603
+    assert responses[0]["error"]["code"] == rpc.INTERNAL_ERROR
     assert "Input/output error" in responses[0]["error"]["message"]
-    assert _sessions_files(store) == []
+    assert entry_names(store / "sessions") == []

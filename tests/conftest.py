@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+
+from support.docs import FIXTURES
+from support.home import redirect_home
 
 
 def _blocked(*args, **kwargs):
@@ -28,44 +29,6 @@ def _no_network():
         mp.setattr(socket, name, _blocked)
     yield
     mp.undo()
-
-
-def _permissions_should_be_enforced() -> bool:
-    if sys.platform == "win32":
-        return False
-    return os.geteuid() != 0
-
-
-def _symlinks_work() -> bool:
-    with tempfile.TemporaryDirectory() as tmp:
-        target = Path(tmp) / "target"
-        target.write_text("x", encoding="utf-8")
-        try:
-            (Path(tmp) / "link").symlink_to(target)
-        except (OSError, NotImplementedError):
-            return False
-    return True
-
-
-requires_permission_enforcement = pytest.mark.skipif(
-    not _permissions_should_be_enforced(),
-    reason="chmod does not restrict root, and on Windows only toggles the read-only bit",
-)
-
-requires_symlinks = pytest.mark.skipif(
-    not _symlinks_work(),
-    reason="creating symlinks is not permitted on this platform",
-)
-
-requires_posix_modes = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="chmod only toggles the read-only bit on Windows; st_mode reports 0o666/0o444",
-)
-
-requires_windows = pytest.mark.skipif(
-    sys.platform != "win32",
-    reason="drive letters and per-drive CWDs (os.path.abspath('C:')) only exist on Windows",
-)
 
 
 # resolved at import time, before any test can redirect HOME or the cache root
@@ -142,69 +105,6 @@ def _isolated_cache_root(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
     monkeypatch.delenv("ENGMEM_HOME", raising=False)
 
-on_a_shared_runner = pytest.mark.skipif(
-    bool(os.environ.get("CI")),
-    reason="wall-clock budget is specified for the author's machine, not a shared runner",
-)
-
-def redirect_home(monkeypatch, home: Path) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
-    monkeypatch.setenv("HOMEDRIVE", home.drive or "")
-    monkeypatch.setenv("HOMEPATH", str(home)[len(home.drive):])
-    # Claude Desktop's config lives under %APPDATA% on Windows
-    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
-    # Codex reads $CODEX_HOME before ~/.codex; a developer who sets it would otherwise be written to
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-
-
-FIXTURES = Path(__file__).parent / "fixtures" / "sessions"
-
-# the install/uninstall symmetry is itself under test, so these stay literals here rather than
-# being imported from engmem.install, which would assert the product's values against themselves
-INSTALLED_NAMES = ("engmem.md", "engmem.save.md", "engmem.save.quick.md")
-INSTALLED_NAMES_COPILOT_IDE = (
-    "engmem.prompt.md",
-    "engmem.save.prompt.md",
-    "engmem.save.quick.prompt.md",
-)
-TRIGGER_RULE = (
-    'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
-    "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)"
-)
-LEGACY_TRIGGER_RULE = 'Before proposing a plan, run `engmem search "<key terms for the task>"`'
-
-# a Windows-authored instructions file, as `(original bytes, its line ending)`: CRLF and a BOM
-# are exactly what `read_text` rewrites silently, and install and uninstall must both hand the
-# bytes back the way they found them — shared so the two halves of the round trip cannot drift
-INSTRUCTIONS_BYTE_CASES = [
-    pytest.param(b"# My rules\r\n- Prefer small commits.\r\n", b"\r\n", id="crlf"),
-    pytest.param(b"\xef\xbb\xbf# My rules\n", b"\n", id="utf-8-bom"),
-]
-
-
-def fixture_docs():
-    from engmem.spine import load_store
-
-    return load_store(FIXTURES).docs
-
-
-def write_file(dir_path: Path, name: str, text: str) -> Path:
-    r"""Writes `text` verbatim: `write_text` translates every `\n` to `\r\n` on Windows, so a
-    caller pinning a document's line endings was handed a document it never asked for."""
-    path = dir_path / name
-    path.write_bytes(text.encode("utf-8"))
-    return path
-
-
-def claude_desktop_config_path(home: Path) -> Path:
-    """Hardcoding the macOS tree failed every claude-desktop test on Windows, where the product
-    correctly uses %APPDATA%."""
-    if sys.platform == "win32":
-        return home / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
-    return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
@@ -218,87 +118,14 @@ def env(tmp_path, monkeypatch):
     return home, project
 
 
-# the two documents the MCP write tools move between; identical copies in two test
-# modules would drift apart silently, and the transition between them is the thing under test
-DRAFT_CONTENT = """---
-id: 20260101-widget-cache
-title: WidgetCache rollout
-date: 2026-01-01
-task_date: 2026-01-01
-status: draft
-superseded_by:
-backfilled: false
-tags: []
-entities: []
-related: []
-covers_files: []
-verified_at_commit:
-capture_minutes:
-mode: daily
----
-
-## Pre-reg
-
-Naive baseline: read the code and guess at the rollout shape.
-pre-reg source: self (no sub-agent available)
-"""
-
-ACTIVE_CONTENT = """---
-id: 20260101-widget-cache
-title: WidgetCache rollout
-date: 2026-01-01
-task_date: 2026-01-01
-status: active
-superseded_by:
-backfilled: false
-tags: [cache]
-entities: [WidgetCache, CacheWarmer]
-related: []
-covers_files: [WidgetCache.java]
-verified_at_commit: abc1234
-capture_minutes: 14
-mode: daily
----
-
-## Pre-reg
-
-Naive baseline: read the code and guess at the rollout shape.
-pre-reg source: self (no sub-agent available)
-
-## Decision Log
-
-Chose CacheWarmer over a lazy cache fill because cold start latency was too high.
-
-## Landmines
-
-CacheWarmer must run before WidgetCache accepts traffic or the first request hangs.
-
-## Cold-start primer
-
-WidgetCache serves cached widgets behind CacheWarmer, which pre-fills on boot.
-
-## Reuse Log
-
-Prior docs used: none.
-
-## Search Trace
-
-shell
-"""
+@pytest.fixture
+def store(tmp_path):
+    """An empty store; a module whose layout differs defines its own `store`, which wins."""
+    (tmp_path / "store" / "sessions").mkdir(parents=True)
+    return tmp_path / "store"
 
 
-def run_tool(
-    tool: Path, store: Path, env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
-    """The Gate 1 tools are checked through their real command line, never by import.
-
-    `encoding=` rather than the locale's: the tools write UTF-8 whatever the console code
-    page says, and their output carries document quotes verbatim, so a reader that decodes
-    by locale mangles every non-ASCII byte a store happens to contain. `env` overlays the
-    inherited environment, e.g. to simulate a legacy console code page.
-    """
-    return subprocess.run(
-        [sys.executable, str(tool), "--store", str(store)],
-        capture_output=True, text=True, encoding="utf-8", timeout=30,
-        env={**os.environ, **env} if env else None,
-    )
+@pytest.fixture
+def fixture_store(tmp_path):
+    shutil.copytree(FIXTURES, tmp_path / "store" / "sessions")
+    return tmp_path / "store"

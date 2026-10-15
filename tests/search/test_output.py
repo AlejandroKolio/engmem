@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import fixture_docs
+from support.docs import fixture_docs
 
 from engmem import cache
 from engmem.output import render_no_match, render_scoreboard, render_search_results
@@ -551,7 +551,10 @@ def test_the_output_budget_is_four_kilobytes():
     assert output.MAX_OUTPUT_BYTES == 4096
 
 
-@pytest.mark.parametrize("score", [6.0, 14.4], ids=["below-ten", "two-digit"])
+@pytest.mark.parametrize("score", [
+    pytest.param(6.0, id="below-ten"),
+    pytest.param(14.4, id="two-digit"),
+])
 def test_render_search_results_shows_the_section_locator_size_snippet_and_matched_line(score):
     """Both scores, because every line below is rendered per hit: a rule that fired on the
     score alone — locators dropped from strong hits to save bytes, say — would otherwise pass."""
@@ -1135,11 +1138,14 @@ def test_a_draft_successor_is_named_but_its_document_is_not_rendered(tmp_path, m
 @pytest.mark.parametrize(
     "onward, expected",
     [
-        ("ccc-new", "itself superseded by ccc-new"),
-        ("", "itself superseded, no successor recorded"),
-        ("ghost-doc", "itself superseded by ghost-doc, not in store"),
+        pytest.param("ccc-new", "itself superseded by ccc-new", id="in-store"),
+        pytest.param("", "itself superseded, no successor recorded", id="absent"),
+        pytest.param(
+            "ghost-doc",
+            "itself superseded by ghost-doc, not in store",
+            id="not-in-store",
+        ),
     ],
-    ids=["in-store", "absent", "not-in-store"],
 )
 def test_the_onward_id_of_a_chain_is_qualified(tmp_path, monkeypatch, onward, expected):
     """An absent id rendered as the string "None", the same defect

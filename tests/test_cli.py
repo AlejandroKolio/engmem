@@ -10,32 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (
-    FIXTURES,
-    on_a_shared_runner,
-    requires_permission_enforcement,
-)
+from support import fs
+from support.platform import on_a_shared_runner, requires_permission_enforcement
+from support.search import run_search
 
 from engmem import cache
 from engmem.cli import build_parser, main
 
 
-@pytest.fixture
-def store(tmp_path):
-    store_dir = tmp_path / "store"
-    sessions_dir = store_dir / "sessions"
-    shutil.copytree(FIXTURES, sessions_dir)
-    return store_dir
-
-
-def _run(store, *args, capsys):
-    exit_code = main(["search", *args, "--store", str(store)])
-    captured = capsys.readouterr()
-    return exit_code, captured.out, captured.err
-
-
-def test_g12_superseded_doc_resolves_to_successor(store, capsys):
-    exit_code, out, err = _run(store, "MazeRenderer", capsys=capsys)
+def test_g12_superseded_doc_resolves_to_successor(fixture_store, capsys):
+    exit_code, out, err = run_search(fixture_store, "MazeRenderer", capsys=capsys)
 
     assert exit_code == 0
     assert "maze-render-new" in out
@@ -45,21 +29,21 @@ def test_g12_superseded_doc_resolves_to_successor(store, capsys):
     assert out.count("maze-render-new") >= 2
 
 
-def test_g13_draft_excluded_but_counted_in_scoreboard(store, capsys):
+def test_g13_draft_excluded_but_counted_in_scoreboard(fixture_store, capsys):
     # §8 specifies the query `wip` — a short token exact-matching the draft's own id,
     # the stronger case (the doc WOULD rank were it not a draft)
-    exit_code, out, err = _run(store, "wip", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "wip", capsys=capsys)
 
     assert exit_code == 0
     assert "wip-something" not in out
     assert "drafts: 1" in out
 
 
-def test_g14_broken_doc_warns_but_other_results_still_return(store, capsys):
+def test_g14_broken_doc_warns_but_other_results_still_return(fixture_store, capsys):
     # "ETAG" yields exactly two hits, both within the top-3 cap, so both MUST show up
     # as real scored results (a "### <id>" header), not merely be mentioned inside
     # another hit's `related:` line.
-    exit_code, out, err = _run(store, "ETAG", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "ETAG", capsys=capsys)
 
     assert exit_code == 0
     assert "broken" in err.lower()
@@ -67,23 +51,23 @@ def test_g14_broken_doc_warns_but_other_results_still_return(store, capsys):
     assert "### ttl-etag-revalidation-v2" in out
 
 
-def test_g15_no_match_reports_plainly_with_exit_zero(store, capsys):
-    exit_code, out, err = _run(store, "nonexistent-term-xyz", capsys=capsys)
+def test_g15_no_match_reports_plainly_with_exit_zero(fixture_store, capsys):
+    exit_code, out, err = run_search(fixture_store, "nonexistent-term-xyz", capsys=capsys)
 
     assert exit_code == 0
     assert out.strip().splitlines()[0] == "prior context: none found"
 
-    telemetry = json.loads((store / "telemetry.jsonl").read_text().strip().splitlines()[-1])
+    telemetry = json.loads((fixture_store / "telemetry.jsonl").read_text().strip().splitlines()[-1])
     assert telemetry["result"] == "miss"
 
 
-def test_g16_output_size_capped_to_top_three(store, capsys):
+def test_g16_output_size_capped_to_top_three(fixture_store, capsys):
     from engmem.output import MAX_OUTPUT_BYTES
 
     # "platform" matches four docs, all tied at score 1.0 — more than TOP_N, so this
     # pins that exactly three are rendered as scored results, not merely that the
     # (unrelated) output byte cap happens to be respected.
-    exit_code, out, err = _run(store, "platform", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "platform", capsys=capsys)
 
     assert exit_code == 0
     assert len(out.encode("utf-8")) <= MAX_OUTPUT_BYTES
@@ -162,12 +146,9 @@ def test_unreadable_sessions_dir_is_not_a_phantom_empty_store(
     sessions_dir = store_dir / "sessions"
     sessions_dir.mkdir(parents=True)
     (sessions_dir / "control.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
-    os.chmod(sessions_dir, 0o000)
-    try:
+    with fs.without_access(sessions_dir, restore_mode=0o755):
         exit_code = main([*subcommand_args, "--store", str(store_dir)])
         captured = capsys.readouterr()
-    finally:
-        os.chmod(sessions_dir, 0o755)
 
     assert exit_code == 0, "an unreadable sessions/ is a degraded result, not a usage error"
     assert "unknown, not zero" in captured.out, (
@@ -178,10 +159,10 @@ def test_unreadable_sessions_dir_is_not_a_phantom_empty_store(
         assert substring in captured.out
 
 
-def test_stderr_distinguishes_errors_from_warnings(store, capsys):
+def test_stderr_distinguishes_errors_from_warnings(fixture_store, capsys):
     """An excluded document and a warned-about one printed identically, though §4 classifies
     them differently."""
-    (store / "sessions" / "no-entities-doc.md").write_text("""---
+    (fixture_store / "sessions" / "no-entities-doc.md").write_text("""---
 id: no-entities-doc
 title: No Entities Doc
 date: 2026-08-01
@@ -200,7 +181,7 @@ capture_minutes: 1
 ## Pre-reg
 """)
 
-    _, _, err = _run(store, "platform", capsys=capsys)
+    _, _, err = run_search(fixture_store, "platform", capsys=capsys)
 
     error_lines = [ln for ln in err.splitlines() if ln.startswith("error: ")]
     warning_lines = [ln for ln in err.splitlines() if ln.startswith("warning: ")]
@@ -239,20 +220,20 @@ def _cold_floor(argv: list[str], cache_home: Path, capsys) -> float:
 
 @on_a_shared_runner
 def test_sc002_search_stays_well_inside_the_no_index_budget(
-    store, capsys, tmp_path, monkeypatch
+    fixture_store, capsys, tmp_path, monkeypatch
 ):
     """§3's "no INDEX.md, no cache, no SQLite" holds only while a full scan costs milliseconds;
     this is the tighter of the two tripwires on that bet, and it measures a known machine."""
     # §3 sizes a realistic store at 20-200 docs; 8 fixtures alone would make this
     # bound meaningless, so replicate them up to ~200
-    assert _clone_store(store, 25) >= 200
+    assert _clone_store(fixture_store, 25) >= 200
 
     # redirected away from the developer's own `~/.cache/engmem`; a floor of three cold
     # runs is the code's own cost, not one unlucky scheduling tick on the author's machine
     cache_home = tmp_path / "cache-home"
     monkeypatch.setattr(cache, "cache_root", lambda: cache_home)
 
-    elapsed = _cold_floor(["search", "platform", "--store", str(store)], cache_home, capsys)
+    elapsed = _cold_floor(["search", "platform", "--store", str(fixture_store)], cache_home, capsys)
 
     # 0.5, chosen from measurement rather than taste: the floor-of-three steady state on the
     # author's machine is 0.142-0.147s over ten runs, and ~0.30s per run under coverage
@@ -265,17 +246,17 @@ def test_sc002_search_stays_well_inside_the_no_index_budget(
 
 
 def test_sc002_search_stays_within_an_order_of_magnitude_everywhere(
-    store, capsys, tmp_path, monkeypatch
+    fixture_store, capsys, tmp_path, monkeypatch
 ):
     """The bound above is skipped on a shared runner, so it guards nothing in CI. This one is
     4x looser, runs unconditionally, and exists so an order-of-magnitude regression — the kind
     that would invalidate §3's no-index decision — cannot merge with every leg green."""
-    assert _clone_store(store, 25) >= 200
+    assert _clone_store(fixture_store, 25) >= 200
 
     cache_home = tmp_path / "cache-home"
     monkeypatch.setattr(cache, "cache_root", lambda: cache_home)
 
-    elapsed = _cold_floor(["search", "platform", "--store", str(store)], cache_home, capsys)
+    elapsed = _cold_floor(["search", "platform", "--store", str(fixture_store)], cache_home, capsys)
 
     assert elapsed < 2.0
 
@@ -310,18 +291,18 @@ def _engmem_calls(store: Path, cache_home: Path, monkeypatch, capsys) -> int:
     return calls
 
 
-def test_search_cost_stays_linear_in_the_number_of_documents(store, tmp_path, monkeypatch, capsys):
+def test_search_cost_stays_linear_in_the_number_of_documents(fixture_store, tmp_path, monkeypatch, capsys):
     """The shape of the cost curve belongs to the code. A wall-clock ratio measured the machine
     too: it flaked under load and still let a seeded quadratic pass five runs in five.
 
     Each step adds one identical set of cloned documents, so linear code does exactly the same
     extra work per step and the second difference of the call count is zero. Any per-pair work
     makes it positive, however cheap: one call per pair of documents already shows as dozens."""
-    originals = sorted((store / "sessions").glob("*.md"))
+    originals = sorted((fixture_store / "sessions").glob("*.md"))
     counts = []
     for sets in (1, 2, 3):  # single-digit clone indices, so every set's ids tokenize alike
-        docs = _clone_store(store, sets, originals)
-        counts.append((docs, _engmem_calls(store, tmp_path / f"cache-{sets}", monkeypatch, capsys)))
+        docs = _clone_store(fixture_store, sets, originals)
+        counts.append((docs, _engmem_calls(fixture_store, tmp_path / f"cache-{sets}", monkeypatch, capsys)))
 
     (_, first), (_, second), (_, third) = counts
     assert 0 < first < second < third, (
@@ -336,13 +317,13 @@ def test_search_cost_stays_linear_in_the_number_of_documents(store, tmp_path, mo
     )
 
 
-def test_failed_documents_are_counted_on_stdout(store, capsys):
+def test_failed_documents_are_counted_on_stdout(fixture_store, capsys):
     """An agent reading only stdout would otherwise treat a partial store as the whole store."""
-    (store / "sessions" / "unparseable.md").write_text(
+    (fixture_store / "sessions" / "unparseable.md").write_text(
         "---\nid: unparseable\ntags: [platform\n---\n\n## Pre-reg\n", encoding="utf-8"
     )
 
-    code, out, err = _run(store, "sweeper", capsys=capsys)
+    code, out, err = run_search(fixture_store, "sweeper", capsys=capsys)
 
     assert code == 0
     assert "failed to load" in out
@@ -353,12 +334,12 @@ def test_failed_documents_are_counted_on_stdout(store, capsys):
 # tests/test_runtime.py; what stays here is the CLI wiring that consumes it.
 
 
-def test_telemetry_write_failure_still_prints_full_results_and_exits_zero(store, capsys):
+def test_telemetry_write_failure_still_prints_full_results_and_exits_zero(fixture_store, capsys):
     """A telemetry write failure must not discard an answer already printed correctly on
     stdout."""
-    (store / "telemetry.jsonl").mkdir()
+    (fixture_store / "telemetry.jsonl").mkdir()
 
-    exit_code, out, err = _run(store, "platform", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "platform", capsys=capsys)
 
     assert exit_code == 0
     assert "docs:" in out, "the scoreboard footer must still be printed"
@@ -450,14 +431,14 @@ SESSION_KEY_CASES = [
 
 @pytest.mark.parametrize(("session_args", "expected_session_id"), SESSION_KEY_CASES)
 def test_the_session_flag_decides_the_logged_join_key(
-    store, capsys, session_args, expected_session_id
+    fixture_store, capsys, session_args, expected_session_id
 ):
     """Absence is an explicit null, never an omitted field: an unattributed row and a row written
     before the field existed must stay distinguishable at review time."""
-    exit_code, out, _ = _run(store, "1000001", *session_args, capsys=capsys)
+    exit_code, out, _ = run_search(fixture_store, "1000001", *session_args, capsys=capsys)
 
     assert exit_code == 0
-    record = _last_telemetry(store)
+    record = _last_telemetry(fixture_store)
     assert "session_id" in record
     assert record["session_id"] == expected_session_id
     if expected_session_id is not None:
@@ -466,14 +447,14 @@ def test_the_session_flag_decides_the_logged_join_key(
         )
 
 
-def test_unknown_session_id_does_not_gate_the_search(store, capsys):
+def test_unknown_session_id_does_not_gate_the_search(fixture_store, capsys):
     """A search refused because a draft was named a moment too early would be ritual gating the
     answer (SPEC §6)."""
-    exit_code, out, _ = _run(store, "1000001", "--session", "no-such-draft", capsys=capsys)
+    exit_code, out, _ = run_search(fixture_store, "1000001", "--session", "no-such-draft", capsys=capsys)
 
     assert exit_code == 0
     assert "1000001-response-cache" in out
-    assert _last_telemetry(store)["session_id"] == "no-such-draft"
+    assert _last_telemetry(fixture_store)["session_id"] == "no-such-draft"
 
 
 UNATTRIBUTED_NOTE = "note: unattributed search — pass --session <draft-id>"
@@ -492,9 +473,9 @@ UNATTRIBUTED_NOTE_CASES = [
 
 @pytest.mark.parametrize(("search_args", "expect_note"), UNATTRIBUTED_NOTE_CASES)
 def test_the_unattributed_note_appears_exactly_when_no_usable_session_was_passed(
-    store, capsys, search_args, expect_note
+    fixture_store, capsys, search_args, expect_note
 ):
-    exit_code, out, _ = _run(store, *search_args, capsys=capsys)
+    exit_code, out, _ = run_search(fixture_store, *search_args, capsys=capsys)
 
     assert exit_code == 0
     lines = out.rstrip("\n").splitlines()
@@ -507,10 +488,10 @@ def test_the_unattributed_note_appears_exactly_when_no_usable_session_was_passed
         assert UNATTRIBUTED_NOTE not in out
 
 
-def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store, capsys):
-    (store / "telemetry.jsonl").mkdir()
+def test_the_unattributed_note_comes_after_the_telemetry_failure_note(fixture_store, capsys):
+    (fixture_store / "telemetry.jsonl").mkdir()
 
-    _, out, _ = _run(store, "1000001", capsys=capsys)
+    _, out, _ = run_search(fixture_store, "1000001", capsys=capsys)
 
     tail = out.rstrip("\n").splitlines()[-3:]
     assert tail[0].startswith("docs: ")
@@ -518,11 +499,11 @@ def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store, cap
     assert tail[2] == UNATTRIBUTED_NOTE
 
 
-def test_the_unattributed_note_does_not_inflate_context_bytes(store, capsys):
-    _run(store, "1000001", capsys=capsys)
-    without = _last_telemetry(store)["context_bytes"]
-    _run(store, "1000001", "--session", "20260823-cache", capsys=capsys)
-    with_session = _last_telemetry(store)["context_bytes"]
+def test_the_unattributed_note_does_not_inflate_context_bytes(fixture_store, capsys):
+    run_search(fixture_store, "1000001", capsys=capsys)
+    without = _last_telemetry(fixture_store)["context_bytes"]
+    run_search(fixture_store, "1000001", "--session", "20260823-cache", capsys=capsys)
+    with_session = _last_telemetry(fixture_store)["context_bytes"]
 
     assert without == with_session
 
@@ -532,10 +513,10 @@ def test_the_unattributed_note_does_not_inflate_context_bytes(store, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_search_role_flag_returns_the_requested_role_section(store, capsys):
+def test_search_role_flag_returns_the_requested_role_section(fixture_store, capsys):
     """The reader must never mistake a role-filtered block for an ordinary one, so every result
     header carries the role it was filtered to."""
-    exit_code, out, err = _run(store, "1000001", "--role", "decisions", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "1000001", "--role", "decisions", capsys=capsys)
 
     assert exit_code == 0
     # a whole line of its own, which the `[role: decisions]` marker inside a result header
@@ -548,17 +529,17 @@ def test_search_role_flag_returns_the_requested_role_section(store, capsys):
             assert "[role: decisions]" in line
 
 
-def test_search_role_flag_states_when_no_matched_document_has_the_role(store, capsys):
+def test_search_role_flag_states_when_no_matched_document_has_the_role(fixture_store, capsys):
     """An absent role must be reported by name, not folded into a plain, indistinguishable miss."""
-    exit_code, out, err = _run(store, "1000001", "--role", "graph", capsys=capsys)
+    exit_code, out, err = run_search(fixture_store, "1000001", "--role", "graph", capsys=capsys)
 
     assert exit_code == 0
     assert "role: graph" in out
     assert "none" in out.lower()
 
 
-def test_search_unknown_role_exits_two_and_names_the_valid_roles(store, capsys):
-    exit_code, out, err = _run(store, "1000001", "--role", "not-a-real-role", capsys=capsys)
+def test_search_unknown_role_exits_two_and_names_the_valid_roles(fixture_store, capsys):
+    exit_code, out, err = run_search(fixture_store, "1000001", "--role", "not-a-real-role", capsys=capsys)
 
     assert exit_code == 2
     assert "not-a-real-role" in out
@@ -567,10 +548,10 @@ def test_search_unknown_role_exits_two_and_names_the_valid_roles(store, capsys):
     assert "lessons" in out
 
 
-def test_search_role_flag_logs_role_specific_telemetry(store, capsys):
-    _run(store, "1000001", "--role", "decisions", capsys=capsys)
+def test_search_role_flag_logs_role_specific_telemetry(fixture_store, capsys):
+    run_search(fixture_store, "1000001", "--role", "decisions", capsys=capsys)
 
-    record = _last_telemetry(store)
+    record = _last_telemetry(fixture_store)
     assert record["role"] == "decisions"
     # both fixture docs matched by the numeric id token carry a Decision Log — `surfaced` must
     # reflect the role-filtered documents actually shown, not an arbitrary single one
@@ -582,10 +563,10 @@ def test_search_role_flag_logs_role_specific_telemetry(store, capsys):
 
 @on_a_shared_runner
 def test_search_role_flag_completes_within_the_same_latency_class(
-    store, capsys, tmp_path, monkeypatch
+    fixture_store, capsys, tmp_path, monkeypatch
 ):
     """Role-addressed retrieval must not regress search's own latency budget."""
-    assert _clone_store(store, 25) >= 200
+    assert _clone_store(fixture_store, 25) >= 200
 
     # the cache goes to tmp, not the developer's real `~/.cache/engmem`. The assertion is a
     # *ratio* against plain search, which is what "the same latency class" means: a
@@ -593,9 +574,9 @@ def test_search_role_flag_completes_within_the_same_latency_class(
     cache_home = tmp_path / "cache-home"
     monkeypatch.setattr(cache, "cache_root", lambda: cache_home)
 
-    plain = _cold_floor(["search", "platform", "--store", str(store)], cache_home, capsys)
+    plain = _cold_floor(["search", "platform", "--store", str(fixture_store)], cache_home, capsys)
     role = _cold_floor(
-        ["search", "platform", "--role", "decisions", "--store", str(store)], cache_home, capsys
+        ["search", "platform", "--role", "decisions", "--store", str(fixture_store)], cache_home, capsys
     )
 
     assert role < plain * 1.5, (plain, role)
@@ -606,8 +587,8 @@ def test_search_role_flag_completes_within_the_same_latency_class(
 # ---------------------------------------------------------------------------
 
 
-def test_roles_subcommand_lists_the_known_vocabulary_with_store_coverage(store, capsys):
-    exit_code = main(["roles", "--store", str(store)])
+def test_roles_subcommand_lists_the_known_vocabulary_with_store_coverage(fixture_store, capsys):
+    exit_code = main(["roles", "--store", str(fixture_store)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -624,57 +605,57 @@ def test_roles_subcommand_lists_the_known_vocabulary_with_store_coverage(store, 
 # ---------------------------------------------------------------------------
 
 
-def test_search_records_cli_as_the_channel(store, capsys):
-    _run(store, "1000001", capsys=capsys)
+def test_search_records_cli_as_the_channel(fixture_store, capsys):
+    run_search(fixture_store, "1000001", capsys=capsys)
 
-    assert _last_telemetry(store)["channel"] == "cli"
+    assert _last_telemetry(fixture_store)["channel"] == "cli"
 
 
-def test_search_context_bytes_matches_the_rendered_result_for_a_hit(store, capsys):
+def test_search_context_bytes_matches_the_rendered_result_for_a_hit(fixture_store, capsys):
     from engmem.output import render_search_results
-    from engmem.scoring import search as run_search
+    from engmem.scoring import search as score
     from engmem.spine import load_store
 
-    _run(store, "1000001", capsys=capsys)
+    run_search(fixture_store, "1000001", capsys=capsys)
 
-    docs = load_store(store / "sessions").docs
-    outcome = run_search(docs, "1000001")
+    docs = load_store(fixture_store / "sessions").docs
+    outcome = score(docs, "1000001")
     expected_text = render_search_results(outcome, docs)
 
-    assert _last_telemetry(store)["context_bytes"] == len(expected_text.encode("utf-8"))
+    assert _last_telemetry(fixture_store)["context_bytes"] == len(expected_text.encode("utf-8"))
 
 
-def test_search_context_bytes_is_near_zero_for_a_miss(store, capsys):
+def test_search_context_bytes_is_near_zero_for_a_miss(fixture_store, capsys):
     from engmem.output import render_no_match
 
-    _run(store, "nonexistent-term-xyz", capsys=capsys)
+    run_search(fixture_store, "nonexistent-term-xyz", capsys=capsys)
 
-    record = _last_telemetry(store)
+    record = _last_telemetry(fixture_store)
     expected = len(render_no_match().encode("utf-8"))
     assert record["context_bytes"] == expected
     assert record["context_bytes"] < 50, "a miss must put almost nothing in context"
 
 
-def test_search_context_tokens_estimate_is_derived_from_context_bytes(store, capsys):
+def test_search_context_tokens_estimate_is_derived_from_context_bytes(fixture_store, capsys):
     from engmem.telemetry import estimate_tokens
 
-    _run(store, "1000001", capsys=capsys)
+    run_search(fixture_store, "1000001", capsys=capsys)
 
-    record = _last_telemetry(store)
+    record = _last_telemetry(fixture_store)
     assert record["context_tokens_estimate"] == estimate_tokens(record["context_bytes"])
 
 
-def test_search_role_flag_records_cli_channel_and_context_bytes(store, capsys):
+def test_search_role_flag_records_cli_channel_and_context_bytes(fixture_store, capsys):
     from engmem.output import render_role_search_results
     from engmem.scoring import search_with_role_sections
     from engmem.spine import load_store
 
-    _run(store, "1000001", "--role", "decisions", capsys=capsys)
+    run_search(fixture_store, "1000001", "--role", "decisions", capsys=capsys)
 
-    docs = load_store(store / "sessions").docs
+    docs = load_store(fixture_store / "sessions").docs
     docs_outcome, role_map = search_with_role_sections(docs, "1000001")
     expected_text = render_role_search_results(docs_outcome, role_map, "decisions")
-    record = _last_telemetry(store)
+    record = _last_telemetry(fixture_store)
 
     assert record["channel"] == "cli"
     assert record["context_bytes"] == len(expected_text.encode("utf-8"))
@@ -685,19 +666,19 @@ def test_search_role_flag_records_cli_channel_and_context_bytes(store, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_telemetry_subcommand_reports_no_rows_for_a_fresh_store(store, capsys):
-    exit_code = main(["telemetry", "--store", str(store)])
+def test_telemetry_subcommand_reports_no_rows_for_a_fresh_store(fixture_store, capsys):
+    exit_code = main(["telemetry", "--store", str(fixture_store)])
     out = capsys.readouterr().out
 
     assert exit_code == 0
     assert "0 row" in out
 
 
-def test_telemetry_subcommand_reports_recorded_rows_split_by_channel(store, capsys):
-    _run(store, "1000001", capsys=capsys)
+def test_telemetry_subcommand_reports_recorded_rows_split_by_channel(fixture_store, capsys):
+    run_search(fixture_store, "1000001", capsys=capsys)
     capsys.readouterr()
 
-    exit_code = main(["telemetry", "--store", str(store)])
+    exit_code = main(["telemetry", "--store", str(fixture_store)])
     out = capsys.readouterr().out
 
     assert exit_code == 0
@@ -804,12 +785,9 @@ def test_telemetry_reports_an_unlistable_sessions_directory(tmp_path, capsys):
     sessions.mkdir(parents=True)
     (store / "telemetry.jsonl").write_text("", encoding="utf-8")
 
-    os.chmod(sessions, 0o000)
-    try:
+    with fs.without_access(sessions, restore_mode=0o755):
         exit_code = main(["telemetry", "--store", str(store)])
         captured = capsys.readouterr()
-    finally:
-        os.chmod(sessions, 0o755)
 
     assert exit_code == 0
     # the agent reads stdout only, so the cause has to be there and not only on stderr

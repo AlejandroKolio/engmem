@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import TRIGGER_RULE
+from support.home import TRIGGER_RULE
+from support.paths import REPO_ROOT
 
 from engmem.cli import main
 
@@ -410,7 +411,7 @@ def test_chatgpt_install_prints_a_tunnel_command_that_launches_this_store(env, t
     assert "note: installed templates" not in out, "the tunnel command carries the store itself"
 
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = REPO_ROOT
 SETUP_SCRIPT = REPO / "scripts" / "setup-openai.sh"
 _UNNEGATED_PROTECTED = re.compile(r"(?<!not )\bprotected\b", re.IGNORECASE)
 # the exact claims, pinned here once: engmem observes neither bridge's access control
@@ -473,7 +474,10 @@ def _run_setup_script(tmp_path: Path, with_tunnel: bool) -> tuple[str, list[str]
 @pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None, reason="a bash script, POSIX only"
 )
-@pytest.mark.parametrize("with_tunnel", [True, False], ids=["tunnel-initialised", "no-tunnel"])
+@pytest.mark.parametrize("with_tunnel", [
+    pytest.param(True, id="tunnel-initialised"),
+    pytest.param(False, id="no-tunnel"),
+])
 def test_setup_script_summary_names_the_tunnel_only_when_it_initialised_one(tmp_path, with_tunnel):
     """AC-19.4 for scripts/setup-openai.sh: its summary says only what the run itself did."""
     out, called = _run_setup_script(tmp_path, with_tunnel)

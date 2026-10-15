@@ -6,7 +6,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from conftest import run_tool
+from support.tools import run_tool
 
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "verify_citations.py"

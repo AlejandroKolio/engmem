@@ -142,13 +142,13 @@ conversations used for the check in A, B and C, and remove `~/engmem-remote-chec
 ## What engmem's tests do check
 
 - `--read-only` lists only the two search tools and refuses every write tool without changing the
-  store (`tests/test_mcp_read_only.py`).
+  store (`tests/mcp/test_mcp_read_only.py`).
 - Install output and the setup script's summary name the tunnel, mark a public bridge not
-  protected, and never call anything protected (`tests/test_install_codex_chatgpt.py`). On POSIX
+  protected, and never call anything protected (`tests/install/test_install_codex_chatgpt.py`). On POSIX
   the script's summary is checked by running it with stub tools: it names the tunnel only when
   `tunnel-client init` ran.
 - Doctor reports the tunnel and the public bridge as `unverified`, never `ok`, and never runs
-  `tunnel-client` (`tests/test_doctor.py`).
+  `tunnel-client` (`tests/install/test_doctor.py`).
 - The canary document above loads as a valid active document and is found by its word
-  (`tests/test_install_codex_chatgpt.py`).
+  (`tests/install/test_install_codex_chatgpt.py`).
 - engmem opens no socket (`tests/test_no_network.py`).

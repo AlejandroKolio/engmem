@@ -3,7 +3,7 @@ golden tables of ENGMEM-SPEC.md §8 included."""
 
 import pytest
 
-from conftest import fixture_docs
+from support.docs import fixture_docs
 
 import dataclasses
 import json
@@ -23,13 +23,6 @@ from engmem.scoring import (
 )
 from engmem.sections import Section
 from engmem.spine import load_store
-
-
-@pytest.fixture(autouse=True)
-def _isolated_body_cache(tmp_path, monkeypatch):
-    """Every test gets its own cache directory, isolated from `~/.cache/engmem` and from every
-    other test."""
-    monkeypatch.setattr(cache, "cache_root", lambda: tmp_path / "engmem-cache-dir")
 
 
 def _top_id(outcome):

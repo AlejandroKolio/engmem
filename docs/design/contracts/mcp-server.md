@@ -137,7 +137,7 @@ the telemetry write (`contracts/output.md`, "One composed result for both channe
 `isError`. Blank ids earn the
 note too — they log `null`. The earlier decision never to append to a search result
 protected `context_bytes`, which measures exactly the rendered text; the note is added after
-`context_bytes` is computed, and `tests/test_mcp_server.py` / `tests/test_cli.py` pin that a
+`context_bytes` is computed, and `tests/mcp/test_mcp_server.py` / `tests/test_cli.py` pin that a
 search with and without an id logs the same value.
 
 ## `repo` / `unscoped`: the CLI's scope, refused rather than widened (US-09)
