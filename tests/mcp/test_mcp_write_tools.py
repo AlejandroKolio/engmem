@@ -470,8 +470,9 @@ def _refused(store: Path, content: str) -> str:
         ),
         pytest.param(
             f"| 20260101-other-doc | {_QUOTE} | helped |",
-            "no classification cell, or an empty one (expected one of "
-            "reuse / anti-reuse / harmful)",
+            "its fourth cell, classification, is missing or empty (expected one of "
+            "reuse / anti-reuse / harmful under "
+            "`| prior-doc | taken | impact | classification |`)",
             id="no_classification_cell",
         ),
     ],
@@ -499,6 +500,110 @@ def test_complete_draft_reports_every_defect_of_every_bad_row(store):
     assert f'classification "Reused" is not one of reuse / anti-reuse / harmful: {unquoted}' in text
     assert f'classification "harmfull" is not one of reuse / anti-reuse / harmful: {misspelt}' in text
     assert good not in text
+
+
+def _with_reuse_section(body: str) -> str:
+    return replaced(
+        ACTIVE_CONTENT,
+        "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
+        f"## Reuse Log\n\n{body}\n\n## Search Trace",
+    )
+
+
+_EXPECTED_HEADER = "`| prior-doc | taken | impact | classification |`"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param("| prior-doc | quoted span | classification |", id="three_columns"),
+        pytest.param("| doc | classification | quoted span |", id="reordered"),
+        pytest.param("| prior-doc | classification | impact | note |", id="classification_second"),
+        pytest.param("| prior-doc | taken | impact |", id="no_fourth_column"),
+        pytest.param("| prior-doc | impact | taken | classification |", id="taken_third"),
+        pytest.param("| document | taken | impact | classification |", id="first_cell_renamed"),
+    ],
+)
+def test_complete_draft_refuses_a_table_whose_header_moves_the_cells(store, header):
+    """Cells are read by position, so a table headed otherwise is read wrongly or not at all; the
+    refusal names the header to write, and the header line is not echoed as a bad row."""
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    columns = header.count("|") - 1
+    body = f"{header}\n|{'---|' * columns}\n| 20260101-other-doc | {_QUOTE} | reuse |"
+
+    text = _refused(store, _with_reuse_section(body))
+
+    assert f"Reuse Log table rejected — its columns must come in the order {_EXPECTED_HEADER}" in text
+    assert header in text
+    assert f"rejected — no quoted span of four or more characters: {header}" not in text
+
+
+def test_complete_draft_refuses_a_reuse_log_written_as_a_list(store):
+    """A list names the prior document and quotes it, yet the count reads no row from it: the gap
+    the contract recorded as known, closed at write time."""
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    body = f"- 20260101-other-doc | reuse | {_QUOTE}"
+
+    text = _refused(store, _with_reuse_section(body))
+
+    assert "Reuse Log rejected — `Reuse Log` has neither a table row nor the line `Prior docs used: none.`" in text
+    assert _EXPECTED_HEADER in text
+
+
+def test_complete_draft_accepts_a_column_after_classification(store):
+    """A fifth column moves no cell the count reads, so it is not refused."""
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    body = (
+        "| prior-doc | taken | impact | classification | note |\n|---|---|---|---|---|\n"
+        f"| 20260101-other-doc | {_QUOTE} | helped | reuse | kept the warmer |"
+    )
+
+    result, is_error = rpc.call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": _with_reuse_section(body)}),
+    )
+
+    assert not is_error, rpc.text(result)
+    assert "draft -> active" in rpc.text(result)
+
+
+def test_complete_draft_accepts_the_header_as_the_spec_words_it(store):
+    """The spec names the columns at length; only their order decides what the count reads."""
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    body = (
+        "| prior-doc | what was taken (artifact + QUOTE from the doc) | how it influenced the work "
+        "| reuse/anti-reuse/harmful |\n|---|---|---|---|\n"
+        f"| 20260101-other-doc | {_QUOTE} | helped | reuse |"
+    )
+
+    result, is_error = rpc.call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": _with_reuse_section(body)}),
+    )
+
+    assert not is_error, rpc.text(result)
+
+
+def test_the_reuse_log_shape_is_shown_before_it_can_be_refused(store):
+    """The refusal arrives only at complete time; the draft's creation result and both tool
+    descriptions name the table, so the shape is known before the document is written."""
+    result, is_error = rpc.call(
+        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
+    )
+
+    assert not is_error
+    assert _EXPECTED_HEADER in rpc.text(result)
+    assert "Prior docs used: none." in rpc.text(result)
+    assert _EXPECTED_HEADER in mcp_server.CREATE_DRAFT_TOOL_DESCRIPTION
+    assert _EXPECTED_HEADER in mcp_server.COMPLETE_DRAFT_TOOL_DESCRIPTION
+    assert drafts.CLASSIFICATION_CHOICES in mcp_server.CREATE_DRAFT_TOOL_DESCRIPTION
+    assert drafts.CLASSIFICATION_CHOICES in mcp_server.COMPLETE_DRAFT_TOOL_DESCRIPTION
 
 
 def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypatch):

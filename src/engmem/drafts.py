@@ -248,7 +248,7 @@ def create_draft(store: Path, doc_id: object, content: str, surface: Surface) ->
         f"Now {surface.attribute(doc_id)} for the rest of this task — a search without it is "
         "logged unattributed and drops out of the analysis. Keep the version: pass it as "
         f"{surface.version_argument} to {surface.complete} when you finish this draft. "
-        f"{_mode_note(doc)}"
+        f"{_mode_note(doc)} {REUSE_LOG_SHAPE}"
     )
 
 
@@ -431,8 +431,14 @@ def _refuse_a_changed_observation(draft: Doc, content: Doc, doc_id: str) -> None
         )
 
 
-_CLASSIFICATION_CHOICES = " / ".join(
+CLASSIFICATION_CHOICES = " / ".join(
     c for c in gate1.Classification if c in gate1.VALID_CLASSIFICATIONS
+)
+REUSE_LOG_TABLE_HEADER = "| " + " | ".join(gate1.REUSE_LOG_HEADER) + " |"
+REUSE_LOG_SHAPE = (
+    f"Reuse Log: one `{REUSE_LOG_TABLE_HEADER}` row per prior document — prior-doc is the search "
+    f"result's `cite as` id@version, taken quotes the span used, classification is "
+    f"{CLASSIFICATION_CHOICES} — or exactly `Prior docs used: none.`"
 )
 
 
@@ -445,7 +451,25 @@ def _reuse_log_rejections(doc: Doc, sessions_dir: Path) -> list[str]:
     for section in split_sections(doc.body):
         if section.canonical != "reuse":
             continue
-        for row in gate1.reuse_log_rows(section.body):
+        headers = gate1.reuse_log_headers(section.body)
+        for header in headers:
+            if gate1.header_misplaces_cells(header.cells):
+                rejections.append(
+                    f"Reuse Log table rejected — its columns must come in the order "
+                    f"`{REUSE_LOG_TABLE_HEADER}`, because the count reads each row's cells by position: "
+                    f"{header.line.strip()}"
+                )
+        header_lines = {h.line for h in headers}
+        rows = gate1.reuse_log_rows(section.body)
+        if not rows and gate1.NONE_LINE not in section.body.casefold():
+            rejections.append(
+                f"Reuse Log rejected — `{section.heading}` has neither a table row nor the line "
+                "`Prior docs used: none.`; the count reads only rows of a "
+                f"`{REUSE_LOG_TABLE_HEADER}` table, so a list or prose here is never counted."
+            )
+        for row in rows:
+            if row.line in header_lines:
+                continue
             line = row.line.strip()
             reference = row.cells[0].strip("[] `")
             _cited_id, version = split_reference(reference)
@@ -466,13 +490,14 @@ def _reuse_log_rejections(doc: Doc, sessions_dir: Path) -> list[str]:
             raw, classification = gate1.classification_of(row.cells)
             if classification is gate1.Classification.MISSING:
                 rejections.append(
-                    "Reuse Log row rejected — no classification cell, or an empty one "
-                    f"(expected one of {_CLASSIFICATION_CHOICES}): {line}"
+                    "Reuse Log row rejected — its fourth cell, classification, is missing or "
+                    f"empty (expected one of {CLASSIFICATION_CHOICES} under "
+                    f"`{REUSE_LOG_TABLE_HEADER}`): {line}"
                 )
             elif classification is gate1.Classification.UNRECOGNIZED:
                 rejections.append(
                     f'Reuse Log row rejected — classification "{raw}" is not one of '
-                    f"{_CLASSIFICATION_CHOICES}: {line}"
+                    f"{CLASSIFICATION_CHOICES}: {line}"
                 )
     return rejections
 

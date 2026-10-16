@@ -66,7 +66,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
 2. Write `## Future LLM Context (cold-start primer)`: 2–4 lines. The first two are the
    search preview: short, about 240 characters together, and readable on their own.
 3. Write `## Reuse Log` as exactly `Prior docs used: none.` unless prior docs obviously
-   influenced the work, in which case list them as rows (with quotes, same validity rule
+   influenced the work, in which case list them as rows of a
+   `| prior-doc | taken | impact | classification |` table (with quotes, same validity rule
    as `/engmem.save`: `prior-doc` is the `<id>@<version>` the `cite as` line of the search or
    read the quote came from gave, a quoted span in `taken`, classification exactly `reuse` /
    `anti-reuse` / `harmful`; `engmem draft complete` and `engmem_complete_draft` refuse a row
