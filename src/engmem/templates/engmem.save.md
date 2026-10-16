@@ -208,8 +208,10 @@ One row per prior document that **actually influenced** this work:
   lower case, nothing else in the cell.
 - `engmem_complete_draft` refuses the whole document when any row has no quoted span, a
   classification outside those three, or a `prior-doc` version that is not one a search
-  showed, and returns each offending row; fix the row and call it again. A shell save has
-  no such gate, so check the three rules yourself before writing
+  showed, when the table's columns are not in the order above (the count reads cells by
+  position: a list or another column order is never counted), or when the section has
+  neither a row nor `Prior docs used: none.`, and returns each defect; fix it and call again. A shell save has
+  no such gate, so check these rules yourself before writing
   the file; the checkout's report shows what the count will do with it:
   `uv run --project <engmem-checkout> python <engmem-checkout>/tools/gate1_report.py --store <store>`.
 - A row that passes all three rules, cited by the `cite as` reference, quote copied out of the

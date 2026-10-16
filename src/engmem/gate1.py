@@ -18,6 +18,8 @@ from engmem.versions import retained_body, split_reference
 
 QUOTE_RE = re.compile(r'"([^"\n]{4,})"|“([^”\n]{4,})”|«([^»\n]{4,})»')
 NONE_LINE = "prior docs used: none."
+# cells are read by position, so this is the one header whose rows the count reads as written
+REUSE_LOG_HEADER = ("prior-doc", "taken", "impact", "classification")
 
 
 class Integrity(enum.StrEnum):
@@ -159,14 +161,45 @@ class TableRow:
     cells: list[str]
 
 
+def _is_separator(stripped: str) -> bool:
+    return re.fullmatch(r"[|\s:-]+", stripped) is not None
+
+
+def _cells(stripped: str) -> list[str]:
+    return [c.strip() for c in stripped.strip("|").split("|")]
+
+
+def reuse_log_headers(section_body: str) -> list[TableRow]:
+    """Each table's header row: a `|` row directly above a separator row."""
+    lines = section_body.splitlines()
+    headers = []
+    for line, below in zip(lines, lines[1:]):
+        stripped, under = line.strip(), below.strip()
+        if stripped.startswith("|") and not _is_separator(stripped) and under.startswith("|") and _is_separator(under):
+            headers.append(TableRow(line=line, cells=_cells(stripped)))
+    return headers
+
+
+def header_misplaces_cells(cells: list[str]) -> bool:
+    """True when rows under this header put prior-doc, the quote or classification where the count
+    does not read them."""
+    names = [c.casefold() for c in cells]
+    return (
+        len(names) < 4
+        or names[0] != REUSE_LOG_HEADER[0]
+        or any("taken" in n for i, n in enumerate(names) if i != 1)
+        or any("classification" in n for i, n in enumerate(names) if i != 3)
+    )
+
+
 def reuse_log_rows(section_body: str) -> list[TableRow]:
     rows = []
     for line in section_body.splitlines():
         stripped = line.strip()
-        if not stripped.startswith("|") or re.fullmatch(r"[|\s:-]+", stripped):
+        if not stripped.startswith("|") or _is_separator(stripped):
             continue
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
-        if len(cells) >= 2 and cells[0].casefold() not in ("prior-doc", ""):
+        cells = _cells(stripped)
+        if len(cells) >= 2 and cells[0].casefold() not in (REUSE_LOG_HEADER[0], ""):
             rows.append(TableRow(line=line, cells=cells))
     return rows
 

@@ -320,10 +320,25 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
    the rows the count verdicts. It never calls `gate1.evaluate`, so it cannot fail for a
    reason outside the content.
 
-   Known gap: a `reuse` section with neither rows nor the `Prior docs used: none.` line
-   passes, and nothing downstream catches it — `gate1.evaluate` produces no row, no
-   none-report and no conflict for it, and `gate1_audit` counts the section as present.
-   Recorded so it is not mistaken for handled.
+   The count reads a row's cells by position — prior-doc first, the quote second,
+   classification fourth — whatever the header calls them, so this tier also refuses what
+   makes it read a section wrongly or not at all. A table whose header
+   `gate1.header_misplaces_cells` flags (fewer than four columns, a first column other than
+   `prior-doc`, `taken` anywhere but second, or `classification` anywhere but fourth) is refused once by its header line,
+   and that line is not reported again as a bad row; the column names themselves are free,
+   because the spec words them at length and the template briefly. A section with neither a
+   table row nor the `Prior docs used: none.` line is refused too: a list or prose there was
+   the gap this paragraph once recorded as known — `gate1.evaluate` produced no row, no
+   none-report and no conflict for it, and `gate1_audit` counted the section as present. A
+   live team run lost all four of its reuse events that way, each written in a different
+   shape, so the shape is also named before the write: in `engmem_create_draft`'s result,
+   the same text `engmem draft create` prints (`drafts.REUSE_LOG_SHAPE`), and in both tool
+   descriptions. Like the row checks, the neither rule walks every `reuse` section, including
+   each `###` piece an oversized section is split into, while the count reads only the first:
+   a lead-in with no table above `###` tables is refused, and the message names the heading
+   so the piece can be found. That keeps the refusal on the side of the loss — rows below the
+   first piece are never counted (`gate1.evaluate` reads one section) — but it does not yet
+   share the count's choice of section; a refusal can name a piece the count would not read.
 
 2. **Warn — defects that depend on the rest of the store.** `_citation_notes` runs after the
    commit and appends zero or more lines to the success text; the result stays
