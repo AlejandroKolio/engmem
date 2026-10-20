@@ -12,7 +12,7 @@ from support import rpc
 from support.docs import write_file
 from support.search import cli_search, mcp_search
 
-from engmem import search_report
+from engmem import scoring, search_report
 from engmem.cli import main
 from engmem.scoring import search, search_with_role_sections
 from engmem.spine import load_store
@@ -342,3 +342,55 @@ def test_a_read_only_search_names_no_draft(tmp_path):
 
     out = rpc.text(responses[0]["result"])
     assert _drafts_line(out) is None and "drafts: 1" in out
+
+
+@pytest.mark.parametrize("role", [None, "decisions"])
+def test_one_search_loads_each_documents_section_entries_once(tmp_path, monkeypatch, role):
+    """The draft pass reuses the published pass's entries instead of loading them again."""
+    loaded = load_store(_write_store(tmp_path, {DRAFT_ID: DRAFT_V1}))
+    loads: list[str] = []
+    real = scoring._entries_for_doc
+    monkeypatch.setattr(scoring, "_entries_for_doc", lambda doc: loads.append(doc.id) or real(doc))
+
+    out = search_report.compose(
+        tmp_path, loaded, [], [], QUERY, role, "s1", "cli", retain_versions=False, record_cost=False
+    )
+
+    assert DRAFT_ID in _drafts_line(out)
+    assert sorted(loads) == sorted([*PUBLISHED, DRAFT_ID])
+
+
+def test_a_published_outcome_of_another_scope_is_refused(tmp_path):
+    """Reusing it would rank the drafts against the wrong statistics, silently."""
+    docs = load_store(_write_store(tmp_path, {DRAFT_ID: DRAFT_V1})).docs
+    wider = scoring.search(docs, QUERY)
+    narrower = [d for d in docs if d.id != "1003-ledger-sync"]
+
+    with pytest.raises(ValueError, match="not of this store and scope"):
+        scoring.matching_drafts(narrower, QUERY, published=wider)
+
+
+def test_the_draft_pass_ranks_against_the_published_corpus_statistics(tmp_path):
+    """A word in every published section is too common to count; judged against the draft alone
+    it would not be, and the draft would be named (contracts/scoring.md)."""
+    word = "zebrafin"
+    published = {
+        f"200{i}-note-{i}": _doc(
+            f"200{i}-note-{i}", "active", f"Note {i}", f"## Decision Log\n\n{word} {i}.\n"
+        )
+        for i in range(1, 4)
+    }
+    draft = _doc(
+        DRAFT_ID, "draft", "Unrelated draft",
+        f"## Decision Log\n\n{word}.\n\n## Landmines\n\nNone.\n",
+    )
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    for doc_id, text in {**published, DRAFT_ID: draft}.items():
+        write_file(sessions, f"{doc_id}.md", text)
+    docs = load_store(sessions).docs
+
+    assert scoring.matching_drafts(docs, word, published=scoring.search(docs, word)) == []
+    assert scoring.matching_drafts(docs, word) == []
+    draft_doc = next(d for d in docs if d.id == DRAFT_ID)
+    assert scoring.matching_drafts([draft_doc], word) == [draft_doc]

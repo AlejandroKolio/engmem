@@ -274,6 +274,8 @@ class SearchOutcome:
     hits: list[Hit]
     ambiguous: bool
     superseded_notes: list[SupersededNote]
+    # the published corpus's section entries, so the draft pass does not load them again
+    entries: list[_SectionEntry] = field(default_factory=list, repr=False, compare=False)
 
 
 def _id_field_weight(
@@ -673,7 +675,9 @@ def ranking_corpus(docs: list[Doc], scope: Scope | None = None) -> list[Doc]:
 def search(docs: list[Doc], query: str, scope: Scope | None = None) -> SearchOutcome:
     corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
-    return _search_core(corpus, docs, query, entries)
+    outcome = _search_core(corpus, docs, query, entries)
+    outcome.entries = entries
+    return outcome
 
 
 def _draft_candidate(doc: Doc, scope: Scope | None, exclude: str | None) -> bool:
@@ -687,16 +691,27 @@ def _draft_candidate(doc: Doc, scope: Scope | None, exclude: str | None) -> bool
 
 
 def matching_drafts(
-    docs: list[Doc], query: str, scope: Scope | None = None, exclude: str | None = None
+    docs: list[Doc],
+    query: str,
+    scope: Scope | None = None,
+    exclude: str | None = None,
+    published: SearchOutcome | None = None,
 ) -> list[Doc]:
     """Drafts a search would find, if published, among the published corpus; a pass of its own,
-    so the published ranking and its statistics never see a draft."""
+    so the published ranking and its statistics never see a draft (contracts/scoring.md)."""
     candidates = [doc for doc in docs if _draft_candidate(doc, scope, exclude)]
     if not candidates:
         return []
-    corpus = ranking_corpus(docs, scope) + candidates
+    published_corpus = ranking_corpus(docs, scope)
+    corpus = published_corpus + candidates
     # the published pass already pruned the cache against the whole store
-    entries = [entry for doc in corpus for entry in _entries_for_doc(doc)]
+    if published is not None and published.entries:
+        published_entries = published.entries
+        if not {e.doc_id for e in published_entries} <= {doc.id for doc in published_corpus}:
+            raise ValueError("published outcome is not of this store and scope")
+    else:
+        published_entries = [entry for doc in published_corpus for entry in _entries_for_doc(doc)]
+    entries = published_entries + [entry for doc in candidates for entry in _entries_for_doc(doc)]
     outcome = _search_core(corpus, docs, query, entries)
     wanted = {doc.id for doc in candidates}
     return [hit.doc for hit in outcome.hits if hit.doc.id in wanted]
@@ -822,6 +837,7 @@ def search_with_role_sections(
     corpus = ranking_corpus(docs, scope)
     entries = _build_section_index(corpus, docs)
     outcome = _search_core(corpus, docs, query, entries)
+    outcome.entries = entries
     role_map = _role_index_from_entries(entries)
     return outcome, role_map
 

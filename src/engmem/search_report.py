@@ -181,7 +181,11 @@ def compose(
         lines.append(stray_note(len(strays)))
     if retain_versions:
         lines += cite_lines(store, _shown_docs(loaded.docs, rendered))
-    drafts = matching_drafts(loaded.docs, query, scope, exclude=session_id) if name_drafts else []
+    drafts = (
+        matching_drafts(loaded.docs, query, scope, exclude=session_id, published=rendered.outcome)
+        if name_drafts
+        else []
+    )
     if drafts:
         lines.append(drafts_note(drafts))
     lines.append(render_scoreboard(loaded.docs, failed=len(loaded.errors)))
