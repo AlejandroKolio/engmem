@@ -81,6 +81,25 @@ In process, `content_key` over every body measures 0.02 / 0.22 / 1.7 ms for 10 /
 documents. The difference in the table is within run-to-run noise. Rerun the comparison if the
 key ever covers more than the body.
 
+Reading every document also means parsing every front matter on every call, and at scale that
+parse, not the cache, was the cost: on a 20,112-document store (52MB) with a warm cache, one
+`engmem search "retry window"` took 18.1–20.6 s, half of it in PyYAML's pure-Python loader.
+`spine.load_yaml` therefore parses through libyaml (`yaml.CSafeLoader`) when PyYAML was built
+with it, and falls back to `yaml.SafeLoader` otherwise; `spine.compose_yaml` gives the write
+paths (`backfill._drop_declared_keys`, `mcp_server._patch_front_matter_line`) the node tree
+through the same loader, so a write never refuses a document the read accepted. Measured
+2026-10-20 on an Apple-silicon Mac, Python 3.13, three runs each: 18.1–20.6 s before, 10.2 s
+after. Most of the remaining time loads every document's cache entry, which the search does
+twice per call (the ranked search and the draft matches).
+
+The two loaders agree on the 20,112 documents and on dates, booleans, numbers, duplicate keys,
+tags and the error classes, but not everywhere. libyaml accepts a tab after `key:` and inside a
+plain value (`status:<tab>active`), which the pure loader rejects with `ScannerError`, and
+rejects an astral character written as a surrogate pair escape in double quotes, which the pure
+loader turns into lone surrogates. So on a PyYAML built without libyaml such a document is a
+load error: whether a store is valid can depend on the build. Error wording differs too
+(libyaml prints no snippet); nothing reads it.
+
 ## `identity_for` is not the cache key
 
 `identity_for`'s `(mtime_ns, size)` lives on in `Doc.source_identity` for the write-side

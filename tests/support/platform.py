@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 def _permissions_should_be_enforced() -> bool:
@@ -50,3 +51,7 @@ on_a_shared_runner = pytest.mark.skipif(
     bool(os.environ.get("CI")),
     reason="wall-clock budget is specified for the author's machine, not a shared runner",
 )
+
+
+# libyaml accepts a tab after `key:` that the pure-Python loader rejects (contracts/cache.md)
+requires_libyaml = pytest.mark.skipif(not yaml.__with_libyaml__, reason="PyYAML built without libyaml")

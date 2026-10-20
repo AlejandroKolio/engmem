@@ -12,7 +12,7 @@ import yaml
 
 from support.docs import replaced, write_file
 from support.paths import REPO_ROOT
-from support.platform import requires_posix_modes, requires_symlinks
+from support.platform import requires_libyaml, requires_posix_modes, requires_symlinks
 
 from engmem import backfill
 
@@ -1832,3 +1832,11 @@ def test_a_document_that_states_backfilled_gets_no_prereg_note(tmp_path):
     proposal = propose_backfill(doc)
 
     assert not any("Pre-reg" in note for note in proposal.notes)
+
+
+@requires_libyaml
+def test_declared_keys_are_dropped_from_front_matter_only_libyaml_reads():
+    """`_front_matter_mapping` accepted `status:<tab>active`; composing it must not refuse it."""
+    front_matter = "title: Widget Cache Warmup\nstatus:\tactive\ntags:\n"
+
+    assert _drop_declared_keys(front_matter, {"tags"}) == "title: Widget Cache Warmup\nstatus:\tactive\n"

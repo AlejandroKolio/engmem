@@ -1,12 +1,32 @@
 import datetime
 
 import pytest
+import yaml
 
 from support import fs
 from support.docs import FIXTURES
-from support.platform import requires_permission_enforcement, requires_symlinks
+from support.platform import requires_libyaml, requires_permission_enforcement, requires_symlinks
 
+from engmem import spine
 from engmem.spine import load_store, parse_document, stray_documents, validate_doc_id
+
+FRONT_MATTER_FORMS = """id: "1000001-response-cache"
+title: 'Response Cache: "API"'
+date: 2026-06-10
+task_date: "2026-06-10"
+status: active
+superseded_by: null
+backfilled: false
+capture_minutes: 12
+tags: [platform, caching]
+entities:
+  - ResponseCacheController
+  - TTL
+verified_at:
+  bank-backend: abc1234
+summary: |
+  Ünïcode ✓ and a second line
+"""
 
 
 def test_valid_fixture_parses_to_doc_with_all_fields():
@@ -842,3 +862,21 @@ def test_a_non_string_superseded_by_is_named(tmp_path):
 
     assert doc.superseded_by == "['x', 'y']"
     assert any("superseded_by" in w for w in doc.field_warnings)
+
+
+def test_front_matter_reads_as_the_pure_python_loader_reads_it():
+    assert spine.load_yaml(FRONT_MATTER_FORMS) == yaml.load(FRONT_MATTER_FORMS, Loader=yaml.SafeLoader)
+
+
+@requires_libyaml
+def test_front_matter_is_parsed_by_libyaml(tmp_path):
+    """Only libyaml loads a tab after `status:`; the pure-Python loader raises ScannerError."""
+    path = tmp_path / "1000001-response-cache.md"
+    path.write_text("---\nid: 1000001-response-cache\ntitle: T\nstatus:\tactive\n---\n\n# T\n", encoding="utf-8")
+
+    assert parse_document(path).status == "active"
+
+
+def test_malformed_front_matter_is_still_a_yaml_error():
+    with pytest.raises(yaml.YAMLError):
+        spine.load_yaml("tags: [platform,\nid: x\n")

@@ -18,7 +18,7 @@ from engmem.gate1 import NONE_LINE, reuse_log_rows
 from engmem.output import _escape_controls
 from engmem.read_report import _escape_body, not_found_message
 from engmem.sections import SectionSpan, h2_spans
-from engmem.spine import DOC_ID_RE, Doc, LoadResult, split_front_matter, stated
+from engmem.spine import DOC_ID_RE, Doc, LoadResult, load_yaml, split_front_matter, stated
 from engmem.staging import commit_new, discard, stage, version_of
 from engmem.versions import split_reference
 
@@ -302,7 +302,7 @@ def _read(doc: Doc) -> tuple[dict, str]:
     try:
         text = confined.read_utf8(doc.path, confined.SESSION_DEPTH)
         front_matter, body = split_front_matter(text)
-        raw = yaml.safe_load(front_matter) or {}
+        raw = load_yaml(front_matter) or {}
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise ExportError(f"cannot read {doc.path.name} ({exc})") from exc
     if not isinstance(raw, dict):
