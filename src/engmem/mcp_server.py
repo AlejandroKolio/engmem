@@ -22,7 +22,9 @@ from engmem.sections import CANONICAL_ROLES
 # validated by the exact rules load_store applies when reading it back
 from engmem.spine import (
     LoadResult,
+    compose_yaml,
     load_store,
+    load_yaml,
     parse_document,
     sessions_dir_unreadable,
     split_front_matter,
@@ -226,7 +228,7 @@ def _load_template(source_name: str) -> tuple[str, Any, str]:
     front_matter_text = "".join(lines[1:closing])
     body = "".join(lines[closing + 1 :]).lstrip("\n")
 
-    front = yaml.safe_load(front_matter_text) or {}
+    front = load_yaml(front_matter_text) or {}
     if not isinstance(front, dict):
         front = {}
     description = str(front.get("description", ""))
@@ -500,9 +502,7 @@ def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> st
     # `\n` only — never after a bare `\r`, so a CR-only document matched nothing and the
     # append branch below silently wrote the key a second time
     try:
-        node = (
-            yaml.compose(front_matter_text, Loader=yaml.SafeLoader) if front_matter_text else None
-        )
+        node = compose_yaml(front_matter_text) if front_matter_text else None
     except yaml.YAMLError as exc:
         # this function runs once per patched key, so the second call composes what the first
         # rewrote: an anchored `status: &st active` loses its anchor and every alias to it is

@@ -15,6 +15,8 @@ from engmem.cache import identity_for
 from engmem.sections import sections_for_role, split_sections
 from engmem.spine import (
     Doc,
+    compose_yaml,
+    load_yaml,
     parse_document,
     preamble_label_value,
     split_front_matter,
@@ -59,7 +61,7 @@ def _dump_front_matter(data: dict) -> str:
 
 def _front_matter_mapping(front_matter_text: str) -> dict:
     """A document's own front matter; anything that is not a mapping reads as empty."""
-    raw = yaml.safe_load(front_matter_text) if front_matter_text else None
+    raw = load_yaml(front_matter_text) if front_matter_text else None
     return raw if isinstance(raw, dict) else {}
 
 
@@ -488,7 +490,8 @@ def _drop_declared_keys(front_matter_text: str, names: set[str]) -> str:
     # asked of the parser, not a regex: column 0 is not a declaration test (an unindented
     # continuation inside a flow collection sits there too), and emptiness has more spellings
     # than are safe to enumerate. Composing is safe — `_front_matter_mapping` already parsed it
-    node = yaml.compose(front_matter_text, Loader=yaml.SafeLoader)
+    # with the same loader
+    node = compose_yaml(front_matter_text)
     # a whole line is removed per declaration, which needs one declaration per line. A flow
     # mapping (`{title: T, tags: null}`) puts every pair on one line, so removing it would take
     # the author's other keys with it; leaving it alone means the append fails the staged parse

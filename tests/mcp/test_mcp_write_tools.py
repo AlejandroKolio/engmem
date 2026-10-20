@@ -13,6 +13,7 @@ from support import fs, rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.fs import entry_names
 from support.platform import (
+    requires_libyaml,
     requires_permission_enforcement,
     requires_posix_modes,
     requires_symlinks,
@@ -1526,3 +1527,21 @@ def test_complete_draft_refuses_when_the_draft_changes_between_read_and_commit(s
     assert "changed on disk while it was being read" in rpc.text(result)
     assert target.read_bytes() == external.encode("utf-8")
     assert entry_names(store / "sessions") == ["20260101-widget-cache.md"], "the staged file must be gone"
+
+
+@requires_libyaml
+def test_mark_superseded_rewrites_a_document_whose_front_matter_only_libyaml_reads(store):
+    """The read accepted `status:<tab>active`; the rewrite must re-read it with the same loader."""
+    _write_raw(store, "20260101-widget-cache", replaced(ACTIVE_CONTENT, "status: active", "status:\tactive"))
+
+    result, is_error = rpc.call(
+        store,
+        name=SUPERSEDE_TOOL,
+        arguments=rpc.versioned(
+            store, {"id": "20260101-widget-cache", "superseded_by": "20260201-widget-cache-v2"}
+        ),
+    )
+
+    assert not is_error, rpc.text(result)
+    doc = {d.id: d for d in load_store(store / "sessions").docs}["20260101-widget-cache"]
+    assert doc.status == "superseded"

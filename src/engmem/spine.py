@@ -373,6 +373,20 @@ def _coerce_navigation_miss(value) -> tuple[list[NavigationMiss], list[str]]:
     return entries, warnings
 
 
+# libyaml when PyYAML has it: the pure-Python loader was most of a search on a 20,000-document store
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def load_yaml(text: str):
+    """Safe YAML load through `_YAML_LOADER`; how it differs: contracts/cache.md."""
+    return yaml.load(text, Loader=_YAML_LOADER)
+
+
+def compose_yaml(text: str):
+    """The node tree of `text` through the same loader, so a write re-reads what a read accepted."""
+    return yaml.compose(text, Loader=_YAML_LOADER)
+
+
 def split_front_matter(text: str) -> tuple[str, str]:
     """`(front_matter_text, body)`. Raises `ValueError` on a block opened and never closed."""
     # delimiters must be whole lines, so a --- inside a value can't end the block
@@ -461,7 +475,7 @@ def parse_document(path: Path) -> Doc:
     # a link out of the store is refused here, before a byte behind it is read (US-22)
     text = confined.read_utf8(path, confined.SESSION_DEPTH)
     front_matter_text, body = split_front_matter(text)
-    raw = yaml.safe_load(front_matter_text) or {}
+    raw = load_yaml(front_matter_text) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"front matter is not a mapping: parsed as {type(raw).__name__}")
 
