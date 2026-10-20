@@ -89,8 +89,10 @@ with it, and falls back to `yaml.SafeLoader` otherwise; `spine.compose_yaml` giv
 paths (`backfill._drop_declared_keys`, `mcp_server._patch_front_matter_line`) the node tree
 through the same loader, so a write never refuses a document the read accepted. Measured
 2026-10-20 on an Apple-silicon Mac, Python 3.13, three runs each: 18.1–20.6 s before, 10.2 s
-after. Most of the remaining time loads every document's cache entry, which the search does
-twice per call (the ranked search and the draft matches).
+after. The draft pass (`matching_drafts`) then loaded every published document's cache entry a
+second time; it now reuses the entries the ranked search already holds (`SearchOutcome.entries`)
+and loads only the draft candidates', so each document's entry is loaded once per search: on the
+same store, interleaved runs, 11.1–12.5 s of CPU before, 8.1–8.4 s after.
 
 The two loaders agree on the 20,112 documents and on dates, booleans, numbers, duplicate keys,
 tags and the error classes, but not everywhere. libyaml accepts a tab after `key:` and inside a

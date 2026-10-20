@@ -147,9 +147,13 @@ A candidate is a draft that:
   link is settled (`contracts/install.md`), so a scoped search that dropped every unlinked
   draft would never name one.
 
-The pass costs a second walk over the section index whenever a candidate exists: every
-published document's entry is loaded from the cache again, and each draft is split once to find
-its Decision Log. It does not prune the cache a second time; the published pass already did.
+The pass reuses the section entries the ranked search already loaded (`SearchOutcome.entries`,
+passed as `published`) and loads only the candidates', so each document's entry is loaded once
+per search (measurement: `contracts/cache.md`); each draft is split once to find its Decision
+Log. `published` must be the outcome of the same documents, query and scope: an outcome from
+another scope or an older load would rank the drafts against the wrong statistics without any
+error, so an entry of a document outside this pass's published corpus raises `ValueError`. It
+does not prune the cache a second time; the published pass already did.
 Drafts that are candidates now get cache entries of their own, which `contracts/cache.md`
 treats like any other document's.
 
