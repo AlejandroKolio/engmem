@@ -266,6 +266,9 @@ class SupersededNote:
     successor: Doc | None
     score: float
     strength: Strength = field(default_factory=lambda: Strength(False, (), 0))
+    # the chain past `successor` (contracts/output.md, "A redirect follows the chain")
+    onward: tuple[Doc, ...] = ()
+    loops: bool = False
 
     @property
     def weak(self) -> bool:
@@ -825,13 +828,33 @@ def _search_core(
     for h in scored:
         if h.doc.status == "superseded":
             successor = docs_by_id.get(h.doc.superseded_by) if h.doc.superseded_by else None
-            superseded_notes.append(
-                SupersededNote(doc=h.doc, successor=successor, score=h.score, strength=h.strength)
-            )
+            onward, loops = _onward(h.doc, successor, docs_by_id)
+            superseded_notes.append(SupersededNote(
+                doc=h.doc, successor=successor, score=h.score, strength=h.strength,
+                onward=onward, loops=loops,
+            ))
             continue
         hits.append(h)
 
     return SearchOutcome(hits=hits, ambiguous=ambiguous, superseded_notes=superseded_notes)
+
+
+def _onward(
+    doc: Doc, successor: Doc | None, docs_by_id: dict[str, Doc]
+) -> tuple[tuple[Doc, ...], bool]:
+    """The chain past `successor` to the first document not superseded, or to where it breaks:
+    `(documents, loops)`."""
+    onward: list[Doc] = []
+    seen = {doc.id}
+    current = successor
+    while current is not None and current.status == "superseded" and current.superseded_by:
+        seen.add(current.id)
+        if current.superseded_by in seen:
+            return tuple(onward), True
+        current = docs_by_id.get(current.superseded_by)
+        if current is not None:
+            onward.append(current)
+    return tuple(onward), False
 
 
 def _role_index_from_entries(entries: list[_SectionEntry]) -> dict[str, dict[str, Section]]:

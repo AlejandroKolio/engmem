@@ -367,6 +367,32 @@ text from the matched word to the end fits, it is shown whole, with no trailing 
 Choosing the sentence tokenises every sentence of each shown section, at most
 `SECTION_DISPLAY_MAX` per hit; that is small next to the ranking pass over the store.
 
+## A redirect follows the chain
+
+A superseded document that would have won a place is shown as a redirect line, and the line
+names its successor. When the successor is itself superseded, the line follows `superseded_by`
+on to the first document that is not, and shows that one's block:
+
+`old-note: superseded by mid-note → new-note`, then `### new-note (successor)`.
+
+It used to stop after one step, `old-note: superseded by mid-note (itself superseded by
+new-note)`, and handed the reader a known-stale document's id to follow by hand. A one-step
+redirect reads as it always did. The chain is resolved in `scoring._onward` against the whole
+store, like the first successor, and every document the line names that the store holds is in
+`surfaced_ids`. Two redirects ending at one document show its block once. Where it
+breaks it says how, after the last document it reached:
+
+- `→ <id> (successor not in store)`: the next id names no document;
+- `(itself superseded, no successor recorded)`: the last one has no `superseded_by`;
+- `(successor is still a draft)`: the chain ends in a draft, which is named and not shown;
+- `(the chain loops back to <id>)`: the next id is already on the chain, the hit itself
+  included, so a cycle ends the walk instead of the search.
+
+No document in the middle of a chain is shown as a block: each of them is known to be stale. A
+document whose status is not `superseded` ends the chain whatever its `superseded_by` says. The
+`related:` line, the related documents a search retains a version of and the `engmem read`
+header still take one step; following the chain there is not done yet.
+
 ## One note for an unwritable store
 
 A search writes up to three records besides its answer: the telemetry row, the cost row and,

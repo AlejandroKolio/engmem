@@ -1138,12 +1138,10 @@ def test_a_draft_successor_is_named_but_its_document_is_not_rendered(tmp_path, m
 @pytest.mark.parametrize(
     "onward, expected",
     [
-        pytest.param("ccc-new", "itself superseded by ccc-new", id="in-store"),
-        pytest.param("", "itself superseded, no successor recorded", id="absent"),
+        pytest.param("ccc-new", "bbb-mid → ccc-new", id="in-store"),
+        pytest.param("", "bbb-mid (itself superseded, no successor recorded)", id="absent"),
         pytest.param(
-            "ghost-doc",
-            "itself superseded by ghost-doc, not in store",
-            id="not-in-store",
+            "ghost-doc", "bbb-mid → ghost-doc (successor not in store)", id="not-in-store"
         ),
     ],
 )
@@ -1164,7 +1162,7 @@ def test_the_onward_id_of_a_chain_is_qualified(tmp_path, monkeypatch, onward, ex
 
     text = render_search_results(search(docs, "WidgetCache"), docs)
 
-    assert f"aaa-old: superseded by bbb-mid ({expected})" in text
+    assert f"aaa-old: superseded by {expected}\n" in text + "\n"
     assert "None" not in text
     assert "### bbb-mid (successor)" not in text
 
@@ -1473,3 +1471,129 @@ def test_the_head_cut_is_kept_exactly_while_it_keeps_the_matched_word(lead, head
     assert "ledger" in snippet
     assert snippet.startswith("x ") is head_cut
     assert len(snippet) <= 140
+
+
+# ---------------------------------------------------------------------------
+# A redirect follows the whole supersession chain (spec 002 US-4; contracts/output.md)
+# ---------------------------------------------------------------------------
+
+_FILLER = ("zzz-filler", "active", "", "", "Unrelated notes about the deploy window.")
+
+
+def _chain_store(tmp_path, *links):
+    """`links` as `(id, status, superseded_by)`; only the first document holds the query word."""
+    rows = [
+        (doc_id, status, nxt, "", "Quokkafern rule." if i == 0 else f"Body of {doc_id}.")
+        for i, (doc_id, status, nxt) in enumerate(links)
+    ]
+    return _store_with(tmp_path, *rows, _FILLER, heading="## Notes")
+
+
+def _redirect(docs):
+    from engmem.output import surfaced_ids
+
+    outcome = search(docs, "quokkafern")
+    text = render_search_results(outcome, docs)
+    (line,) = [ln for ln in text.splitlines() if ": superseded" in ln]
+    return line, text, surfaced_ids(outcome)
+
+
+@pytest.mark.parametrize("depth", [2, 3])
+def test_a_redirect_names_and_shows_the_first_document_not_superseded(tmp_path, depth):
+    ids = [f"doc-{n}" for n in range(depth + 1)]
+    links = [(i, "superseded", nxt) for i, nxt in zip(ids, ids[1:])] + [(ids[-1], "active", "")]
+
+    line, text, surfaced = _redirect(_chain_store(tmp_path, *links))
+
+    assert line == f"doc-0: superseded by {' → '.join(ids[1:])}"
+    assert f"### {ids[-1]} (successor)" in text
+    assert all(f"### {i} (successor)" not in text for i in ids[1:-1])
+    assert surfaced == ids
+
+
+def test_a_one_step_redirect_names_and_shows_its_successor(tmp_path):
+    line, text, surfaced = _redirect(_chain_store(
+        tmp_path, ("doc-0", "superseded", "doc-1"), ("doc-1", "active", "")
+    ))
+
+    assert line == "doc-0: superseded by doc-1"
+    assert "### doc-1 (successor)" in text
+    assert surfaced == ["doc-0", "doc-1"]
+
+
+def test_a_first_successor_missing_from_the_store_reads_as_it_always_did(tmp_path):
+    line, _, _ = _redirect(_chain_store(tmp_path, ("doc-0", "superseded", "ghost")))
+
+    assert line == "doc-0: superseded by ghost (successor not in store)"
+
+
+@pytest.mark.parametrize("links, expected", [
+    pytest.param(
+        [("doc-0", "superseded", "doc-1"), ("doc-1", "superseded", "doc-0")],
+        "doc-0: superseded by doc-1 (the chain loops back to doc-0)",
+        id="back-to-the-hit",
+    ),
+    pytest.param(
+        [("doc-0", "superseded", "doc-1"), ("doc-1", "superseded", "doc-2"),
+         ("doc-2", "superseded", "doc-1")],
+        "doc-0: superseded by doc-1 → doc-2 (the chain loops back to doc-1)",
+        id="back-into-the-chain",
+    ),
+    pytest.param(
+        [("doc-0", "superseded", "doc-0")],
+        "doc-0: superseded by doc-0 (the chain loops back to doc-0)",
+        id="onto-itself",
+    ),
+])
+def test_a_looping_chain_stops_at_the_last_document_before_it_repeats(tmp_path, links, expected):
+    line, text, _ = _redirect(_chain_store(tmp_path, *links))
+
+    assert line == expected
+    assert "(successor)" not in text
+
+
+@pytest.mark.parametrize("last, expected", [
+    pytest.param(
+        ("doc-2", "draft", ""), "doc-1 → doc-2 (successor is still a draft)", id="draft"
+    ),
+    pytest.param(None, "doc-1 → doc-2 (successor not in store)", id="missing"),
+    pytest.param(
+        ("doc-2", "superseded", ""), "doc-1 → doc-2 (itself superseded, no successor recorded)",
+        id="no-successor-recorded",
+    ),
+])
+def test_a_chain_that_breaks_names_how(tmp_path, last, expected):
+    links = [("doc-0", "superseded", "doc-1"), ("doc-1", "superseded", "doc-2")]
+    line, text, _ = _redirect(_chain_store(tmp_path, *links, *([last] if last else [])))
+
+    assert line == f"doc-0: superseded by {expected}"
+    assert "(successor)" not in text
+
+
+def test_a_successor_not_marked_superseded_ends_the_chain_whatever_it_points_to(tmp_path):
+    line, text, surfaced = _redirect(_chain_store(
+        tmp_path,
+        ("doc-0", "superseded", "doc-1"), ("doc-1", "active", "doc-2"), ("doc-2", "active", ""),
+    ))
+
+    assert line == "doc-0: superseded by doc-1"
+    assert "### doc-1 (successor)" in text
+    assert surfaced == ["doc-0", "doc-1"]
+
+
+def test_two_redirects_ending_at_one_document_show_its_block_once(tmp_path):
+    docs = _store_with(
+        tmp_path,
+        ("doc-0", "superseded", "doc-1", "", "Quokkafern rule, first."),
+        ("doc-1", "superseded", "doc-2", "", "Quokkafern rule, second."),
+        ("doc-2", "active", "", "", "Body of doc-2."),
+        _FILLER,
+        ("zzz-filler-2", "active", "", "", "More unrelated notes."),
+        heading="## Notes",
+    )
+
+    text = render_search_results(search(docs, "quokkafern"), docs)
+
+    assert "doc-0: superseded by doc-1 → doc-2" in text
+    assert "doc-1: superseded by doc-2" in text
+    assert text.count("### doc-2 (successor)") == 1
