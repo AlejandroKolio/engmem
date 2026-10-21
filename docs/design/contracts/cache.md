@@ -102,6 +102,59 @@ loader turns into lone surrogates. So on a PyYAML built without libyaml such a d
 load error: whether a store is valid can depend on the build. Error wording differs too
 (libyaml prints no snippet); nothing reads it.
 
+## Kept between searches
+
+A process that searches more than once — the MCP server answers every call of a session from
+one — keeps what it built, and serves it again only where a cold load would build the same:
+
+- `spine.load_store(sessions_dir, kept)` reuses a parsed `Doc` while its file reads byte for
+  byte as before and its `(mtime_ns, size)` is unchanged. The file is still listed, stat'ed and
+  read through `confined` on every call: a document that appeared, went, became unreadable or
+  turned into a link is reported exactly as a cold load reports it, and a failed parse is never
+  kept, so it fails again. The content hash catches an edit that kept size and mtime; the
+  identity is in the key because a document stating no `date:` takes it from the mtime, so a
+  `touch` alone changes the parse. Only the MCP server passes `kept` (`mcp_server._KEPT_DOCS`);
+  the CLI loads once per process and keeps nothing.
+- `scoring._entries_for_doc` keeps each document's section entries under the disk cache's own
+  rule, the hash of the body, plus the document's id, which every entry carries.
+- `scoring._doc_field_index` keeps the token sets of the four spine fields, keyed by their
+  values.
+- `cache.prune_orphans` prunes once per cache root and set of store paths.
+
+The first three live in `cache.KeptByPath`: one value per path, served only under the key it was
+built for, built again otherwise, and forgotten as soon as its path leaves the store, so a
+long-lived server holds no document the store no longer has. It is keyed by the path's text, not
+the `Path`: a Windows path compares case-insensitively, and a document renamed `Foo.md` to
+`foo.md` keeps its bytes and stat, so an equal `Path` would serve the old path, and the old stem
+as id and title. Nothing is dropped after a write tool: a write changes the bytes, and a changed
+file is never served from memory. Reuse relies on nothing mutating a `Doc`, a `Section` or a
+section entry after it is built; nothing does, and anything that starts to must copy first. It
+also relies on one call at a time, as `mcp_server.serve`'s loop is; a threaded server would need
+a lock around each of them.
+
+Keeping documents is opt-in: only the MCP server passes `kept`, and the CLI parses every document
+on every run. The other three are module state and act in every process, the CLI's too, which is
+correct because their keys are the very inputs the value is built from; a one-shot CLI simply
+never asks twice. Tests that mean two processes say so (`new_process` in `tests/conftest.py`).
+
+Skipping a repeated prune has two residuals, accepted as housekeeping loss for the life of the
+process: a temp file another, killed process leaked is not swept, and an `unlink` that failed
+(a Windows sharing violation) is not retried. Both are retried as soon as the store's set of
+documents changes, and by every new process. A prune that could not list the cache is not counted
+as done.
+
+Each search also counts document frequencies for the query's tokens only, the only ones
+`_bm25_entry_score` reads, instead of for every token of the store.
+
+Measured 2026-10-21 on an Apple-silicon Mac, Python 3.11, the 20,112-document store, six
+searches in one process (`mcp_server._run_search_for_tool`), two runs: the first 6.5–9.7 s, every
+later one 1.2–1.6 s (8.1–8.4 s of CPU per search before). The price is memory held between calls:
+peak RSS was 0.84 GB for one search before and is 0.99 GB now, and the server keeps that between
+calls instead of returning to its idle size. About half of what is left is reading
+the 20,112 files through `confined`, three `open` calls each. Skipping that read when `stat` is
+unchanged would make a warm search cheaper and would serve a stale document wherever two writes
+land in one timestamp tick, so the read stays.
+
 ## `identity_for` is not the cache key
 
 `identity_for`'s `(mtime_ns, size)` lives on in `Doc.source_identity` for the write-side

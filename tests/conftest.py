@@ -106,6 +106,29 @@ def _isolated_cache_root(tmp_path_factory, monkeypatch):
     monkeypatch.delenv("ENGMEM_HOME", raising=False)
 
 
+def _forget_kept(monkeypatch) -> None:
+    from engmem import cache, mcp_server, scoring
+
+    monkeypatch.setattr(cache, "_last_pruned", None)
+    monkeypatch.setattr(scoring, "_KEPT_ENTRIES", cache.KeptByPath())
+    monkeypatch.setattr(scoring, "_KEPT_FIELDS", cache.KeptByPath())
+    monkeypatch.setattr(mcp_server, "_KEPT_DOCS", cache.KeptByPath())
+
+
+@pytest.fixture(autouse=True)
+def _fresh_process_memory(monkeypatch):
+    """What one process keeps between searches (contracts/cache.md, "Kept between searches"):
+    each test starts as a new process would, so an earlier test's documents never stand in for
+    the parse or the disk cache a later one exercises."""
+    _forget_kept(monkeypatch)
+
+
+@pytest.fixture
+def new_process(monkeypatch):
+    """Call it between two searches a test means as two processes, e.g. around a damaged cache."""
+    return lambda: _forget_kept(monkeypatch)
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """A redirected HOME plus a project cwd: install writes to both, and a test that forgets

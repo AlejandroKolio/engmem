@@ -11,8 +11,9 @@ import os
 import sys
 import unicodedata
 from uuid import uuid4
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Generic, TypeVar
 
 # Bump the number when the cached payload shape, the key, or the tokenizer changes; older-format
 # entries are then treated as absent, not corrupt. 3: headings tolerate 0-3 leading spaces,
@@ -42,6 +43,32 @@ def identity_for(path: Path) -> tuple[int, int] | None:
 def content_key(body: str) -> str:
     """The key of the payload built from `body`: its sha256, so no other text can match it."""
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+V = TypeVar("V")
+
+
+class KeptByPath(Generic[V]):
+    """One value per document path, served while the key it was built under still matches;
+    contracts/cache.md, "Kept between searches"."""
+
+    # keyed by the path's text: a Windows path compares case-insensitively, and a document
+    # renamed `Foo.md` -> `foo.md` must not be served under its old path
+    def __init__(self) -> None:
+        self._kept: dict[str, tuple[object, V]] = {}
+
+    def get(self, path: Path, key: object, build: Callable[[], V]) -> V:
+        kept = self._kept.get(str(path))
+        if kept is not None and kept[0] == key:
+            return kept[1]
+        value = build()
+        self._kept[str(path)] = (key, value)
+        return value
+
+    def retain(self, paths: Iterable[Path]) -> None:
+        """Forgets every path not in `paths`."""
+        wanted = {str(path) for path in paths}
+        self._kept = {path: kept for path, kept in self._kept.items() if path in wanted}
 
 
 def _entry_path(path: Path) -> tuple[Path, Path]:
@@ -144,9 +171,19 @@ def _discard(tmp_path: Path) -> None:
         pass  # never written, or the same fault that blocked the write
 
 
+# the cache root and store paths of this process's last completed prune
+_last_pruned: tuple[str, frozenset[str]] | None = None
+
+
 def prune_orphans(current_paths: Iterable[Path]) -> None:
-    """Drops entries for documents no longer in the store, and any leaked write-temp files."""
+    """Drops entries for documents no longer in the store, and any leaked write-temp files;
+    once per set of paths in a process — contracts/cache.md, "Kept between searches"."""
+    global _last_pruned
     root = cache_root()
+    paths = list(current_paths)
+    current = (str(root), frozenset(str(path) for path in paths))
+    if current == _last_pruned:
+        return
     try:
         entries = list(root.glob("*.json"))
         temp_entries = list(root.glob("*.json.*.tmp"))
@@ -163,10 +200,11 @@ def prune_orphans(current_paths: Iterable[Path]) -> None:
         legacy_temp_entries = list(root.glob("*.json.tmp*"))
     except OSError:
         return
+    _last_pruned = current
     if not entries and not temp_entries and not legacy_temp_entries:
         return
 
-    valid = {_entry_path(p)[0] for p in current_paths}
+    valid = {_entry_path(p)[0] for p in paths}
     for entry_path in entries:
         if entry_path not in valid:
             try:
