@@ -316,8 +316,10 @@ def test_every_template_pipes_with_a_quoted_delimiter_and_a_windows_safe_encodin
     assert "prefer it to the shell when you have both" in text.lower()
 
 
-def test_the_readme_example_runs_in_a_posix_shell_and_says_how_in_powershell():
-    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+def test_the_guide_example_runs_in_a_posix_shell_and_says_how_in_powershell():
+    readme = (Path(__file__).resolve().parent.parent / "docs" / "guide.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "engmem draft create <id> <<'EOF'" in readme
     assert "$OutputEncoding = [System.Text.UTF8Encoding]::new($false)" in readme
