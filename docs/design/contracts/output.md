@@ -335,6 +335,35 @@ sub-agent writes a plan, it does not do the task, so its cost is a cost of obser
 alternative. The report always ends `savings: not claimed -- ...`, and the costs it did observe
 are listed above that line.
 
+## The snippet is the matched sentence
+
+Each section line ends with one sentence of that section, capped at `SECTION_SNIPPET_MAX_CHARS`.
+It is the sentence holding the most distinct tokens the ranking matched in that section
+(`SectionHit.matched_tokens`); a tie goes to the earlier one. A section with no matched token in
+any sentence — a role hit, or a section matched only in its heading — shows its first sentence,
+cut as it was before. A sentence ends at `.`, `!` or `?` before a space.
+
+The first sentence used to be shown whatever the query matched. In the synthetic retrieval
+rounds, agents with engmem still grepped (median 2) and opened a file (median 1) after searching,
+and none of 125 runs answered from the search output alone. A value sitting later in the section
+than the first sentence is one reason an agent has to open the file; showing the matched sentence
+is aimed at those turns. The ranking, `TOP_N`, `SECTION_DISPLAY_MAX` and the 4 KB budget are
+unchanged.
+
+A token counts in a sentence by the ranking's own rule, through the same helpers
+(`scoring._tokenize_counts`, `_counts_for`): a restricted token (`_is_restricted`) only as an
+unsplit word, any other also as a CamelCase fragment. A rule of its own would show a sentence the
+ranking never matched — `mq` picking `MqBroker`.
+
+A sentence longer than the cap is cut at a word, as before, from its head when the head cut keeps
+the first matched word; otherwise the shown text starts at that word behind a leading `…`. The
+head cut drops the last word it reaches, so a matched word ending at the cap moves the window:
+cutting the head there would show the sentence without the one word it was chosen for. When the
+text from the matched word to the end fits, it is shown whole, with no trailing `…`.
+
+Choosing the sentence tokenises every sentence of each shown section, at most
+`SECTION_DISPLAY_MAX` per hit; that is small next to the ranking pass over the store.
+
 ## Known limits
 
 `surfaced_ids` reports what the renderer *selected*, not what survived the trim, so a trimmed
@@ -348,3 +377,8 @@ the third hit would have taken that place on the `(weak, -score, -date, id)` ord
 actually sorts by, and its redirect is dropped. The
 failure is silence about a stale document, never handing one over, and closing it would mean
 restating `scoring`'s sort key in the renderer.
+
+A cut keeps the matched word only when `_first_match_start` can place it: it tests each raw token
+run on its own, so a token that NFKC forms across a run boundary (`Widget™` folding to
+`widgettm`) counts the sentence as matched but places no word, and the cut falls back to the
+head. A matched word longer than the cap cannot be shown whole either way.

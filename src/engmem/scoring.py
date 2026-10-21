@@ -542,6 +542,12 @@ def _document_frequencies(entries: list[_SectionEntry]) -> tuple[Counter[str], C
     return df_literal, df_derived
 
 
+def _counts_for(restricted: bool, literal: Counter[str], derived: Counter[str]) -> Counter[str]:
+    # restricted tokens may only match literal text, never a CamelCase
+    # fragment, or e.g. "MQ" would match any word starting with those letters
+    return literal if restricted else derived
+
+
 def _bm25_entry_score(
     query_tokens: list[_QueryToken],
     entry: _SectionEntry,
@@ -553,9 +559,7 @@ def _bm25_entry_score(
     score = 0.0
     matched: list[str] = []
     for qt in query_tokens:
-        # restricted tokens may only match literal text, never a CamelCase
-        # fragment, or e.g. "MQ" would match any word starting with those letters
-        tf_map = entry.literal_tf if qt.restricted else entry.derived_tf
+        tf_map = _counts_for(qt.restricted, entry.literal_tf, entry.derived_tf)
         tf = tf_map.get(qt.text, 0)
         if tf == 0:
             continue

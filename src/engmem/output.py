@@ -16,7 +16,17 @@ from engmem.provenance import (
     SnapshotState,
     snapshots,
 )
-from engmem.scoring import SHORT_WORD_MAX_CHARS, Scope, SearchOutcome, SectionHit, Strength
+from engmem.scoring import (
+    SHORT_WORD_MAX_CHARS,
+    Scope,
+    SearchOutcome,
+    SectionHit,
+    Strength,
+    _counts_for,
+    _is_restricted,
+    _token_run_re,
+    _tokenize_counts,
+)
 from engmem.sections import Section, split_sections
 from engmem.spine import Doc, is_commit_id, linked_repos
 
@@ -52,7 +62,8 @@ COVERED_PATH_DISPLAY_MAX = 60
 # a primer heading spelled in words the canonical alias table does not carry, e.g. the
 # unhyphenated "Cold Start Primer"; every listed spelling arrives as `canonical == "primer"`
 _PRIMER_PHRASE_RE = re.compile(r"\bcold[- ]start[- ]primer\b", re.IGNORECASE)
-_SENTENCE_RE = re.compile(r"^.*?[.!?](?=\s|$)")
+# a sentence ends at . ! or ? before a space; the body is already one line of single spaces
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?]) ")
 
 # every character a renderer or a terminal treats as more than one glyph: the C0 and C1
 # ranges, DEL, and the Unicode line/paragraph separators
@@ -105,23 +116,47 @@ def _primer_excerpt(doc: Doc, max_lines: int = 2) -> str:
     return excerpt
 
 
-def _section_snippet(section: Section, max_chars: int = SECTION_SNIPPET_MAX_CHARS) -> str:
-    # heading or first sentence, capped: lets the agent judge relevance without opening the section
+def _matched_count(sentence: str, matched_tokens: list[str]) -> int:
+    literal, derived = _tokenize_counts(sentence)
+    return sum(1 for t in set(matched_tokens) if t in _counts_for(_is_restricted(t), literal, derived))
+
+
+def _first_match_start(sentence: str, matched_tokens: list[str]) -> int:
+    for run in _token_run_re().finditer(sentence):
+        if _matched_count(run.group(0), matched_tokens):
+            return run.start()
+    return 0
+
+
+def _section_snippet(
+    section: Section, matched_tokens: list[str], max_chars: int = SECTION_SNIPPET_MAX_CHARS
+) -> str:
+    # the sentence holding the most matched tokens, else the first: the agent can quote the
+    # value without opening the file (contracts/output.md, "The snippet is the matched sentence")
     text = " ".join(section.body.split())
     if not text:
         return section.heading
-    match = _SENTENCE_RE.match(text)
-    snippet = match.group(0) if match else text
-    if len(snippet) > max_chars:
-        snippet = snippet[: max_chars - 1].rsplit(" ", 1)[0] + "…"
-    return snippet
+    sentences = _SENTENCE_SPLIT_RE.split(text)
+    counts = [_matched_count(s, matched_tokens) for s in sentences] if matched_tokens else [0]
+    snippet = sentences[counts.index(max(counts))]
+    if len(snippet) <= max_chars:
+        return snippet
+    start = _first_match_start(snippet, matched_tokens) if max(counts) else 0
+    # the head cut keeps a word only when the space after it is inside the cut too
+    if start + len(snippet[start:].split(" ", 1)[0]) <= max_chars - 2:
+        start = 0
+    lead = "…" if start else ""
+    body = snippet[start:]
+    if len(lead) + len(body) <= max_chars:
+        return lead + body
+    return lead + body[: max_chars - 1 - len(lead)].rsplit(" ", 1)[0] + "…"
 
 
 def _section_line(section_hit: SectionHit) -> str:
     section = section_hit.section
     size_kb = section.size_bytes / 1024
     locator = _escape_controls(section.locator)
-    snippet = _escape_controls(_section_snippet(section))
+    snippet = _escape_controls(_section_snippet(section, section_hit.matched_tokens))
     return f"  {locator}   {size_kb:.1f} KB   {snippet}"
 
 

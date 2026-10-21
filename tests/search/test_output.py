@@ -1312,3 +1312,164 @@ def test_the_backfill_preview_cannot_be_made_to_show_a_field_it_will_not_write(p
     assert len(text.splitlines()) == (4 if part == "note" else 3)
     assert not any(ln.strip().startswith("status:") for ln in text.splitlines())
     assert "\\n" in text
+
+
+# ---------------------------------------------------------------------------
+# The snippet is the sentence the query matched (contracts/output.md)
+# ---------------------------------------------------------------------------
+
+_RETENTION_BODY = (
+    "This section was written after the spring review. Several teams joined the call. "
+    "The ledger retention window is 45 days."
+)
+
+
+def _write_retention_store(tmp_path):
+    filler = "\n\n".join(f"## Note {n}\n\nNothing about the topic in note {n}." for n in range(3))
+    (tmp_path / "retention-doc.md").write_text(
+        f"""---
+id: retention-doc
+title: Spring Review
+date: 2026-07-01
+task_date: 2026-07-01
+status: active
+superseded_by:
+backfilled: false
+tags: []
+entities: []
+related: []
+covers_files: []
+verified_at_commit: aaa0001
+capture_minutes: 1
+---
+
+## Outcome
+
+{_RETENTION_BODY}
+
+{filler}
+""",
+        encoding="utf-8",
+    )
+
+
+def test_a_search_shows_the_sentence_holding_the_query_words_not_the_first(tmp_path):
+    _write_retention_store(tmp_path)
+    docs = load_store(tmp_path).docs
+
+    text = render_search_results(search(docs, "ledger retention"), docs)
+
+    (line,) = [ln for ln in text.splitlines() if ln.startswith("  §1-outcome")]
+    assert line.endswith("   The ledger retention window is 45 days.")
+
+
+@pytest.mark.parametrize("channel", ["cli", "mcp"])
+def test_both_channels_print_and_measure_the_matched_sentence(tmp_path, channel):
+    import json
+
+    from engmem.search_report import compose, render_result
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    _write_retention_store(sessions)
+    loaded = load_store(sessions)
+
+    text = compose(tmp_path, loaded, [], [], "ledger retention", None, "s1", channel)
+
+    (row,) = [json.loads(ln) for ln in (tmp_path / "telemetry.jsonl").read_text().splitlines()]
+    rendered = render_result(loaded.docs, "ledger retention", None).text
+    assert "   The ledger retention window is 45 days." in rendered
+    assert rendered in text
+    assert row["context_bytes"] == len(rendered.encode("utf-8"))
+
+
+def _snippet(body, matched_tokens, **kwargs):
+    from engmem.output import _section_snippet
+
+    return _section_snippet(_section_hit("s", "S", body).section, matched_tokens, **kwargs)
+
+
+def test_the_sentence_with_more_distinct_query_tokens_wins():
+    body = "Ledger ledger ledger again. The ledger retention window is 45 days."
+
+    assert _snippet(body, ["ledger", "retention"]) == "The ledger retention window is 45 days."
+
+
+def test_a_tie_shows_the_earlier_sentence():
+    body = "Intro. The ledger is old. The ledger is new."
+
+    assert _snippet(body, ["ledger"]) == "The ledger is old."
+
+
+def test_with_no_matched_token_the_first_sentence_stays():
+    body = "First sentence here. The ledger retention window is 45 days."
+
+    assert _snippet(body, []) == "First sentence here."
+    # a token no sentence holds, e.g. one matched in the heading only
+    assert _snippet(body, ["absent"]) == "First sentence here."
+
+
+def test_an_unmatched_long_first_sentence_is_cut_as_before():
+    first = "The first sentence runs on " + "and on " * 30 + "until it ends."
+    old_cut = first[:139].rsplit(" ", 1)[0] + "…"
+
+    assert _snippet(first + " The ledger is later.", []) == old_cut
+
+
+def test_a_role_hit_line_shows_the_cut_first_sentence():
+    from engmem.output import _section_line
+    from engmem.scoring import SectionHit
+
+    first = "The first sentence runs on " + "and on " * 30 + "until it ends."
+    section = _section_hit("s", "S", first + " The ledger is later.").section
+
+    line = _section_line(SectionHit(section=section, score=0.0, matched_tokens=[]))
+
+    assert line.endswith("   " + first[:139].rsplit(" ", 1)[0] + "…")
+
+
+def test_a_camelcase_fragment_counts_as_the_ranking_counts_it():
+    body = "Intro sentence. WidgetCache holds the entries."
+
+    assert _snippet(body, ["cache"]) == "WidgetCache holds the entries."
+
+
+def test_a_restricted_token_counts_only_as_a_whole_word():
+    """The ranking matches "mq" against unsplit words only; the snippet must not pick a sentence
+    the ranking would not have matched."""
+    body = "MqBroker restarted. The mq queue drains nightly."
+
+    assert _snippet(body, ["mq"]) == "The mq queue drains nightly."
+
+
+def test_a_cut_keeps_the_matched_word_inside_the_snippet():
+    body = "Intro. " + "word " * 40 + "the ledger retention window is 45 days and more words follow."
+
+    snippet = _snippet(body, ["ledger"])
+
+    assert snippet == "…ledger retention window is 45 days and more words follow."
+
+
+def test_a_cut_starts_at_the_head_when_the_matched_word_fits_there():
+    body = "Intro. The ledger " + "word " * 40 + "end."
+
+    snippet = _snippet(body, ["ledger"])
+
+    assert snippet.startswith("The ledger word")
+    assert snippet.endswith("…")
+    assert len(snippet) <= 140
+
+
+@pytest.mark.parametrize("lead, head_cut", [
+    pytest.param("x " * 66, True, id="ends-at-138-head-cut-keeps-it"),
+    pytest.param("x " * 65 + "zz ", False, id="ends-at-139-head-cut-would-drop-it"),
+])
+def test_the_head_cut_is_kept_exactly_while_it_keeps_the_matched_word(lead, head_cut):
+    """The head cut drops the last word it reaches, so a word ending at the cap is not kept by it."""
+    body = lead + "ledger tail words follow here."
+
+    snippet = _snippet(body, ["ledger"])
+
+    assert "ledger" in snippet
+    assert snippet.startswith("x ") is head_cut
+    assert len(snippet) <= 140
