@@ -17,7 +17,9 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
   `qt.restricted` by `_spine_score` and `_bm25_entry_score` alike; it is never re-derived.
 - `_NEVER_PRIMARY` (`draft`, `superseded`; data-model.md "State transitions") never appears as
   a primary result. A draft is outside the ranking corpus altogether (below); a superseded
-  document becomes a `SupersededNote`, with its successor when the store holds it.
+  document becomes a `SupersededNote`, with its successor when the store holds it and, past a
+  successor that is itself superseded, the rest of the chain (`onward`, `loops`;
+  `contracts/output.md`, "A redirect follows the chain").
 
 ## Tokenisation (`tokenize_raw`, `normalize_token`, `camel_fragments`)
 

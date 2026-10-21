@@ -504,6 +504,9 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    `--read-only` MCP server prints no such line (owner decision 2026-10-12, `mcp-server.md`).
    `status: superseded` documents don't appear either; if a superseded doc would have won,
    its line is replaced with `superseded by <id>` plus the successor itself, if it exists.
+   *(2026-10-21, spec 002 US-4)* A successor that is itself superseded is followed to the
+   first document that is not, `superseded by <id> → <id>`, and that one is shown
+   (`contracts/output.md`, "A redirect follows the chain").
 2a. *(US-09)* Without `--repo` or `--unscoped` the whole store is searched, exactly as above.
    `--repo NAME` ranks only the records whose `repos` front matter names `NAME` (surrounding
    space and case ignored, nothing else normalised); `--unscoped` ranks only the records linked
@@ -594,10 +597,11 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    not know which ids exist, and a search refused because a draft was named a moment too
    early would be the ritual gating the answer, §6).
    `surfaced` lists the document ids the reader was actually shown, in render order: the
-   top-3 hits plus each superseded redirect and its successor. It is deliberately wider
-   than `hits` — a redirect target reaches the agent without ever scoring, so omitting it
-   would make an honest Reuse Log row look fabricated at review time. `related` expansion
-   is not listed: the search never printed it, and it is reconstructible from front matter.
+   top-3 hits plus each superseded redirect and every successor its line names. It is
+   deliberately wider than `hits` — a redirect target reaches the agent without ever scoring,
+   so omitting it would make an honest Reuse Log row look fabricated at review time.
+   `related` expansion is not listed: the search never printed it, and it is reconstructible
+   from front matter.
    A write failure here (store made read-only, `telemetry.jsonl` shadowed by a
    directory, *(US-23)* `telemetry.jsonl` a link or junction, which is never written
    through) does not crash the command — the search result already printed above is

@@ -393,7 +393,7 @@ def surfaced_ids(outcome: SearchOutcome) -> list[str]:
     for note in notes:
         ids.append(note.doc.id)
         if note.successor is not None:
-            ids.append(note.successor.id)
+            ids += [note.successor.id, *(doc.id for doc in note.onward)]
     seen: set[str] = set()
     return [i for i in ids if not (i in seen or seen.add(i))]
 
@@ -426,6 +426,7 @@ def render_search_results(
             )
         )
 
+    rendered = set(shown_ids)
     for note in notes:
         # every redirect form below starts with this, so a weak one is marked whichever it is
         safe_id = _escape_controls(note.doc.id) + (WEAK_TAG if note.weak else "")
@@ -441,34 +442,31 @@ def render_search_results(
                 f"(successor not in store)"
             )
             continue
-        if note.successor.status == "superseded":
-            # known-wrong, and the reader is not told the chain continues. `_related_line`
-            # already refuses to render a superseded target for the same reason; it collapses
-            # "absent" and "not in store" into one tail, which this splits
-            onward = note.successor.superseded_by
-            if not onward:
-                tail = "itself superseded, no successor recorded"
-            elif onward not in docs_by_id:
-                tail = f"itself superseded by {_escape_controls(onward)}, not in store"
+        # the whole chain, so the reader is sent to the current document and not to a stale one
+        current = note.onward[-1] if note.onward else note.successor
+        chain = " → ".join(_escape_controls(doc.id) for doc in (note.successor, *note.onward))
+        if current.status == "superseded":
+            next_id = current.superseded_by
+            if note.loops:
+                tail = f" (the chain loops back to {_escape_controls(next_id)})"
+            elif not next_id:
+                tail = " (itself superseded, no successor recorded)"
             else:
-                tail = f"itself superseded by {_escape_controls(onward)}"
-            blocks.append(f"{safe_id}: superseded by {safe_superseded_by} ({tail})")
+                tail = f" → {_escape_controls(next_id)} (successor not in store)"
+            blocks.append(f"{safe_id}: superseded by {chain}{tail}")
             continue
-        if note.successor.status == "draft":
+        if current.status == "draft":
             # a draft is excluded from search results (data-model.md), and a redirect is
-            # still a search result. Its id comes from the superseded document's own front
-            # matter and is named; the draft's own content is not
-            blocks.append(
-                f"{safe_id}: superseded by {safe_superseded_by} (successor is still a draft)"
-            )
+            # still a search result. Its id is named; the draft's own content is not
+            blocks.append(f"{safe_id}: superseded by {chain} (successor is still a draft)")
             continue
-        blocks.append(f"{safe_id}: superseded by {safe_superseded_by}")
-        if note.successor.id not in shown_ids:
-            header = f"### {_escape_controls(note.successor.id)} (successor)"
+        blocks.append(f"{safe_id}: superseded by {chain}")
+        # two redirects can end at one document: its block is shown once
+        if current.id not in rendered:
+            rendered.add(current.id)
+            header = f"### {_escape_controls(current.id)} (successor)"
             blocks.append(
-                _hit_block(
-                    note.successor, docs_by_id, header, show_repos=show_repos, checkout=checkout
-                )
+                _hit_block(current, docs_by_id, header, show_repos=show_repos, checkout=checkout)
             )
 
     # names how many were left out, so a tie cut mid-list doesn't look decisive
