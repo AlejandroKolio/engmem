@@ -370,8 +370,10 @@ says so: a copy of other bytes than the ones shown would mislabel the evidence. 
 refused through a symlinked `versions/` or `versions/<id>/`, and for an id `validate_doc_id`
 rejects. A retained copy is also never read through a link, because its target could hash to
 the version it is named by (`contracts/runtime.md`, "Reads stay inside the store"). The `cite as` line is outside `render_result`'s text, like the stray note, so
-`context_bytes` is unchanged by it. A failure with one cause — an unwritable store fails every
-shown document the same way — is one `note:` naming every document it hit. Under
+`context_bytes` is unchanged by it. A failure with one cause is one `note:` naming every document it
+hit; when the store also refused the telemetry or cost row, that note is folded with theirs into
+one line that still names the documents (`contracts/output.md`, "One note for an unwritable
+store"). Under
 `engmem mcp --read-only` (D2) none of this runs: no copy is written and no `cite as` line printed,
 because a client behind a bridge cannot save a Reuse Log, and the read-only server does not
 write the store for it beyond the telemetry row.

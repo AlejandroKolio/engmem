@@ -1016,7 +1016,7 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
             <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <p>Под него из бюджета заранее вычтены 128 байт: <code>render_search_results</code> урезан до <code>4096 − 128</code>. Потолок удвоили, когда в выдаче появились локаторы разделов.</p></div>
           <div class="io-k">Чем это грозит</div>
-          <div class="io-v"><p>Ничем: <code>log_search()</code> ловит <code>OSError</code> сама и возвращает либо <code>None</code>, либо текст причины, а <code>note: telemetry not recorded (…)</code> печатается уже <em>после</em> результатов, которые не откатываются.</p></div>
+          <div class="io-v"><p>Ничем: <code>log_search()</code> ловит <code>OSError</code> сама и возвращает либо <code>None</code>, либо само исключение, а <code>note: telemetry not recorded (…)</code> с его текстом печатается уже <em>после</em> результатов, которые не откатываются.</p></div>
         </div>
       </div>
     </article>
@@ -2098,7 +2098,7 @@ body  = 10.02                    →  score 20.7</code></pre>
             <pre><code>docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago</code></pre>
             <p>128 bytes are subtracted from the budget up front for it: <code>render_search_results</code> is capped at <code>4096 − 128</code>. The cap was doubled when section locators joined the output.</p></div>
           <div class="io-k">What it costs</div>
-          <div class="io-v"><p>Nothing: <code>log_search()</code> catches <code>OSError</code> itself and returns either <code>None</code> or a reason string, and <code>note: telemetry not recorded (…)</code> prints <em>after</em> the results, which are not rolled back.</p></div>
+          <div class="io-v"><p>Nothing: <code>log_search()</code> catches <code>OSError</code> itself and returns either <code>None</code> or the exception itself, and <code>note: telemetry not recorded (…)</code> with its text prints <em>after</em> the results, which are not rolled back.</p></div>
         </div>
       </div>
     </article>

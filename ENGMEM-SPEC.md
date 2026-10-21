@@ -603,7 +603,9 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    through) does not crash the command — the search result already printed above is
    correct and complete, and the command still exits 0 — but is reported with its own
    `note: telemetry not recorded (<reason>)` line on stdout, since a silently-stopped
-   measurement instrument is a data-integrity problem worth surfacing.
+   measurement instrument is a data-integrity problem worth surfacing. *(2026-10-21, spec 002
+   US-3)* When the store refuses two or more of a search's records, they share one
+   `note: the store refused writing — …` line instead (`contracts/output.md`).
    A search run without `--session` (absent, blank or whitespace-only) ends with one more
    trailing line, `note: unattributed search — pass --session <draft-id>`, after the
    scoreboard and after any telemetry note; the MCP tools append the same line with

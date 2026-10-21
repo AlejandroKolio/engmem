@@ -125,7 +125,7 @@ def test_log_search_reports_failure_instead_of_raising_when_path_is_a_directory(
 
     error = log_search(jsonl_path, query="1000001", n_docs=len(docs), outcome=outcome)
 
-    assert isinstance(error, str) and error, "must return a non-empty reason, not None"
+    assert isinstance(error, OSError) and str(error), "must return the failure, not None"
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +282,7 @@ def test_log_role_search_reports_failure_instead_of_raising(tmp_path):
         jsonl_path, query="1000001", role="decisions", n_docs=9, role_hits=[]
     )
 
-    assert isinstance(error, str) and error
+    assert isinstance(error, OSError) and str(error)
 
 
 # ---------------------------------------------------------------------------

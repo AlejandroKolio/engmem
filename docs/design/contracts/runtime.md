@@ -250,7 +250,9 @@ feedback record may assess, so a linked log could vouch for a document no search
 
 A refused or failed append is a named miss, never a success:
 - search and read add `note: telemetry not recorded (...)` or `note: cost not recorded (...)`
-  and still answer;
+  and still answer; a search whose store refuses two or more of its records prints one
+  `note: the store refused writing — ...` line for them instead (`contracts/output.md`, "One
+  note for an unwritable store");
 - `feedback record` and `record-baseline` fail with `cannot write`.
 
 The same applies to a directory or a FIFO at the name, or a file the user cannot write. A
