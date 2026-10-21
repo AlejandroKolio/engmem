@@ -91,8 +91,8 @@ def log_search(
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
     scope: dict | None = None,
-) -> str | None:
-    """Appends one JSON line, returning a failure reason rather than raising."""
+) -> OSError | None:
+    """Appends one JSON line, returning the failure rather than raising."""
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -120,7 +120,7 @@ def log_search(
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         confined.append_line(jsonl_path, confined.LOG_DEPTH, json.dumps(record).encode("utf-8"))
     except OSError as exc:
-        return str(exc)
+        return exc
     return None
 
 
@@ -135,7 +135,7 @@ def log_role_search(
     channel: str = DEFAULT_CHANNEL,
     context_bytes: int = 0,
     scope: dict | None = None,
-) -> str | None:
+) -> OSError | None:
     """`log_search` for a role search, reporting role-filtered hits rather than the word ranking."""
     context_tokens_estimate = estimate_tokens(context_bytes)
     record = {
@@ -162,7 +162,7 @@ def log_role_search(
         jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         confined.append_line(jsonl_path, confined.LOG_DEPTH, json.dumps(record).encode("utf-8"))
     except OSError as exc:
-        return str(exc)
+        return exc
     return None
 
 

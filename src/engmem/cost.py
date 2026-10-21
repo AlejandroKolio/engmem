@@ -51,15 +51,15 @@ def record_delivery(
     byte_count: int,
     doc_id: str | None = None,
     role: str | None = None,
-) -> str | None:
-    """Appends one delivery, returning a failure reason rather than raising, as `log_search` does."""
+) -> OSError | None:
+    """Appends one delivery, returning the failure rather than raising, as `log_search` does."""
     record: dict = {"op": op, "session_id": session_id, "channel": channel, "bytes": byte_count}
     if op == OP_READ:
         record.update(doc_id=doc_id, role=role)
     try:
         _append(store, uuid.uuid4().hex, record)
     except OSError as exc:
-        return str(exc)
+        return exc
     return None
 
 

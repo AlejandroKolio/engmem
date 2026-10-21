@@ -59,7 +59,9 @@ trailing notes the caller may add after it — `note: telemetry not recorded (..
 unattributed note is 55 bytes, and a scoreboard carrying both of its count notes (`partial
 spine`, `failed to load`) plus that line already exceeds the 128 before any telemetry note, so
 stdout can pass `MAX_OUTPUT_BYTES` on a fully trimmed body. Accepted: both notes are
-diagnostics about the instrument, and truncating them would hide the one thing they say.
+diagnostics about the instrument, and truncating them would hide the one thing they say. The
+folded `the store refused writing` note (below) is the longest of them, about 200 bytes plus the
+ids and the error text, and is held to the same rule: never trimmed.
 
 The `unsaved drafts also match` line (`contracts/scoring.md`, "Drafts that also match") sits
 before the scoreboard and outside the budget too. It names at most `DRAFTS_NAMED_MAX` (5) ids and
@@ -169,25 +171,26 @@ whole is not bounded. The caps are far above real use and the marks are additive
 
 ## One composed result for both channels
 
-`search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/`
-line, stray-scan warnings, the ranked result, the stray note, the `cite as` line and any
+`search_report.compose` builds the whole stdout of a search once: the unlistable-`sessions/` line,
+stray-scan warnings, the ranked result, the stray note, the `cite as` line and any
 `version ... not retained` notes (US-13, `contracts/gate1.md`, "Versioned citations"), the
 scoreboard, the telemetry note, any `cost not recorded` note and the channel's unattributed note,
-in that order, and it writes the one telemetry row and the one `cost.jsonl` row ("Observed cost",
-below). The `cite as` line is housekeeping like the stray note: it is outside
-`render_result`'s text, so `context_bytes` and every rendered-result test are unchanged by it.
-It names what `surfaced_ids` selected, so after a trim it can name a document whose block was
-cut, the same limit noted below. `engmem mcp --read-only` prints no `cite as` line.
-The scope is one more argument to it, so CLI and MCP cannot apply different scope rules
-(AC-09.4); the row's `scope` field records it (`ENGMEM-SPEC.md` §5, search step 6b).
-`engmem search` prints the string; `engmem_search` and `engmem_search_by_role` return it as the
-tool text. Only the unattributed note differs by channel, and stderr diagnostics stay with each
-caller. There were four copies of this composition, and they had drifted: the MCP ones never
-read `scan_error`, so the MCP-only channel showed an unlistable `sessions/` as
-`prior context: none found / docs: 0`, the phantom empty the spec forbids, while the CLI said
-"unknown, not zero". `render_result` is the pure half — the text `context_bytes` measures,
-with no I/O; only `compose` writes telemetry. `tools/baseline_cost.py` measures through it, so
-a calibration run reports exactly what telemetry records and adds no row to the store it measures.
+in that order (a store refusing two or more of those records gets one folded note after the
+scoreboard instead of each one's own, "One note for an unwritable store", below), and it writes
+the one telemetry row and the one `cost.jsonl` row ("Observed cost", below). The `cite as` line is
+housekeeping like the stray note: it is outside `render_result`'s text, so `context_bytes` and
+every rendered-result test are unchanged by it. It names what `surfaced_ids` selected, so after a
+trim it can name a document whose block was cut, the same limit noted below. `engmem mcp
+--read-only` prints no `cite as` line. The scope is one more argument to it, so CLI and MCP cannot
+apply different scope rules (AC-09.4); the row's `scope` field records it (`ENGMEM-SPEC.md` §5,
+search step 6b). `engmem search` prints the string; `engmem_search` and `engmem_search_by_role`
+return it as the tool text. Only the unattributed note differs by channel, and stderr diagnostics
+stay with each caller. There were four copies of this composition, and they had drifted: the MCP
+ones never read `scan_error`, so the MCP-only channel showed an unlistable `sessions/` as `prior
+context: none found / docs: 0`, the phantom empty the spec forbids, while the CLI said "unknown,
+not zero". `render_result` is the pure half — the text `context_bytes` measures, with no I/O; only
+`compose` writes telemetry. `tools/baseline_cost.py` measures through it, so a calibration run
+reports exactly what telemetry records and adds no row to the store it measures.
 
 ## Weak candidates are marked, never dropped (US-14)
 
@@ -363,6 +366,36 @@ text from the matched word to the end fits, it is shown whole, with no trailing 
 
 Choosing the sentence tokenises every sentence of each shown section, at most
 `SECTION_DISPLAY_MAX` per hit; that is small next to the ranking pass over the store.
+
+## One note for an unwritable store
+
+A search writes up to three records besides its answer: the telemetry row, the cost row and,
+for each shown document, a retained version. Each one that fails is reported in the result
+rather than losing the result, and on its own each keeps its own `note:` line, where it always
+stood. On a store the reader cannot write (a read-only mount, a shared copy, CI) all three fail
+on every search, and the agent read three lines about the store instead of the answer. So when
+two or more of the records failed because writing was refused — a `PermissionError`, or
+`EROFS` — they are folded into one line after the scoreboard:
+
+`note: the store refused writing — telemetry, cost and versions of '<id>', '<id>' were not
+recorded, so a quote from them can only be checked against the current text (<the first
+refusal>)`
+
+It names only the records that were refused, in that order, and every document whose version was
+refused, once; the quote clause comes with them. "Refused writing", not "not writable": a
+read-only `telemetry.jsonl` and `cost.jsonl` in a store whose `versions/` still takes copies fold
+too. A record that failed any other way (a directory where `telemetry.jsonl` should be, a
+`versions` that is not a plain directory) keeps its own line, and one refused record alone is not
+folded: under `engmem mcp --read-only` the search writes telemetry only, so an unwritable store
+still prints `note: telemetry not recorded (...)` and nothing more. A Windows sharing violation
+(winerror 32 or 33: another process, an antivirus or a sync client, holds the file) also arrives
+as `PermissionError`; it is a busy file, not a refusing store, and keeps its own line.
+
+The writers (`telemetry.log_search`, `log_role_search`, `cost.record_delivery`) return the
+`OSError` itself rather than its text, so the cause can be told apart without parsing a message;
+the lines print it as before. The cost row measures the text as delivered, every note but its own
+included, the folded one too (`search_report._assemble`). `engmem read` is not folded: it writes
+a version and a cost row, and prints a note for each that fails.
 
 ## Known limits
 

@@ -587,6 +587,15 @@ def test_the_cite_line_is_part_of_the_reads_delivered_bytes(store, capsys):
     assert _rows(store)[0]["bytes"] == _delivered(out)
 
 
+def test_a_searchs_notes_are_part_of_its_delivered_bytes(store, capsys):
+    (store / versions.VERSIONS_DIR).write_text("not a directory", encoding="utf-8")
+
+    out = _cli_ok(capsys, store, "search", "widget", "--session", SESSION)
+
+    assert "not retained (" in out
+    assert _rows(store)[0]["bytes"] == _delivered(out)
+
+
 def test_a_version_that_cannot_be_retained_is_named_and_no_reference_offered(store, capsys):
     (store / versions.VERSIONS_DIR).write_text("not a directory", encoding="utf-8")
 

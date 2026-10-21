@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
-from support.platform import requires_permission_enforcement, requires_symlinks
+from support.platform import requires_symlinks
 from support.tools import run_tool
 
 from engmem import gate1, mcp_server, versions
@@ -627,8 +627,7 @@ def test_arch_002_a_users_own_gitattributes_is_left_alone(tmp_path):
     assert (root / ".gitattributes").read_bytes() == b"*.md binary\n"
 
 
-@requires_permission_enforcement
-def test_arch_005_an_unwritable_store_says_so_once(tmp_path, capsys):
+def test_arch_005_one_cause_is_said_once_for_every_document_it_failed(tmp_path, capsys):
     sessions = tmp_path / "sessions"
     _source(sessions, V1_SENTENCE)
     (sessions / "20260202-widget-flush.md").write_text(
@@ -636,16 +635,16 @@ def test_arch_005_an_unwritable_store_says_so_once(tmp_path, capsys):
         "tags: [platform]\nentities: [WidgetCache]\n---\n\nWidget flush ordering again.\n",
         encoding="utf-8",
     )
-    tmp_path.chmod(0o500)
-    try:
-        main(["search", "widget flush", "--store", str(tmp_path)])
-    finally:
-        tmp_path.chmod(0o700)
+    # only `versions/` fails, and the same way for both: the store's other records still write
+    (tmp_path / "versions").write_text("not a directory", encoding="utf-8")
+
+    main(["search", "widget flush", "--store", str(tmp_path)])
 
     out = capsys.readouterr().out
     notes = [line for line in out.splitlines() if "not retained" in line]
     assert len(notes) == 1, notes
     assert "'20260101-widget-cache'" in notes[0] and "'20260202-widget-flush'" in notes[0]
+    assert "not writable" not in out
 
 
 def test_arch_006_an_existing_id_spelled_with_the_separator_is_not_refused(tmp_path):

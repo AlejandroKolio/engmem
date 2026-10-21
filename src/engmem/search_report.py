@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -130,25 +131,84 @@ def _shown_docs(docs: list[Doc], rendered: RenderedResult) -> list[Doc]:
     ]
 
 
-def cite_lines(store: Path, shown: list[Doc]) -> list[str]:
-    """The `<id>@<version>` a Reuse Log row cites each shown document by, each one retained under
-    `versions/` first (US-13; contracts/gate1.md, "Versioned citations")."""
+@dataclass(frozen=True)
+class _Gap:
+    """A record this search could not write, and the note naming it on its own."""
+
+    record: str
+    error: Exception
+    note: str
+    ids: tuple[str, ...] = ()
+
+
+_RECORD_ORDER = ("telemetry", "cost", "versions")
+# a sharing violation: another process holds the file open, not a store refusing writes
+_WINDOWS_FILE_IN_USE = (32, 33)
+
+
+def _not_writable(error: Exception) -> bool:
+    if getattr(error, "winerror", None) in _WINDOWS_FILE_IN_USE:
+        return False
+    return isinstance(error, PermissionError) or (
+        isinstance(error, OSError) and error.errno == errno.EROFS
+    )
+
+
+def _retain_shown(store: Path, shown: list[Doc]) -> tuple[list[str], list[_Gap]]:
+    """Each shown document's `<id>@<version>`, retained under `versions/` first, and one gap per
+    distinct cause naming every document it hit."""
     references: list[str] = []
-    # one cause, one line: an unwritable store fails every document the same way
-    failures: dict[str, list[str]] = {}
+    failures: dict[str, tuple[Exception, list[str]]] = {}
     for doc in shown:
         try:
             references.append(f"{doc.id}{VERSION_SEPARATOR}{retain(store, doc)}")
         except (RetentionError, OSError) as exc:
-            failures.setdefault(str(exc), []).append(repr(doc.id))
-    lines = [
-        f"note: version of {', '.join(ids)} not retained ({cause}) — a quote from "
-        f"{'them' if len(ids) > 1 else 'it'} can only be checked against the current text"
-        for cause, ids in failures.items()
+            failures.setdefault(str(exc), (exc, []))[1].append(repr(doc.id))
+    gaps = [
+        _Gap(
+            "versions",
+            exc,
+            f"note: version of {', '.join(ids)} not retained ({cause}) — a quote from "
+            f"{'them' if len(ids) > 1 else 'it'} can only be checked against the current text",
+            tuple(ids),
+        )
+        for cause, (exc, ids) in failures.items()
     ]
-    if references:
-        lines.insert(0, "cite as (Reuse Log prior-doc): " + ", ".join(references))
-    return lines
+    return references, gaps
+
+
+def _cite_line(references: list[str]) -> list[str]:
+    return ["cite as (Reuse Log prior-doc): " + ", ".join(references)] if references else []
+
+
+def cite_lines(store: Path, shown: list[Doc]) -> list[str]:
+    """The `<id>@<version>` a Reuse Log row cites each shown document by, each one retained under
+    `versions/` first (US-13; contracts/gate1.md, "Versioned citations")."""
+    references, gaps = _retain_shown(store, shown)
+    return _cite_line(references) + [gap.note for gap in gaps]
+
+
+def _unwritable_note(gaps: list[_Gap]) -> str | None:
+    """One line for every record the store refused, when it refused more than one
+    (contracts/output.md, "One note for an unwritable store")."""
+    refused = [gap for gap in gaps if _not_writable(gap.error)]
+    records = [record for record in _RECORD_ORDER if any(gap.record == record for gap in refused)]
+    if len(records) < 2:
+        return None
+    ids = list(dict.fromkeys(i for gap in refused for i in gap.ids))
+    names = [
+        f"versions of {', '.join(ids)}" if record == "versions" else record for record in records
+    ]
+    quote = (
+        f", so a quote from {'them' if len(ids) > 1 else 'it'} can only be checked against the "
+        "current text"
+        if ids
+        else ""
+    )
+    return (
+        f"note: the store refused writing — {', '.join(names[:-1])} and {names[-1]} were not "
+        f"recorded{quote} ({refused[0].error})"
+    )
 
 
 def compose(
@@ -167,28 +227,31 @@ def compose(
 ) -> str:
     """The whole stdout of one search, its one telemetry row and, with `record_cost`, its one
     `cost.jsonl` row; the caller only transports it."""
-    lines: list[str] = []
+    before: list[str] = []
     # "found nothing" and "could not look" must never read the same, on either channel
     if loaded.scan_error is not None:
-        lines.append(f"error: {loaded.scan_error.message}")
-    lines += [f"warning: {scan_error}" for scan_error in stray_scan_errors]
+        before.append(f"error: {loaded.scan_error.message}")
+    before += [f"warning: {scan_error}" for scan_error in stray_scan_errors]
 
     # a new lookup per search: an MCP server outlives a checkout's HEAD moving
     rendered = render_result(loaded.docs, query, role, scope, SessionCheckout())
-    lines.append(rendered.text)
+    before.append(rendered.text)
     # store housekeeping, deliberately outside `rendered.text` and so outside `context_bytes`
     if not rendered.surfaced_anything and strays:
-        lines.append(stray_note(len(strays)))
+        before.append(stray_note(len(strays)))
+    gaps: list[_Gap] = []
     if retain_versions:
-        lines += cite_lines(store, _shown_docs(loaded.docs, rendered))
+        references, gaps = _retain_shown(store, _shown_docs(loaded.docs, rendered))
+        before += _cite_line(references)
+    after: list[str] = []
     drafts = (
         matching_drafts(loaded.docs, query, scope, exclude=session_id, published=rendered.outcome)
         if name_drafts
         else []
     )
     if drafts:
-        lines.append(drafts_note(drafts))
-    lines.append(render_scoreboard(loaded.docs, failed=len(loaded.errors)))
+        after.append(drafts_note(drafts))
+    after.append(render_scoreboard(loaded.docs, failed=len(loaded.errors)))
 
     telemetry_path = store / "telemetry.jsonl"
     context_bytes = len(rendered.text.encode("utf-8"))
@@ -207,14 +270,26 @@ def compose(
         )
     # the search itself succeeded: report the gap in the result rather than lose the result
     if telemetry_error is not None:
-        lines.append(f"note: telemetry not recorded ({telemetry_error})")
+        gaps.append(_Gap(
+            "telemetry", telemetry_error, f"note: telemetry not recorded ({telemetry_error})"
+        ))
     trailer = [_UNATTRIBUTED_NOTES[channel]] if session_id is None else []
     if record_cost:
         # the delivery is the whole text sent, so it is measured last, without only this note
         cost_error = record_delivery(
             store, op=OP_SEARCH, session_id=session_id, channel=channel,
-            byte_count=len("\n".join(lines + trailer).encode("utf-8")),
+            byte_count=len(_assemble(before, after, gaps, trailer).encode("utf-8")),
         )
         if cost_error is not None:
-            lines.append(f"note: cost not recorded ({cost_error})")
-    return "\n".join(lines + trailer)
+            gaps.append(_Gap("cost", cost_error, f"note: cost not recorded ({cost_error})"))
+    return _assemble(before, after, gaps, trailer)
+
+
+def _assemble(before: list[str], after: list[str], gaps: list[_Gap], trailer: list[str]) -> str:
+    """Each gap's own note where it always stood, unless an unwritable store folds them into one."""
+    folded = _unwritable_note(gaps)
+    own = [gap for gap in gaps if folded is None or not _not_writable(gap.error)]
+    versions = [gap.note for gap in own if gap.record == "versions"]
+    records = [gap.note for gap in own if gap.record != "versions"]
+    notes = ([folded] if folded else []) + records
+    return "\n".join(before + versions + after + notes + trailer)
