@@ -78,5 +78,9 @@ so the project itself has to demonstrate the discipline it asks for.
 Match the surrounding code. Comments explain why something is not the obvious choice;
 anything a reader can get from the code itself does not need a comment.
 
+Search correctness is defined by the golden fixture tests in `tests/search/test_scoring.py` and
+`tests/test_cli.py`; at any conflict between the scoring formula and a golden test, the test wins
+(`ENGMEM-SPEC.md` §8).
+
 Documentation is prose, not bullet dumps. If a change alters behaviour described in
-`README.md` or `ENGMEM-SPEC.md`, update it in the same PR.
+`README.md`, `docs/guide.md` or `ENGMEM-SPEC.md`, update it in the same PR.

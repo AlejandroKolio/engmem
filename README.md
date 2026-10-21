@@ -1,479 +1,142 @@
 # engmem
 
+[![PyPI](https://img.shields.io/pypi/v/engmem.svg)](https://pypi.org/project/engmem/)
 [![CI](https://github.com/AlejandroKolio/engmem/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/AlejandroKolio/engmem/actions/workflows/ci.yml?query=branch%3Amain)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/AlejandroKolio/engmem/blob/main/LICENSE)
 
-Personal engineering memory for AI-assisted development, built around two things most
-memory tools do not do.
+**Engineering memory for AI coding agents, kept as plain markdown you own.**
 
-**A story is the unit, and the store lives outside every repository.** One engineering
-story spans several repos and several sessions — a front end, a back end, a third service,
-across days. Per-repo memory files cannot hold it, and a pile of context-free facts cannot
-reconstruct it.
+A coding agent starts each session without what earlier sessions decided. engmem keeps what was
+decided on a task, and why, in a local store outside every repository, finds it again when the
+next task starts, and records whether it changed anything. One document holds a story that spans
+a backend, a frontend and three days of sessions.
 
-**It measures whether remembering actually changed anything.** In research mode every
-session pre-registers its intent *before* searching, and closes with a Reuse Log row quoting,
-verbatim, the prior document that changed a decision. `tools/verify_citations.py` checks those quotes against
-the documents they cite. The point is not to accumulate documents; it is to find out
-whether accumulated documents pay for themselves.
-
-Underneath: markdown files in a local git-tracked store, deterministic search, two runtime
-dependencies, no database, no server, no network calls.
-
-**[Anatomy of engmem](https://alejandrokolio.github.io/engmem/engmem-anatomy.html)** walks one task end to end — the command
-run at each step, the real output it returns, and the call path through the code. It is a
-standalone HTML page: open it from a checkout, since GitHub serves `.html` as source.
-
-## The loop
-
-Everything else in this README is plumbing that exists so this loop can run.
-
-**1. Pre-register.** `/engmem <task>` writes a two-line naive plan *before* it searches
-anything — obtained from a sub-agent that knows only the task, so the baseline is not
-contaminated by what the store already told you. It never asks you for it and never waits
-on it. This step runs in research mode only; in daily mode, the default, it is skipped
-(see "Daily or research mode" below).
-
-**2. Search, on the record.** `engmem search` is a bounded channel, not a better grep: its
-output is capped at 4 KB and every call writes a row to `telemetry.jsonl` — the query, what
-surfaced, hit or miss, bytes of context spent. An agent grepping around freely may well
-find the same document; what it cannot do is leave a measurable trace, or promise the
-context it pulls in has any ceiling at all.
-
-**3. Work.**
-
-**4. Record what was actually reused.** `/engmem.save` closes the session with a Reuse Log:
-one row per prior document that changed a decision, each carrying a verbatim quote from it.
-A row without a quote is invalid. The row cites the document as `<id>@<version>`, copied from
-the search result's `cite as` line: engmem kept a copy of exactly that version when it showed
-it (under `versions/` in the store), so the quote is checked against the text it was taken
-from even after the document is edited. A row with a bare id is still read, checked against
-the current text and marked as legacy. If nothing was reused, the section says exactly
-`Prior docs used: none.` — the most useful answer the experiment can get, and the easiest
-to quietly avoid writing.
-
-**5. Judge.** `tools/gate1_report.py` collects every Reuse Log row into one table and marks
-each citation *distant* or *adjacent* by the rule pre-registered in `ENGMEM-SPEC.md` §11.
-Whether it genuinely changed a decision is a human column, filled in by hand.
-
-## What this is not
-
-- **Not a vector database.** No embeddings, no index file, no second source of truth.
-- **Not another memory bank.** Those are per-repository and per-agent; a story here spans
-  repositories and outlives the session that wrote it.
-- **Not a search engine competing with grep.** The engine is the sensor: bounded output so
-  the cost is known, logged calls so the retrieval can be audited afterwards.
+- **Plain files.** One markdown document per task, readable and greppable without the tool.
+- **Bounded search.** Each search prints at most 4 KB, so one search never costs the agent more
+  than that.
+- **Accountable.** Every search is logged, and a saved session quotes the prior document that
+  changed a decision, checked against the exact version it was shown.
+- **Local.** No database, no daemon, no open port, no network calls. Two dependencies: `pyyaml` and
+  `markdown-it-py`.
 
 ## Install
 
-From a source checkout:
-
 ```bash
-uv tool install --editable .   # or: pipx install .
+uv tool install engmem          # or: pipx install engmem
+engmem install --agent claude   # wire it into your agent
 ```
 
-Then wire it into your AI coding agent:
+| Agent | `--agent` | What it sets up |
+|---|---|---|
+| Claude Code | `claude` | slash commands in `~/.claude/commands/` and a trigger rule in `~/.claude/CLAUDE.md` (`--local`: `./.claude/commands/`, `./CLAUDE.md`) |
+| Claude Desktop | `claude-desktop` | an MCP server entry in Claude Desktop's `claude_desktop_config.json`; the commands arrive as prompts |
+| Codex | `codex` | skills in `~/.agents/skills/`, a trigger rule in `~/.codex/AGENTS.md` and an MCP server entry in `~/.codex/config.toml` |
+| Copilot CLI | `copilot-cli` | skills in `~/.copilot/skills/` |
+| Copilot in the IDE | `copilot-ide` | prompt files in `./.github/prompts/` and a trigger rule in `./.github/copilot-instructions.md`; run from the repo root |
+| ChatGPT | `chatgpt` | prints the tunnel setup; see [remote access](https://github.com/AlejandroKolio/engmem/blob/main/docs/remote-access.md) |
 
-```bash
-engmem install --agent claude            # templates -> ~/.claude/commands/ (Claude Code)
-engmem install --agent claude --local    # templates -> ./.claude/commands/ (this repo only)
-engmem install --agent copilot-ide       # templates -> ./.github/prompts/ (Copilot's IDE plugin)
-engmem install --agent copilot-cli       # skills -> ~/.copilot/skills/ (Copilot CLI)
-engmem install --agent claude-desktop    # MCP server entry (Claude Desktop)
-engmem install --agent codex             # skills -> ~/.agents/skills/, rule -> ~/.codex/AGENTS.md, MCP entry -> ~/.codex/config.toml
-engmem install --agent chatgpt           # prints the Secure MCP Tunnel setup (ChatGPT)
+Run `engmem doctor --agent <agent>` to check the setup, and `engmem uninstall --agent <agent>` to
+remove it. Uninstall never touches your documents.
+
+## How it works
+
+```text
+/engmem fix the widget cache warm-up     start: search the store before planning
+  ... work ...
+/engmem.save                             finish: record decisions and what was reused
 ```
 
-Pick `copilot-ide` if you use the Copilot chat panel in VS Code / Visual Studio /
-JetBrains; pick `copilot-cli` if you use the standalone `copilot` CLI, which reads
-skills instead of prompt files. Pick `claude-desktop` if you use the desktop
-app, which cannot run shell commands — it reaches engmem over MCP instead, and the
-same commands arrive as prompts. `copilot-ide` and `--local` must be run from a repo
-root (a directory containing `.git`) — they refuse to run anywhere else.
+1. **Start.** `/engmem <task>` opens a draft for the session and searches the store before the
+   agent proposes a plan.
+2. **Search.** The agent gets a ranked top 3, each hit with the section worth opening and the
+   sentence in it that matched:
 
-`codex` wires up both channels at once, because Codex (CLI, IDE extension and desktop app)
-runs shell commands and MCP servers alike: the skills are invoked as `$engmem`,
-`$engmem-save` and `$engmem-save-quick`, and the MCP server is there for the Codex surfaces
-without a shell. Codex's default `workspace-write` sandbox keeps the CLI from writing to a
-store outside the repository, and the skills reach for the shell first; add the store to
-`[sandbox_workspace_write] writable_roots` in `~/.codex/config.toml`, or approve each write
-when Codex asks. `$CODEX_HOME` is
-honoured in place of `~/.codex`.
+   ```text
+   ### 1000001-widget-cache (score: 7.2)
+   path: /home/you/Developer/engmem/sessions/1000001-widget-cache.md
+   matched: entities=widgetcache,widget,cache; §2-decision-log=cache,warm,up
+     §2-decision-log   0.1 KB   Warm-up runs after the schema check, never before it.
 
-`chatgpt` writes nothing outside the store. ChatGPT runs no local MCP server — it only
-calls servers it can reach — so `install` prints the
-[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-commands that run `engmem mcp` on your machine and let ChatGPT's developer mode reach it.
-Whether the tunnel is available depends on your OpenAI workspace. engmem itself still opens
-no port and makes no network call; `tunnel-client` does. The tunnel is the one supported
-bridge: OpenAI checks who may reach it, and engmem does not verify that, so install and
-`doctor` say so instead of calling the setup protected. Without a tunnel, a public bridge
-(`supergateway` plus `ngrok` or `cloudflared`) works on any paid plan as a test setup, but
-ChatGPT connects it without authentication, so it is not protected. Running the server behind
-it as `engmem mcp --read-only` keeps a leaked URL from changing a document, but it is not
-privacy: whoever holds the URL reads the store's documents, titles and search snippets, and
-adds search rows to its log. [docs/remote-access.md](docs/remote-access.md) has both bridges
-and the steps to check the tunnel's access control yourself.
+   old-cache-note: superseded by 1000001-widget-cache
+   cite as (Reuse Log prior-doc): 1000001-widget-cache@811c3af96cf357bb
+   docs: 5 | drafts: 0 | last doc: 58d ago
+   ```
 
-The MCP server (`engmem mcp`, what `claude-desktop`, `codex` and `chatgpt` connect to) offers
-eight tools: `engmem_search` and `engmem_search_by_role`; `engmem_create_draft`,
-`engmem_complete_draft` and `engmem_mark_superseded`, which write documents;
-`engmem_record_feedback`; `engmem_read`; and `engmem_record_baseline`. It also serves three
-prompts, one per template. With `--read-only` it offers the two search tools only, and those
-searches keep no version copy, print no `cite as` line and record no cost row; each still
-writes its telemetry row.
+   That came from `engmem search "WidgetCache warm-up"`. The older note that said otherwise was
+   superseded, so it appears only as a redirect to the current document.
 
-`install` is idempotent — re-running it brings unedited templates up to date and never duplicates
-the trigger rule or touches existing store content. A template or skill you edited is never
-overwritten: install leaves it, puts its new version beside it as `<file>.engmem-new`, prints a
-`conflict:` line with both paths and exits 2. Carry any edit you want to keep into the new file,
-move it over the old one, and re-run. After an upgrade,
-`engmem doctor --agent <agent>` says whether the installed workflow is one this engmem runs (an
-`error` when it is not) and, for an MCP client, whether the server it is running already logged
-a call from the new version. A client keeps its old server until you restart it.
+3. **Save.** `/engmem.save` writes the session up: decisions, rejected alternatives, what the
+   next session needs to know, and a Reuse Log row quoting each prior document that changed a
+   decision. `/engmem.save.quick` keeps just the decision and its reason.
+4. **Measure.** In research mode `/engmem` first writes a naive plan, before it searches, so you
+   can later see whether memory changed the outcome. `engmem telemetry` and `engmem feedback
+   summary` add it up; `tools/gate1_report.py`, run from a source checkout, builds the Reuse Log
+   table.
 
-To remove the wiring again, mirror it with the same `--agent`:
+## Commands
 
-```bash
-engmem uninstall --agent claude          # or any other --agent, plus --local if install used it
-```
+| In your agent | |
+|---|---|
+| `/engmem <task>` | start a task: open a draft, search, report what was found |
+| `/engmem.save` | finish it: the full document and its Reuse Log |
+| `/engmem.save.quick` | finish it in one step: decision, reason, rejected alternative |
 
-`uninstall` deletes the templates it installed and the trigger rule it appended, reports the
-counts, and **never touches the store** — those are your documents, and they stay readable
-as plain markdown without the tool. It prints the store path so you can remove it yourself
-if you want to. Running it twice is safe. The two setting files below survive it too, and a
-later install reuses them; delete `~/.config/engmem/` (`%APPDATA%\engmem\` on Windows) and
-the parse cache `~/.cache/engmem/` (`$XDG_CACHE_HOME/engmem/` when set) for a full removal.
-Everything else engmem recorded is inside the store, so deleting the store removes it too. A
-walkthrough's demo directory (below) holds a store of its own; delete the directory as a whole.
+| In the shell | |
+|---|---|
+| `engmem search "<words>"` | ranked search; `--role decisions` for one section, `--repo NAME` for one repository |
+| `engmem read <id>` | print a document, counted and citable |
+| `engmem export <id>` | preview a copy for a colleague, with links to your other notes cut; `--out FILE --confirm <fingerprint>` writes it |
+| `engmem store set PATH` | choose where the store lives (default `~/Developer/engmem`) |
+| `engmem mode set research` | run the measured protocol (default: `daily`) |
+| `engmem doctor --agent <agent>` | check an agent's setup without changing it |
+| `engmem walkthrough codex --dir ~/demo` | try the whole loop on a demo store |
+| `engmem telemetry` | searches, hit rate and context spent |
 
-The store location resolves in this order: `--store PATH` → `$ENGMEM_HOME` → the store saved
-with `engmem store set PATH` → `~/Developer/engmem`. It holds `sessions/*.md` (the documents),
-`telemetry.jsonl` (append-only search log), `versions/` (an exact copy of each document version
-a search or `engmem read` showed, plus a `.gitattributes` that stops git from rewriting their
-line endings), `feedback.jsonl` (your usefulness assessments) and `cost.jsonl` (the size of
-each response engmem delivered). engmem has two one-line setting files, both in
-`~/.config/engmem/` (`$XDG_CONFIG_HOME/engmem/`; `%APPDATA%\engmem\` on Windows): `store`, the
-store path, written only by `engmem store set`, and `mode` (below). `install --store PATH`
-does not save it — `--store` always means "this command only" — and install says so when the
-store it just used is not the one later commands will find:
+The [guide](https://github.com/AlejandroKolio/engmem/blob/main/docs/guide.md) covers each agent's setup, the store, modes and every command.
 
-```bash
-engmem store set ~/notes/engmem   # every command and installed template without --store uses it
-engmem store show                 # the effective store, where it came from, and any MCP entry
-                                  # (Claude Desktop, Codex) still pointing at a different store
-```
-
-**Daily or research mode.** By default engmem runs in daily mode: `/engmem` writes no Pre-reg
-and launches no baseline sub-agent, and the session is kept outside the Gate 1 experiment.
-Research mode runs the full experimental protocol: a baseline before the first search, or a
-recorded `baseline_unavailable: <reason>` when none can be had.
-
-```bash
-engmem mode set research   # sessions started from now on run the Gate 1 protocol
-engmem mode show           # mode: daily|research, and where it came from
-```
-
-Each session records its mode in its draft (`mode: daily` or `mode: research`) and keeps it;
-switching applies to the next session. The `engmem` MCP prompt opens with the mode it read,
-as its first line: `engmem mode for this session: research (saved choice in …)`.
-`tools/gate1_report.py` lists daily sessions as outside the experiment; it keeps two kinds of
-research session apart as well: one that recorded `baseline_unavailable` (an incomplete
-observation) and one with neither a Pre-reg nor `baseline_unavailable` (research without a
-baseline). Documents written before modes existed are counted as before.
-
-A mode file that cannot be read never passes silently. `engmem mode show` exits 2 and names the
-file. The session itself goes on in daily mode, the one choice that cannot put a wrong
-observation into the experiment: `/engmem` tells you about the error, the MCP prompt's first
-line says `daily (the saved mode cannot be read: …)`, and `engmem_create_draft` accepts only
-daily drafts until `engmem mode set daily|research` rewrites the file.
-
-Upgrading from an engmem without modes: re-run `engmem install --agent <agent>` for every agent
-you installed. Templates and skills copied out by an older install write drafts without `mode`,
-and the MCP `engmem_create_draft` refuses those (its message says so).
-
-**Modes in Claude Desktop.** Desktop runs no shell, so set the mode once from a terminal:
-
-```bash
-engmem mode set research   # or: engmem mode set daily
-engmem mode show
-```
-
-After upgrading engmem, quit Claude Desktop completely and reopen it: the MCP server loads
-engmem's code when Desktop launches it, and keeps that code until it exits. The mode file
-itself is read again on every call, so a later `mode set` needs no restart. To check, start
-the `engmem` prompt from the chat box: the attachment (`+`) menu lists the connected MCP
-servers, and under engmem its three prompts (menu names vary between Desktop versions). The
-prompt's text is added to your message, and its first line names the mode:
-`engmem mode for this session: …`. Desktop cannot
-start a sub-agent, so in research mode the model writes the naive baseline itself before its
-first search, and the Pre-reg ends with `pre-reg source: self (no sub-agent available)`. Desktop
-does not see variables exported in your shell profile: if you set `XDG_CONFIG_HOME` only in the
-terminal, `mode set` writes a file the Desktop server never reads. Leave it unset, or make it
-visible to apps launched outside the terminal too.
-
-A periodic check, from the engmem checkout (`tools/` is not in the package). The Reuse Log table
-and the §11 figures always cover the whole store; `--since` narrows only the telemetry figures
-of the audit-coverage block printed below them:
-
-```bash
-uv run python tools/gate1_report.py --store ~/Developer/engmem --since 2026-10-01   # telemetry since that date
-uv run python tools/verify_citations.py --store ~/Developer/engmem   # exit 1 on a quote that does not match
-engmem telemetry                                                     # searches, hit rate, context spent
-engmem feedback summary                                              # finds, user assessments, unknown influence
-engmem cost summary --session <session-id>                           # what engmem delivered to one session
-```
-
-`/engmem.save` asks you once whether the documents your searches showed helped, did not apply,
-or did harm, and records only your answer. You can also record one yourself:
-`engmem feedback record <session-id> <doc-id> helped --decision "kept the warm-up step" --source
-"PR 12"` (or `not-applicable`, `harmful`). A found document you never assess counts as unknown
-influence, never as a success or a failure, and only `helped` counts as positive reuse. These
-are your assessments, not a causal measurement, and the Gate 1 count does not read them. The
-report prints the same summary at the end.
-
-`engmem cost summary --session <session-id>` shows what one session's work with memory cost,
-as far as engmem saw it. It counts the bytes of every response engmem delivered: each search
-and each document read through `engmem read <doc-id> [--role decisions] --session <session-id>`
-(MCP: `engmem_read`), apart and in total. Reading the same text twice counts twice. A document
-opened as a file is not observed, and the report says so. Tokens are only estimated from bytes
-(`ceil(bytes / 3.5)`) and labelled as an estimate. The baseline call's tokens or duration appear
-only when your client reported them and they were recorded with `engmem cost record-baseline
-<session-id> --tokens N [--seconds T] [--call-id ID]` (MCP: `engmem_record_baseline`);
-otherwise they are listed as missing. The report never claims a saving: nobody did the task
-again without memory, so there is nothing measured to compare with. The 4 KB cap is the size
-of one search result, not the budget of a task.
-
-When an agent finds nothing and you cannot tell why, `engmem doctor --agent codex` (or any other
-`--agent`) checks that client's setup without changing it. It prints one line per check, marked
-`ok`, `warning`, `error` or `unverified`. It covers the store and where it came from, whether
-`sessions/` can be read and written, the `engmem` command and the MCP entry's Python, the
-installed templates and their versions, the trigger rule, and whether the CLI and the MCP entry
-use the same store. What the client's own sandbox allows is never marked `ok`, since doctor runs
-outside it: it is `unverified`, or a `warning` when Codex's sandbox settings would block writes
-to the store. The exit code is 1 when any line is an `error`.
-
-To see the whole cycle once before loading your own history, `engmem walkthrough codex --dir
-~/engmem-demo` builds a demo store, a demo Codex config and a small workspace, checks them with
-doctor, and prints each step to type in Codex. It uses the skills `engmem install --agent codex`
-installed. Your own store and `~/.codex` are not changed; the demo's own `CODEX_HOME` costs one
-extra Codex sign-in, because your login is not copied there.
-`--verify` then checks that a record was saved and found again by another session, and that the
-example's acceptance check passes. See [docs/walkthrough-codex.md](docs/walkthrough-codex.md).
-
-To see a task handed between Codex and Claude Code, `engmem walkthrough handoff --dir
-~/engmem-handoff` wires both clients to one demo store, each in a workspace of its own (both
-need their `engmem install` first), and prints three sessions: Codex saves a decision, Claude
-Code finds it and saves its own, and Codex finds that one by its id. The command does not
-change your own store, `~/.codex`, `~/.claude` or `~/.claude.json`; Claude Code itself records
-the demo folder's trust and the session transcript there, as for any folder. `--verify` first
-checks that both clients are set to the same store, and reports a mismatch, naming both stores,
-instead of a missing record. See
-[docs/walkthrough-handoff.md](docs/walkthrough-handoff.md).
-
-If the saved file is unreadable or the store it names is missing, commands stop and name the
-path; they never fall back to another store. `--agent claude-desktop` and `--agent codex`
-record the store in their MCP entry at install time, so after a `store set` re-run the install
-for those agents (`store show` prints the exact command); ChatGPT's `tunnel-client` profile
-records it too, and `store show` does not inspect that profile. No documents are ever moved
-for you.
-
-## Usage
-
-The daily loop runs through three agent slash commands installed above:
-
-- `/engmem <task>` — start a task: in research mode, records a naive baseline (pre-reg)
-  **before** searching; then creates a draft session document, searches the store for
-  relevant prior work, and reports what it found before proposing any plan.
-- `/engmem.save` — finish a task: drafts the full document metadata from the diff and
-  conversation for one-round approval, fills in decisions, rejected alternatives,
-  lessons learned, and a Reuse Log of which prior documents actually influenced the work.
-- `/engmem.save.quick` — save the useful core of a decision: one preview with the decision, its reason, the rejected alternative, the source and a short context for the next task. Anything the session did not contain is marked as absent, never invented. A single `ok` publishes one valid, searchable document; declining publishes nothing and leaves the draft out of search results (a search still names a draft with a Decision Log that matches it). No YAML check, no supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row without a quote).
-
-Direct search from the shell:
-
-```bash
-engmem search "SomeController"
-engmem search "XYZ" --store /path/to/store
-```
-
-Output is a pasteable top-3 (id, path, score, why-matched, cold-start primer excerpt,
-related docs, matched section locators) capped at 4 KB, with a footer scoreboard:
-`docs: N | drafts: N | last doc: Nd ago`. No match prints `prior context: none found`
-(exit 0). Ambiguous short queries (e.g. `MQ` matching both MessageQueue and
-MetricsQuery) return one representative per cluster, marked `ambiguous`. A result that shares
-only one word with a longer query, and no identifier such as an entity or the record's id, is
-marked `[weak candidate]` (words of three characters or fewer, such as `for` or `the`, do not
-count unless they are an entity) with the words it matched and listed after the reliable finds; when
-nothing reliable matched, the output opens with `prior context: no reliable match`.
-`engmem telemetry` counts the searches that showed only weak candidates on a separate
-`weak-only hits:` line; they stay in the hit rate.
-
-Matching is exact, word for word, in any language that separates words with spaces or
-punctuation: `ОТМЕНА, заказа!` finds "Отмена заказа", `CacheMémoire` finds itself and
-`mémoire`. Case and Unicode spelling variants are folded; nothing else is. `cafe` does not
-find `café`, `заказ` does not find `заказа`, and Chinese, Japanese or Thai text without
-spaces is one long word. Upgrading re-tokenises cached documents on the next search; no
-document needs re-saving.
-
-Ask for one section rather than whole documents:
-
-```bash
-engmem search "cache eviction" --role decisions   # what was decided, and what was rejected
-engmem roles                                      # the 19 role names it understands
-```
-
-Word matching cannot answer "what did we reject and why" — those words appear nowhere in
-the answer. Role addressing does, by resolving section headings across their spelling
-variants, and it returns the section instead of the document: a few hundred bytes rather
-than tens of kilobytes.
-
-Limit a search to one repository, or bring in others on purpose:
-
-```bash
-engmem search "Settings" --repo platform-core   # only records whose repos names platform-core
-engmem search "Settings" --repo platform-core --repo widget-cache-client   # either of the two
-engmem search "Settings" --unscoped             # only records linked to no repository
-engmem search "Settings" --all-repos            # the whole store, saying so, with each origin
-```
-
-The link is the `repos` front-matter field; a repository's name in the title or the tags does
-not count. Names match regardless of case. A scoped result starts with a `scope:` line, and
-each hit shows all of its `repos:`, so a story shared by two repositories appears once with
-both. `--all-repos` searches the same records as no flag at all, but shows the mode and where
-each result comes from. Without a flag the whole store is searched, as before, and the next
-search never inherits the previous one's scope. The MCP search tools take the same scope as
-`repo`, `repos` (a list), `unscoped` and `all_repos`. It narrows a search; it does not restrict
-access.
-
-Each hit also shows which code the record was checked against. The save templates record
-`verified_at: {platform-core: <sha>}` per repository, and a search compares that with the
-`HEAD` of the checkout you run it in:
-
-```
-snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, re-check | widget-cache-client: unknown, no anchor recorded
-```
-
-`same commit as HEAD` means the code has not moved since; it does not mean the text is right.
-A repository you are not in reads `unknown`, with the reason. An older single
-`verified_at_commit` counts only when the record names exactly one repository.
-
-When `HEAD` has moved and the record lists `covers_files`, the search compares just those
-files between the two commits, so a change somewhere else is not a reason to re-check:
-
-```
-snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, covered files unchanged
-snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, covered file changed: src/cache/WidgetCache.java, re-check
-```
-
-Write each covered file as a path from the repository's top-level directory, the way
-`git ls-files` prints it. A bare file name, a file the anchored commit does not have, or a
-record linked to several repositories reads `covered files not checked`, with the reason.
-
-Read what a search found through engmem, so the read is counted and citable:
-
-```bash
-engmem read 1000001-widget-cache --role decisions --session <draft-id>   # one role's sections
-engmem read 1000001-widget-cache                                         # the whole document
-engmem read 1000001-widget-cache@<version>                               # the version a search cited
-```
-
-`engmem read` prints a document with no size cap and ends with its own
-`cite as (Reuse Log prior-doc): <id>@<version>` line. The version names the whole document as it
-was at the read, also when `--role` printed only part of it. Cite a quote you took from a read by
-the read's line: the document may have changed since the search. Given the `<id>@<version>` a
-search cited, it prints that version; when the document has changed since, the text comes from
-the retained copy and a note says so. A draft is printed marked as not reviewed, with nothing to
-cite, and a search names the drafts with a Decision Log that match it on one line after the
-results.
-
-To hand one decision to a colleague without the rest of your store, export it in two steps:
-
-```bash
-engmem export 1000001-widget-cache                                         # preview, writes nothing
-engmem export 1000001-widget-cache --out widget-cache.md --confirm <fingerprint>
-```
-
-The preview prints the whole file, lists what was cut and where, and ends with a fingerprint of
-exactly those bytes. Links to your other documents and local paths become `[excluded
-reference]`: other documents' ids and file names, `[[wiki links]]`, the whole Reuse Log (it
-quotes other documents), the titles of documents this one points at, and any other document's
-title of two words or more (a one-word title nothing points at is usually an ordinary word, so it
-stays). The front matter keeps a fixed list of fields (id, title, dates, status, `backfilled`,
-tags, entities, covered files, repos, commit anchors, author, branch, PR); the rest,
-`related`, `superseded_by` and `mode` among them, is cut. Repository names, commits and PR links
-stay. The second command writes the file only if it would hold the same bytes, never over an
-existing file and never inside the store. Drafts are not exported.
-Nothing in the store changes, and nothing is sent anywhere: the file stays where you put it. The
-rules: [docs/design/contracts/export.md](docs/design/contracts/export.md).
-
-The templates start and finish a session document through engmem, never by writing the file
-themselves: over MCP with the `engmem_create_draft` and `engmem_complete_draft` tools, and
-otherwise by piping the document to `engmem draft create` and `engmem draft complete`. The
-delimiter is quoted, so nothing in the document is expanded or run:
-
-```bash
-engmem draft create <id> <<'EOF'                     # never overwrites; prints the version
----
-id: <id>
-...
-EOF
-engmem draft complete <id> --expected-version <version> <<'EOF'   # draft -> active
-...
-EOF
-```
-
-In PowerShell, set `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)` first: Windows
-PowerShell 5.1 otherwise sends every non-ASCII character to the command as `?`. Then pipe a
-single-quoted here-string, `@'` … `'@ | engmem draft create <id>`.
-
-More commands:
-
-```bash
-engmem backfill --all      # propose front matter for documents written before engmem
-engmem telemetry           # searches run, hit rate, context spent, split by channel
-engmem feedback record <session-id> <doc-id> helped   # or not-applicable, harmful
-engmem cost record-baseline <session-id> --tokens N   # a baseline figure your client reported
-```
-
-`backfill` never writes without showing the proposal first, leaves the document body
-byte-identical, and is idempotent.
-
-## What a document looks like
-
-Plain markdown with a YAML header — readable, and greppable, without this tool:
+## A document
 
 ```markdown
 ---
 id: 1000001-widget-cache
 title: Widget cache eviction
 date: 2026-08-24
+task_date: 2026-08-24
 status: active
 tags: [platform, caching]
 entities: [WidgetCache, CacheWarmer]
-related: [ttl-revalidation-v2]
-covers_files: [WidgetCache.java]
-mode: research
+repos: [platform-core]
 ---
 
-## Pre-reg                  (research mode only)
 ## 1. Executive Summary
-...
 ## 8. Decision Log
 ## 13. Future LLM Context (cold-start primer)
 ## 16. Reuse Log
-## Search Trace
 ```
 
-`/engmem.save` writes nineteen sections and `/engmem.save.quick` five (the list is in
-`ENGMEM-SPEC.md` §4); a daily session has no Pre-reg, so eighteen and four. Every claim
-carries `[Verified]`, `[Assumed]`, or `[Open]`, so the document says what it does not
-know instead of staying silent about it.
+No field is required: a document with partial front matter still loads, and engmem names what is
+missing. A document that is replaced points to its successor with `superseded_by`, and search
+sends the agent to the current one.
 
-No field is required. A document with missing or partial front matter still loads, and
-what is missing is named on stdout — engmem never hides a document from you because its
-metadata was incomplete.
+## Privacy
+
+engmem makes no network calls. Its git commands only read, except `git init` in a new store and
+in the walkthrough's demo repositories. Your documents stay in the store you choose, and engmem
+reads nothing through a link inside it. Outside the store it writes only the agent files and
+config entries listed under Install, its two one-line settings, a parse cache, the one file an
+`export` names, and the demo directory you give `walkthrough`. Your store usually describes
+proprietary code; keep it out of public repositories. Details: [docs/privacy.md](https://github.com/AlejandroKolio/engmem/blob/main/docs/privacy.md).
+
+## Learn more
+
+- [Guide](https://github.com/AlejandroKolio/engmem/blob/main/docs/guide.md): each agent's setup, the store, modes and every command.
+- [Anatomy of engmem](https://alejandrokolio.github.io/engmem/engmem-anatomy.html): one task end
+  to end, with the real output and the call path through the code.
+- Walkthroughs: [Codex](https://github.com/AlejandroKolio/engmem/blob/main/docs/walkthrough-codex.md), [a handoff between Codex and Claude
+  Code](https://github.com/AlejandroKolio/engmem/blob/main/docs/walkthrough-handoff.md).
+- [ENGMEM-SPEC.md](https://github.com/AlejandroKolio/engmem/blob/main/ENGMEM-SPEC.md) and [design contracts](https://github.com/AlejandroKolio/engmem/tree/main/docs/design/contracts): what engmem
+  promises and why.
 
 ## Development
 
@@ -482,106 +145,10 @@ uv sync --group dev
 uv run pytest -q
 ```
 
-Python ≥3.11. Runtime dependencies: `pyyaml` and `markdown-it-py`, and nothing else
-(hard constraint — see `ENGMEM-SPEC.md` §2). Search correctness is defined by the golden fixture tests in
-`tests/search/test_scoring.py` / `tests/test_cli.py`; at any conflict between the scoring
-formula and a golden test, the test wins.
-
-## What engmem touches on your machine
-
-**No network.** No telemetry upload, no model calls, no fetching at runtime. Search,
-ranking, and storage are entirely local. Two runtime dependencies, `pyyaml` and
-`markdown-it-py`; neither opens a socket.
-
-**Your store is private.** engmem reads and writes markdown under a directory you choose.
-That store commonly holds notes about proprietary code — it lives outside this repository
-and should stay that way. There is no encryption at rest; protect it the way you protect
-the source it describes.
-
-**Reads stay inside the store.** A link in `sessions/` or `versions/`, or `sessions/`
-itself being a link, is refused by name and nothing behind it is read, so an imported or
-shared store cannot hand the agent a file from elsewhere on your machine as a recorded
-decision. The logs follow the same rule: `telemetry.jsonl`, `cost.jsonl` and
-`feedback.jsonl` are never appended to or read through a link, so a search cannot write
-into a file outside the store. The store directory itself may be a link, for example into a
-synced folder.
-
-**Writes stay inside `sessions/`.** The MCP write tools resolve every path first and
-compare after, so `..` segments, absolute paths, symlinks pointing out of the store, and
-ids containing separators or NUL bytes are refused. Writes stage to a temporary file and
-re-validate before the document appears, so a crash mid-write cannot leave half a document.
-A new draft is published with a hard link, which refuses an id that already exists (where
-hard links are unavailable, a lock does the same), so of two calls creating one id exactly
-one succeeds. Two engmem calls rewriting one document take turns (`os.replace` under a
-lock), and finishing a draft can name the version it read, so a stale copy is refused
-instead of replacing newer text.
-
-**`engmem export` writes one new file, outside the store, and only what you previewed.** It
-needs the preview's fingerprint, refuses an existing file and a path inside the store, and leaves
-the store byte-identical. There is no MCP tool for it, so an agent connected over MCP cannot take
-a document out of the store. Spotting secrets in the text is not its job: read the preview.
-
-**Two one-line setting files.** `~/.config/engmem/store` and
-`~/.config/engmem/mode` (`$XDG_CONFIG_HOME/engmem/`; `%APPDATA%\engmem\` on Windows) are
-written only by `engmem store set` and `engmem mode set`, each holding one line. Neither
-`install` nor any other command writes them. Deleting a file returns that setting to its
-default.
-
-**`engmem search` runs read-only git commands.** When a hit has an anchor to compare, the
-search runs `git rev-parse --show-toplevel HEAD` once in its working directory. When `HEAD` has
-moved and the record lists `covers_files`, it runs one `git cat-file --batch` per such result,
-which reads commits and trees only and never fetches. Each is bounded to 5 seconds, with git
-taken from an absolute `PATH` entry, never from the project directory. It runs neither
-`git status` nor `git diff`, because both can start a program the repository configures, so
-uncommitted changes are not seen.
-
-**`engmem doctor` changes nothing.** It reads configs, templates and the rows of
-`telemetry.jsonl` and `cost.jsonl`, runs `engmem --version` and
-`<python> -m engmem.cli --version` with the MCP entry's Python, and writes one probe file into
-`sessions/`, removed straight away, even when interrupted.
-
-**`engmem walkthrough` writes only inside the directory you give it.** It creates a demo
-store, a demo Codex config and workspaces there, and runs `git init` in each, `engmem doctor`,
-and for `walkthrough codex --verify` the acceptance check engmem ships, against the workspace's
-`demo_orders`. `walkthrough handoff` also writes Claude Code's `.mcp.json` and
-`.claude/settings.json` inside its `storefront/` workspace, and makes one commit per workspace
-with your git hooks and commit signing switched off. The demo sessions leave two things
-outside the directory, neither written by the command: Claude Code records the `storefront/`
-folder's trust in `~/.claude.json` and the transcript under `~/.claude/projects/`, as for any
-folder; and every search on the demo store (the printed `engmem search ... --store`, the agents'
-own searches, the demo MCP server) uses the same `~/.cache/engmem` as your store and drops the
-cached entries for your documents. Results stay right; your next search only rebuilds them. The
-Codex sign-in the demo asks for stays inside, in the demo `CODEX_HOME`, and goes with the
-directory.
-
-**The cache is JSON, never pickle.** Token counts live under `~/.cache/engmem/`, which any
-process running as you can write to. Unpickling from there would execute whatever it
-contained; JSON cannot. A corrupted entry degrades to a cache miss. An entry is used only when
-the sha256 of the document body a search just read equals the one stored with it, so an edited
-document is never scored from its old text, whatever its size or modification time say.
-
-**Installing touches known paths only.** `engmem install` writes templates into the agent
-directory you name and, for `claude-desktop` and `codex`, adds one server entry to that
-app's config. `engmem uninstall` removes exactly what it added and never touches the store.
-The files engmem edits but does not own — your instructions file and those configs, which hold every other
-MCP server you configured — are replaced atomically, through any symlink rather than over
-it, so a failed write leaves them exactly as they were.
-
-**Two more logs beside `telemetry.jsonl`.** `feedback.jsonl` holds your assessments, and
-`cost.jsonl` one line per search or `engmem read` response (its byte count, never its text) and
-per baseline figure your client reported. A read, like a search, keeps a copy of the version it
-showed under `versions/` and prints the `cite as` reference for it. A `--read-only` MCP server
-writes no version copy and neither log; its searches still write telemetry rows.
-
-One thing to know: `engmem search` prints matched document text to stdout. In a shared
-terminal or a logged CI job, that text goes wherever the output goes.
-
-## Contributing
-
-The engineering principles this codebase is held to are `ENGMEM-SPEC.md` §10. The short
-version: tests first and never weakened, standard library over dependencies, errors loud
-on stdout, and examples in tests and docs invented rather than taken from real work.
+See [CONTRIBUTING.md](https://github.com/AlejandroKolio/engmem/blob/main/CONTRIBUTING.md). The principles the code is held to are in
+`ENGMEM-SPEC.md` §10: tests first and never weakened, the standard library over dependencies,
+errors stated loudly, and examples invented rather than taken from real work.
 
 ## License
 
-[MIT](LICENSE) © Alexander Shakhov
+[MIT](https://github.com/AlejandroKolio/engmem/blob/main/LICENSE) © Alexander Shakhov

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "engmem"
 DOCS = (
     [ROOT / "README.md", ROOT / "ENGMEM-SPEC.md", ROOT / "docs" / "engmem-anatomy.html"]
+    + [ROOT / "docs" / "guide.md", ROOT / "docs" / "privacy.md"]
     + sorted((ROOT / "docs" / "design").rglob("*.md"))
 )
 
@@ -115,7 +116,9 @@ def test_a_contract_that_argues_for_a_value_states_the_one_the_code_holds(
 
 
 QUOTED_CONSTANTS = [
-    ("output", "MAX_OUTPUT_BYTES", ["README.md", "ENGMEM-SPEC.md", "engmem-anatomy.html", "data-model.md"]),
+    ("output", "MAX_OUTPUT_BYTES", [
+        "README.md", "guide.md", "ENGMEM-SPEC.md", "engmem-anatomy.html", "data-model.md",
+    ]),
 ]
 
 
@@ -212,6 +215,54 @@ def test_cli_commands_and_flags_named_in_the_docs_exist():
     assert cited_subs <= subcommands, f"the page names subcommands the CLI lacks: {cited_subs - subcommands}"
     unknown = cited_flags - flags
     assert not unknown, f"the page names flags the CLI lacks: {sorted(unknown)}"
+
+
+def _cli_names():
+    from engmem.cli import build_parser
+
+    parser = build_parser()
+    top = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    flags: set[str] = set()
+    pending = [parser]
+    while pending:
+        current = pending.pop()
+        for action in current._actions:
+            flags |= set(action.option_strings)
+            if isinstance(action, argparse._SubParsersAction):
+                pending.extend(action.choices.values())
+    return set(top.choices), flags
+
+
+def _markdown_code(text: str) -> list[str]:
+    """Fenced blocks and inline code spans: where a reader is told what to type."""
+    fenced = re.findall(r"^```[^\n]*\n(.*?)^```", text, re.MULTILINE | re.DOTALL)
+    prose = re.sub(r"^```[^\n]*\n.*?^```", "", text, flags=re.MULTILINE | re.DOTALL)
+    return [line for block in fenced for line in block.splitlines()] + re.findall(r"`([^`\n]+)`", prose)
+
+
+@pytest.mark.parametrize("doc", [ROOT / "README.md", ROOT / "docs" / "guide.md"], ids=lambda p: p.name)
+def test_the_commands_and_flags_a_markdown_doc_teaches_are_the_cli_s(doc):
+    """The README's tables and the guide are what a reader types from; a renamed flag there is a
+    refusal at the prompt."""
+    subcommands, flags = _cli_names()
+    # the guide also teaches the checkout's own scripts, `tools/gate1_report.py --since`
+    flags |= {
+        flag for script in (ROOT / "tools").glob("*.py")
+        for flag in re.findall(r"[\"'](--[a-z][a-z-]+)[\"']", script.read_text(encoding="utf-8"))
+    }
+    unknown_subs, unknown_flags = set(), set()
+    for code in _markdown_code(doc.read_text(encoding="utf-8")):
+        # a shell comment is prose again: "what engmem delivered" names no subcommand
+        code = re.sub(r"\s#.*$", "", code.replace("engmem mode for this session", ""))
+        for m in re.finditer(r"(?<![\w/~.-])engmem ([a-z][a-z-]*)([^|\n]*)", code):
+            unknown_subs |= {m.group(1)} - subcommands
+            unknown_flags |= set(re.findall(r"(?<!\w)(--[a-z][a-z-]+)", m.group(2))) - flags
+        # a table cell or a sentence can name a flag in a span of its own: `--role decisions`
+        if code.lstrip().startswith("--"):
+            unknown_flags |= set(re.findall(r"(?<!\w)(--[a-z][a-z-]+)", code)) - flags
+
+    assert not unknown_subs, f"{doc.name} names subcommands the CLI lacks: {sorted(unknown_subs)}"
+    assert not unknown_flags, f"{doc.name} names flags the CLI lacks: {sorted(unknown_flags)}"
 
 
 _NUMBER_WORDS = {16: ("sixteen", "шестнадцать")}
@@ -361,7 +412,10 @@ ANATOMY_EN = ANATOMY[ANATOMY.index('<div class="lang-en"'):]
 
 
 @pytest.mark.parametrize(
-    "doc", [ROOT / "SECURITY.md", ROOT / ".github" / "pull_request_template.md", ROOT / "README.md"],
+    "doc", [
+        ROOT / "SECURITY.md", ROOT / ".github" / "pull_request_template.md", ROOT / "README.md",
+        ROOT / "docs" / "privacy.md",
+    ],
     ids=lambda p: p.name,
 )
 def test_the_runtime_dependencies_named_are_the_two_the_wheel_requires(doc):
@@ -422,11 +476,15 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-README = _flat((ROOT / "README.md").read_text(encoding="utf-8"))
+# the README is the landing page; the reference it used to carry is the guide and the privacy page
+USER_DOCS = _flat(
+    (ROOT / "docs" / "guide.md").read_text(encoding="utf-8")
+    + "\n" + (ROOT / "docs" / "privacy.md").read_text(encoding="utf-8")
+)
 SPEC = _flat((ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8"))
 STORE_README = _flat((ROOT / "docs" / "store-readme.md").read_text(encoding="utf-8"))
 _PROSE = {
-    "README.md": README, "ENGMEM-SPEC.md": SPEC,
+    "guide and privacy": USER_DOCS, "ENGMEM-SPEC.md": SPEC,
     "anatomy RU": _flat(ANATOMY_RU), "anatomy EN": _flat(ANATOMY_EN),
 }
 
@@ -456,7 +514,7 @@ def test_the_demo_paths_the_docs_name_are_the_ones_the_walkthrough_builds():
     in_readme = [f"`{pair.storefront.name}/`", f"`{handoff.MCP_CONFIG}`", f"`{handoff.CLAUDE_SETTINGS}`"]
 
     assert [p for p in in_spec if p not in SPEC] == []
-    assert [p for p in in_readme if p not in README] == []
+    assert [p for p in in_readme if p not in USER_DOCS] == []
     for half in (ANATOMY_RU, ANATOMY_EN):
         assert f"<code>{pair.storefront.name}/</code>" in half
 
@@ -477,7 +535,7 @@ def test_the_export_flags_the_docs_show_are_the_ones_the_cli_takes():
 
     assert set(actions) == {"--help", "--out", "--confirm", "--store"}
     assert f"engmem export DOC_ID [--out {out.metavar} --confirm {confirm.metavar}]" in SPEC
-    assert re.search(r"engmem export \S+ --out \S+ --confirm <fingerprint>", README)
+    assert re.search(r"engmem export \S+ --out \S+ --confirm <fingerprint>", USER_DOCS)
     assert "--out FILE --confirm <fingerprint>" in STORE_README
     assert "--out &lt;файл&gt; --confirm &lt;отпечаток&gt;" in ANATOMY_RU
     assert "--out &lt;file&gt; --confirm &lt;fingerprint&gt;" in ANATOMY_EN
@@ -512,7 +570,7 @@ def test_no_mcp_tool_takes_a_document_out_of_the_store_as_the_docs_say(tmp_path)
     names = [tool["name"] for tool in _handle_tools_list({}, tmp_path)["tools"]]
 
     assert not [n for n in names if "export" in n or "walkthrough" in n], names
-    assert "There is no MCP tool for it" in README
+    assert "There is no MCP tool for it" in USER_DOCS
     assert "There is no MCP tool, so an agent connected over MCP cannot take a document" in SPEC
     assert "There is no MCP tool for export" in ANATOMY_EN
     assert "MCP-инструмента для экспорта нет" in ANATOMY_RU
@@ -536,10 +594,10 @@ def test_the_bridge_lines_the_docs_describe_are_the_ones_install_and_doctor_prin
     assert {f.status for f in findings.values()} == {Status.UNVERIFIED}
     assert "Install then prints a `bridge:` line" in SPEC and "`public bridge:` line" in SPEC
     assert "two `unverified` lines" in SPEC and "`tunnel`" in SPEC
-    for name, text in (("README.md", README), ("anatomy EN", ANATOMY_EN), ("store-readme", STORE_README)):
+    for name, text in (("guide", USER_DOCS), ("anatomy EN", ANATOMY_EN), ("store-readme", STORE_README)):
         assert "not protected" in text, f"{name} no longer says a public bridge is not protected"
     assert "не защищён" in ANATOMY_RU
-    assert "it is not privacy" in README and "is not privacy" in ANATOMY_EN
+    assert "it is not privacy" in USER_DOCS and "is not privacy" in ANATOMY_EN
     assert "приватности он не даёт" in ANATOMY_RU
 
 
@@ -591,6 +649,21 @@ def test_the_shared_cache_the_docs_warn_about_is_the_one_every_demo_client_uses(
 
     assert [env for env in environments if "XDG_CACHE_HOME" in env] == []
     assert len(roots) == 1
-    assert "uses the same `~/.cache/engmem` as your store" in README
+    assert "uses the same `~/.cache/engmem` as your store" in USER_DOCS
     assert "Кэш разбора у демо общий с вашим хранилищем" in _flat(ANATOMY_RU)
     assert "The demo shares the parse cache with your store" in _flat(ANATOMY_EN)
+
+
+@pytest.mark.parametrize("doc", [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))],
+                         ids=lambda p: p.name)
+def test_every_relative_link_names_a_file_that_exists(doc):
+    """The README's reference moved into docs/; a link left pointing at the old place is a 404.
+    The README links this repository absolutely, since PyPI shows it and resolves no relative link."""
+    text = doc.read_text(encoding="utf-8")
+    relative = re.findall(r"\]\((?!https?://|#|mailto:)([^)#\s]+)", text)
+    own = re.findall(r"\]\(https://github\.com/AlejandroKolio/engmem/(?:blob|tree)/main/([^)#\s]+)", text)
+
+    assert [t for t in relative if not (doc.parent / t).exists()] == []
+    assert [t for t in own if not (ROOT / t).exists()] == []
+    if doc.name == "README.md":
+        assert relative == []
