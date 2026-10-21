@@ -6,13 +6,16 @@ import pytest
 from support.docs import fixture_docs
 
 import dataclasses
+from collections import Counter
 import json
 
 from engmem import cache
 from engmem.scoring import (
     _NULLABLE_PAYLOAD_FIELDS,
     _PAYLOAD_FIELD_TYPES,
+    _build_query_tokens,
     _build_section_index,
+    _document_frequencies,
     _entries_for_doc,
     _section_entry_from_payload,
     _section_to_payload,
@@ -1024,7 +1027,7 @@ def _recomputed_literal_tf(entry):
     ],
 )
 def test_a_payload_field_that_fails_the_type_table_is_recomputed_not_believed(
-    tmp_path, capsys, field_path, bad_value, believed_it_would_be
+    tmp_path, capsys, new_process, field_path, bad_value, believed_it_would_be
 ):
     """"A shape mismatch is a miss, never a crash" has to cover the shapes that would not crash
     on their own: each of these is wrong, silent, and cached for as long as the entry lives."""
@@ -1040,6 +1043,7 @@ def test_a_payload_field_that_fails_the_type_table_is_recomputed_not_believed(
     target[field_path[-1]] = bad_value
     entry_path.write_text(json.dumps(record), encoding="utf-8")
     capsys.readouterr()
+    new_process()
 
     entries = _entries_for_doc(doc)
 
@@ -1100,7 +1104,9 @@ def test_a_superseded_cluster_mate_is_still_collapsed(tmp_path):
     assert "aaa-queue-hidden" not in [n.doc.id for n in outcome.superseded_notes]
 
 
-def test_a_role_the_payload_does_not_recognise_is_recomputed_not_believed(tmp_path, capsys):
+def test_a_role_the_payload_does_not_recognise_is_recomputed_not_believed(
+    tmp_path, capsys, new_process
+):
     """`canonical` keys `role_coverage`'s `{role: 0 for role in CANONICAL_ROLES}`. A payload
     written by a future install that added a role without bumping `cache.CACHE_FORMAT_VERSION`
     must be a miss here too, or that dict comprehension raises `KeyError` on a role it has never
@@ -1118,6 +1124,7 @@ def test_a_role_the_payload_does_not_recognise_is_recomputed_not_believed(tmp_pa
     record["payload"]["sections"][0]["canonical"] = "runbook-from-a-newer-install"
     entry_path.write_text(json.dumps(record), encoding="utf-8")
     capsys.readouterr()
+    new_process()
 
     coverage = role_coverage(docs)
 
@@ -1147,3 +1154,22 @@ def test_a_section_survives_the_payload_round_trip_field_by_field():
     assert set(payload) - {"literal_tf", "derived_tf"} == {
         f.name for f in dataclasses.fields(Section)
     }
+
+
+@pytest.mark.parametrize("query", ["ResponseCache", "cache ttl", "MQ sweeper", "etag 1000001"])
+def test_document_frequencies_count_each_query_token_as_the_whole_corpus_would(query):
+    """Counted for the query's tokens only; each must equal the count over every token of the
+    corpus, literal and CamelCase-derived apart, that BM25 read before."""
+    docs = fixture_docs()
+    entries = _build_section_index(docs, docs)
+    tokens = _build_query_tokens(query)
+    whole_literal, whole_derived = Counter(), Counter()
+    for entry in entries:
+        whole_literal.update(entry.literal_tf.keys())
+        whole_derived.update(entry.derived_tf.keys())
+
+    df_literal, df_derived = _document_frequencies(entries, tokens)
+
+    for qt in tokens:
+        assert df_literal[qt.text] == whole_literal[qt.text], qt.text
+        assert df_derived[qt.text] == whole_derived[qt.text], qt.text

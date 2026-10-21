@@ -133,7 +133,7 @@ def _is_restricted(token: str) -> bool:
     return len(token) <= 3 or token.isdigit()
 
 
-def _field_token_sets(value) -> tuple[set[str], set[str]]:
+def _field_token_sets(value) -> tuple[frozenset[str], frozenset[str]]:
     """`(original_tokens, all_tokens_including_derived_fragments)`."""
     originals: set[str] = set()
     all_tokens: set[str] = set()
@@ -151,16 +151,19 @@ def _field_token_sets(value) -> tuple[set[str], set[str]]:
                 if acronym:
                     all_tokens.add(acronym)
 
-    return originals, all_tokens
+    return frozenset(originals), frozenset(all_tokens)
 
 
-def _doc_field_index(doc: Doc) -> dict[str, tuple[set[str], set[str]]]:
-    return {
-        "id": _field_token_sets(doc.id),
-        "entities": _field_token_sets(doc.entities),
-        "title": _field_token_sets(doc.title),
-        "tags": _field_token_sets(doc.tags),
-    }
+_KEPT_FIELDS: cache.KeptByPath[dict[str, tuple[frozenset[str], frozenset[str]]]] = (
+    cache.KeptByPath()
+)
+
+
+def _doc_field_index(doc: Doc) -> dict[str, tuple[frozenset[str], frozenset[str]]]:
+    fields = {"id": doc.id, "entities": doc.entities, "title": doc.title, "tags": doc.tags}
+    return _KEPT_FIELDS.get(
+        doc.path, fields, lambda: {name: _field_token_sets(value) for name, value in fields.items()}
+    )
 
 
 @dataclass
@@ -279,7 +282,10 @@ class SearchOutcome:
 
 
 def _id_field_weight(
-    qt: _QueryToken, id_originals: set[str], id_all: set[str], whole_id_matched: bool
+    qt: _QueryToken,
+    id_originals: frozenset[str],
+    id_all: frozenset[str],
+    whole_id_matched: bool,
 ) -> int | None:
     candidates = id_originals if qt.restricted else id_all
     if qt.text not in candidates:
@@ -493,11 +499,19 @@ def _entries_from_cache(doc: Doc, cached_payload: object) -> list[_SectionEntry]
         return None
 
 
+# the cache's own rule, kept in memory for a process that searches more than once
+_KEPT_ENTRIES: cache.KeptByPath[list[_SectionEntry]] = cache.KeptByPath()
+
+
 def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
     """Section-level token index for one document, from cache when its body is unchanged."""
     # the hash of the very text the payload is built from below, so an entry can only ever be
     # served for that text — contracts/cache.md, "Keyed by content"
     key = cache.content_key(doc.body)
+    return _KEPT_ENTRIES.get(doc.path, (doc.id, key), lambda: _built_entries(doc, key))
+
+
+def _built_entries(doc: Doc, key: str) -> list[_SectionEntry]:
     cached_payload = cache.load(doc.path, key)
     if cached_payload is not None:
         entries = _entries_from_cache(doc, cached_payload)
@@ -526,19 +540,23 @@ def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
 def _build_section_index(docs: list[Doc], store_docs: list[Doc]) -> list[_SectionEntry]:
     """Section entries for `docs`, pruning the cache against `store_docs` — the whole store,
     which is the only set entitled to say an entry is an orphan."""
-    cache.prune_orphans([doc.path for doc in store_docs])
+    store_paths = [doc.path for doc in store_docs]
+    cache.prune_orphans(store_paths)
+    _KEPT_ENTRIES.retain(store_paths)
+    _KEPT_FIELDS.retain(store_paths)
     entries: list[_SectionEntry] = []
     for doc in docs:
         entries.extend(_entries_for_doc(doc))
     return entries
 
 
-def _document_frequencies(entries: list[_SectionEntry]) -> tuple[Counter[str], Counter[str]]:
-    df_literal: Counter[str] = Counter()
-    df_derived: Counter[str] = Counter()
-    for entry in entries:
-        df_literal.update(entry.literal_tf.keys())
-        df_derived.update(entry.derived_tf.keys())
+def _document_frequencies(
+    entries: list[_SectionEntry], query_tokens: list[_QueryToken]
+) -> tuple[Counter[str], Counter[str]]:
+    """Entries holding each query token: the only frequencies `_bm25_entry_score` reads."""
+    texts = {qt.text for qt in query_tokens}
+    df_literal = Counter(t for entry in entries for t in texts if t in entry.literal_tf)
+    df_derived = Counter(t for entry in entries for t in texts if t in entry.derived_tf)
     return df_literal, df_derived
 
 
@@ -588,7 +606,7 @@ def _body_scores_from_entries(
     avgdl = sum(e.length for e in entries) / n
     if avgdl == 0:
         return {}
-    df_literal, df_derived = _document_frequencies(entries)
+    df_literal, df_derived = _document_frequencies(entries, query_tokens)
 
     by_doc: dict[str, list[SectionHit]] = {}
     for entry in entries:

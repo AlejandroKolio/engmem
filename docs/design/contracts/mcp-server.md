@@ -57,6 +57,13 @@ acceptance procedure for AC-19.2 does exactly that (`docs/remote-access.md`). Th
 tell whether it was spawned by `tunnel-client` or by a public bridge, since both speak stdio to
 it, so no behaviour here keys on the bridge.
 
+## One process, many calls: the store is kept, never trusted
+
+Every tool call loads the store through `_load_store_for_tool`, which passes the process's
+`_KEPT_DOCS`: a document whose file reads exactly as on the last call is not parsed again, and
+its section entries are not rebuilt. Every file is still read on every call, so each answer is
+the one a fresh server would give (`contracts/cache.md`, "Kept between searches").
+
 ## Transport and the stdout-purity rule
 
 Newline-delimited JSON-RPC 2.0 on stdio. `serve()` is the only writer of `stdout`, through

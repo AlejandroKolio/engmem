@@ -326,11 +326,12 @@ def _stale_entry_for(path: Path) -> None:
     pytest.param(cli_search, id="cli"),
     pytest.param(mcp_search, id="mcp"),
 ])
-def test_ac_02_6_a_pre_upgrade_cache_entry_is_not_served(tmp_path, run, capsys):
+def test_ac_02_6_a_pre_upgrade_cache_entry_is_not_served(tmp_path, run, capsys, new_process):
     sessions = _write_matrix_store(tmp_path)
     ru_doc = sessions / "3000-ru.md"
     assert "### 3000-ru " in run(tmp_path, "идемпотентность", capsys)
     _stale_entry_for(ru_doc)
+    new_process()
 
     out = run(tmp_path, "идемпотентность", capsys)
 

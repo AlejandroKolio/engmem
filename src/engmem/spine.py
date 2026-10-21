@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from engmem import confined
-from engmem.cache import identity_for
+from engmem.cache import KeptByPath, content_key, identity_for
 from engmem.settings import Mode
 
 # Fields whose absence degrades retrieval: the scored fields plus the ones that order and filter
@@ -474,6 +474,10 @@ def parse_document(path: Path) -> Doc:
     identity = identity_for(path)
     # a link out of the store is refused here, before a byte behind it is read (US-22)
     text = confined.read_utf8(path, confined.SESSION_DEPTH)
+    return _parse_text(path, text, identity)
+
+
+def _parse_text(path: Path, text: str, identity: tuple[int, int] | None) -> Doc:
     front_matter_text, body = split_front_matter(text)
     raw = load_yaml(front_matter_text) or {}
     if not isinstance(raw, dict):
@@ -574,7 +578,14 @@ def parse_document(path: Path) -> Doc:
     )
 
 
-def load_store(sessions_dir: Path) -> LoadResult:
+def _parse_kept(path: Path, kept: KeptByPath[Doc]) -> Doc:
+    """`parse_document(path)`, without the parse when the file reads exactly as last time."""
+    identity = identity_for(path)
+    text = confined.read_utf8(path, confined.SESSION_DEPTH)
+    return kept.get(path, (identity, content_key(text)), lambda: _parse_text(path, text, identity))
+
+
+def load_store(sessions_dir: Path, kept: KeptByPath[Doc] | None = None) -> LoadResult:
     result = LoadResult()
     seen_ids: dict[str, Path] = {}
     sessions_dir = Path(sessions_dir)
@@ -598,9 +609,11 @@ def load_store(sessions_dir: Path) -> LoadResult:
         result.scan_error = problem
         return result
 
+    if kept is not None:
+        kept.retain(paths)
     for path in paths:
         try:
-            doc = parse_document(path)
+            doc = parse_document(path) if kept is None else _parse_kept(path, kept)
         except (yaml.YAMLError, ValueError, OSError) as exc:
             # OSError covers failures before front matter is even reached:
             # permission-denied, a dangling symlink, a directory shadowing the name

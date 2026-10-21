@@ -13,6 +13,7 @@ from typing import Any, TextIO
 import yaml
 
 from engmem import __version__, confined, cost, drafts, feedback
+from engmem.cache import KeptByPath
 from engmem.read_report import ReadError, compose_read
 from engmem.settings import ModeSettingError, mode_setting_file, saved_mode
 from engmem.scoring import Scope
@@ -21,6 +22,7 @@ from engmem.sections import CANONICAL_ROLES
 # imported, not reimplemented, so a document a write tool below produces is
 # validated by the exact rules load_store applies when reading it back
 from engmem.spine import (
+    Doc,
     LoadResult,
     compose_yaml,
     load_store,
@@ -254,6 +256,11 @@ class _StoreLoadError(Exception):
     """Raised when the store itself cannot be read at all."""
 
 
+# the server answers many calls from one process; a document is parsed again only when its file
+# reads differently — contracts/cache.md, "Kept between searches"
+_KEPT_DOCS: KeptByPath[Doc] = KeptByPath()
+
+
 def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]]:
     """Loads `sessions/`, raising `_StoreLoadError` rather than returning on a broken store."""
     sessions_dir = store / "sessions"
@@ -268,7 +275,7 @@ def _load_store_for_tool(store: Path) -> tuple[LoadResult, list[Path], list[str]
             "store path)."
         )
 
-    result = load_store(sessions_dir)
+    result = load_store(sessions_dir, _KEPT_DOCS)
     for problem in result.errors:
         print(f"engmem-mcp: {problem.message}", file=sys.stderr)
     for problem in result.warnings:
