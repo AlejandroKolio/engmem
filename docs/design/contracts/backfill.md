@@ -2,7 +2,7 @@
 
 Source: `ENGMEM-SPEC.md` §4 and data-model.md's "No field is a load gate". Implementation:
 `src/engmem/backfill.py` (`propose_backfill` / `apply_backfill`), the write path shared with
-the MCP tools in `src/engmem/staging.py`, and `cli.py`'s `_cmd_backfill`. A document written
+the MCP tools in `src/engmem/staging.py`, and `commands.py`'s `cmd_backfill`. A document written
 before engmem existed loads with a partial spine; this command derives the missing front
 matter from the document's own prose, shows it, and writes it only once a human agrees.
 
@@ -13,7 +13,7 @@ matter from the document's own prose, shows it, and writes it only once a human 
 - A field the document already states (`spine.stated`) is never proposed, so a value a human
   or an earlier run set is never overwritten. New keys are appended to the author's own block,
   never re-dumped over it.
-- `propose_backfill` computes; `apply_backfill` writes; nothing writes until `_cmd_backfill`
+- `propose_backfill` computes; `apply_backfill` writes; nothing writes until `cmd_backfill`
   has shown the proposal. The evidence string under each proposed value is the whole basis on
   which the human says yes, so it has to be true of the document: "no `- Repos:` preamble line
   with a value found" may not be printed over a line that carries one.
@@ -47,7 +47,7 @@ does. Ctrl-C exits 130 and is named on both streams, because exit 0 would let
 traceback, which reads as a crash partway through a write.
 
 Exit codes: 2 when `sessions/` is missing or cannot be examined, when `sessions/` does not
-resolve inside the store (`cli._sessions_is_contained`, checked before anything is read), when
+resolve inside the store (`commands._sessions_is_contained`, checked before anything is read), when
 `--id` names nothing, and whenever a target could not be read or written — under `--dry-run`
 and after a decline too, because the preview is what a `--dry-run && --yes` script gates on.
 Otherwise 0, including "nothing to backfill", which is printed rather than left silent so an
@@ -253,7 +253,7 @@ typo'd `[see](..md)` wrote `related: ['.']`, which no author would recognise as 
 ## The proposal has to still describe the document
 
 `propose_backfill` derives every value from `doc.body`, built during `load_store`, and
-`_cmd_backfill` puts a human's prompt between that and the write — a prompt whose note asks
+`cmd_backfill` puts a human's prompt between that and the write — a prompt whose note asks
 the author to go and edit the document. `apply_backfill` re-reads the body at write time, so
 the edit survives and the byte-for-byte check passes; what goes stale, silently, is the derived
 values. So the proposal carries the file's `(mtime_ns, size)` (`cache.identity_for`;
@@ -384,7 +384,7 @@ check runs before staging and does not cover it.
 
 A symlinked document is refused, not written — `contracts/mcp-server.md`'s point 3 for the MCP
 write tools — and `sessions/` itself being a link out of the store is refused by
-`cli._sessions_is_contained`, its point 2, because a git checkout carries a symlinked
+`commands._sessions_is_contained`, its point 2, because a git checkout carries a symlinked
 directory as readily as a file and following one aims every write of `--all --yes` outside the
 store. `os.replace` over the link turned it into a regular file and left the original to
 diverge; writing through it is worse in both directions. Out of the directory, it would make

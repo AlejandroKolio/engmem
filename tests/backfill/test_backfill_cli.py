@@ -8,7 +8,7 @@ import pytest
 
 from support.platform import requires_symlinks
 
-from engmem import cli
+from engmem import commands
 from engmem.cli import main
 from engmem.scoring import search
 from engmem.spine import load_store
@@ -441,14 +441,14 @@ def test_a_symlinked_sessions_directory_is_refused(tmp_path, capsys):
 
 def test_a_target_unreadable_at_proposal_time_is_reported_not_raised(store, capsys, monkeypatch):
     """`propose_backfill` reads the file again, after `load_store` already did."""
-    real_propose = cli.propose_backfill
+    real_propose = commands.propose_backfill
 
     def propose_or_fail(doc):
         if doc.id == "widget-cache-warmup":
             raise FileNotFoundError(2, "No such file or directory", str(doc.path))
         return real_propose(doc)
 
-    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    monkeypatch.setattr(commands, "propose_backfill", propose_or_fail)
     exit_code, out, err = _run(["--all", "--yes", "--store", str(store)], capsys)
 
     assert exit_code == 2
@@ -459,14 +459,14 @@ def test_a_target_unreadable_at_proposal_time_is_reported_not_raised(store, caps
 
 def test_an_unreadable_target_costs_the_dry_run_its_exit_code(store, capsys, monkeypatch):
     """`--dry-run` is what a `--dry-run && --yes` script gates on."""
-    real_propose = cli.propose_backfill
+    real_propose = commands.propose_backfill
 
     def propose_or_fail(doc):
         if doc.id == "widget-cache-warmup":
             raise PermissionError(13, "Permission denied", str(doc.path))
         return real_propose(doc)
 
-    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    monkeypatch.setattr(commands, "propose_backfill", propose_or_fail)
     exit_code, out, err = _run(["--all", "--dry-run", "--store", str(store)], capsys)
 
     assert exit_code == 2
@@ -475,14 +475,14 @@ def test_an_unreadable_target_costs_the_dry_run_its_exit_code(store, capsys, mon
 
 def test_a_declined_confirmation_still_reports_a_read_failure(store, capsys, monkeypatch):
     """The read failed before the prompt; it is not what the human declined."""
-    real_propose = cli.propose_backfill
+    real_propose = commands.propose_backfill
 
     def propose_or_fail(doc):
         if doc.id == "widget-cache-warmup":
             raise PermissionError(13, "Permission denied", str(doc.path))
         return real_propose(doc)
 
-    monkeypatch.setattr(cli, "propose_backfill", propose_or_fail)
+    monkeypatch.setattr(commands, "propose_backfill", propose_or_fail)
     exit_code, out, err = _run(["--all", "--store", str(store)], capsys, monkeypatch, "n")
 
     assert "cancelled" in out

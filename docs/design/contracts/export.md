@@ -1,6 +1,6 @@
 # Contract: exporting one document
 
-Source: `src/engmem/export.py`, called by `engmem export` in `src/engmem/cli.py`. Added by US-20.
+Source: `src/engmem/export.py`, called by `engmem export` in `src/engmem/commands.py`. Added by US-20.
 Before it, the only way to share one decision was to copy the file out of `sessions/` by hand. That
 copy carries the front matter's links to other documents, YAML comments, the Reuse Log's quotes
 from other documents and whatever local paths the text mentions. The owner decisions of 2026-10-10

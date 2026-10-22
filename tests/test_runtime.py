@@ -202,8 +202,8 @@ def test_an_unresolvable_tilde_is_named_on_stdout_not_only_a_traceback(tmp_path,
     """End-to-end: before this fix, `main(["search", ..., "--store", "~nosuchuser.../x"])` raised
     RuntimeError out of `resolve_store`, with no handler between it and `cli.main` — the
     traceback went to stderr only, and the stdout-reading consumer (ENGMEM-SPEC.md §10
-    principle VIII) saw nothing. `cli.py` is unmodified; this proves the existing
-    store-not-found path (cli.py's `fail`, on both streams) is what the caller now reaches."""
+    principle VIII) saw nothing. This proves the existing store-not-found path
+    (`commands._read_sessions`'s `fail`, on both streams) is what the caller now reaches."""
     from engmem.cli import main
 
     monkeypatch.chdir(tmp_path)
@@ -266,7 +266,7 @@ def test_a_failure_is_named_on_stdout_as_well_as_stderr(capsys):
 
 
 def test_fail_does_not_exit_so_the_caller_owns_the_exit_code(capsys):
-    """`_cmd_backfill` reports one unreadable document and keeps going through the rest of the
+    """`cmd_backfill` reports one unreadable document and keeps going through the rest of the
     batch; `_validate_agent` reports and returns 2. An exit inside `fail` would take that choice
     away from every caller at once."""
     assert fail("first") is None
