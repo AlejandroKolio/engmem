@@ -33,3 +33,33 @@ off the machine, or reaches outside the configured store directory, is in scope:
 Out of scope: what you choose to put in your own store, and the contents of a store
 you have deliberately committed to a repository. engmem cannot tell a public note
 from a private one — that judgement is yours, before the file is written.
+
+## Windows is checked less than Linux and macOS
+
+CI runs the whole suite on Windows, but about fifty of its tests are skipped there, and some
+guarantees are weaker there or absent:
+
+- **No `dir_fd` opens.** On Linux and macOS a read or an append inside the store opens each
+  path component relative to the one before, with `O_NOFOLLOW`, so a link swapped in at any
+  depth makes the open fail. Windows has no such open. engmem checks each component with
+  `lstat`, opens the file by name, and afterwards confirms the name is still the file it
+  opened. Two races remain: a directory above a file swapped for a junction between the check
+  and the open is read through, and a link swapped in for a log that does not exist yet can
+  leave an empty file outside the store. Tests of the `dir_fd` path are skipped there; the
+  fallback path itself runs on every platform, switched on by the tests.
+- **No private file modes.** On Linux and macOS a new document, its staged copy and a Claude
+  Desktop config engmem creates are `0600`, and a rewrite keeps the file's mode. On Windows
+  `chmod` only sets the read-only bit, so these files get the permissions of their folder.
+  Those tests are skipped there.
+- **No unwritable-store tests.** The tests that make a store, a log or a config unwritable and
+  check what engmem reports are skipped, because `chmod` there only sets the read-only bit,
+  which stops neither reads nor creating files in a directory. The code paths exist; they are
+  not exercised on Windows.
+- **Appends take a lock.** On Windows `O_APPEND` is a seek and a write, so log appends run under
+  a lock directory in the store; a lock left by a killed process blocks that log until it is
+  removed by hand.
+
+Symlinks and junctions themselves are tested on Windows. The details and the reasons are in
+`docs/design/contracts/runtime.md`, "Reads stay inside the store" and "Logs are written inside
+the store". A report that turns either race into a read or a write outside the store is in
+scope.

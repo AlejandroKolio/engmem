@@ -1,10 +1,9 @@
 version: 2
 updates:
   # The actions in ci.yml and release.yml are third-party code running with repository
-  # access. A tag can be moved under you; this is what keeps the pinned versions current.
-  # It does not reach `pypa/gh-action-pypi-publish@release/v1` — a branch has no version
-  # to raise, so the action that mints the PyPI token is the one this never reports on.
-  # That trade-off is argued at the `uses:` line in release.yml.
+  # access, each pinned to a commit SHA with its release in a comment: a tag or a branch can
+  # be moved under you, a SHA cannot. This keeps the pins current: a monthly PR per action that
+  # has a new release.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

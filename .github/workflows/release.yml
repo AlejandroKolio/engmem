@@ -17,10 +17,10 @@ jobs:
     # an existing version, so both are caught here or not at all.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -46,10 +46,10 @@ jobs:
     needs: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -79,7 +79,7 @@ jobs:
           print(f"{sdist.name}: {len(top)} top-level entries, all expected")
           PY
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
@@ -100,15 +100,13 @@ jobs:
       id-token: write # the OIDC token PyPI verifies; nothing else is needed
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        # `release/v1` is a BRANCH, not a tag — deliberately, and it is PyPA's documented
-        # form: security fixes reach this job without a manual bump. The cost is that
-        # Dependabot has no version to raise, so the one action holding `id-token: write`
-        # is also the one action nothing reports on. Read its release notes before trusting
-        # a run you did not expect.
-        uses: pypa/gh-action-pypi-publish@release/v1
+        # pinned to a commit, like every action here: this is the one step holding
+        # `id-token: write`, so a moved branch or tag must not change what runs with it.
+        # Dependabot moves this SHA and its comment forward in a pull request.
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
