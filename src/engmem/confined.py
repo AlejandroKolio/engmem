@@ -7,6 +7,8 @@ from __future__ import annotations
 import errno
 import os
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 # the parts of a path that sit inside the store: `<log>.jsonl`, `sessions/<id>.md`,
@@ -106,17 +108,27 @@ def _not_regular(path: Path, st: os.stat_result) -> OSError:
     return OSError(errno.EINVAL, "Not a regular file", str(path))
 
 
+def _read_regular(path: Path, fd: int) -> bytes:
+    """The bytes behind `fd`, refused unless it is a regular file; `fd` is closed either way."""
+    # checked before `fdopen`: `fdopen` on a directory raises naming the fd number, not the path,
+    # and leaves the fd open, one more for every search in a long-lived server
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise _not_regular(path, st)
+    except BaseException:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "rb") as f:
+        return f.read()
+
+
 def read_bytes(path: Path, depth: int) -> bytes:
     """`path`'s bytes; its last `depth` parts are inside the store and none may be a link.
     The store root above them may be one: it is the owner's choice, resolved once."""
     if _OPENAT:
         # O_NONBLOCK: a FIFO left in the store is refused below instead of hanging the open
-        fd = _open_inside(path, depth, os.O_RDONLY | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as f:
-            st = os.fstat(f.fileno())
-            if not stat.S_ISREG(st.st_mode):
-                raise _not_regular(path, st)
-            return f.read()
+        return _read_regular(path, _open_inside(path, depth, os.O_RDONLY | os.O_NONBLOCK))
     checked = _check_components(path, depth)
     # before the open: Windows refuses to open a directory with PermissionError
     if not stat.S_ISREG(checked.st_mode):
@@ -133,23 +145,70 @@ def read_bytes(path: Path, depth: int) -> bytes:
     return data
 
 
-def read_utf8(path: Path, depth: int) -> str:
-    """`read_bytes` decoded as `Path.read_text(encoding="utf-8-sig")` would: BOM stripped and
-    every line ending read as `\\n`."""
-    text = read_bytes(path, depth).decode("utf-8-sig")
+def _decoded(data: bytes) -> str:
+    text = data.decode("utf-8-sig")
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def list_names(directory: Path, depth: int) -> list[str]:
-    """The entry names of `directory`, whose last `depth` parts must not be links."""
-    if _OPENAT:
-        fd = _open_inside(directory, depth, os.O_RDONLY | os.O_DIRECTORY)
+def read_utf8(path: Path, depth: int) -> str:
+    """`read_bytes` decoded as `Path.read_text(encoding="utf-8-sig")` would: BOM stripped and
+    every line ending read as `\\n`."""
+    return _decoded(read_bytes(path, depth))
+
+
+class Directory:
+    """A store directory held open while it is listed and its files are read, so they all come
+    from the one directory that was opened (contracts/runtime.md, "Reads stay inside the store")."""
+
+    def __init__(self, path: Path, depth: int, fd: int | None) -> None:
+        self._path = path
+        self._depth = depth
+        self._fd = fd
+
+    def names(self) -> list[str]:
+        if self._fd is not None:
+            return os.listdir(self._fd)
+        _check_components(self._path, self._depth)
+        return os.listdir(self._path)
+
+    def read_utf8(self, name: str) -> str:
+        """`read_utf8(path / name, depth + 1)`, opened relative to the held directory."""
+        path = self._path / name
+        if self._fd is None:
+            return read_utf8(path, self._depth + 1)
+        # O_NONBLOCK: a FIFO left in the store is refused below instead of hanging the open
+        fd = _open_component(
+            path, self._depth + 1, name, os.O_RDONLY | os.O_NONBLOCK, self._fd, write=False
+        )
+        return _decoded(_read_regular(path, fd))
+
+    def replaced(self) -> bool:
+        """Something else now sits at the path: another directory, a link, or nothing."""
+        if self._fd is None:
+            return False
         try:
-            return os.listdir(fd)
-        finally:
+            now = os.stat(self._path, follow_symlinks=False)
+        except OSError:
+            return True
+        held = os.fstat(self._fd)
+        return (now.st_dev, now.st_ino) != (held.st_dev, held.st_ino)
+
+
+@contextmanager
+def directory(path: Path, depth: int) -> Iterator[Directory]:
+    """`path`, whose last `depth` parts must not be links, held open for the `with` block."""
+    fd = _open_inside(path, depth, os.O_RDONLY | os.O_DIRECTORY) if _OPENAT else None
+    try:
+        yield Directory(path, depth, fd)
+    finally:
+        if fd is not None:
             os.close(fd)
-    _check_components(directory, depth)
-    return os.listdir(directory)
+
+
+def list_names(directory_path: Path, depth: int) -> list[str]:
+    """The entry names of `directory_path`, whose last `depth` parts must not be links."""
+    with directory(directory_path, depth) as held:
+        return held.names()
 
 
 def read_log_lines(path: Path, depth: int) -> list[str]:

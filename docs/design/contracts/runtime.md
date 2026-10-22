@@ -172,15 +172,16 @@ if the module so much as imports `fail`.
 
 ## Reads stay inside the store (US-22)
 
-A document in `sessions/` and a retained copy in `versions/<id>/` are read through
-`confined.read_bytes`, and `sessions/` itself is listed through `confined.list_names`. The
-parts of the path below the store root must not be links. A symbolic link there is refused by
-name, and so is a Windows junction, which `is_symlink()` does not report. Nothing behind the
-link is read. Without this, one link committed to a shared or imported store hands the agent
-any file on the machine. That file comes back as a search hit, a `read` or an export preview,
-and it is presented as a recorded decision. That is worse than a leak: it quietly replaces
-the context the agent decides on. The logs in the store root follow their own section below
-(US-23).
+A store load lists `sessions/` and reads its documents through one held directory,
+`confined.directory` (below); every other read of a document or of a retained copy in
+`versions/<id>/` goes through `confined.read_bytes`, and `doctor` lists `sessions/` through
+`confined.list_names`. The parts of the path below the store root must not be links. A symbolic
+link there is refused by name, and so is a Windows junction, which `is_symlink()` does not
+report. Nothing behind the link is read. Without this, one link committed to a shared or
+imported store hands the agent any file on the machine. That file comes back as a search hit, a
+`read` or an export preview, and it is presented as a recorded decision. That is worse than a
+leak: it quietly replaces the context the agent decides on. The logs in the store root follow
+their own section below (US-23).
 
 The root itself may be a link. `~/Developer/engmem` pointing into a synced folder is a
 supported setup ("The answer is absolute, and it is not resolved", above). The root is the
@@ -202,6 +203,30 @@ How a read is made:
   file that was read (`st_dev`, `st_ino`). That check catches a swap of the file itself. A
   directory above it swapped for a junction in the window between the check and the open is
   not caught. This is the residual race on that platform.
+- **A load holds `sessions/` open (SC-002), with `dir_fd`.** Windows keeps the per-file read
+  and has no binding check. `load_store` opens `sessions/` once, as above, lists
+  it and opens each document relative to that one directory (`confined.directory`): one `open`
+  per document instead of three, which took a warm search on 20,112 documents from 1.22 s to
+  0.86 s (median of six). A document swapped for a link after the listing is still refused at its
+  own open. What the held directory changes is which directory the bytes come from: if
+  `sessions/` is replaced during the load (renamed away and another directory or a link put in
+  its place), the bytes would come from the held one while each document's identity and its
+  mtime-derived date come from whatever sits at `sessions/` now, a pair that would defeat the
+  write guards comparing identities. So after the last document the load asks whether
+  `sessions/` is still the directory it holds (`Directory.replaced`, on `st_dev` and `st_ino`; a
+  `stat` that fails counts as replaced), and if not, it discards everything and loads once more
+  from the start. The second load lists the new directory, or refuses a link as above. Replaced a
+  second time, the load reports `replaced while it was read, twice; search again` as a scan
+  error and shows no document. A swap away and back within one load is not detected; the
+  per-file reader never saw that one either. On a filesystem whose `stat` and `fstat` of one
+  directory disagree on `st_dev` or `st_ino` (some FUSE mounts), every load would read as
+  replaced and every search would report that line: it names a filesystem that cannot hold a
+  store, not a race. Every other reader keeps the per-file path.
+- **A directory in a document's place is refused by path, and closes its descriptor.** Before
+  SC-002 the check ran after `fdopen`, which on a directory raised naming the descriptor
+  (`Is a directory: 11`) and left it open: one descriptor lost per search for every such
+  directory, in a server that never exits. The type is now checked on the raw descriptor, which
+  is closed on refusal, and the message names the path.
 - **A hard link is not detected.** It is one more name for a file, and nothing about it
   points out of the store. `contracts/backfill.md` leaves it open for writes for the same
   reason.

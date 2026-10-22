@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -578,87 +579,112 @@ def _parse_text(path: Path, text: str, identity: tuple[int, int] | None) -> Doc:
     )
 
 
-def _parse_kept(path: Path, kept: KeptByPath[Doc]) -> Doc:
-    """`parse_document(path)`, without the parse when the file reads exactly as last time."""
+# how `sorted` orders the `Path`s of one directory: by name, case folded on Windows as pathlib does
+_NAME_ORDER = str.lower if os.name == "nt" else None
+
+
+def _read_and_parse(path: Path, folder: confined.Directory, kept: KeptByPath[Doc] | None) -> Doc:
+    """`parse_document(path)` read through `folder`, without the parse when `kept` holds the
+    file exactly as it reads now."""
+    # stat first, as `parse_document` does
     identity = identity_for(path)
-    text = confined.read_utf8(path, confined.SESSION_DEPTH)
+    text = folder.read_utf8(path.name)
+    if kept is None:
+        return _parse_text(path, text, identity)
     return kept.get(path, (identity, content_key(text)), lambda: _parse_text(path, text, identity))
 
 
+def _unlisted(sessions_dir: Path, reason: str) -> LoadResult:
+    # an error, not a warning: an unknown number of documents is hidden
+    # behind this, not necessarily zero
+    problem = Problem(
+        path=sessions_dir,
+        message=(
+            f"{sessions_dir}: {reason} — the number of documents normally found here is "
+            f"unknown, not zero"
+        ),
+    )
+    return LoadResult(errors=[problem], scan_error=problem)
+
+
 def load_store(sessions_dir: Path, kept: KeptByPath[Doc] | None = None) -> LoadResult:
+    sessions_dir = Path(sessions_dir)
+    # a `sessions/` replaced during the load would pair the held directory's bytes with the new
+    # file's identity; one reload reads the new one (contracts/runtime.md, "Reads stay inside
+    # the store")
+    for _ in range(2):
+        result, replaced = _load_once(sessions_dir, kept)
+        if not replaced:
+            return result
+    return _unlisted(sessions_dir, "replaced while it was read, twice; search again")
+
+
+def _load_once(sessions_dir: Path, kept: KeptByPath[Doc] | None) -> tuple[LoadResult, bool]:
+    """One pass over `sessions/` held open, and whether it was replaced before the pass ended."""
     result = LoadResult()
     seen_ids: dict[str, Path] = {}
-    sessions_dir = Path(sessions_dir)
 
-    try:
-        # listing (unlike glob) does not swallow the OSError from an unreadable directory, so
-        # scanning through it first surfaces what glob would hide; a linked sessions/ is refused
-        names = confined.list_names(sessions_dir, confined.SESSIONS_DEPTH)
-        paths = sorted(sessions_dir / name for name in names if name.endswith(".md"))
-    except OSError as exc:
-        # an error, not a warning: an unknown number of documents is hidden
-        # behind this, not necessarily zero
-        problem = Problem(
-            path=sessions_dir,
-            message=(
-                f"{sessions_dir}: cannot list directory ({exc}) — the number of "
-                f"documents normally found here is unknown, not zero"
-            ),
-        )
-        result.errors.append(problem)
-        result.scan_error = problem
-        return result
-
-    if kept is not None:
-        kept.retain(paths)
-    for path in paths:
+    with ExitStack() as stack:
         try:
-            doc = parse_document(path) if kept is None else _parse_kept(path, kept)
-        except (yaml.YAMLError, ValueError, OSError) as exc:
-            # OSError covers failures before front matter is even reached:
-            # permission-denied, a dangling symlink, a directory shadowing the name
-            result.errors.append(Problem(path=path, message=f"{path.name}: {exc}"))
-            continue
+            # listing (unlike glob) does not swallow the OSError from an unreadable directory, so
+            # scanning through it first surfaces what glob would hide; a linked sessions/ is
+            # refused
+            folder = stack.enter_context(confined.directory(sessions_dir, confined.SESSIONS_DEPTH))
+            names = sorted((n for n in folder.names() if n.endswith(".md")), key=_NAME_ORDER)
+        except OSError as exc:
+            return _unlisted(sessions_dir, f"cannot list directory ({exc})"), False
+        paths = [sessions_dir / name for name in names]
 
-        if doc.id in seen_ids:
-            other = seen_ids[doc.id]
-            result.errors.append(
-                Problem(
-                    path=path,
-                    message=(
-                        f"duplicate id '{doc.id}' in {other.name} and {path.name}"
-                    ),
+        if kept is not None:
+            kept.retain(paths)
+        for path in paths:
+            try:
+                doc = _read_and_parse(path, folder, kept)
+            except (yaml.YAMLError, ValueError, OSError) as exc:
+                # OSError covers failures before front matter is even reached:
+                # permission-denied, a dangling symlink, a directory shadowing the name
+                result.errors.append(Problem(path=path, message=f"{path.name}: {exc}"))
+                continue
+
+            if doc.id in seen_ids:
+                other = seen_ids[doc.id]
+                result.errors.append(
+                    Problem(
+                        path=path,
+                        message=(
+                            f"duplicate id '{doc.id}' in {other.name} and {path.name}"
+                        ),
+                    )
                 )
-            )
-            continue
-        seen_ids[doc.id] = path
+                continue
+            seen_ids[doc.id] = path
 
-        # after the duplicate check, not before: a rejected document reported its field
-        # warnings and none of the three below, so it was half-described and not in the store
-        for warning in doc.field_warnings:
-            result.warnings.append(Problem(path=path, message=f"{path.name}: {warning}"))
+            # after the duplicate check, not before: a rejected document reported its field
+            # warnings and none of the three below, so it was half-described and not in the store
+            for warning in doc.field_warnings:
+                result.warnings.append(Problem(path=path, message=f"{path.name}: {warning}"))
 
-        # a daily draft is front matter alone by design (US-08), so its empty body is not news
-        daily_draft = doc.status == "draft" and doc.mode == Mode.DAILY
-        if not doc.body.strip() and not daily_draft:
-            result.warnings.append(
-                Problem(path=path, message=f"{path.name}: document is empty")
-            )
-        if not doc.entities:
-            result.warnings.append(
-                Problem(path=path, message=f"{path.name}: entities is empty")
-            )
-        if doc.id != path.stem:
-            result.warnings.append(
-                Problem(
-                    path=path,
-                    message=(
-                        f"{path.name}: id '{doc.id}' does not match filename "
-                        f"'{path.stem}'"
-                    ),
+            # a daily draft is front matter alone by design (US-08), so its empty body is not news
+            daily_draft = doc.status == "draft" and doc.mode == Mode.DAILY
+            if not doc.body.strip() and not daily_draft:
+                result.warnings.append(
+                    Problem(path=path, message=f"{path.name}: document is empty")
                 )
-            )
+            if not doc.entities:
+                result.warnings.append(
+                    Problem(path=path, message=f"{path.name}: entities is empty")
+                )
+            if doc.id != path.stem:
+                result.warnings.append(
+                    Problem(
+                        path=path,
+                        message=(
+                            f"{path.name}: id '{doc.id}' does not match filename "
+                            f"'{path.stem}'"
+                        ),
+                    )
+                )
 
-        result.docs.append(doc)
+            result.docs.append(doc)
 
-    return result
+        return result, folder.replaced()
