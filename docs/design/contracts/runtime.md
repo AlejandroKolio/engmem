@@ -21,7 +21,7 @@ family as the cache (`contracts/cache.md`). `XDG_CONFIG_HOME` is honoured on eve
 it is an absolute path; a relative one is ignored, as the XDG spec requires, because it would
 make the choice depend on each command's working directory. On Windows without it, the file is
 `%APPDATA%\engmem\store` (`~/AppData/Roaming` when `APPDATA` is unset) — where Windows keeps
-roaming per-user settings and where `_claude_desktop_config_path` already looks, so a Windows
+roaming per-user settings and where `claude_desktop_config_path` already looks, so a Windows
 user finds it next to the client config it has to agree with; `~/.config` is not a place a
 Windows user ever looks. The default store itself stays the same on every platform (below):
 moving it would point existing installs at an empty directory, and the setting file is new, so
@@ -117,7 +117,7 @@ it would be the same bug in the other direction.
 Absolute, because the answer outlives the process that computed it: `install --agent
 claude-desktop --store ./notes` writes the path into `claude_desktop_config.json` (and `--agent
 codex` into `config.toml`), and the client launches the server from a working directory of its
-own — the reason `_stdio_mcp_entry` already spends `sys.executable` rather than a bare `engmem`. Every
+own — the reason `stdio_mcp_entry` already spends `sys.executable` rather than a bare `engmem`. Every
 diagnostic that names the store gains the same way: `store not found: sessions` sends the
 reader nowhere.
 

@@ -346,7 +346,7 @@ def test_uninstall_survives_a_failed_config_write_without_losing_the_config(
     def refuse_to_commit(tmp, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr("engmem.install.commit", refuse_to_commit)
+    monkeypatch.setattr("engmem.user_files.commit", refuse_to_commit)
 
     exit_code = _uninstall("--agent", "claude-desktop", "--store", str(store))
     out = capsys.readouterr().out

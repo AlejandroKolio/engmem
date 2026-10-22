@@ -11,17 +11,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from engmem.install import (
-    TriggerRuleOutcome,
-    _append_trigger_rule,
-    _CODEX_MCP_NOTES,
-    _ensure_directory,
-    _git_init,
-    _install_codex_mcp,
-    _SetupError,
-    _toml_string,
-    shell_argument,
-)
+from engmem.install import _append_trigger_rule, _git_init, TriggerRuleOutcome
+from engmem.mcp_clients import CODEX_MCP_NOTES, install_codex_mcp, shell_argument, toml_string
+from engmem.user_files import ensure_directory, SetupError
 from engmem.provenance import _git_env
 from engmem.sections import sections_for_role, split_sections
 from engmem.spine import Doc
@@ -74,20 +66,20 @@ def claim(root: Path, written_through: list[Path], marker_text: str) -> None:
     link."""
     marker = root / MARKER
     if root.exists() and not root.is_dir():
-        raise _SetupError(f"{root} is not a directory — choose a new directory for the walkthrough")
+        raise SetupError(f"{root} is not a directory — choose a new directory for the walkthrough")
     if root.is_dir() and not marker.is_file() and any(root.iterdir()):
-        raise _SetupError(
+        raise SetupError(
             f"{root} is not empty and was not built by `engmem walkthrough` — choose a new "
             f"directory; the walkthrough writes only into one of its own"
         )
     built_by = marker_of(root)
     if built_by is not None and built_by != marker_text:
-        raise _SetupError(
+        raise SetupError(
             f"{root} was built by `{built_by.strip()}`, another walkthrough — choose a new "
             f"directory for this one"
         )
     require_contained(root, written_through)
-    _ensure_directory(root, "walkthrough directory")
+    ensure_directory(root, "walkthrough directory")
     if not marker.is_file():
         write_new(marker, marker_text)
 
@@ -105,12 +97,12 @@ def require_contained(root: Path, written_through: list[Path]) -> None:
     real_root = os.path.realpath(root)
     for part in written_through:
         if part.is_symlink():
-            raise _SetupError(
+            raise SetupError(
                 f"{part} is a symbolic link — the demo must stay inside {root}; remove the "
                 f"link and re-run"
             )
         if os.path.commonpath([real_root, os.path.realpath(part)]) != real_root:
-            raise _SetupError(
+            raise SetupError(
                 f"{part} resolves to {os.path.realpath(part)}, outside {root} — the demo "
                 f"must stay inside it; remove the link or junction and re-run"
             )
@@ -136,7 +128,7 @@ def write_new(path: Path, text: str) -> None:
         with open(path, "xb") as f:
             f.write(text.encode("utf-8"))
     except OSError as exc:
-        raise _SetupError(f"cannot write {path}: {exc}") from exc
+        raise SetupError(f"cannot write {path}: {exc}") from exc
 
 
 def write_workspace(workspace: Path, files: dict[str, str]) -> bool:
@@ -146,7 +138,7 @@ def write_workspace(workspace: Path, files: dict[str, str]) -> bool:
         path = workspace / name
         if path.exists():
             continue
-        _ensure_directory(path.parent, "workspace directory")
+        ensure_directory(path.parent, "workspace directory")
         write_new(path, text)
     _git_init(workspace, "the demo workspace")
     return created
@@ -169,7 +161,7 @@ def commit_once(workspace: Path) -> bool:
         completed = _git(workspace, *argv)
         if completed.returncode != 0:
             said = (completed.stderr.strip().splitlines() or ["no message"])[-1]
-            raise _SetupError(f"`{name}` failed in {workspace}: {said}")
+            raise SetupError(f"`{name}` failed in {workspace}: {said}")
     return True
 
 
@@ -180,13 +172,13 @@ def _git(directory: Path, *argv: str) -> subprocess.CompletedProcess:
             encoding="utf-8", errors="replace", timeout=GIT_SECONDS, env=_git_env(),
         )
     except subprocess.TimeoutExpired as exc:
-        raise _SetupError(f"`git` did not finish within {GIT_SECONDS:g} s in {directory}") from exc
+        raise SetupError(f"`git` did not finish within {GIT_SECONDS:g} s in {directory}") from exc
     except OSError as exc:
-        raise _SetupError(f"cannot run `git` in {directory}: {exc}") from exc
+        raise SetupError(f"cannot run `git` in {directory}: {exc}") from exc
 
 
 def _base_codex_config(store: Path) -> str:
-    quoted = _toml_string(str(store))
+    quoted = toml_string(str(store))
     return (
         "# Codex settings for the engmem walkthrough, read only when CODEX_HOME names this "
         "directory\n"
@@ -203,14 +195,14 @@ def wire_codex_home(codex_home: Path, store: Path) -> list[str]:
     trigger rule; the engineer's own ~/.codex is never opened."""
     config = codex_home / "config.toml"
     if not config.exists():
-        _ensure_directory(codex_home, "Codex config directory")
+        ensure_directory(codex_home, "Codex config directory")
         write_new(config, _base_codex_config(store))
-    outcome = _install_codex_mcp(store, config)
+    outcome = install_codex_mcp(store, config)
     instructions = codex_home / "AGENTS.md"
     rule = _append_trigger_rule(instructions)
     rule_note = "already present" if rule is TriggerRuleOutcome.PRESENT else str(rule)
     return [
-        f"codex config: {_CODEX_MCP_NOTES[outcome]} in {config}",
+        f"codex config: {CODEX_MCP_NOTES[outcome]} in {config}",
         f"codex instructions: trigger rule {rule_note} in {instructions}",
     ]
 

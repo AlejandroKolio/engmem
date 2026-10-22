@@ -12,7 +12,7 @@ runs it at the start of every task. Doctor runs subprocesses, creates a probe fi
 every file one client's wiring depends on. Putting that into `store show` would slow every
 `/engmem` and add a write to a command the templates run on every task. `store show` stays as it
 was. Doctor reuses its parts: `runtime.locate_store` and `runtime.source_description` for the
-store, and `install.wiring_verdict` and `install.rewire_action`, which `store show`'s
+store, and `mcp_clients.wiring_verdict` and `mcp_clients.rewire_action`, which `store show`'s
 `_wiring_line` now uses too. So the two commands cannot disagree about whether an entry
 matches.
 
@@ -206,7 +206,7 @@ store. ChatGPT has no sandbox line; it gets the two bridge lines below.
 
 Codex has a sandbox config engmem can read, so doctor reads it. The top-level `sandbox_mode`
 and `[sandbox_workspace_write] writable_roots` come from `$CODEX_HOME/config.toml`, through the
-same `_parse_toml` install uses. `danger-full-access` is `unverified`. `read-only` is a warning:
+same `parse_toml` install uses. `danger-full-access` is `unverified`. `read-only` is a warning:
 shell writes are refused. Otherwise, a store at or under one of the `writable_roots` is
 `unverified`: allowed by config, not tested from inside. A store outside them is a warning,
 because shell `engmem` commands cannot write drafts, saves or telemetry there under
@@ -243,7 +243,7 @@ entry, or such a `writable_roots` entry, ended doctor (and `engmem store show`) 
 and lost every line after it. On Windows the non-strict `realpath` returns the path unchanged
 instead of raising (gh-106242), so a check that waits for the exception never fires there: the
 store read as a plain mismatch and the raw NUL reached the terminal. So the check looks for the
-byte in the string, before any `realpath`, on every platform. `install.wiring_verdict` returns
+byte in the string, before any `realpath`, on every platform. `mcp_clients.wiring_verdict` returns
 `WiringVerdict.INVALID` for that store, shared by both commands, and `_real` returns None for
 such a root. Doctor reports it as an error, because the server cannot start with it;
 `store show` prints it as a `mismatch:` line, so `store set` shows it too. An unusable

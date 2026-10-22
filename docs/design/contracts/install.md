@@ -1,6 +1,9 @@
 # Contract: install and uninstall
 
-Source: `src/engmem/install.py`. What each agent mode writes, and where, is `ENGMEM-SPEC.md`
+Source: `src/engmem/install.py` (templates, trigger rules, the install and uninstall commands),
+`mcp_clients.py` (the Claude Desktop and Codex MCP entries, and whether one still launches this
+engmem with this store) and `user_files.py` (reading and atomically replacing a file engmem does
+not own). What each agent mode writes, and where, is `ENGMEM-SPEC.md`
 §5. This file records how those writes happen; each rule was learned from damage.
 
 ## Two kinds of file, and only one of them is engmem's
@@ -9,7 +12,7 @@ Source: `src/engmem/install.py`. What each agent mode writes, and where, is `ENG
 `~/.copilot/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md` — are rewritten whole
 by every install and can be rebuilt from the package at any time. They stay engmem's only until
 the user edits one (next section). Since US-26 `_write_template` stages and replaces them through
-`_replace_user_file`, like the user's files. Before that they were written in place, on the
+`replace_user_file`, like the user's files. Before that they were written in place, on the
 grounds that a torn write cost only a re-run. That no longer holds: a torn template no longer
 matches its digest, so the next install would keep it as the user's edit, and the client would
 go on loading half a command. A new template is therefore created `0600`, as below; the client
@@ -18,7 +21,7 @@ that reads it runs as the same user.
 **The user's files** — the trigger-rule file (`CLAUDE.md`, `.github/copilot-instructions.md`,
 Codex's `AGENTS.md`), `claude_desktop_config.json` and Codex's `config.toml` — hold content engmem cannot regenerate (the user's own
 instructions; every other MCP server they configured, tokens included), and engmem rewrites
-them **whole** to append or drop a couple of lines. They go through `_replace_user_file`,
+them **whole** to append or drop a couple of lines. They go through `replace_user_file`,
 which stages a sibling temp file with `staging` (the store's own staged write; there is no
 second implementation here) and `os.replace`s it, so a failure mid-write leaves the original
 exactly as it was. Anything raised between the stage and the commit — a `BaseException`, not
@@ -30,7 +33,7 @@ Four consequences follow, each deliberate:
 - **A new file is created 0600, an existing one keeps its mode** (`staging.commit` restores
   it). The Desktop config routinely carries other servers' API tokens, so private-by-default
   is the side to err on when engmem is the one creating it.
-- **A symlink is written *through*, never *over*.** `_replace_user_file` resolves the link
+- **A symlink is written *through*, never *over*.** `replace_user_file` resolves the link
   first and replaces the target; `os.replace` on the link itself would leave a regular file
   where the link was, and a `CLAUDE.md` symlinked into a dotfiles repository is the ordinary
   setup. This is the opposite of `backfill`'s rule for store documents, which refuses a
@@ -97,7 +100,7 @@ files, and refusing it would leave a command the user just asked to be rid of.
 
 ## The file is read as bytes, and appended to in its own dialect
 
-`_read_user_file` decodes the bytes itself (`staging.read_document`) rather than calling
+`read_user_file` decodes the bytes itself (`staging.read_document`) rather than calling
 `read_text`, which translates line endings and silently swallows a byte-order mark; a file
 rebuilt from what `read_text` returned hands a Windows user a whole-file diff — every line
 re-ended, the BOM gone — for a two-line append. The trigger rule is therefore appended with
@@ -160,8 +163,8 @@ stops install (and uninstall) before anything is written or removed.
 
 The MCP entries install writes (`claude_desktop_config.json`, Codex's block) record the store
 they were installed with, so a later `engmem store set` can leave them pointing elsewhere.
-`installed_mcp_wirings` reads both configs — read only, through the same `_load_json_object` and
-`_parse_toml` install uses — and `store show` prints one line per entry: matching, `mismatch:`
+`installed_mcp_wirings` reads both configs — read only, through the same `load_json_object` and
+`parse_toml` install uses — and `store show` prints one line per entry: matching, `mismatch:`
 with the install command that rewires it, or, for a Codex entry the user wrote, the table to
 edit by hand. The entry's `--store` is read the way `engmem mcp` will read it, through
 `runtime.store_path_of`: the last occurrence wins, a blank value is no `--store` at all (the
@@ -179,7 +182,7 @@ of one client's wiring (`contracts/doctor.md`).
 `ENGMEM-SPEC.md` §5 promises exit 2 with a named cause on both streams for every failure the
 user's own environment can produce: a template path occupied by a directory, an unwritable
 directory, an instructions file or a Desktop or Codex config engmem cannot decode, a `git` on PATH that
-cannot be executed, a full disk during the replace. `_SetupError` is the single carrier: every
+cannot be executed, a full disk during the replace. `SetupError` is the single carrier: every
 filesystem step raises it with the path and the OS reason, and `cmd_install` turns it into
 `fail()` plus exit 2 in one place. Uninstall cannot, because by the time it reaches the
 instructions file the templates are already gone: `_remove_trigger_rule_reporting_failure`
@@ -193,8 +196,8 @@ than anything a user can act on: a template missing from the installed wheel
 (`_to_skill_front_matter`). "Fix it by hand and re-run" is the wrong advice for a file the
 user does not own; the traceback names the template and belongs in a bug report.
 
-Failures are swallowed in one kind of place. `_claude_desktop_entry_present` and
-`_codex_mcp_block_present` only decide whether uninstall adds its "you may have meant a
+Failures are swallowed in one kind of place. `claude_desktop_entry_present` and
+`codex_mcp_block_present` only decide whether uninstall adds its "you may have meant a
 different agent" nudge, so a config they cannot read counts as nothing found: the command has
 already done its work by then, and a second diagnosis of a file this run was never going to
 write would bury the summary that matters. For the same reason `engmem uninstall --agent codex`
@@ -207,7 +210,7 @@ The standard library reads TOML (`tomllib`) but cannot write it, and re-serialis
 config through a third-party writer would drop their comments and reorder their tables for a
 five-line change. So the entry is plain text between `CODEX_MCP_BEGIN` and `CODEX_MCP_END`,
 and both directions work on lines: install appends the block or replaces it where it stands,
-uninstall cuts exactly that span. The file still goes through `_replace_user_file`, keeping
+uninstall cuts exactly that span. The file still goes through `replace_user_file`, keeping
 its BOM and line ending like the trigger-rule files.
 
 Text edits on a structured file are only safe if the result is checked, and checking that it
@@ -222,7 +225,7 @@ added keys inside it (`_refuse_keys_added_to_the_block`), naming them: the block
 rewritten whole, so they would be dropped. Every refusal names the path and the fix, and
 leaves the bytes alone.
 
-`_toml_string` reuses `json.dumps`, whose escapes TOML shares, with two exceptions it handles:
+`toml_string` reuses `json.dumps`, whose escapes TOML shares, with two exceptions it handles:
 DEL, which TOML forbids raw and JSON leaves alone, and a lone surrogate (an undecodable byte
 in a POSIX path), which no TOML string can hold and is refused by name.
 
@@ -258,7 +261,7 @@ store, so a demo run with only `ENGMEM_HOME` changed would send shell commands t
 MCP writes to the real store. That split is the one thing the demo must not allow. Skills are
 the exception: Codex reads them from `~/.agents/skills` whatever `CODEX_HOME` says. They name no
 store, so the walkthrough uses the installed ones and installs none. It reuses
-`_install_codex_mcp` (given the demo's config path) and `_append_trigger_rule`, so a re-run is
+`install_codex_mcp` (given the demo's config path) and `_append_trigger_rule`, so a re-run is
 as idempotent as install, and a user's own entries in the demo config are kept the same way.
 
 Install never widens the sandbox, because that is the user's decision. The walkthrough does,
@@ -323,7 +326,7 @@ other's sessions.
 
 **One store, two routes.** Codex gets the same demo `CODEX_HOME` as `walkthrough codex`. Claude
 Code gets two project files in its workspace, both naming the demo store: `.mcp.json` with the
-stdio entry `_stdio_mcp_entry` builds for Desktop, and `.claude/settings.json` with
+stdio entry `stdio_mcp_entry` builds for Desktop, and `.claude/settings.json` with
 `env.ENGMEM_HOME`. The printed start line also sets `ENGMEM_HOME` and passes `--strict-mcp-config
 --mcp-config <that .mcp.json>`. That flag makes Claude Code use only the servers in that file, so
 an `engmem` server the engineer added at user scope, which names their own store, cannot take
@@ -366,7 +369,7 @@ its `not checked here:` line.
 **A mismatch is reported as one, never as a missing record (AC-18.4).** Before it looks at any
 record, `--verify` reads the four places a client's store is set: `--store` and
 `shell_environment_policy.set.ENGMEM_HOME` in the demo `config.toml`, `--store` in `.mcp.json`,
-`env.ENGMEM_HOME` in `.claude/settings.json`. The `--store` values are read with `_store_argument`,
+`env.ENGMEM_HOME` in `.claude/settings.json`. The `--store` values are read with `store_argument`,
 the same way `store show` and doctor read them. Paths are compared resolved. When any one of them
 names another store, or names none, or its file cannot be parsed, the line is `mismatch: same
 store:`. It names each client's store with the file that sets it, and the handoff checks are not
@@ -404,7 +407,7 @@ two finds.
 ## ChatGPT: nothing to write
 
 ChatGPT's connector lives in the ChatGPT workspace, so `--agent chatgpt` creates the store and
-prints the `tunnel-client` commands with `--mcp-command` built from `_stdio_mcp_entry`, the same
+prints the `tunnel-client` commands with `--mcp-command` built from `stdio_mcp_entry`, the same
 launch line the other MCP clients get, quoted as one argument for the platform's shell
 (`shlex` on POSIX, `list2cmdline` on Windows). Uninstall prints where the
 connector is deleted and reports 0, without the "other agent present" nudge, which would read

@@ -784,7 +784,7 @@ def test_claude_desktop_install_survives_a_failed_write_without_losing_the_confi
     def refuse_to_commit(tmp, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr("engmem.install.commit", refuse_to_commit)
+    monkeypatch.setattr("engmem.user_files.commit", refuse_to_commit)
 
     exit_code = _run_install("--agent", "claude-desktop", "--store", str(store))
     out = capsys.readouterr()
@@ -814,7 +814,7 @@ def test_an_interrupt_during_the_commit_leaves_no_staged_copy_behind(env, tmp_pa
     def interrupted_commit(tmp, target):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("engmem.install.commit", interrupted_commit)
+    monkeypatch.setattr("engmem.user_files.commit", interrupted_commit)
 
     with pytest.raises(KeyboardInterrupt):
         _run_install("--agent", "claude-desktop", "--store", str(store))
@@ -936,16 +936,16 @@ CLAUDE_DESKTOP_CONFIG_PATH_CASES = [
 def test_claude_desktop_config_path_per_platform(
     monkeypatch, tmp_path, platform, appdata_subdir, expected_parts
 ):
-    from engmem.install import _claude_desktop_config_path
+    from engmem.mcp_clients import claude_desktop_config_path
 
-    monkeypatch.setattr("engmem.install.sys.platform", platform)
+    monkeypatch.setattr("engmem.mcp_clients.sys.platform", platform)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     if appdata_subdir is None:
         monkeypatch.delenv("APPDATA", raising=False)
     else:
         monkeypatch.setenv("APPDATA", str(tmp_path / appdata_subdir))
 
-    path = _claude_desktop_config_path()
+    path = claude_desktop_config_path()
 
     assert path == tmp_path.joinpath(*expected_parts)
 

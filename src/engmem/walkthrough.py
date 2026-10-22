@@ -32,7 +32,9 @@ from engmem.demo import (
     write_workspace,
 )
 from engmem.feedback import _finds
-from engmem.install import _ensure_store, _SetupError, shell_argument
+from engmem.install import _ensure_store
+from engmem.mcp_clients import shell_argument
+from engmem.user_files import SetupError
 from engmem.runtime import fail
 from engmem.spine import Doc, load_store
 from engmem.telemetry import read_session_rows
@@ -151,7 +153,7 @@ def cmd_walkthrough(args: argparse.Namespace) -> int:
         return verify(root)
     try:
         return set_up(root)
-    except _SetupError as exc:
+    except SetupError as exc:
         fail(f"engmem walkthrough: {exc}")
         return 2
 

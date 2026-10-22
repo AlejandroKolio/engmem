@@ -682,7 +682,7 @@ def realpath_as_on_windows(monkeypatch):
 
 
 def test_a_nul_store_is_invalid_even_where_realpath_does_not_raise(tmp_path, realpath_as_on_windows):
-    from engmem.install import McpWiring, WiringVerdict, wiring_verdict
+    from engmem.mcp_clients import McpWiring, wiring_verdict, WiringVerdict
 
     wiring = McpWiring("codex", tmp_path / "config.toml", tmp_path / "a\x00b", managed=True)
 

@@ -16,30 +16,31 @@ from pathlib import Path
 
 from engmem import __version__, confined
 from engmem.install import (
+    _agent_instructions_file,
     _HOME_SCOPED_AGENTS,
-    _SKILL_AGENTS,
     LEGACY_TRIGGER_RULES,
-    MCP_CONFIGS,
+    pending_path,
     PUBLIC_BRIDGE_STATUS,
+    _reject_local_home_scoped,
+    _SKILL_AGENTS,
+    _template_paths_for_agent,
     TRIGGER_MARKER,
     TRIGGER_RULE,
     TUNNEL_BRIDGE_STATUS,
-    McpWiring,
-    WiringVerdict,
-    _agent_instructions_file,
-    _codex_config_path,
-    _codex_home,
-    _parse_toml,
-    _read_user_file,
-    _reject_local_home_scoped,
-    _SetupError,
-    _template_paths_for_agent,
     _validate_agent,
+)
+from engmem.mcp_clients import (
+    codex_config_path,
+    codex_home,
+    MCP_CONFIGS,
     mcp_wiring,
-    pending_path,
+    McpWiring,
+    parse_toml,
     rewire_action,
     wiring_verdict,
+    WiringVerdict,
 )
+from engmem.user_files import read_user_file, SetupError
 from engmem.executables import on_path
 from engmem.output import _escape_controls
 from engmem.runtime import (
@@ -399,7 +400,7 @@ def _server_store(agent: str, cli_store: Path) -> tuple[Path, str]:
     `--store`, or else the CLI's, which the server is then only assumed to share."""
     try:
         wiring = mcp_wiring(agent) if agent in MCP_CONFIGS else None
-    except _SetupError:
+    except SetupError:
         wiring = None
     if wiring is not None and wiring_verdict(wiring, cli_store) in (
         WiringVerdict.MATCHES, WiringVerdict.MISMATCH
@@ -448,7 +449,7 @@ def _trigger_rule_findings(agent: str, local: bool) -> list[Finding]:
     if path is None:
         return []
     findings = [_trigger_rule_finding(path, _install_command(agent, local))]
-    override = _codex_home() / "AGENTS.override.md"
+    override = codex_home() / "AGENTS.override.md"
     if agent == "codex" and override.exists():
         findings.append(Finding(
             Status.WARNING, "trigger rule",
@@ -491,7 +492,7 @@ def _mcp_findings(agent: str, choice: StoreChoice | None) -> list[Finding]:
     config_path, _find = MCP_CONFIGS[agent]
     try:
         wiring = mcp_wiring(agent)
-    except _SetupError as exc:
+    except SetupError as exc:
         return [Finding(Status.ERROR, "mcp entry", f"{agent}: {exc}")]
     if wiring is None:
         return [Finding(
@@ -630,10 +631,10 @@ def _bridge_findings() -> list[Finding]:
 
 
 def _codex_sandbox_finding(store: Path | None) -> Finding:
-    path = _codex_config_path()
+    path = codex_config_path()
     try:
-        config = _parse_toml(path, _read_user_file(path)[0]) if path.is_file() else {}
-    except _SetupError as exc:
+        config = parse_toml(path, read_user_file(path)[0]) if path.is_file() else {}
+    except SetupError as exc:
         return Finding(Status.UNVERIFIED, "sandbox", f"cannot read Codex's sandbox settings: {exc}")
     mode = config.get("sandbox_mode")
     if mode == "danger-full-access":

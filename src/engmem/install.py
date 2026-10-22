@@ -3,31 +3,40 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import enum
-import json
-import os
 import re
-import shlex
 import subprocess
 import sys
-import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 from engmem import __version__
+from engmem.mcp_clients import (
+    CODEX_MCP_NOTES,
+    MCP_CONFIGS,
+    claude_desktop_entry_present,
+    codex_config_path,
+    codex_home,
+    codex_mcp_block_present,
+    install_claude_desktop,
+    install_codex_mcp,
+    shell_argument,
+    shell_quoted_mcp_command,
+    uninstall_claude_desktop,
+    uninstall_codex_mcp,
+)
 from engmem.runtime import (
     StoreSettingError,
     StoreSource,
     fail,
     locate_store,
     resolve_store,
-    store_path_of,
 )
-from engmem.staging import commit, discard, newline_of, read_document, stage
+from engmem.staging import newline_of, read_document
 from engmem.template_stamps import digest, read_stamp, stamp_line, written_by_engmem
+from engmem.user_files import SetupError, ensure_directory, read_user_file, replace_user_file
 
 
 # source filename -> installed filename; engmem.start.md installs as engmem.md
@@ -113,31 +122,6 @@ TRIGGER_MARKER = "`engmem search"
 # pre-sentinel TRIGGER_RULE line as a migration fallback for older installs
 TRIGGER_SENTINEL = "<!-- engmem-trigger-rule -->"
 
-# TOML has no writer in the standard library, so the Codex entry is a line block engmem owns
-# between these two comments; uninstall removes exactly that span
-CODEX_MCP_BEGIN = "# engmem-mcp-server: begin (managed by `engmem install --agent codex`)"
-CODEX_MCP_END = "# engmem-mcp-server: end"
-
-
-class CodexMcpOutcome(enum.StrEnum):
-    ADDED = "added"
-    UPDATED = "updated"
-    PRESENT = "present"
-    FOREIGN = "foreign"
-
-
-_CODEX_MCP_NOTES = {
-    CodexMcpOutcome.ADDED: "MCP server entry added",
-    CodexMcpOutcome.UPDATED: "MCP server entry updated",
-    CodexMcpOutcome.PRESENT: "MCP server entry already current",
-    CodexMcpOutcome.FOREIGN: "an [mcp_servers.engmem] engmem did not write is left untouched",
-}
-
-
-class _SetupError(Exception):
-    """A step install/uninstall cannot complete; the message names the path and the cause, and
-    reaches the user as an exit-2 diagnosis rather than a traceback."""
-
 
 def _validate_agent(command: str, agent: str) -> int:
     # not argparse choices= — see --role's identical reasoning in cli.py
@@ -147,55 +131,14 @@ def _validate_agent(command: str, agent: str) -> int:
     return 2
 
 
-def _ensure_directory(path: Path, what: str) -> None:
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise _SetupError(f"cannot create the {what} {path}: {exc}") from exc
-
-
-def _read_user_file(path: Path) -> tuple[str, bytes]:
-    """`(text, byte-order mark)` for a file engmem did not write; both failure modes name it."""
-    try:
-        return read_document(path)
-    except UnicodeDecodeError as exc:
-        raise _SetupError(
-            f"{path} is not valid UTF-8 ({exc.reason} at byte {exc.start}) — engmem will "
-            f"not rewrite a file it cannot read. Re-save it as UTF-8 and re-run"
-        ) from exc
-    except OSError as exc:
-        raise _SetupError(f"cannot read {path}: {exc}") from exc
-
-
-def _replace_user_file(path: Path, text: str, bom: bytes = b"") -> None:
-    """Atomic replacement for a file engmem does not own — see contracts/install.md."""
-    # written through the link, never over it: `os.replace` on the link itself detaches a
-    # CLAUDE.md symlinked into a dotfiles repo from what it points at
-    target = Path(os.path.realpath(path)) if path.is_symlink() else path
-    try:
-        tmp_path = stage(target, bom + text.encode("utf-8"))
-    except OSError as exc:
-        raise _SetupError(f"cannot write {path}: {exc}") from exc
-    # BaseException, not OSError alone: a Ctrl-C landing between the stage and the commit must
-    # still take the temp file with it
-    try:
-        commit(tmp_path, target)
-    except OSError as exc:
-        discard(tmp_path)
-        raise _SetupError(f"cannot write {path}: {exc}") from exc
-    except BaseException:
-        discard(tmp_path)
-        raise
-
-
 def _write_template(path: Path, text: str) -> None:
     # staged and replaced, never written in place: a torn template no longer matches its digest,
     # so the next install would keep it as the user's edit instead of repairing it
-    _replace_user_file(path, text)
+    replace_user_file(path, text)
 
 
 def _ensure_store(store: Path) -> None:
-    _ensure_directory(store / "sessions", "store directory")
+    ensure_directory(store / "sessions", "store directory")
     _git_init(store, "the store")
 
 
@@ -211,16 +154,16 @@ def _git_init(directory: Path, what: str) -> None:
             encoding="utf-8", errors="replace",
         )
     except FileNotFoundError as exc:
-        raise _SetupError(
+        raise SetupError(
             f"`git` not found on PATH — {what} must be a git repository. "
             "Install git and re-run."
         ) from exc
     except OSError as exc:
         # a `git` on PATH that cannot be executed at all: exec raises PermissionError here,
         # not FileNotFoundError, and it is still the user's environment, not a bug
-        raise _SetupError(f"cannot run `git init` in {directory}: {exc}") from exc
+        raise SetupError(f"cannot run `git init` in {directory}: {exc}") from exc
     except subprocess.CalledProcessError as exc:
-        raise _SetupError(f"`git init` failed in {directory}: {exc.stderr.strip()}") from exc
+        raise SetupError(f"`git init` failed in {directory}: {exc.stderr.strip()}") from exc
 
 
 def _stamp_after_front_matter(content: str, stamp: str) -> str:
@@ -253,7 +196,7 @@ def _is_replaceable(path: Path, content: str) -> bool:
     except UnicodeDecodeError:
         return False
     except OSError as exc:
-        raise _SetupError(f"cannot read the template {path}: {exc}") from exc
+        raise SetupError(f"cannot read the template {path}: {exc}") from exc
     stamp, body = read_stamp(existing)
     return written_by_engmem(stamp, body) or digest(body) == digest(content)
 
@@ -267,7 +210,7 @@ def pending_is_engmems(pending: Path) -> bool:
     except UnicodeDecodeError:
         return False
     except OSError as exc:
-        raise _SetupError(f"cannot read {pending}: {exc}") from exc
+        raise SetupError(f"cannot read {pending}: {exc}") from exc
     return written_by_engmem(*read_stamp(text))
 
 
@@ -295,7 +238,7 @@ def _place_template(path: Path, content: str, source_name: str) -> Conflict | No
             # left by an earlier install whose conflict the user has since resolved
             pending.unlink(missing_ok=True)
         except OSError as exc:
-            raise _SetupError(
+            raise SetupError(
                 f"cannot remove {pending}, left by an earlier install: {exc}"
             ) from exc
     return None
@@ -306,7 +249,7 @@ def _template_source(source_name: str) -> str:
 
 
 def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> list[Conflict]:
-    _ensure_directory(dest_dir, "templates directory")
+    ensure_directory(dest_dir, "templates directory")
     placed = (
         _place_template(dest_dir / installed_name, _template_source(source_name), source_name)
         for source_name, installed_name in install_map.items()
@@ -354,7 +297,7 @@ def _install_skill_templates(skills_root: Path, agent: str) -> list[Conflict]:
         content = _SKILL_BODY_REWRITES[agent](_template_source(source_name))
         content = _to_skill_front_matter(content, skill_name)
         skill_dir = skills_root / skill_name
-        _ensure_directory(skill_dir, "skill directory")
+        ensure_directory(skill_dir, "skill directory")
         pending = _place_template(skill_dir / "SKILL.md", content, source_name)
         if pending is not None:
             conflicts.append(pending)
@@ -377,19 +320,19 @@ def _with_current_trigger_rule(text: str) -> tuple[str, bool]:
 def _append_trigger_rule(instructions_file: Path) -> TriggerRuleOutcome:
     """Updates a wording engmem itself wrote, adds the sentinel-anchored rule, or leaves a file
     already carrying `TRIGGER_MARKER` alone — see contracts/install.md."""
-    existing, bom = _read_user_file(instructions_file) if instructions_file.exists() else ("", b"")
+    existing, bom = read_user_file(instructions_file) if instructions_file.exists() else ("", b"")
     migrated, updated = _with_current_trigger_rule(existing)
     if updated:
-        _replace_user_file(instructions_file, migrated, bom)
+        replace_user_file(instructions_file, migrated, bom)
         return TriggerRuleOutcome.UPDATED
     if TRIGGER_MARKER in existing:
         return TriggerRuleOutcome.PRESENT
-    _ensure_directory(instructions_file.parent, "instructions directory")
+    ensure_directory(instructions_file.parent, "instructions directory")
     # the file's own line ending, not this platform's: LF appended to a CRLF file leaves it
     # with both, and the whole file then reads as changed under `core.autocrlf`
     newline = newline_of(existing) or "\n"
     prefix = existing if not existing or existing.endswith(("\n", "\r")) else existing + newline
-    _replace_user_file(
+    replace_user_file(
         instructions_file,
         prefix + TRIGGER_SENTINEL + newline + TRIGGER_RULE + newline,
         bom,
@@ -415,7 +358,7 @@ def _remove_pending(path: Path) -> None:
         return
     try:
         unedited = pending_is_engmems(pending)
-    except _SetupError as exc:
+    except SetupError as exc:
         print(f"error: could not check {pending}: {exc}", file=sys.stderr)
         return
     if not unedited:
@@ -463,7 +406,7 @@ def _remove_trigger_rule(instructions_file: Path) -> int:
     `TRIGGER_MARKER`."""
     if not instructions_file.is_file():
         return 0
-    existing, bom = _read_user_file(instructions_file)
+    existing, bom = read_user_file(instructions_file)
     lines = existing.splitlines(keepends=True)
     kept: list[str] = []
     dropped = 0
@@ -484,7 +427,7 @@ def _remove_trigger_rule(instructions_file: Path) -> int:
         kept.append(lines[i])
         i += 1
     if dropped:
-        _replace_user_file(instructions_file, "".join(kept), bom)
+        replace_user_file(instructions_file, "".join(kept), bom)
     return dropped
 
 
@@ -495,408 +438,9 @@ def _remove_trigger_rule_reporting_failure(instructions_file: Path | None) -> tu
         return 0, False
     try:
         return _remove_trigger_rule(instructions_file), False
-    except _SetupError as exc:
+    except SetupError as exc:
         fail(str(exc))
         return 0, True
-
-
-def _claude_desktop_config_path() -> Path:
-    # Windows keeps config under %APPDATA%, not the POSIX Application Support tree
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA")
-        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-        return base / "Claude" / "claude_desktop_config.json"
-    return (
-        Path.home()
-        / "Library"
-        / "Application Support"
-        / "Claude"
-        / "claude_desktop_config.json"
-    )
-
-
-def _load_json_object(path: Path) -> dict:
-    """`{}` for an absent file, the parsed object for a valid one, else `_SetupError`."""
-    if not path.is_file():
-        return {}
-    # the BOM is dropped, not carried: engmem re-serialises the whole document, and RFC 8259
-    # forbids emitting one
-    text, _ = _read_user_file(path)
-    if not text.strip():
-        return {}
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise _SetupError(
-            f"{path} is not valid JSON: {exc} — fix or remove the file by hand and "
-            f"re-run (refusing to overwrite a config engmem cannot parse)"
-        ) from exc
-    if not isinstance(data, dict):
-        raise _SetupError(
-            f"{path} does not contain a JSON object at the top level — fix or remove "
-            f"the file by hand and re-run (refusing to overwrite it)"
-        )
-    return data
-
-
-def _stdio_mcp_entry(store: Path) -> dict:
-    # a bare "engmem" is often not on PATH under an MCP client's minimal launch
-    # environment, and relative paths are a documented failure mode
-    return {
-        "command": sys.executable,
-        "args": ["-m", "engmem.cli", "mcp", "--store", str(store)],
-    }
-
-
-def _install_claude_desktop(store: Path) -> None:
-    """Merges the `engmem` key into whatever is already on disk, never overwriting wholesale."""
-    config_path = _claude_desktop_config_path()
-    config = _load_json_object(config_path)
-    mcp_servers = config.get("mcpServers", {})
-    if not isinstance(mcp_servers, dict):
-        raise _SetupError(
-            f"{config_path} has a `mcpServers` key that is not a JSON object — "
-            f"fix it by hand and re-run (refusing to overwrite it)"
-        )
-    mcp_servers["engmem"] = _stdio_mcp_entry(store)
-    config["mcpServers"] = mcp_servers
-    _ensure_directory(config_path.parent, "Claude Desktop config directory")
-    _replace_user_file(config_path, json.dumps(config, indent=2) + "\n")
-
-
-def _uninstall_claude_desktop() -> tuple[int, int]:
-    """`(removed, failed)`; removes exactly `mcpServers.engmem` and nothing else."""
-    config_path = _claude_desktop_config_path()
-    try:
-        config = _load_json_object(config_path)
-        mcp_servers = config.get("mcpServers")
-        if not isinstance(mcp_servers, dict) or "engmem" not in mcp_servers:
-            return 0, 0
-        del mcp_servers["engmem"]
-        _replace_user_file(config_path, json.dumps(config, indent=2) + "\n")
-    except _SetupError as exc:
-        # duplicated to stdout: fail() reaches the stdout-only consumer too
-        fail(str(exc))
-        return 0, 1
-    return 1, 0
-
-
-def _claude_desktop_entry_present() -> bool:
-    try:
-        config = _load_json_object(_claude_desktop_config_path())
-    except _SetupError:
-        return False
-    mcp_servers = config.get("mcpServers")
-    return isinstance(mcp_servers, dict) and "engmem" in mcp_servers
-
-
-def _codex_home() -> Path:
-    configured = os.environ.get("CODEX_HOME")
-    return Path(configured) if configured else Path.home() / ".codex"
-
-
-def _codex_config_path() -> Path:
-    return _codex_home() / "config.toml"
-
-
-def _toml_string(value: str) -> str:
-    # JSON's escapes are a subset of a TOML basic string's; ensure_ascii stays off because TOML
-    # rejects the surrogate pairs json would write for an astral character. DEL is the one
-    # character TOML forbids raw that json leaves alone
-    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
-        raise _SetupError(f"{value!r} is not valid Unicode and cannot be written to a TOML file")
-    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
-
-
-def _codex_mcp_block(store: Path, newline: str) -> str:
-    entry = _stdio_mcp_entry(store)
-    args = ", ".join(_toml_string(arg) for arg in entry["args"])
-    lines = (
-        CODEX_MCP_BEGIN,
-        "[mcp_servers.engmem]",
-        f"command = {_toml_string(entry['command'])}",
-        f"args = [{args}]",
-        CODEX_MCP_END,
-    )
-    return newline.join(lines) + newline
-
-
-def _parse_toml(path: Path, text: str) -> dict:
-    try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
-        raise _SetupError(
-            f"{path} is not valid TOML: {exc} — fix the file by hand and re-run "
-            f"(refusing to rewrite a config engmem cannot parse)"
-        ) from exc
-
-
-def _engmem_mcp_server(config: dict) -> object:
-    mcp_servers = config.get("mcp_servers")
-    return mcp_servers.get("engmem") if isinstance(mcp_servers, dict) else None
-
-
-def _split_codex_block(path: Path, text: str) -> tuple[str, str, str] | None:
-    """`(before, block, after)` around engmem's managed block, or None when there is none."""
-    lines = text.splitlines(keepends=True)
-    begin = next((i for i, line in enumerate(lines) if line.strip() == CODEX_MCP_BEGIN), None)
-    if begin is None:
-        return None
-    end = next(
-        (i for i in range(begin + 1, len(lines)) if lines[i].strip() == CODEX_MCP_END), None
-    )
-    if end is None:
-        raise _SetupError(
-            f"{path} has an engmem MCP block with no `{CODEX_MCP_END}` line — remove the "
-            f"[mcp_servers.engmem] block by hand and re-run"
-        )
-    return "".join(lines[:begin]), "".join(lines[begin : end + 1]), "".join(lines[end + 1 :])
-
-
-def _install_codex_mcp(store: Path, path: Path | None = None) -> CodexMcpOutcome:
-    """Adds or refreshes engmem's own block in `path` (default: $CODEX_HOME's config); an entry
-    the user wrote is never rewritten."""
-    path = path or _codex_config_path()
-    existing, bom = _read_user_file(path) if path.is_file() else ("", b"")
-    config = _parse_toml(path, existing)
-    if not isinstance(config.get("mcp_servers", {}), dict):
-        raise _SetupError(
-            f"{path} has an `mcp_servers` key that is not a table — fix it by hand and re-run "
-            f"(refusing to rewrite it)"
-        )
-    newline = newline_of(existing) or "\n"
-    entry = _stdio_mcp_entry(store)
-    block = _codex_mcp_block(store, newline)
-    split = _split_codex_block(path, existing)
-    if split is None:
-        if _engmem_mcp_server(config) is not None:
-            return CodexMcpOutcome.FOREIGN
-        prefix = existing if not existing or existing.endswith(("\n", "\r")) else existing + newline
-        composed, outcome = prefix + block, CodexMcpOutcome.ADDED
-    else:
-        before, current, after = split
-        if current == block:
-            return CodexMcpOutcome.PRESENT
-        _refuse_keys_added_to_the_block(path, config)
-        composed, outcome = before + block + after, CodexMcpOutcome.UPDATED
-    expected = copy.deepcopy(config)
-    expected.setdefault("mcp_servers", {})["engmem"] = entry
-    if _parsed_or_none(composed) != expected:
-        # an inline `mcp_servers = {}` cannot be extended by a later table header
-        raise _SetupError(
-            f"adding [mcp_servers.engmem] would not leave {path} a valid config with that entry "
-            f"— add an `engmem` server to mcp_servers by hand, with command = "
-            f"{json.dumps(entry['command'])} and args = {json.dumps(entry['args'])}"
-        )
-    _ensure_directory(path.parent, "Codex config directory")
-    _replace_user_file(path, composed, bom)
-    return outcome
-
-
-def _refuse_keys_added_to_the_block(path: Path, config: dict) -> None:
-    # the block is rewritten whole, so a key typed under its header would be dropped silently
-    current = _engmem_mcp_server(config)
-    added = sorted(set(current) - {"command", "args"}) if isinstance(current, dict) else []
-    if added:
-        raise _SetupError(
-            f"{path} has keys engmem did not write in its [mcp_servers.engmem] table "
-            f"({', '.join(added)}) — remove them, or remove the `{CODEX_MCP_BEGIN}` and "
-            f"`{CODEX_MCP_END}` lines to make the entry yours, and re-run"
-        )
-
-
-def _parsed_or_none(text: str) -> dict | None:
-    try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return None
-
-
-def _uninstall_codex_mcp() -> tuple[int, int]:
-    """`(removed, failed)`; removes exactly engmem's managed block and nothing else."""
-    path = _codex_config_path()
-    if not path.is_file():
-        return 0, 0
-    try:
-        existing, bom = _read_user_file(path)
-        # a config engmem has no block in is not engmem's to diagnose, broken or not
-        split = _split_codex_block(path, existing)
-        if split is None:
-            return 0, 0
-        config = _parse_toml(path, existing)
-        before, _, after = split
-        _require_only_engmem_removed(path, config, before + after)
-        _replace_user_file(path, before + after, bom)
-    except _SetupError as exc:
-        fail(str(exc))
-        return 0, 1
-    return 1, 0
-
-
-def _require_only_engmem_removed(path: Path, config: dict, remaining: str) -> None:
-    # keys below engmem's header belong to its table; without the header they fall into the
-    # table above it, which parses fine and silently changes what that table means
-    # a block whose lines were commented out holds no entry, and cutting it changes nothing
-    expected = copy.deepcopy(config)
-    servers = expected.get("mcp_servers")
-    if isinstance(servers, dict):
-        servers.pop("engmem", None)
-    if _without_empty_servers(_parsed_or_none(remaining)) != _without_empty_servers(expected):
-        raise _SetupError(
-            f"removing engmem's [mcp_servers.engmem] block would change the rest of {path} — "
-            f"remove the block, and whatever you added under it, by hand"
-        )
-
-
-def _without_empty_servers(config: dict | None) -> dict | None:
-    # `[mcp_servers.engmem]` creates `mcp_servers` implicitly, so its removal may take an
-    # otherwise empty table with it
-    if config is None or config.get("mcp_servers") != {}:
-        return config
-    return {key: value for key, value in config.items() if key != "mcp_servers"}
-
-
-def _codex_mcp_block_present() -> bool:
-    path = _codex_config_path()
-    if not path.is_file():
-        return False
-    try:
-        return _split_codex_block(path, _read_user_file(path)[0]) is not None
-    except _SetupError:
-        return False
-
-
-@dataclass(frozen=True)
-class McpWiring:
-    """One installed MCP entry for engmem: the `--store` it launches the server with, and the
-    command line that launches it (empty when the entry's values are not all strings)."""
-
-    agent: str
-    config: Path
-    store: Path | None
-    managed: bool
-    command: str | None = None
-    args: tuple[str, ...] = ()
-
-
-class WiringVerdict(enum.StrEnum):
-    MATCHES = "matches"
-    MISMATCH = "mismatch"
-    AT_LAUNCH = "resolved at launch"
-    NO_FIXED_BASE = "no fixed base"
-    INVALID = "invalid"
-
-
-def wiring_verdict(wiring: McpWiring, store: Path) -> WiringVerdict:
-    """How the entry's `--store` compares with `store`, the one this shell resolves."""
-    if wiring.store is None:
-        return WiringVerdict.AT_LAUNCH
-    # a NUL byte, which a JSON or TOML string can carry and no path can; checked in the string
-    # because Windows' non-strict realpath returns such a path unchanged instead of raising
-    if "\0" in str(wiring.store):
-        return WiringVerdict.INVALID
-    if not wiring.store.is_absolute():
-        return WiringVerdict.NO_FIXED_BASE
-    if os.path.realpath(wiring.store) == os.path.realpath(store):
-        return WiringVerdict.MATCHES
-    return WiringVerdict.MISMATCH
-
-
-def rewire_action(wiring: McpWiring, store: Path) -> str:
-    """What points the entry at `store`: install for an entry install owns, a hand edit else."""
-    target = shell_argument(str(store))
-    if wiring.managed:
-        return f"run `engmem install --agent {wiring.agent} --store {target}` to rewire it"
-    return f"edit [mcp_servers.engmem] in {wiring.config} by hand to pass --store {target}"
-
-
-def _store_argument(args: object) -> Path | None:
-    """The store the entry's `engmem mcp` will be handed, read the way the server reads it: the
-    last `--store` wins, as in argparse, and a blank one counts as none."""
-    if not isinstance(args, list):
-        return None
-    value = None
-    for i, arg in enumerate(args):
-        if not isinstance(arg, str):
-            continue
-        if arg == "--store" and i + 1 < len(args) and isinstance(args[i + 1], str):
-            value = args[i + 1]
-        elif arg.startswith("--store="):
-            value = arg.removeprefix("--store=")
-    return store_path_of(value)
-
-
-def _launch(entry: dict) -> tuple[str | None, tuple[str, ...]]:
-    command = entry.get("command")
-    args = entry.get("args", [])
-    strings = isinstance(args, list) and all(isinstance(arg, str) for arg in args)
-    return (command if isinstance(command, str) else None), (tuple(args) if strings else ())
-
-
-def _desktop_wiring() -> McpWiring | None:
-    path = _claude_desktop_config_path()
-    mcp_servers = _load_json_object(path).get("mcpServers")
-    entry = mcp_servers.get("engmem") if isinstance(mcp_servers, dict) else None
-    if not isinstance(entry, dict):
-        return None
-    # install rewrites `mcpServers.engmem` whatever wrote it, so it is always install's to fix
-    return McpWiring(
-        "claude-desktop", path, _store_argument(entry.get("args")), True, *_launch(entry)
-    )
-
-
-def _codex_wiring() -> McpWiring | None:
-    path = _codex_config_path()
-    if not path.is_file():
-        return None
-    text, _ = _read_user_file(path)
-    entry = _engmem_mcp_server(_parse_toml(path, text))
-    if not isinstance(entry, dict):
-        return None
-    managed = _split_codex_block(path, text) is not None
-    return McpWiring("codex", path, _store_argument(entry.get("args")), managed, *_launch(entry))
-
-
-# the clients whose MCP entry lives in a config on this machine, and where that config is
-MCP_CONFIGS = {
-    "claude-desktop": (_claude_desktop_config_path, _desktop_wiring),
-    "codex": (_codex_config_path, _codex_wiring),
-}
-
-
-def mcp_wiring(agent: str) -> McpWiring | None:
-    """`agent`'s engmem MCP entry, None when there is none; `_SetupError` names a config that
-    cannot be read. Reading only."""
-    return MCP_CONFIGS[agent][1]()
-
-
-def installed_mcp_wirings() -> tuple[list[McpWiring], list[str]]:
-    """Every engmem MCP entry found, plus one line per config that could not be read; reading
-    only — `engmem store show` reports, and never rewrites or migrates (AC-05.4)."""
-    wirings: list[McpWiring] = []
-    problems: list[str] = []
-    for agent in MCP_CONFIGS:
-        try:
-            wiring = mcp_wiring(agent)
-        except _SetupError as exc:
-            problems.append(f"{agent}: cannot check the MCP entry: {exc}")
-            continue
-        if wiring is not None:
-            wirings.append(wiring)
-    return wirings, problems
-
-
-def shell_argument(value: str) -> str:
-    return subprocess.list2cmdline([value]) if sys.platform == "win32" else shlex.quote(value)
-
-
-def _shell_quoted_mcp_command(store: Path) -> str:
-    """The launch line as one shell argument, quoted for the shell the user will paste it into."""
-    entry = _stdio_mcp_entry(store)
-    argv = [entry["command"], *entry["args"]]
-    if sys.platform == "win32":
-        return subprocess.list2cmdline([subprocess.list2cmdline(argv)])
-    return shlex.quote(shlex.join(argv))
 
 
 # engmem never observes who reaches either bridge, so neither line may call a setup protected:
@@ -913,7 +457,7 @@ PUBLIC_BRIDGE_STATUS = (
 
 
 def _print_chatgpt_steps(store: Path) -> None:
-    mcp_command = _shell_quoted_mcp_command(store)
+    mcp_command = shell_quoted_mcp_command(store)
     print(
         "ChatGPT runs no local MCP server itself; it reaches `engmem mcp` through OpenAI's "
         "Secure MCP Tunnel:\n"
@@ -954,7 +498,7 @@ _HOME_SCOPED_AGENTS = {
 _SKILL_AGENTS = ("copilot-cli", "codex")
 # agents wired through an MCP server entry; the first two write no templates at all
 _MCP_ONLY_AGENTS = ("claude-desktop", "chatgpt")
-_MCP_AGENTS = ("claude-desktop", "codex")
+_MCP_AGENTS = tuple(MCP_CONFIGS)
 
 
 def _reject_local_home_scoped(command: str, agent: str) -> int:
@@ -987,7 +531,7 @@ def _agent_instructions_file(agent: str, local: bool) -> Path | None:
     if agent == "copilot-ide":
         return Path.cwd() / ".github" / "copilot-instructions.md"
     if agent == "codex":
-        return _codex_home() / "AGENTS.md"
+        return codex_home() / "AGENTS.md"
     return None
 
 
@@ -1018,9 +562,9 @@ def _other_agents_with_files_present(args: argparse.Namespace) -> list[str]:
         if agent != args.agent
         and any(p.is_file() for p in _template_paths_for_agent(agent, args.local))
     ]
-    if args.agent != "claude-desktop" and _claude_desktop_entry_present():
+    if args.agent != "claude-desktop" and claude_desktop_entry_present():
         present.append("claude-desktop")
-    if args.agent != "codex" and "codex" not in present and _codex_mcp_block_present():
+    if args.agent != "codex" and "codex" not in present and codex_mcp_block_present():
         present.append("codex")
     return present
 
@@ -1047,9 +591,9 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     else:
         removed, failed = _remove_files(template_paths)
     if args.agent == "claude-desktop":
-        entries_removed, entries_failed = _uninstall_claude_desktop()
+        entries_removed, entries_failed = uninstall_claude_desktop()
     elif args.agent == "codex":
-        entries_removed, entries_failed = _uninstall_codex_mcp()
+        entries_removed, entries_failed = uninstall_codex_mcp()
 
     rule_lines, rule_failed = _remove_trigger_rule_reporting_failure(instructions)
 
@@ -1101,7 +645,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     try:
         return _run_install(args)
-    except _SetupError as exc:
+    except SetupError as exc:
         fail(f"engmem install: {exc}")
         return 2
 
@@ -1121,7 +665,7 @@ def _run_install(args: argparse.Namespace) -> int:
         )
     elif args.agent == "claude-desktop":
         # no commands directory, no instructions file — only the MCP config entry
-        _install_claude_desktop(store)
+        install_claude_desktop(store)
     elif args.agent == "copilot-cli":
         # skills are self-invoked, no global-instructions file to append to
         conflicts = _install_skill_templates(
@@ -1130,7 +674,7 @@ def _run_install(args: argparse.Namespace) -> int:
     elif args.agent == "codex":
         # Codex runs a shell and an MCP client both; the templates pick whichever is there. The
         # config goes first: it is the step that can refuse, and a refusal must leave nothing
-        codex_outcome = _install_codex_mcp(store)
+        codex_outcome = install_codex_mcp(store)
         conflicts = _install_skill_templates(_agent_command_dir("codex", args.local), "codex")
         trigger_outcome = _append_trigger_rule(_agent_instructions_file("codex", args.local))
 
@@ -1141,8 +685,8 @@ def _run_install(args: argparse.Namespace) -> int:
     for conflict in conflicts:
         print(_conflict_note(conflict))
     if args.agent == "codex":
-        print(f"{_CODEX_MCP_NOTES[codex_outcome]} in {_codex_config_path()}")
-        override = _codex_home() / "AGENTS.override.md"
+        print(f"{CODEX_MCP_NOTES[codex_outcome]} in {codex_config_path()}")
+        override = codex_home() / "AGENTS.override.md"
         if override.exists():
             print(
                 f"note: Codex reads {override} instead of AGENTS.md, so the trigger rule will "
