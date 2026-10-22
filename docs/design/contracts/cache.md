@@ -150,10 +150,14 @@ Measured 2026-10-21 on an Apple-silicon Mac, Python 3.11, the 20,112-document st
 searches in one process (`mcp_server._run_search_for_tool`), two runs: the first 6.5–9.7 s, every
 later one 1.2–1.6 s (8.1–8.4 s of CPU per search before). The price is memory held between calls:
 peak RSS was 0.84 GB for one search before and is 0.99 GB now, and the server keeps that between
-calls instead of returning to its idle size. About half of what is left is reading
+calls instead of returning to its idle size. About half of what was left was reading
 the 20,112 files through `confined`, three `open` calls each. Skipping that read when `stat` is
 unchanged would make a warm search cheaper and would serve a stale document wherever two writes
-land in one timestamp tick, so the read stays.
+land in one timestamp tick, so the read stays. It got cheaper instead: since SC-002 a load holds
+`sessions/` open and opens each document once relative to it (`contracts/runtime.md`, "Reads stay
+inside the store"). Measured 2026-10-22, same store and machine, three interleaved runs of six
+warm searches each: median 1.22 s and maximum 1.65 s before, median 0.86 s and maximum 1.19 s
+after, with the machine's load average near 5.
 
 ## `identity_for` is not the cache key
 
