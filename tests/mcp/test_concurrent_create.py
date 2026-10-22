@@ -13,11 +13,11 @@ from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.fs import entry_names
 from support.platform import requires_symlinks
 
-from engmem import drafts, mcp_server, staging
+from engmem import drafts, mcp_documents, mcp_tools, staging
 from engmem.scoring import search
 from engmem.spine import load_store
 
-CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
+CREATE_TOOL = mcp_tools.CREATE_DRAFT_TOOL_NAME
 DOC_ID = "20260101-widget-cache"
 
 
@@ -38,7 +38,9 @@ def _create_concurrently(store: Path, requests: list[tuple[str, str]]) -> list[t
 
     def create(index: int, doc_id: str, content: str) -> None:
         barrier.wait()
-        results[index] = mcp_server._handle_create_draft({"id": doc_id, "content": content}, store)
+        results[index] = mcp_documents.handle_create_draft(
+            {"id": doc_id, "content": content}, store
+        )
 
     threads = [
         threading.Thread(target=create, args=(i, doc_id, content))
@@ -192,7 +194,7 @@ def test_an_interrupted_create_leaves_no_document_and_reports_no_success(store, 
     content = _draft(DOC_ID, UNIQUE_TERM)
 
     with pytest.raises(KeyboardInterrupt):
-        mcp_server._handle_create_draft({"id": DOC_ID, "content": content}, store)
+        mcp_documents.handle_create_draft({"id": DOC_ID, "content": content}, store)
 
     assert entry_names(store / "sessions") == []
 

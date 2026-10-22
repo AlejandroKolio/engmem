@@ -32,9 +32,9 @@ on. `gate1_report.py` still exits 0; the lines are its way of failing loudly.
 `reuse_log_rows`, `quotes_in` and `classification_of` are public, not underscored, for one
 consumer: `engmem_complete_draft` refuses a row the count would exclude for a defect visible in
 the row itself, and that refusal must agree with the count to the character. A second regex in
-`mcp_server.py` would be the tool-to-tool drift above, reintroduced between the gate and the
-write path. The refusal walks every `reuse` section while `evaluate()` reads the first, so the
-rows it refuses are a superset of the rows the count verdicts. The store-dependent axes
+`drafts.py` would be the tool-to-tool drift above, reintroduced between the gate and the write
+path. The refusal walks every `reuse` section while `evaluate()` reads the first, so the rows it
+refuses are a superset of the rows the count verdicts. The store-dependent axes
 (`cited_missing`, `quote_not_found`, distance, staleness) are never decided at write time —
 `contracts/mcp-server.md`, "`engmem_complete_draft`: Reuse Log rows — refuse, then warn".
 

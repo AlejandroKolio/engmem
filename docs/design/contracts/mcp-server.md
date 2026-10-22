@@ -1,6 +1,8 @@
 # Contract: `engmem mcp` stdio server
 
-Source: `src/engmem/mcp_server.py`. Author-approved addition beyond `ENGMEM-SPEC.md` §9
+Source: `src/engmem/mcp_server.py` (transport, dispatch, search and the non-document tools),
+`mcp_tools.py` (each tool's name, description and input schema) and `mcp_documents.py` (the
+tools that write a session document). Author-approved addition beyond `ENGMEM-SPEC.md` §9
 (see §5 `engmem mcp`): Claude Desktop cannot run shell commands, so the CLI alone is
 unreachable from it. Codex launches the same server from `config.toml`; ChatGPT reaches it
 through OpenAI's `tunnel-client`, which spawns this stdio process and carries the frames
@@ -201,7 +203,7 @@ A refusal tells the caller what to do in its own terms. `drafts.Surface` names t
 `--expected-version <v>` on the CLI. An agent reading a CLI refusal is never sent to a tool it
 does not have.
 
-`engmem_mark_superseded` stays MCP-only and stays in `mcp_server.py`, using the shared
+`engmem_mark_superseded` stays MCP-only, in `mcp_documents.py`, using the shared
 containment, lock and, since US-25, version check. The full save's step for superseding an
 older document sends an agent that has the tool to it first. Only an agent without it is still
 told to edit that document directly, with no lock, version or status check. This is a recorded

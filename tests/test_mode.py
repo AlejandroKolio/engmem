@@ -12,7 +12,7 @@ from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, FIXTURES, write_file
 from support.tools import run_tool
 
-from engmem import gate1, gate1_audit, mcp_server, runtime, settings
+from engmem import gate1, gate1_audit, mcp_server, mcp_tools, runtime, settings
 from engmem.cli import main
 from engmem.settings import Mode, ModeSettingError
 from engmem.spine import load_store
@@ -64,7 +64,7 @@ def _active(mode: str | None, *, prereg: bool = True, extra: str = "") -> str:
 
 def _create(store: Path, content: str) -> tuple[str, bool]:
     result, is_error = rpc.call(
-        store, name=mcp_server.CREATE_DRAFT_TOOL_NAME,
+        store, name=mcp_tools.CREATE_DRAFT_TOOL_NAME,
         arguments={"id": DRAFT_ID, "content": content},
     )
     return rpc.text(result), is_error
@@ -72,7 +72,7 @@ def _create(store: Path, content: str) -> tuple[str, bool]:
 
 def _complete(store: Path, content: str) -> tuple[str, bool]:
     result, is_error = rpc.call(
-        store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
+        store, name=mcp_tools.COMPLETE_DRAFT_TOOL_NAME,
         arguments=rpc.versioned(store, {"id": DRAFT_ID, "content": content}),
     )
     return rpc.text(result), is_error

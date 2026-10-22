@@ -580,13 +580,14 @@ def _apply_backfill_locked(doc: Doc, proposal: BackfillProposal) -> str:
     prefix = _drop_declared_keys(front_matter_text, set(missing))
     new_content = f"---{newline}" + prefix + addition + f"---{newline}" + expected_body
 
-    # a symlinked document is refused, not written — the same rule `mcp_server` states for
-    # its write tools. `os.replace` over the link silently detached the document from whatever
-    # it pointed at; writing *through* it is worse in both directions. Out of the directory, it
-    # makes this the only path here that writes outside the store, and a store is relocatable
-    # with --store, so a link committed to a shared one aims the write anywhere. Inside it, the
-    # two names share an inode, so the alias's `id` lands in the real document too and
-    # `load_store` then reports a duplicate id across the pair
+    # a symlinked document is refused, not written — the same rule the MCP write tools follow
+    # (contracts/mcp-server.md, "Write tools: security contract"). `os.replace` over the link
+    # silently detached the document from whatever it pointed at; writing *through* it is worse
+    # in both directions. Out of the directory, it makes this the only path here that writes
+    # outside the store, and a store is relocatable with --store, so a link committed to a
+    # shared one aims the write anywhere. Inside it, the two names share an inode, so the
+    # alias's `id` lands in the real document too and `load_store` then reports a duplicate id
+    # across the pair
     if doc.path.is_symlink():
         raise BackfillWriteError(
             f"{doc.path.name}: is a symlink to {os.readlink(doc.path)} — refusing to write. "

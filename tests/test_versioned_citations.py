@@ -15,7 +15,7 @@ from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.platform import requires_symlinks
 from support.tools import run_tool
 
-from engmem import gate1, mcp_server, versions
+from engmem import gate1, mcp_tools, versions
 from engmem.cli import main
 from engmem.spine import load_store, parse_document
 from engmem.staging import version_of
@@ -133,7 +133,7 @@ def test_the_mcp_search_and_the_role_search_name_the_reference_too(tmp_path):
     _, responses, _ = rpc.run(
         tmp_path,
         rpc.tools_call_msg(1, arguments={"query": "widget flush"}),
-        rpc.tools_call_msg(2, name=mcp_server.ROLE_TOOL_NAME,
+        rpc.tools_call_msg(2, name=mcp_tools.ROLE_TOOL_NAME,
                            arguments={"query": "widget flush", "role": "decisions"}),
     )
 
@@ -379,7 +379,7 @@ def _complete(store: Path, prior_doc: str, quote: str) -> tuple[str, bool]:
     )
     result, is_error = rpc.call(
         store,
-        name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
+        name=mcp_tools.COMPLETE_DRAFT_TOOL_NAME,
         arguments=rpc.versioned(store, {"id": "20260101-story-doc", "content": content}),
     )
     return rpc.text(result), is_error
@@ -519,7 +519,7 @@ def _shown_reference(out: str) -> str | None:
 
 @pytest.mark.parametrize("call", [
     pytest.param(lambda: rpc.tools_call_msg(1, arguments={"query": "widget flush"}), id="search"),
-    pytest.param(lambda: rpc.tools_call_msg(1, name=mcp_server.ROLE_TOOL_NAME,
+    pytest.param(lambda: rpc.tools_call_msg(1, name=mcp_tools.ROLE_TOOL_NAME,
                                             arguments={"query": "widget flush", "role": "decisions"}),
                  id="role-search"),
 ])

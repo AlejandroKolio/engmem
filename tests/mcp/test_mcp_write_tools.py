@@ -19,13 +19,13 @@ from support.platform import (
     requires_symlinks,
 )
 
-from engmem import drafts, mcp_server
+from engmem import drafts, mcp_documents, mcp_tools
 from engmem.spine import load_store, split_front_matter
 from engmem.staging import version_of
 
-CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
-COMPLETE_TOOL = mcp_server.COMPLETE_DRAFT_TOOL_NAME
-SUPERSEDE_TOOL = mcp_server.MARK_SUPERSEDED_TOOL_NAME
+CREATE_TOOL = mcp_tools.CREATE_DRAFT_TOOL_NAME
+COMPLETE_TOOL = mcp_tools.COMPLETE_DRAFT_TOOL_NAME
+SUPERSEDE_TOOL = mcp_tools.MARK_SUPERSEDED_TOOL_NAME
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ def test_create_draft_success_text_carries_the_id_into_the_next_search(store):
 
     assert not is_error
     assert "session_id" in text, "the id alone does not say what to do with it"
-    assert mcp_server.TOOL_NAME in text and mcp_server.ROLE_TOOL_NAME in text, (
+    assert mcp_tools.TOOL_NAME in text and mcp_tools.ROLE_TOOL_NAME in text, (
         "the directive must name the tools the id is passed to"
     )
     assert text.count("20260101-widget-cache") >= 2, (
@@ -601,10 +601,10 @@ def test_the_reuse_log_shape_is_shown_before_it_can_be_refused(store):
     assert not is_error
     assert _EXPECTED_HEADER in rpc.text(result)
     assert "Prior docs used: none." in rpc.text(result)
-    assert _EXPECTED_HEADER in mcp_server.CREATE_DRAFT_TOOL_DESCRIPTION
-    assert _EXPECTED_HEADER in mcp_server.COMPLETE_DRAFT_TOOL_DESCRIPTION
-    assert drafts.CLASSIFICATION_CHOICES in mcp_server.CREATE_DRAFT_TOOL_DESCRIPTION
-    assert drafts.CLASSIFICATION_CHOICES in mcp_server.COMPLETE_DRAFT_TOOL_DESCRIPTION
+    assert _EXPECTED_HEADER in mcp_tools.CREATE_DRAFT_TOOL_DESCRIPTION
+    assert _EXPECTED_HEADER in mcp_tools.COMPLETE_DRAFT_TOOL_DESCRIPTION
+    assert drafts.CLASSIFICATION_CHOICES in mcp_tools.CREATE_DRAFT_TOOL_DESCRIPTION
+    assert drafts.CLASSIFICATION_CHOICES in mcp_tools.COMPLETE_DRAFT_TOOL_DESCRIPTION
 
 
 def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypatch):
@@ -970,7 +970,7 @@ def test_a_completed_document_is_findable_by_search_in_the_same_session(store):
 
 # ---------------------------------------------------------------------------
 # tools/list — the write tools are correctly scoped (the inventory itself is
-# pinned by test_mcp_server.py's closed five-tool list)
+# pinned by test_mcp_server.py's closed eight-tool list)
 # ---------------------------------------------------------------------------
 
 
@@ -1115,7 +1115,7 @@ def test_supersede_discards_a_patch_that_did_not_produce_the_expected_state(stor
     )
     before = path.read_text(encoding="utf-8")
     monkeypatch.setattr(
-        mcp_server, "_patch_front_matter_line", lambda text, key, value: text
+        mcp_documents, "_patch_front_matter_line", lambda text, key, value: text
     )
 
     result, is_error = rpc.call(
@@ -1178,7 +1178,7 @@ def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
         "status: active\n---\n\n## 8. Decision Log\n\nBody rewritten by another writer.\n"
     )
 
-    real_decode_document = mcp_server.decode_document
+    real_decode_document = mcp_documents.decode_document
 
     def racing_decode(data: bytes):
         # the concurrent write lands after this handler has its bytes, exactly where a
@@ -1186,7 +1186,7 @@ def test_supersede_refuses_a_document_that_changed_after_the_bytes_it_rebuilds(
         path.write_text(newer, encoding="utf-8")
         return real_decode_document(data)
 
-    monkeypatch.setattr(mcp_server, "decode_document", racing_decode)
+    monkeypatch.setattr(mcp_documents, "decode_document", racing_decode)
 
     result, is_error = rpc.call(
         store,
@@ -1220,7 +1220,7 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
         "expected_version": version_of(corrupt),
     }
 
-    real_parse_document = mcp_server.parse_document
+    real_parse_document = mcp_documents.parse_document
 
     def racing_parse(target: Path):
         # the concurrent write lands after the validating parse, so the raw re-read below is
@@ -1229,7 +1229,7 @@ def test_supersede_refuses_a_document_that_stopped_being_utf8_between_its_two_re
         target.write_bytes(corrupt)
         return doc
 
-    monkeypatch.setattr(mcp_server, "parse_document", racing_parse)
+    monkeypatch.setattr(mcp_documents, "parse_document", racing_parse)
 
     _, responses, _ = rpc.run(
         store,
@@ -1368,8 +1368,9 @@ def test_a_failing_commit_still_discards_the_staged_file(
     def failing_commit(tmp_path, target):
         raise OSError(28, "No space left on device")
 
-    # create and complete write through `drafts`; supersede is MCP-only and stays in mcp_server
-    monkeypatch.setattr(mcp_server if name == SUPERSEDE_TOOL else drafts, committer, failing_commit)
+    # create and complete write through `drafts`; supersede is MCP-only, in mcp_documents
+    owner = mcp_documents if name == SUPERSEDE_TOOL else drafts
+    monkeypatch.setattr(owner, committer, failing_commit)
     _, responses, _ = rpc.run(
         store, rpc.tools_call_msg(1, name=name, arguments=rpc.versioned(store, arguments))
     )

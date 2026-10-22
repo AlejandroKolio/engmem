@@ -436,11 +436,11 @@ def test_a_completion_version_check_does_not_read_through_a_link(store):
 
 @requires_symlinks
 def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, monkeypatch):
-    from engmem import mcp_server
+    from engmem import mcp_documents
 
     path = store / "sessions" / f"{ALLOWED}.md"
     read = version_of(path.read_bytes())
-    real_parse = mcp_server.parse_document
+    real_parse = mcp_documents.parse_document
 
     def parse_then_link(target):
         doc = real_parse(target)
@@ -449,7 +449,7 @@ def test_supersede_never_rebuilds_from_a_file_swapped_in_after_its_parse(store, 
             path.symlink_to(_outside(store) / f"{LINKED}.md")
         return doc
 
-    monkeypatch.setattr(mcp_server, "parse_document", parse_then_link)
+    monkeypatch.setattr(mcp_documents, "parse_document", parse_then_link)
 
     _code, responses, _raw = rpc.run(
         store,

@@ -264,11 +264,11 @@ re-run.
 Three orderings hold it up. The stamp is taken by `spine.parse_document` immediately before the
 read it describes, not by `propose_backfill`, which runs later — for `--all`, a whole directory
 scan later — and would stamp the already-edited file, certifying the staleness. The comparison
-is made after `apply_backfill`'s own re-read, so one stat covers both reads; taken before it,
-an edit landing in between produced a write of stale values that had just passed the check
-(`mcp_server`'s `mark_superseded` compares later still, after it stages). And `None` is not a match:
-`None != None` is False, so a proposal with no stamp against a file that cannot be `stat`ed
-passed on no evidence; "unverifiable" is refused like "changed".
+is made after `apply_backfill`'s own re-read, so one stat covers both reads; taken before it, an
+edit landing in between produced a write of stale values that had just passed the check
+(`mcp_documents.handle_mark_superseded` compares later still, after it stages). And `None` is
+not a match: `None != None` is False, so a proposal with no stamp against a file that cannot be
+`stat`ed passed on no evidence; "unverifiable" is refused like "changed".
 
 The window closed is a human's prompt, thousands of ticks wide; the residual is a
 size-preserving edit inside the one filesystem timestamp tick of the read (NTFS advances about
@@ -346,11 +346,11 @@ it splits off is re-prefixed at write time.
 
 ## Atomic, body-preserving writes
 
-The staging is `engmem/staging.py` — `stage` / `commit` / `discard` — shared with
-`mcp_server`'s write tools (`contracts/mcp-server.md`, "Write tools: security contract")
-rather than written twice. It had been written twice, and the copies had diverged: the MCP
-side wrote with `write_text`, without an `fsync`, and without restoring the replaced file's
-mode. Sharing fixed all three at once.
+The staging is `engmem/staging.py` — `stage` / `commit` / `discard` — shared with the MCP write
+tools (`drafts`, `mcp_documents`; `contracts/mcp-server.md`, "Write tools: security contract")
+rather than written twice. It had been written twice, and the copies had diverged: the MCP side
+wrote with `write_text`, without an `fsync`, and without restoring the replaced file's mode.
+Sharing fixed all three at once.
 
 `apply_backfill` stages the new content to a uuid-named sibling `.tmp` and, before
 `os.replace` commits it, confirms three things against the staged file: the body is

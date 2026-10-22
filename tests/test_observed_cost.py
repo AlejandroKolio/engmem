@@ -10,14 +10,14 @@ from pathlib import Path
 import pytest
 from support import rpc
 
-from engmem import cost, mcp_server, read_report, versions
+from engmem import cost, mcp_server, mcp_tools, read_report, versions
 from engmem.cli import main
 from engmem.telemetry import estimate_tokens
 
 SESSION = "20260901-task"
 QUERY = "WidgetCache eviction"
-READ_TOOL = mcp_server.READ_TOOL_NAME
-BASELINE_TOOL = mcp_server.RECORD_BASELINE_TOOL_NAME
+READ_TOOL = mcp_tools.READ_TOOL_NAME
+BASELINE_TOOL = mcp_tools.RECORD_BASELINE_TOOL_NAME
 WIDGET_BODY = (
     "## Cold-start primer\n\nWidgetCache eviction runs nightly.\n\n"
     "## Decision Log\n\nWe chose LRU eviction for WidgetCache.\n\n"

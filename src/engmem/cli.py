@@ -394,7 +394,7 @@ def _backfill_targets(args: argparse.Namespace, docs: list[Doc]) -> tuple[list[D
 
 def _sessions_is_contained(store: Path) -> bool:
     """`sessions/` must be the store's own directory, not a link out of it — the same check
-    `mcp_server._resolve_sessions_dir` makes before it writes."""
+    `drafts._resolve_sessions_dir` makes before it writes."""
     try:
         own = store.resolve(strict=False) / "sessions"
         return (store / "sessions").resolve(strict=True) == own

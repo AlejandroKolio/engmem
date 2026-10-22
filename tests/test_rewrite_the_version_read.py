@@ -14,14 +14,14 @@ from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
 from support.fs import entry_names
 
-from engmem import backfill, drafts, mcp_server, staging
+from engmem import backfill, drafts, mcp_documents, mcp_server, mcp_tools, staging
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.cli import main
 from engmem.spine import load_store, parse_document
 from engmem.staging import version_of
 
-SUPERSEDE_TOOL = mcp_server.MARK_SUPERSEDED_TOOL_NAME
-COMPLETE_TOOL = mcp_server.COMPLETE_DRAFT_TOOL_NAME
+SUPERSEDE_TOOL = mcp_tools.MARK_SUPERSEDED_TOOL_NAME
+COMPLETE_TOOL = mcp_tools.COMPLETE_DRAFT_TOOL_NAME
 POLICY_ID = "20260105-retry-policy"
 SUCCESSOR_ID = "20260120-retry-policy-v2"
 DRAFT_ID = "20260101-widget-cache"
@@ -61,7 +61,7 @@ def _supersede(store: Path, expected_version: str | None) -> tuple[str, bool]:
     arguments = {"id": POLICY_ID, "superseded_by": SUCCESSOR_ID}
     if expected_version is not None:
         arguments["expected_version"] = expected_version
-    return mcp_server._handle_mark_superseded(arguments, store)
+    return mcp_documents.handle_mark_superseded(arguments, store)
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +245,8 @@ def _race(first, second) -> dict[str, object]:
 def test_a_supersede_committing_first_makes_the_backfill_refuse(store, monkeypatch):
     path, doc, proposal = _legacy(store)
     read = version_of(LEGACY_POLICY.encode("utf-8"))
-    pause, paused, release = _pausing(mcp_server, "commit", "first")
-    monkeypatch.setattr(mcp_server, "commit", pause)
+    pause, paused, release = _pausing(mcp_documents, "commit", "first")
+    monkeypatch.setattr(mcp_documents, "commit", pause)
 
     results = _race(
         (lambda: _supersede(store, read), paused, release),
@@ -309,7 +309,7 @@ def test_a_completion_refuses_an_edit_made_after_it_staged(store, monkeypatch):
     arguments = rpc.versioned(store, {"id": DRAFT_ID, "content": ACTIVE_CONTENT})
     _edit_after_staging(monkeypatch, path)
 
-    text, is_error = mcp_server._handle_complete_draft(arguments, store)
+    text, is_error = mcp_documents.handle_complete_draft(arguments, store)
 
     assert is_error
     assert "changed on disk" in text
@@ -336,7 +336,9 @@ def test_a_supersede_refuses_an_edit_made_after_it_staged(store, monkeypatch):
 
 def test_a_prohibition_added_after_the_read_stays_active_and_found(store):
     _policy(store)
-    read_text = rpc.text(rpc.call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
+    read_text = rpc.text(
+        rpc.call(store, name=mcp_tools.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0]
+    )
     cited = re.search(rf"cite as \(Reuse Log prior-doc\): {POLICY_ID}@([0-9a-f]+)", read_text)
     assert cited, read_text
     # the colleague adds the prohibition after the agent read the policy
@@ -359,12 +361,14 @@ def test_a_prohibition_added_after_the_read_stays_active_and_found(store):
     # the next fresh session, searching its own repository
     found, is_error = rpc.call(
         store,
-        name=mcp_server.TOOL_NAME,
+        name=mcp_tools.TOOL_NAME,
         arguments={"query": "PaymentRetrier fraud retry", "repo": "payments-api"},
     )
     assert not is_error, rpc.text(found)
     assert POLICY_ID in rpc.text(found)
-    read_again = rpc.text(rpc.call(store, name=mcp_server.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0])
+    read_again = rpc.text(
+        rpc.call(store, name=mcp_tools.READ_TOOL_NAME, arguments={"id": POLICY_ID})[0]
+    )
     assert "Never retry a charge the card network declined as fraud" in read_again
 
 

@@ -527,7 +527,7 @@ def _parse_text(path: Path, text: str, identity: tuple[int, int] | None) -> Doc:
             field_warnings.append(minutes_warning)
 
     # str like every other id-shaped field. Unquoted, `superseded_by: 2026-01-01` is a
-    # `datetime.date`, and `mcp_server._handle_mark_superseded` writes the value unquoted,
+    # `datetime.date`, and `mcp_documents.handle_mark_superseded` writes the value unquoted,
     # re-reads it and compares against the `str` it was given — so that round trip refused
     # its own write. A non-string is still reported: it would print as a fabricated id
     superseded_by = None
