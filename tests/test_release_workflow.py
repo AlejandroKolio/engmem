@@ -1,6 +1,7 @@
-"""The release build re-checks the sdist against the same top-level allowlist as CI.
+"""What the workflows themselves must hold: the same sdist allowlist in CI and release, and every
+action pinned to a commit.
 
-Each workflow holds its own copy; when only `ci.yml` learned about `scripts/`, every release
+Each workflow holds its own allowlist; when only `ci.yml` learned about `scripts/`, every release
 tag failed in `build` after the pull request that added it had passed."""
 
 from __future__ import annotations
@@ -21,3 +22,18 @@ def _allowed(workflow: str) -> set[str]:
 
 def test_release_and_ci_allow_the_same_sdist_entries():
     assert _allowed("release.yml") == _allowed("ci.yml")
+
+
+def test_every_action_is_pinned_to_a_commit_with_its_release_named():
+    """A tag or a branch can be moved under a workflow, and the publish step holds the PyPI
+    token; a SHA cannot move. The comment is what Dependabot reads and raises."""
+    uses = [
+        (workflow.name, line.strip())
+        for workflow in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
+        for line in workflow.read_text(encoding="utf-8").splitlines()
+        if re.match(r"\s*(?:- )?uses:", line)
+    ]
+    pinned = re.compile(r"(?:- )?uses: [\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$")
+
+    assert uses
+    assert [u for u in uses if not pinned.fullmatch(u[1])] == []
