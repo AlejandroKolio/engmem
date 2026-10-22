@@ -14,15 +14,13 @@ import yaml
 from engmem import __version__, cost, drafts, feedback
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.doctor import cmd_doctor
-from engmem.install import (
-    VALID_AGENTS,
-    McpWiring,
-    WiringVerdict,
-    cmd_install,
-    cmd_uninstall,
+from engmem.install import cmd_install, cmd_uninstall, VALID_AGENTS
+from engmem.mcp_clients import (
     installed_mcp_wirings,
+    McpWiring,
     rewire_action,
     wiring_verdict,
+    WiringVerdict,
 )
 from engmem.export import ExportError, prepare_export, render_preview, write_export
 from engmem.output import (

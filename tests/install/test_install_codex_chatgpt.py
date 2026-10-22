@@ -218,9 +218,9 @@ def test_an_engmem_server_the_user_wrote_is_left_alone(env, tmp_path, capsys):
 )
 def test_toml_string_round_trips_what_a_path_can_hold(value):
     """A `"` cannot be in a Windows file name, so the escaping is pinned here, not through a store."""
-    from engmem.install import _toml_string
+    from engmem.mcp_clients import toml_string
 
-    assert tomllib.loads(f"value = {_toml_string(value)}")["value"] == value
+    assert tomllib.loads(f"value = {toml_string(value)}")["value"] == value
 
 
 @pytest.mark.parametrize(
@@ -555,7 +555,7 @@ def test_local_is_rejected_for_codex_and_chatgpt(env, tmp_path, capsys, command,
 
 def test_chatgpt_tunnel_command_is_quoted_for_cmd_on_windows(env, tmp_path, monkeypatch, capsys):
     """POSIX single quotes paste into cmd and PowerShell as literal characters."""
-    monkeypatch.setattr("engmem.install.sys.platform", "win32")
+    monkeypatch.setattr("engmem.mcp_clients.sys.platform", "win32")
 
     _install("--agent", "chatgpt", "--store", str(tmp_path / "my store"))
 
@@ -565,10 +565,11 @@ def test_chatgpt_tunnel_command_is_quoted_for_cmd_on_windows(env, tmp_path, monk
 
 
 def test_a_path_toml_cannot_hold_is_refused_by_name():
-    from engmem.install import _SetupError, _toml_string
+    from engmem.mcp_clients import toml_string
+    from engmem.user_files import SetupError
 
-    with pytest.raises(_SetupError, match="not valid Unicode"):
-        _toml_string("store-\udcff")
+    with pytest.raises(SetupError, match="not valid Unicode"):
+        toml_string("store-\udcff")
 
 
 @pytest.mark.parametrize("other_server", [b"", b'[mcp_servers.other]\ncommand = "x"\n'])

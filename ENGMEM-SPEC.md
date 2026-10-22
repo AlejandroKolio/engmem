@@ -1025,7 +1025,7 @@ and each removes a duplication this section exists to prevent.
 
 Full reasoning for both: `docs/design/contracts/gate1.md`.
 
-**Large modules: `scoring.py` stays whole; `mcp_server.py` was split twice.**
+**Large modules: `scoring.py` stays whole; `mcp_server.py` and `install.py` were split.**
 `scoring.py` was examined for a seam, and one exists, but cutting it would break the thing that
 makes it fast: `search`, `search_with_role_sections` and `role_coverage` deliberately share one
 built section index, and splitting them would either duplicate that sharing or widen the API
@@ -1038,8 +1038,11 @@ call it. Tests patch the module that owns a call, so no re-export layer was adde
 request, 2026-10-22: split the large modules before they grow.)* `mcp_server.py` then lost two
 parts that never needed the server: the tool catalog, which is data, to `mcp_tools.py`, and the
 document-writing tools, the MCP-only supersede among them, to `mcp_documents.py`; `serve` and
-the dispatch stay. `scoring.py` has not been re-examined under that request yet; until it is,
-the reason above for keeping it whole stands.
+the dispatch stay. `install.py` lost its MCP client configs (Claude Desktop's JSON, Codex's
+TOML, the wiring verdict `doctor` and `store show` read) to `mcp_clients.py`, and the
+primitives for a file engmem edits but does not own to `user_files.py`, which both use.
+`scoring.py` has not been re-examined under that request yet; until it is, the reason above for
+keeping it whole stands.
 
 Transliteration and stemming stay cut, and were re-tested rather than assumed: a
 measured comparison against `python-slugify` showed stdlib NFKD reproduces its output

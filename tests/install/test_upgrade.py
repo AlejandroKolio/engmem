@@ -451,7 +451,7 @@ def test_a_template_write_that_fails_leaves_the_installed_one_whole(
     home, tmp_path, shell_path, capsys, monkeypatch
 ):
     """A torn template would read as the user's edit and never be repaired."""
-    import engmem.install as install
+    import engmem.user_files as user_files
 
     store = tmp_path / "notes"
     _install("claude", store, capsys)
@@ -465,7 +465,7 @@ def test_a_template_write_that_fails_leaves_the_installed_one_whole(
 
     # a context of its own: `monkeypatch.undo()` would also undo the sandboxed HOME
     with monkeypatch.context() as patch:
-        patch.setattr(install, "commit", failing_commit)
+        patch.setattr(user_files, "commit", failing_commit)
         assert main(["install", "--agent", "claude", "--store", str(store)]) == 2
 
     assert start.read_bytes() == restamped, "nothing half-written over the installed template"

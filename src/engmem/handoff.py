@@ -30,17 +30,16 @@ from engmem.demo import (
     workspace_paths,
     write_workspace,
 )
-from engmem.install import (
-    _engmem_mcp_server,
-    _ensure_store,
-    _load_json_object,
-    _parse_toml,
-    _read_user_file,
-    _SetupError,
-    _stdio_mcp_entry,
-    _store_argument,
+from engmem.install import _ensure_store
+from engmem.mcp_clients import (
+    engmem_mcp_server,
+    load_json_object,
+    parse_toml,
     shell_argument,
+    stdio_mcp_entry,
+    store_argument,
 )
+from engmem.user_files import read_user_file, SetupError
 from engmem.output import _snapshot_line
 from engmem.provenance import SessionCheckout
 from engmem.runtime import fail, store_path_of
@@ -160,7 +159,7 @@ def _rerun(layout: Layout) -> str:
 def _claude_project_files(store: Path) -> dict[str, str]:
     """Claude Code's MCP entry and shell environment for the storefront, both naming the demo
     store; the engineer's ~/.claude and ~/.claude.json are never opened."""
-    mcp = {"mcpServers": {"engmem": _stdio_mcp_entry(store)}}
+    mcp = {"mcpServers": {"engmem": stdio_mcp_entry(store)}}
     settings = {"env": {"ENGMEM_HOME": str(store)}}
     return {
         MCP_CONFIG: json.dumps(mcp, indent=2) + "\n",
@@ -258,13 +257,13 @@ def _codex_routes(config: Path) -> list[_Route]:
     mcp_source = f"--store of [mcp_servers.engmem] in {config}"
     shell_source = f"ENGMEM_HOME in [shell_environment_policy] set, {config}"
     try:
-        parsed = _parse_toml(config, _read_user_file(config)[0]) if config.is_file() else None
-    except _SetupError as exc:
+        parsed = parse_toml(config, read_user_file(config)[0]) if config.is_file() else None
+    except SetupError as exc:
         return [_Route(CODEX, str(config), None, str(exc))]
     if parsed is None:
         return [_Route(CODEX, str(config), None, "the file is missing")]
-    entry = _engmem_mcp_server(parsed)
-    mcp_store = _store_argument(entry.get("args")) if isinstance(entry, dict) else None
+    entry = engmem_mcp_server(parsed)
+    mcp_store = store_argument(entry.get("args")) if isinstance(entry, dict) else None
     policy = parsed.get("shell_environment_policy")
     variables = policy.get("set") if isinstance(policy, dict) else None
     shell = variables.get("ENGMEM_HOME") if isinstance(variables, dict) else None
@@ -277,18 +276,18 @@ def _codex_routes(config: Path) -> list[_Route]:
 def _claude_routes(mcp_config: Path, settings: Path) -> list[_Route]:
     routes: list[_Route] = []
     try:
-        servers = _load_json_object(mcp_config).get("mcpServers") if mcp_config.is_file() else None
+        servers = load_json_object(mcp_config).get("mcpServers") if mcp_config.is_file() else None
         entry = servers.get("engmem") if isinstance(servers, dict) else None
-        store = _store_argument(entry.get("args")) if isinstance(entry, dict) else None
+        store = store_argument(entry.get("args")) if isinstance(entry, dict) else None
         routes.append(_route(CLAUDE, f"--store of mcpServers.engmem in {mcp_config}", store))
-    except _SetupError as exc:
+    except SetupError as exc:
         routes.append(_Route(CLAUDE, str(mcp_config), None, str(exc)))
     try:
-        env = _load_json_object(settings).get("env") if settings.is_file() else None
+        env = load_json_object(settings).get("env") if settings.is_file() else None
         value = env.get("ENGMEM_HOME") if isinstance(env, dict) else None
         store = store_path_of(value) if isinstance(value, str) else None
         routes.append(_route(CLAUDE, f"ENGMEM_HOME in env, {settings}", store))
-    except _SetupError as exc:
+    except SetupError as exc:
         routes.append(_Route(CLAUDE, str(settings), None, str(exc)))
     return routes
 
