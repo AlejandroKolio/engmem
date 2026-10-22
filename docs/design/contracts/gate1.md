@@ -588,7 +588,7 @@ failure-mode tests as any other behaviour change.
 
 `telemetry.read_session_rows` raises `OSError`/`UnicodeDecodeError` by design, mirroring
 `summarize()` (above): a file that exists and cannot be read is not silently zero, the
-phantom-empty failure `cli.py`'s `_cmd_telemetry` handler also exists to prevent.
+phantom-empty failure `commands.py`'s `cmd_telemetry` handler also exists to prevent.
 `telemetry.jsonl` is append-only and written by two concurrent processes (`cli.py` and
 `mcp_server.py`), so a torn append or a stray byte is a realistic failure.
 

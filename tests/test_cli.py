@@ -855,7 +855,7 @@ def test_telemetry_does_not_blame_the_file_for_a_value_error_it_cannot_explain(
     def boom(_path):
         raise ValueError("not a decoding problem")
 
-    monkeypatch.setattr("engmem.cli.summarize_telemetry", boom)
+    monkeypatch.setattr("engmem.commands.summarize_telemetry", boom)
 
     with pytest.raises(ValueError):
         main(["telemetry", "--store", str(store)])

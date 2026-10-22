@@ -123,7 +123,7 @@ reader nowhere.
 
 Not `Path.resolve()`, because the path is what the user reads back in every message, and a
 symlinked store (`~/Developer/engmem` pointing into a synced folder or a dotfiles checkout) is
-a supported setup. No security invariant rides on this: `cli._sessions_is_contained` and
+a supported setup. No security invariant rides on this: `commands._sessions_is_contained` and
 `drafts._resolve_sessions_dir` re-resolve the store themselves, so a store handed to them
 already resolved changes neither half of their comparison. `..` segments are left alone for
 the same reason — `os.path.abspath` would collapse them lexically and, across a symlinked
@@ -149,7 +149,7 @@ user this machine lacks). `_expand_home()`, which both `resolve_store` and `defa
 use, catches it and returns the path unexpanded, so the literal `~nosuchuser/notes` (or
 `default_store`'s bare `~`) becomes an ordinary relative component, is made absolute like any
 other, and — not existing — is named by the `store not found` diagnostic
-(`cli._read_sessions`) exactly as a mistyped `--store` would be. The alternative, an uncaught
+(`commands._read_sessions`) exactly as a mistyped `--store` would be. The alternative, an uncaught
 traceback on stderr with stdout empty, is the swallowed error the next section exists to
 prevent. `resolve_store` stays pure: whether the failure is fatal, one skipped item or an
 interrupt is the command's choice, not this module's.
@@ -161,7 +161,7 @@ that reads stdout and never stderr (§10, principle VIII; §5 applies the same r
 own usage errors). stderr keeps the line where a human at a terminal expects it.
 
 It returns `None` rather than exiting: the exit code belongs to the command, which knows
-whether the failure is fatal (`return 2`), one document out of a batch (`_cmd_backfill` counts
+whether the failure is fatal (`return 2`), one document out of a batch (`cmd_backfill` counts
 it and carries on), or an interrupt (`return 130`). A `SystemExit` inside `fail` would take
 that choice from every caller at once.
 

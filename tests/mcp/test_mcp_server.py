@@ -1129,7 +1129,7 @@ def test_tools_call_writes_a_telemetry_line(store):
 )
 def test_the_session_id_argument_is_logged_the_same_way_the_cli_logs_it(store, session_id, logged):
     """Blank is absent, not an unknown session, and the value is stripped — both mirroring
-    cli.py's `_session_id`. The key is always present, so an unattributed row is explicit."""
+    commands.py's `_session_id`. The key is always present, so an unattributed row is explicit."""
     rpc.run(store, _search_call(session_id))
 
     row = rpc.telemetry_lines(store)[0]

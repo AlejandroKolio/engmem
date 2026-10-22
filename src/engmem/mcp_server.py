@@ -410,7 +410,7 @@ def _handle_tools_call(params: dict, store: Path, read_only: bool = False) -> di
             INVALID_PARAMS, "invalid params: 'session_id' must be a string"
         )
     if session_id is not None:
-        # blank == absent; mirrors cli.py's _session_id so both paths log the same key
+        # blank == absent; mirrors commands.py's _session_id so both paths log the same key
         session_id = session_id.strip() or None
     scope = _search_scope(arguments)
 

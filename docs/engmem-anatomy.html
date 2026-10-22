@@ -863,7 +863,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
         <rect x="930" y="30" width="100" height="54" rx="9"/>
       </g>
       <g font-family="IBM Plex Mono, monospace" font-size="11.3" fill="currentColor" text-anchor="middle">
-        <text x="70" y="53">_cmd_search</text>
+        <text x="70" y="53">cmd_search</text>
         <text x="215" y="53">resolve_store</text>
         <text x="360" y="53">load_store</text>
         <text x="495" y="53">search</text>
@@ -872,7 +872,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
         <text x="980" y="53">log_search</text>
       </g>
       <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" opacity=".62" text-anchor="middle">
-        <text x="70" y="69">cli.py</text>
+        <text x="70" y="69">commands.py</text>
         <text x="215" y="69">store не найдено?</text>
         <text x="360" y="69">spine.py</text>
         <text x="495" y="69">scoring.py</text>
@@ -919,7 +919,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T1</span>
-        <span class="step-titles"><span class="step-t"><code>main</code> → <code>_cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py · вход, путь к хранилищу, первая развилка</span></span>
+        <span class="step-titles"><span class="step-t"><code>main</code> → <code>cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py, commands.py · вход, путь к хранилищу, первая развилка</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -953,7 +953,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
             <pre><code>LoadResult(docs=7, errors=1, warnings=1)
 errors[0]   = "broken.md: while parsing a flow sequence…"
 warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
-            <p>Следом <code>_cmd_search</code> зовёт <code>stray_documents(store)</code> и предупреждает в <code>stderr</code> про markdown вне <code>sessions/*.md</code>: вложенные папки и корень хранилища поиск не сканирует.</p></div>
+            <p>Следом <code>cmd_search</code> зовёт <code>stray_documents(store)</code> и предупреждает в <code>stderr</code> про markdown вне <code>sessions/*.md</code>: вложенные папки и корень хранилища поиск не сканирует.</p></div>
           <div class="io-k">Развилка</div>
           <div class="io-v"><p>Исключают файл из выдачи: сломанный YAML, шапка не-словарь, незакрытый <code>---</code>, неразбираемая дата, непрочитанный файл, поле не того типа (но не наоборот: одиночную строку <code>_coerce_list_field</code> разворачивает в список с предупреждением — опечатка, а не порча) и перевод строки внутри <code>id</code>, которым в заголовке результата можно подделать второй блок <code>### </code>.</p></div>
           <div class="io-k">Почему так</div>
@@ -1233,7 +1233,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
         <div class="prose"><p>На этом пути <code>stdout</code> несёт только кадры — цикл обязан пережить любой обработчик и не напечатать ни одной лишней строки.</p></div>
         <div class="io">
           <div class="io-k">Вход</div>
-          <div class="io-v"><p><code>_cmd_mcp</code> резолвит хранилище тем же <code>resolve_store()</code>, что и путь 1, лениво импортирует <code>mcp_server</code> и передаёт управление <code>serve(store)</code>.</p></div>
+          <div class="io-v"><p><code>cmd_mcp</code> резолвит хранилище тем же <code>resolve_store()</code>, что и путь 1, лениво импортирует <code>mcp_server</code> и передаёт управление <code>serve(store)</code>.</p></div>
           <div class="io-k">Что делает</div>
           <div class="io-v"><p>Читает <code>stdin</code> построчно: пустая строка — пропуск; при <code>JSONDecodeError</code> сразу пишется <code>_error_response(None, PARSE_ERROR, …)</code>, и цикл продолжается, не доходя до <code>_dispatch</code>.</p></div>
           <div class="io-k">Развилка</div>
@@ -1945,7 +1945,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
         <rect x="930" y="30" width="100" height="54" rx="9"/>
       </g>
       <g font-family="IBM Plex Mono, monospace" font-size="11.3" fill="currentColor" text-anchor="middle">
-        <text x="70" y="53">_cmd_search</text>
+        <text x="70" y="53">cmd_search</text>
         <text x="215" y="53">resolve_store</text>
         <text x="360" y="53">load_store</text>
         <text x="495" y="53">search</text>
@@ -1954,7 +1954,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
         <text x="980" y="53">log_search</text>
       </g>
       <g font-family="IBM Plex Sans, sans-serif" font-size="10.3" fill="currentColor" opacity=".62" text-anchor="middle">
-        <text x="70" y="69">cli.py</text>
+        <text x="70" y="69">commands.py</text>
         <text x="215" y="69">store missing?</text>
         <text x="360" y="69">spine.py</text>
         <text x="495" y="69">scoring.py</text>
@@ -2001,7 +2001,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T1</span>
-        <span class="step-titles"><span class="step-t"><code>main</code> → <code>_cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py · entry, the store path, the first branch</span></span>
+        <span class="step-titles"><span class="step-t"><code>main</code> → <code>cmd_search</code> → <code>resolve_store</code></span><span class="step-s">cli.py, commands.py · entry, the store path, the first branch</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -2035,7 +2035,7 @@ savings: not claimed -- the task was not also done without memory, so nothing me
             <pre><code>LoadResult(docs=7, errors=1, warnings=1)
 errors[0]   = "broken.md: while parsing a flow sequence…"
 warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
-            <p>Then <code>_cmd_search</code> calls <code>stray_documents(store)</code> and warns on <code>stderr</code> about markdown outside <code>sessions/*.md</code>: neither the store root nor subfolders are scanned.</p></div>
+            <p>Then <code>cmd_search</code> calls <code>stray_documents(store)</code> and warns on <code>stderr</code> about markdown outside <code>sessions/*.md</code>: neither the store root nor subfolders are scanned.</p></div>
           <div class="io-k">The branch</div>
           <div class="io-v"><p>What excludes a file from the result set: broken YAML, a header that isn't a mapping, an unclosed <code>---</code>, a date that won't parse, a file that can't be read, a field of the wrong type (but not the reverse: <code>_coerce_list_field</code> unfolds a bare string into a one-element list with a warning — a slip, not corruption), and a newline inside <code>id</code>, which in a result header can forge a second <code>### </code> block.</p></div>
           <div class="io-k">Why so</div>
@@ -2315,7 +2315,7 @@ store left untouched: /Users/…/Developer/engmem  (your documents — remove it
         <div class="prose"><p>On this path <code>stdout</code> carries nothing but frames — so the loop must survive any handler and must not print one extra line.</p></div>
         <div class="io">
           <div class="io-k">Input</div>
-          <div class="io-v"><p><code>_cmd_mcp</code> resolves the store with the same <code>resolve_store()</code> path 1 uses, lazily imports <code>mcp_server</code>, and hands off to <code>serve(store)</code>.</p></div>
+          <div class="io-v"><p><code>cmd_mcp</code> resolves the store with the same <code>resolve_store()</code> path 1 uses, lazily imports <code>mcp_server</code>, and hands off to <code>serve(store)</code>.</p></div>
           <div class="io-k">What runs</div>
           <div class="io-v"><p>It reads <code>stdin</code> line by line: a blank line is skipped; on <code>JSONDecodeError</code> it writes <code>_error_response(None, PARSE_ERROR, …)</code> immediately and keeps reading, without ever reaching <code>_dispatch</code>.</p></div>
           <div class="io-k">The branch</div>

@@ -127,7 +127,7 @@ loop for every request still coming.
 it (`contracts/gate1.md`); a row without one is invisible to the Gate 1 analysis. It stays out
 of `inputSchema["required"]` for both search tools because a search before any draft exists
 is legitimate, and requiring it would turn that case into a protocol error instead of an
-unattributed row. Absent, blank and whitespace-only all log `null` (`cli._session_id`'s rule,
+unattributed row. Absent, blank and whitespace-only all log `null` (`commands._session_id`'s rule,
 mirrored so both channels write the same key); a non-string is `-32602`, not a stringified
 value.
 
@@ -221,7 +221,7 @@ Every write target MUST resolve inside the resolved store's `sessions/`. Order m
 3. `drafts.resolve_write_target` refuses to write through an existing target that is itself a
    symlink, checked before `Path.resolve()` would follow it and compare the wrong location.
 
-Points 2 and 3 are `engmem backfill`'s rules too (`cli._sessions_is_contained`,
+Points 2 and 3 are `engmem backfill`'s rules too (`commands._sessions_is_contained`,
 `apply_backfill`; `contracts/backfill.md`, "What the replaced file inherits"). Point 1 is
 MCP-only: these tools take a `doc_id` from a caller, `backfill` writes only where `load_store`
 already found a file.
