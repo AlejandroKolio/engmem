@@ -14,7 +14,7 @@ from support import rpc
 from support.docs import write_file
 from support.search import cli_search
 
-from engmem import gate1, gate1_audit, mcp_server
+from engmem import gate1, gate1_audit, mcp_tools
 from engmem.cli import main
 from engmem.install import CODEX_COMMAND_REFERENCE
 from engmem.output import PRIMER_MAX_CHARS
@@ -118,7 +118,7 @@ def _store(tmp_path: Path) -> Path:
 def _create(store: Path, record: str) -> str:
     doc_id = _front_matter_id(record)
     result, is_error = rpc.call(
-        store, name=mcp_server.CREATE_DRAFT_TOOL_NAME,
+        store, name=mcp_tools.CREATE_DRAFT_TOOL_NAME,
         arguments={"id": doc_id, "content": _draft_of(record)},
     )
     assert not is_error, rpc.text(result)
@@ -127,7 +127,7 @@ def _create(store: Path, record: str) -> str:
 
 def _complete(store: Path, record: str, version: str) -> str:
     result, is_error = rpc.call(
-        store, name=mcp_server.COMPLETE_DRAFT_TOOL_NAME,
+        store, name=mcp_tools.COMPLETE_DRAFT_TOOL_NAME,
         arguments={"id": _front_matter_id(record), "content": record, "expected_version": version},
     )
     assert not is_error, rpc.text(result)
@@ -136,7 +136,7 @@ def _complete(store: Path, record: str, version: str) -> str:
 
 def _attributed_search(store: Path, doc_id: str, query: str) -> None:
     _, is_error = rpc.call(
-        store, name=mcp_server.TOOL_NAME, arguments={"query": query, "session_id": doc_id}
+        store, name=mcp_tools.TOOL_NAME, arguments={"query": query, "session_id": doc_id}
     )
     assert not is_error
 
@@ -146,7 +146,7 @@ def _front_matter_id(record: str) -> str:
 
 
 def _mcp_search(store: Path, query: str, capsys) -> str:
-    result, is_error = rpc.call(store, name=mcp_server.TOOL_NAME, arguments={"query": query})
+    result, is_error = rpc.call(store, name=mcp_tools.TOOL_NAME, arguments={"query": query})
     assert not is_error
     return rpc.text(result)
 
@@ -410,7 +410,7 @@ def _replay(blocks: list[_Block], store: Path) -> list[str]:
             )
         elif block.kind == "json call":
             message = _substitute(json.loads(block.text), latest)
-            if message["params"].get("name") == mcp_server.COMPLETE_DRAFT_TOOL_NAME:
+            if message["params"].get("name") == mcp_tools.COMPLETE_DRAFT_TOOL_NAME:
                 assert confirmed is not None, "published a preview the user did not confirm"
                 assert message["params"]["arguments"]["content"] == confirmed
                 published.append(message["params"]["arguments"]["id"])

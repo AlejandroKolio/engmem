@@ -86,7 +86,7 @@ parse, not the cache, was the cost: on a 20,112-document store (52MB) with a war
 `engmem search "retry window"` took 18.1–20.6 s, half of it in PyYAML's pure-Python loader.
 `spine.load_yaml` therefore parses through libyaml (`yaml.CSafeLoader`) when PyYAML was built
 with it, and falls back to `yaml.SafeLoader` otherwise; `spine.compose_yaml` gives the write
-paths (`backfill._drop_declared_keys`, `mcp_server._patch_front_matter_line`) the node tree
+paths (`backfill._drop_declared_keys`, `mcp_documents._patch_front_matter_line`) the node tree
 through the same loader, so a write never refuses a document the read accepted. Measured
 2026-10-20 on an Apple-silicon Mac, Python 3.13, three runs each: 18.1–20.6 s before, 10.2 s
 after. The draft pass (`matching_drafts`) then loaded every published document's cache entry a

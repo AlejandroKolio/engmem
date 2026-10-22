@@ -13,12 +13,12 @@ from support import rpc
 from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
 from support.fs import entry_names
 
-from engmem import drafts, mcp_server, staging
+from engmem import drafts, mcp_documents, mcp_server, mcp_tools, staging
 from engmem.spine import load_store, parse_document
 
-CREATE_TOOL = mcp_server.CREATE_DRAFT_TOOL_NAME
-COMPLETE_TOOL = mcp_server.COMPLETE_DRAFT_TOOL_NAME
-SUPERSEDE_TOOL = mcp_server.MARK_SUPERSEDED_TOOL_NAME
+CREATE_TOOL = mcp_tools.CREATE_DRAFT_TOOL_NAME
+COMPLETE_TOOL = mcp_tools.COMPLETE_DRAFT_TOOL_NAME
+SUPERSEDE_TOOL = mcp_tools.MARK_SUPERSEDED_TOOL_NAME
 DOC_ID = "20260101-widget-cache"
 VERSION_RE = re.compile(r"version: ([0-9a-f]+)\)")
 CURRENT_VERSION_RE = re.compile(r'expected_version: "([0-9a-f]+)"')
@@ -52,7 +52,7 @@ def _complete(store: Path, content: str, expected_version: str | None) -> tuple[
     arguments = {"id": DOC_ID, "content": content}
     if expected_version is not None:
         arguments["expected_version"] = expected_version
-    return mcp_server._handle_complete_draft(arguments, store)
+    return mcp_documents.handle_complete_draft(arguments, store)
 
 
 def test_completing_the_version_read_publishes_the_full_active_document(store, target):
@@ -320,7 +320,7 @@ def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypat
     """The same window, the other rewriting tool: without the lock both see `status: active`
     and the later replace drops the earlier successor while both report success."""
     target.write_bytes(ACTIVE_CONTENT.encode("utf-8"))
-    real_commit = mcp_server.commit
+    real_commit = mcp_documents.commit
     a_in_window, release_a = threading.Event(), threading.Event()
 
     def commit_pausing_a(tmp_path, path):
@@ -329,13 +329,13 @@ def test_two_supersedes_of_one_document_cannot_both_win(store, target, monkeypat
             assert release_a.wait(10)
         real_commit(tmp_path, path)
 
-    monkeypatch.setattr(mcp_server, "commit", commit_pausing_a)
+    monkeypatch.setattr(mcp_documents, "commit", commit_pausing_a)
     successors = {"A": "20260201-widget-cache-a", "B": "20260201-widget-cache-b"}
     read = staging.version_of(ACTIVE_CONTENT.encode("utf-8"))
     results: dict[str, tuple[str, bool]] = {}
 
     def supersede(name: str) -> None:
-        results[name] = mcp_server._handle_mark_superseded(
+        results[name] = mcp_documents.handle_mark_superseded(
             {"id": DOC_ID, "superseded_by": successors[name], "expected_version": read},
             store,
         )

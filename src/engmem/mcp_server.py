@@ -10,30 +10,37 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, TextIO
 
-import yaml
-
-from engmem import __version__, confined, cost, drafts, feedback
+from engmem import __version__, cost, feedback
 from engmem.cache import KeptByPath
+from engmem.mcp_documents import (
+    handle_complete_draft,
+    handle_create_draft,
+    handle_mark_superseded,
+)
+from engmem.mcp_tools import (
+    COMPLETE_DRAFT_TOOL_NAME,
+    CREATE_DRAFT_TOOL_NAME,
+    MARK_SUPERSEDED_TOOL_NAME,
+    READ_TOOL_NAME,
+    RECORD_BASELINE_TOOL_NAME,
+    RECORD_FEEDBACK_TOOL_NAME,
+    ROLE_TOOL_NAME,
+    TOOL_NAME,
+    tools_list,
+)
 from engmem.read_report import ReadError, compose_read
 from engmem.settings import ModeSettingError, mode_setting_file, saved_mode
 from engmem.scoring import Scope
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
-# imported, not reimplemented, so a document a write tool below produces is
-# validated by the exact rules load_store applies when reading it back
 from engmem.spine import (
     Doc,
     LoadResult,
-    compose_yaml,
     load_store,
     load_yaml,
-    parse_document,
     sessions_dir_unreadable,
-    split_front_matter,
     stray_documents,
-    validate_doc_id,
 )
-from engmem.staging import commit, decode_document, discard, newline_of
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -43,144 +50,6 @@ INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
-
-TOOL_NAME = "engmem_search"
-TOOL_DESCRIPTION = (
-    "Search prior engineering session documents recorded by engmem — decisions, "
-    "pitfalls, and cold-start context captured from past work in this codebase. "
-    "Call this before planning or implementing any non-trivial engineering task, "
-    "with the key terms of the task as the query. Returns the best-matching "
-    "documents (or the sentence 'prior context: none found' if nothing matched) "
-    "plus a one-line summary of how many documents the store holds. Whenever a "
-    "draft session document exists for the current task, pass its id as "
-    "`session_id` — without it this retrieval cannot be tied to the document "
-    "that reuses it."
-)
-
-ROLE_TOOL_NAME = "engmem_search_by_role"
-ROLE_TOOL_DESCRIPTION = (
-    "Retrieve a specific kind of section — e.g. Decision Log, Lessons Learned, "
-    "Production Considerations — from across the most relevant prior engineering "
-    "session documents, instead of the single best word-matching passage "
-    "`engmem_search` returns. Reach for this when the question is about a "
-    "document's STRUCTURE rather than its subject matter — questions like 'what "
-    "did we reject and why', 'what broke in production', or 'what should I have "
-    "known going in' — because a plain keyword search misses those: the matching "
-    "sections discuss different subjects and share no vocabulary with each other, "
-    "only their role in the document. Documents are still ranked by the query's "
-    "words, exactly as `engmem_search` ranks them; this tool then returns that "
-    "role's section from each of the top-ranked documents that actually has one. "
-    "A document lacking the requested role is skipped, never padded with the "
-    "wrong section. Call `engmem_search` first for an ordinary content question; "
-    "reach for this tool instead when the question names a kind of section, not "
-    "a topic. Whenever a draft session document exists for the current task, pass "
-    "its id as `session_id` — without it this retrieval cannot be tied to the "
-    "document that reuses it."
-)
-
-# ---------------------------------------------------------------------------
-# write tools — the save half of the workflow for a shell-less runtime (Claude Desktop): create a
-# draft, finish it (draft -> active), mark an earlier document superseded.
-CREATE_DRAFT_TOOL_NAME = "engmem_create_draft"
-CREATE_DRAFT_TOOL_DESCRIPTION = (
-    "Create a new engmem session document as a draft — the first step of "
-    "`/engmem` in a runtime with no shell access. Writes `sessions/<id>.md` "
-    "with exactly the `content` given: the complete YAML front matter block "
-    "followed by the body. The front matter's `status` MUST be `draft`, its "
-    "`id` MUST equal the `id` argument, and its `mode` MUST be the configured "
-    "mode (`daily` or `research`; the `engmem` prompt names it) — this tool "
-    "refuses to create anything else and names the configured mode when it does. "
-    "A `research` draft also carries the `## Pre-reg` baseline, or "
-    "`baseline_unavailable: <reason>` when none could be had; a `daily` draft "
-    "needs no Pre-reg. NEVER overwrites: "
-    "if `sessions/<id>.md` already exists, the call fails and nothing is "
-    "written, regardless of what the existing file contains. Use "
-    "`engmem_complete_draft` to finish a draft this tool already created. The "
-    "result names the draft's version: keep it and pass it as `expected_version` "
-    "when you complete the draft. "
-    f"{drafts.REUSE_LOG_SHAPE}; the count reads cells by position, so a list or "
-    "another column order is not counted."
-)
-
-COMPLETE_DRAFT_TOOL_NAME = "engmem_complete_draft"
-COMPLETE_DRAFT_TOOL_DESCRIPTION = (
-    "Finish an existing draft — the last step of `/engmem.save` (or "
-    "`/engmem.save.quick`) in a runtime with no shell access. Replaces "
-    "`sessions/<id>.md` with the complete new `content` (front matter + full "
-    "body): the ONLY sanctioned use is completing a document `engmem_create_draft` "
-    "made. This tool refuses to run unless `sessions/<id>.md` already exists AND "
-    "its current front matter `status` is `draft`, and refuses the new `content` "
-    "unless its front matter `status` is `active` and its `id` equals the `id` "
-    "argument. It will never touch a document that is already `active` or "
-    "`superseded` — a confused or repeated call cannot destroy work outside a "
-    "document still in draft. It also refuses `content` whose Reuse Log holds a "
-    f"row without a quoted span or with a classification other than {drafts.CLASSIFICATION_CHOICES}, "
-    f"a table whose columns are not in the order `{drafts.REUSE_LOG_TABLE_HEADER}`, or neither a "
-    "table row nor `Prior docs used: none.`, returning each defect so it can be fixed in the "
-    "same turn. To mark a DIFFERENT, already-finished document as "
-    "superseded by this one, call `engmem_mark_superseded` instead — never pass "
-    "that document's id here. Always pass `expected_version`, the version "
-    "`engmem_create_draft` returned for this draft: if the draft changed since "
-    "then, the call is refused and its result carries the current draft and its "
-    "version — re-read it, carry its changes into `content`, and call again with "
-    "that version. Without `expected_version` nothing is written: the refusal "
-    "carries the current draft and its version the same way."
-)
-
-MARK_SUPERSEDED_TOOL_NAME = "engmem_mark_superseded"
-MARK_SUPERSEDED_TOOL_DESCRIPTION = (
-    "Mark an earlier, already-`active` engmem session document as superseded by "
-    "a newer one — the supersede-check step of `/engmem.save`. Takes only the "
-    "two ids involved, `id` (the earlier document) and `superseded_by` (the "
-    "document that replaces it); every other line of `sessions/<id>.md` — body, "
-    "other front matter fields — is left exactly as it was. Refuses to run "
-    "unless `sessions/<id>.md` exists and its current `status` is `active` (never "
-    "a draft, never an already-superseded document, and never itself: `id` and "
-    "`superseded_by` must differ). This does not require `superseded_by` to "
-    "already exist as a document — it is fine to mark the earlier document first. "
-    "Always pass `expected_version`, the earlier document's version your new document "
-    "was built on — the `<version>` of its `<id>@<version>` Reuse Log row, from the "
-    "`cite as` line of that search or `engmem_read`: if it changed since "
-    "then, or no version is given, nothing is written and the result carries its "
-    "current text and version — re-read it, check that your document still holds "
-    "against it, and call again with that version."
-)
-
-
-RECORD_FEEDBACK_TOOL_NAME = "engmem_record_feedback"
-RECORD_FEEDBACK_TOOL_DESCRIPTION = (
-    "Record the USER's assessment of one document a search showed in this session: "
-    "`helped`, `not-applicable` or `harmful`, optionally with the decision it changed and "
-    "where that can be seen. Call it only with an assessment the user stated in this "
-    "conversation -- never your own judgement, and never to fill in one the user did not "
-    "give; an unassessed find is reported as unknown influence, which is not a failure. "
-    "Refuses unless `session_id` names a session document in the store and a search "
-    "attributed to it showed `doc_id`. Appends to the store's feedback log; no session "
-    "document is changed and the Gate 1 count does not read it."
-)
-
-
-READ_TOOL_NAME = "engmem_read"
-READ_TOOL_DESCRIPTION = (
-    "Read one engmem session document by id, or by the `<id>@<version>` a search cites -- the "
-    "whole body, or with `role` only its sections of that role (e.g. 'decisions'). Use it to "
-    "load a document a search showed: the text it returns is counted toward this session's "
-    "observed cost, while a document opened any other way is not observed. A cited version "
-    "the document no longer has is read from its retained copy and says so; a draft is read "
-    "marked as not reviewed, with no reference to cite. Refuses an id with no document. "
-    "Whenever a draft session document exists for the current task, pass its id as "
-    "`session_id`, as on `engmem_search`."
-)
-
-RECORD_BASELINE_TOOL_NAME = "engmem_record_baseline"
-RECORD_BASELINE_TOOL_DESCRIPTION = (
-    "Record the tokens and/or seconds your runtime REPORTED for the no-memory baseline call of "
-    "this session (the sub-agent of the Pre-reg step), with the runtime's id for that call when "
-    "it gives one. Only figures the runtime reported -- never an estimate or a count of your "
-    "own; with nothing reported, do not call it, and the cost summary shows the baseline as "
-    "missing. Refuses unless `session_id` names a session document in the store. Appends to "
-    "the store's cost log; no session document is changed."
-)
 
 
 # prompt name -> source template filename under src/engmem/templates/ — the
@@ -204,9 +73,6 @@ class _ProtocolError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-_ToolError = drafts.WriteRefused
 
 
 # ---------------------------------------------------------------------------
@@ -318,134 +184,6 @@ def _run_search_for_tool(
     return text, False
 
 
-# ---------------------------------------------------------------------------
-# write tools — path containment, atomic staged writes, and the three handlers.
-# ---------------------------------------------------------------------------
-
-
-def _handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    content = arguments.get("content") if isinstance(arguments, dict) else None
-    try:
-        return drafts.create_draft(store, doc_id, content, drafts.MCP), False
-    except _ToolError as exc:
-        return str(exc), True
-
-
-def _handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    content = arguments.get("content") if isinstance(arguments, dict) else None
-    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
-    try:
-        return drafts.complete_draft(store, doc_id, content, expected_version, drafts.MCP), False
-    except _ToolError as exc:
-        return str(exc), True
-
-
-def _handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    superseded_by = arguments.get("superseded_by") if isinstance(arguments, dict) else None
-    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
-
-    try:
-        target = drafts.resolve_write_target(store, doc_id)
-
-        reason = validate_doc_id(superseded_by)
-        if reason is not None:
-            raise _ToolError(f"invalid 'superseded_by' id {superseded_by!r}: {reason}")
-        if superseded_by == doc_id:
-            raise _ToolError(
-                f"'superseded_by' must name a different document than 'id' "
-                f"(both are {doc_id!r})."
-            )
-
-        # the same lock `engmem_complete_draft` holds: two supersedes of one document can no
-        # longer both see `status: active`, and the later one replace the earlier's successor
-        with drafts.locked(target, doc_id, drafts.MCP):
-            _mark_superseded_locked(target, doc_id, superseded_by, expected_version)
-    except _ToolError as exc:
-        return str(exc), True
-
-    return (
-        f"marked sessions/{doc_id}.md superseded by {superseded_by} "
-        "(status: active -> superseded)"
-    ), False
-
-
-def _mark_superseded_locked(
-    target: Path, doc_id: str, superseded_by: str, expected_version: str | None
-) -> None:
-    if not target.exists():
-        raise _ToolError(
-            f"no document found for id {doc_id!r}: sessions/{doc_id}.md does "
-            "not exist."
-        )
-    try:
-        # the validating parse first, and it stats before it reads, so its
-        # `source_identity` covers the raw re-read below as well
-        existing = parse_document(target)
-    except (yaml.YAMLError, ValueError, OSError) as exc:
-        raise _ToolError(
-            f"sessions/{doc_id}.md does not parse ({exc}) — refusing to "
-            "modify a document that cannot first be confirmed to be active."
-        ) from exc
-    if existing.status != "active":
-        raise _ToolError(
-            f"refusing to supersede sessions/{doc_id}.md: its current status "
-            f"is {existing.status!r}, not 'active' — a draft was never "
-            "published, and an already-superseded document does not get "
-            "superseded twice."
-        )
-
-    # bytes, not `read_text`: this handler rebuilds the whole file from what it reads, and
-    # `read_text` drops the BOM and translates every line ending on the way in — see
-    # contracts/backfill.md, "Line endings". The bytes rebuilt are the bytes the version names
-    data = drafts.refuse_unless_version_read(
-        target,
-        doc_id,
-        expected_version,
-        drafts.MCP,
-        action="supersede",
-        tool=MARK_SUPERSEDED_TOOL_NAME,
-        redo="check that the document superseding it still holds against what it says now",
-    )
-    try:
-        existing_text, bom = decode_document(data)
-    # replaced with invalid UTF-8 since the validating parse: the document's problem, refused
-    # as one — not a -32603 server fault
-    except ValueError as exc:
-        raise _ToolError(
-            f"sessions/{doc_id}.md could not be re-read ({exc}) — nothing was written."
-        ) from exc
-
-    front_matter_text, body = split_front_matter(existing_text)
-    front_matter_text = _patch_front_matter_line(front_matter_text, "status", "superseded")
-    front_matter_text = _patch_front_matter_line(
-        front_matter_text, "superseded_by", superseded_by
-    )
-    newline = newline_of(front_matter_text) or newline_of(body) or "\n"
-    new_content = f"---{newline}" + front_matter_text + f"---{newline}" + body
-
-    doc, tmp_path, parse_error = drafts.stage_content(target, bom + new_content.encode("utf-8"))
-    try:
-        if parse_error is not None:
-            raise _ToolError(f"sessions/{doc_id}.md {parse_error}")
-        if doc.status != "superseded" or doc.superseded_by != superseded_by:
-            raise _ToolError(
-                "internal error: patched front matter did not produce the "
-                "expected status/superseded_by — refusing to write it."
-            )
-        # the lock excludes engmem writers only; a hand edit landing since the read above is
-        # caught here, as late as a check can run before the replace
-        drafts.refuse_if_changed_since_read(target, existing, doc_id, "Call this tool again")
-        commit(tmp_path, target)
-    # BaseException, not _ToolError: `commit` chmods and replaces, so it can raise
-    # OSError of its own, and the staged file must go either way
-    except BaseException:
-        discard(tmp_path)
-        raise
-
-
 def _handle_record_feedback(arguments: object, store: Path) -> tuple[str, bool]:
     try:
         result, _, _ = _load_store_for_tool(store)
@@ -500,73 +238,6 @@ def _handle_read(arguments: object, store: Path) -> tuple[str, bool]:
         return str(exc), True
 
 
-def _patch_front_matter_line(front_matter_text: str, key: str, value: str) -> str:
-    """Rewrites exactly one `key:` line, or appends it. Raises `_ToolError` when the key
-    appears more than once, when the front matter is a flow mapping, and — for a key that is
-    present — when it is indented or its value spans lines."""
-    # asked of the parser, not a regex, for the reason `backfill._drop_declared_keys` gives:
-    # a column-0 `key:` is not a declaration test, and `^` under `re.MULTILINE` anchors after
-    # `\n` only — never after a bare `\r`, so a CR-only document matched nothing and the
-    # append branch below silently wrote the key a second time
-    try:
-        node = compose_yaml(front_matter_text) if front_matter_text else None
-    except yaml.YAMLError as exc:
-        # this function runs once per patched key, so the second call composes what the first
-        # rewrote: an anchored `status: &st active` loses its anchor and every alias to it is
-        # then undefined. A document problem, refused as such rather than escaping as -32603
-        raise _ToolError(
-            f"front matter cannot be re-read to rewrite '{key}:' ({exc}) — refusing to "
-            "modify it. Rewriting one line does not carry a YAML anchor or alias with it; "
-            "write the front matter's values out in full instead."
-        ) from exc
-    if isinstance(node, yaml.MappingNode) and node.flow_style:
-        # a root flow mapping has no line of its own for any key: replacing one rewrites the
-        # brace or the comma beside it, and appending lands after the closing `}`. Column 0
-        # does not catch it — `{\nstatus: active\n}` puts the key there
-        raise _ToolError(
-            f"front matter is a flow mapping, so '{key}:' is not a line of its own — "
-            "refusing to rewrite it."
-        )
-    pairs = node.value if isinstance(node, yaml.MappingNode) else []
-    matches = [(k, v) for k, v in pairs if k.value == key]
-
-    if len(matches) > 1:
-        raise _ToolError(
-            f"front matter has more than one '{key}:' line — refusing to guess "
-            "which one to change."
-        )
-
-    lines = front_matter_text.splitlines(keepends=True)
-    if not matches:
-        newline = newline_of(front_matter_text) or "\n"
-        prefix = front_matter_text
-        if prefix and not prefix.endswith(("\n", "\r")):
-            prefix += newline
-        return prefix + f"{key}: {value}" + newline
-
-    key_node, value_node = matches[0]
-    index = key_node.start_mark.line
-    # the replacement is written at column 0, so an indented block mapping would be de-indented
-    # by it, and the second `compose` would then reject text the first accepted. Refused here
-    # by shape instead of as a parse failure a caller cannot act on; the flow case is rejected
-    # above, and between them the key is a line of its own
-    if key_node.start_mark.column != 0:
-        raise _ToolError(
-            f"'{key}:' is not a line of its own in this front matter — refusing to "
-            "rewrite it."
-        )
-    if value_node.end_mark.line != index:
-        raise _ToolError(
-            f"'{key}:' spans more than one line — refusing to rewrite it."
-        )
-    # the line's own terminator, whatever it is: `splitlines` recognises more separators
-    # than `\r\n` and PyYAML accepts several of them
-    content = lines[index].splitlines()[0]
-    terminator = lines[index][len(content):]
-    lines[index] = f"{key}: {value}" + terminator
-    return "".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # method handlers — each takes (params, store) and returns a JSON-serializable
 # result, or raises _ProtocolError for a protocol-level fault
@@ -592,320 +263,8 @@ def _handle_initialized_notification(params: dict, store: Path) -> dict:
     return {}  # never actually sent; present so the method isn't method-not-found
 
 
-_SESSION_ID_SCHEMA = {
-    "type": "string",
-    "description": (
-        "The id of the draft session document this search belongs to. Pass it on "
-        "every search once the draft exists — it is the only field that ties this "
-        "retrieval to the document that later cites it. Omitted, the search is "
-        "logged unattributed and drops out of the analysis entirely. Leave it out "
-        "only when no draft has been created yet."
-    ),
-}
-
-# US-09/US-10: the same scope `engmem search --repo` / `--unscoped` / `--all-repos` take, under
-# the same rules
-_REPO_SCHEMA = {
-    "type": "string",
-    "description": (
-        "Search only the records whose `repos` front matter names this repository "
-        "(case-insensitive). Title and tags never stand in for that link, so a record "
-        "with no `repos` is left out. For several repositories use `repos`. Omit every "
-        "scope argument to search the whole store."
-    ),
-}
-_REPOS_SCHEMA = {
-    "type": "array",
-    "items": {"type": "string"},
-    "minItems": 1,
-    "description": (
-        "Search only the records linked to any of these repositories, each record once. "
-        "Same matching as `repo`, and joined with it when both are passed. Only when the "
-        "user asks to bring in other repositories; never empty."
-    ),
-}
-_UNSCOPED_SCHEMA = {
-    "type": "boolean",
-    "description": (
-        "true: search only the records linked to no repository (no readable `repos` "
-        "value). Not combined with another scope argument."
-    ),
-}
-_ALL_REPOS_SCHEMA = {
-    "type": "boolean",
-    "description": (
-        "true: search the whole store, as with no scope argument, but say so in a `scope:` "
-        "line and show each result's `repos:` links. Not combined with another scope argument."
-    ),
-}
-_SCOPE_PROPERTIES = {
-    "repo": _REPO_SCHEMA,
-    "repos": _REPOS_SCHEMA,
-    "unscoped": _UNSCOPED_SCHEMA,
-    "all_repos": _ALL_REPOS_SCHEMA,
-}
-
-
 def _handle_tools_list(params: dict, store: Path) -> dict:
-    return {
-        "tools": [
-            {
-                "name": TOOL_NAME,
-                "description": TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "Key terms describing the current task — the same "
-                                "words you would pass to `engmem search` on the CLI."
-                            ),
-                        },
-                        "session_id": _SESSION_ID_SCHEMA,
-                        **_SCOPE_PROPERTIES,
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": ROLE_TOOL_NAME,
-                "description": ROLE_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "Key terms describing the current task — used to "
-                                "rank documents exactly as `engmem_search` does. "
-                                "Role filtering happens after ranking, not instead "
-                                "of it."
-                            ),
-                        },
-                        "role": {
-                            "type": "string",
-                            "enum": list(CANONICAL_ROLES),
-                            "description": (
-                                "Which section role to retrieve from each "
-                                "top-ranked document — e.g. 'decisions' for a "
-                                "Decision Log, 'lessons' for Lessons Learned, "
-                                "'production' for Production Considerations. A "
-                                "document ranked by the query but lacking this "
-                                "role is skipped, not returned with a substitute "
-                                "section."
-                            ),
-                        },
-                        "session_id": _SESSION_ID_SCHEMA,
-                        **_SCOPE_PROPERTIES,
-                    },
-                    "required": ["query", "role"],
-                },
-            },
-            {
-                "name": CREATE_DRAFT_TOOL_NAME,
-                "description": CREATE_DRAFT_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": (
-                                "The new document's id — must equal the filename "
-                                "stem and the front matter's own 'id' field, and "
-                                "must match <story-id>-<slug> or <YYYYMMDD>-<slug> "
-                                "(lowercase letters, digits, and hyphens only)."
-                            ),
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": (
-                                "The complete file content to create: the YAML "
-                                "front matter block (--- ... ---) followed by the "
-                                "body. Front matter 'status' must be 'draft'."
-                            ),
-                        },
-                    },
-                    "required": ["id", "content"],
-                },
-            },
-            {
-                "name": COMPLETE_DRAFT_TOOL_NAME,
-                "description": COMPLETE_DRAFT_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": (
-                                "The id of the existing draft to finish — "
-                                "sessions/<id>.md must already exist with "
-                                "status: draft."
-                            ),
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": (
-                                "The complete replacement file content: front "
-                                "matter (with 'status: active' and the same 'id') "
-                                "followed by the full body sections."
-                            ),
-                        },
-                        "expected_version": {
-                            "type": "string",
-                            "description": (
-                                "The draft's version as engmem_create_draft "
-                                "returned it, or as a refusal of this tool "
-                                "reported it after you re-read the draft. The "
-                                "call is refused, and nothing written, if the "
-                                "draft on disk is no longer that version."
-                            ),
-                        },
-                    },
-                    "required": ["id", "content", "expected_version"],
-                },
-            },
-            {
-                "name": MARK_SUPERSEDED_TOOL_NAME,
-                "description": MARK_SUPERSEDED_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": (
-                                "The id of the earlier, currently-active document "
-                                "to mark superseded."
-                            ),
-                        },
-                        "superseded_by": {
-                            "type": "string",
-                            "description": (
-                                "The id of the document that supersedes it."
-                            ),
-                        },
-                        "expected_version": {
-                            "type": "string",
-                            "description": (
-                                "The earlier document's version your new "
-                                "document was built on, as the `cite as` "
-                                "line of that search or engmem_read named it, or "
-                                "as a refusal of this tool reported it after "
-                                "you re-read the document. The call is "
-                                "refused, and nothing written, if the "
-                                "document on disk is no longer that version."
-                            ),
-                        },
-                    },
-                    "required": ["id", "superseded_by", "expected_version"],
-                },
-            },
-            {
-                "name": RECORD_FEEDBACK_TOOL_NAME,
-                "description": RECORD_FEEDBACK_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": (
-                                "The session document whose search showed the document -- "
-                                "the id passed as `session_id` on that search."
-                            ),
-                        },
-                        "doc_id": {
-                            "type": "string",
-                            "description": "The id of the document the search showed.",
-                        },
-                        "assessment": {
-                            "type": "string",
-                            "enum": list(feedback.Assessment),
-                            "description": "The user's assessment, as the user gave it.",
-                        },
-                        "decision": {
-                            "type": "string",
-                            "description": (
-                                "Optional: the decision the document changed, in the "
-                                f"user's words, at most {feedback.TEXT_MAX} characters."
-                            ),
-                        },
-                        "source": {
-                            "type": "string",
-                            "description": (
-                                "Optional: where that can be seen, e.g. a commit, PR or "
-                                f"review, at most {feedback.TEXT_MAX} characters."
-                            ),
-                        },
-                    },
-                    "required": ["session_id", "doc_id", "assessment"],
-                },
-            },
-            {
-                "name": READ_TOOL_NAME,
-                "description": READ_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": (
-                                "The id of the document to read, as a search showed it, or "
-                                "the `<id>@<version>` its `cite as` line names."
-                            ),
-                        },
-                        "role": {
-                            "type": "string",
-                            "enum": list(CANONICAL_ROLES),
-                            "description": (
-                                "Optional: return only the document's sections of this role."
-                            ),
-                        },
-                        "session_id": {
-                            "type": "string",
-                            "description": (
-                                "The id of the draft session document this read belongs to, "
-                                "as on `engmem_search`. Omitted, the read is counted "
-                                "unattributed and in no session's cost."
-                            ),
-                        },
-                    },
-                    "required": ["id"],
-                },
-            },
-            {
-                "name": RECORD_BASELINE_TOOL_NAME,
-                "description": RECORD_BASELINE_TOOL_DESCRIPTION,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": "The session document the baseline call belongs to.",
-                        },
-                        "tokens": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "Tokens the runtime reported for the call.",
-                        },
-                        "seconds": {
-                            "type": "number",
-                            "exclusiveMinimum": 0,
-                            "description": "Duration the runtime reported for the call.",
-                        },
-                        "call_id": {
-                            "type": "string",
-                            "description": (
-                                "Optional: the runtime's id for that call, at most "
-                                f"{cost.CALL_ID_MAX} characters; a later report with the same "
-                                "id replaces this one."
-                            ),
-                        },
-                    },
-                    "required": ["session_id"],
-                },
-            },
-        ]
-    }
+    return tools_list()
 
 
 # every tool but the two searches, each one outside `_SEARCH_TOOL_NAMES` and so off a --read-only
@@ -930,9 +289,9 @@ _WRITE_TOOL_OPTIONAL_STRING_ARGS = {
 }
 
 _WRITE_TOOL_HANDLERS = {
-    CREATE_DRAFT_TOOL_NAME: _handle_create_draft,
-    COMPLETE_DRAFT_TOOL_NAME: _handle_complete_draft,
-    MARK_SUPERSEDED_TOOL_NAME: _handle_mark_superseded,
+    CREATE_DRAFT_TOOL_NAME: handle_create_draft,
+    COMPLETE_DRAFT_TOOL_NAME: handle_complete_draft,
+    MARK_SUPERSEDED_TOOL_NAME: handle_mark_superseded,
     RECORD_FEEDBACK_TOOL_NAME: _handle_record_feedback,
     READ_TOOL_NAME: _handle_read,
     RECORD_BASELINE_TOOL_NAME: _handle_record_baseline,

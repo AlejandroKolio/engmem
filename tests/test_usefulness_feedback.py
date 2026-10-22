@@ -11,11 +11,11 @@ import pytest
 from support import rpc
 from support.tools import run_tool
 
-from engmem import feedback, mcp_server
+from engmem import feedback, mcp_server, mcp_tools
 from engmem.cli import main
 
 GATE1_REPORT = Path(__file__).resolve().parent.parent / "tools" / "gate1_report.py"
-FEEDBACK_TOOL = mcp_server.RECORD_FEEDBACK_TOOL_NAME
+FEEDBACK_TOOL = mcp_tools.RECORD_FEEDBACK_TOOL_NAME
 SESSION = "20260901-task"
 FEEDBACK_HEADER = "=== Usefulness feedback"
 

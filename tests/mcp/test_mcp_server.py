@@ -16,7 +16,7 @@ from support import rpc
 from support.docs import FIXTURES
 from support.platform import requires_permission_enforcement
 
-from engmem import __version__, mcp_server
+from engmem import __version__, mcp_server, mcp_tools
 from engmem.mcp_server import serve
 from engmem.output import (
     render_no_match,
@@ -1245,10 +1245,10 @@ def test_a_telemetry_failure_note_reaches_the_agent_without_breaking_the_protoco
 def _search_tools(store) -> dict:
     _, responses, _ = rpc.run(store, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tools = {t["name"]: t for t in responses[0]["result"]["tools"]}
-    return {name: tools[name] for name in (mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME)}
+    return {name: tools[name] for name in (mcp_tools.TOOL_NAME, mcp_tools.ROLE_TOOL_NAME)}
 
 
-@pytest.mark.parametrize("tool_name", [mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME])
+@pytest.mark.parametrize("tool_name", [mcp_tools.TOOL_NAME, mcp_tools.ROLE_TOOL_NAME])
 def test_the_session_id_schema_asks_for_the_id_and_names_the_cost_of_omitting_it(
     store, tool_name
 ):
@@ -1266,7 +1266,7 @@ def test_the_session_id_schema_asks_for_the_id_and_names_the_cost_of_omitting_it
     )
 
 
-@pytest.mark.parametrize("tool_name", [mcp_server.TOOL_NAME, mcp_server.ROLE_TOOL_NAME])
+@pytest.mark.parametrize("tool_name", [mcp_tools.TOOL_NAME, mcp_tools.ROLE_TOOL_NAME])
 def test_each_search_tool_description_asks_for_the_session_id(store, tool_name):
     """A client that shows only the tool description must still surface the requirement."""
     assert "session_id" in _search_tools(store)[tool_name]["description"]

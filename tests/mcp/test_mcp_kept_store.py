@@ -12,7 +12,7 @@ import pytest
 
 from support.docs import DRAFT_CONTENT, FIXTURES, replaced
 
-from engmem import cache, mcp_server, spine
+from engmem import cache, mcp_documents, mcp_server, spine
 from engmem.spine import load_store
 
 QUERY = "WidgetCache"
@@ -117,7 +117,7 @@ def test_an_added_or_removed_document_is_reflected(store, new_process, change):
 def test_a_write_tool_served_by_the_process_is_seen_by_the_next_search(store, new_process):
     assert "drafts: 1 " in _search(store)
 
-    _, is_error = mcp_server._handle_create_draft(
+    _, is_error = mcp_documents.handle_create_draft(
         {"id": "20260101-widget-cache", "content": DRAFT_CONTENT}, store
     )
     warm = _search(store)
