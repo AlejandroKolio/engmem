@@ -75,7 +75,9 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    is always filled.
 2. Write `## Future LLM Context (cold-start primer)`: 2–4 lines. The first two are the
    search preview: short, about 240 characters together, and readable on their own.
-3. Write `## Reuse Log` as exactly `Prior docs used: none.` unless prior docs obviously
+3. Write `## Reuse Log` from what this session found: with a shell, run
+   `engmem feedback summary --session <id>` first; through MCP only, the `cite as` lines you
+   kept are the list. Write it as exactly `Prior docs used: none.` unless prior docs obviously
    influenced the work, in which case list them as rows of a
    `| prior-doc | taken | impact | classification |` table (with quotes, same validity rule
    as `/engmem.save`: `prior-doc` is the `<id>@<version>` the `cite as` line of the search or
@@ -133,7 +135,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    document to the user again and publish only after a new confirmation: it is a different
    document from the one confirmed. A refusal because the draft changed since you read it
    carries the current draft and its version: carry what changed into the document, show it
-   again, and call with that version.
+   again, and call with that version. If the published result warns that the Reuse Log says
+   none while this session read documents, tell the user, and do not edit the published file.
 
    If you can do neither, or the call fails for a reason no change to the document fixes,
    publish nothing and tell the user it was not saved and why. Keep the confirmed document in

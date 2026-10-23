@@ -351,7 +351,8 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
 
 2. **Warn — defects that depend on the rest of the store.** `_citation_notes` runs after the
    commit and appends zero or more lines to the success text; the result stays
-   `isError: false` and the write is never undone. At most one of two checks fires:
+   `isError: false` and the write is never undone. At most one of the first two checks fires;
+   the third follows the second:
 
    - **No Reuse Log section** (`split_sections(doc.body)` on the committed `doc`, no re-read):
      a present-tense warning that the document is already in
@@ -377,6 +378,20 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
      every document, not only this one); that is caught and degraded to `note: citation check
      did not run (<exc>)`, because a read-only diagnostic must not turn a successful commit
      into a `-32603` the caller cannot undo by retrying — the retry trips "not 'draft'".
+   - **A none Reuse Log in a session that read citable documents (US-27).**
+     `_unlisted_reads_notes` takes the document's none report from the same verdicts
+     (`none_reports` or `none_reports_kept_apart`, so the count's own reading of the section),
+     reads the session's read ids from `cost.jsonl` (`cost.read_doc_ids`), and only when there
+     are some loads the store to keep the citable ones (`feedback.citable_reads`,
+     `contracts/gate1.md`, "What the session read"). A non-empty list is one warning naming
+     them, ending "tell the user, who can add it". It never refuses: the owner chose a warning
+     (2026-10-23), and a refusal would need a new line format that Gate 1 and `export` read.
+     The lever is the list both save templates read before the Reuse Log; this is the backstop,
+     and the agent relays it rather than editing a document that is already active. Its own
+     `try` turns an unreadable `cost.jsonl` into `note: reads check did not run (<exc>)`, since
+     `gate1.evaluate` did run. The second store load is not cached outside the MCP server
+     (`spine.load_store` caches only with `kept`), so it costs one more parse, once per
+     completion, for a none report in a session that read something.
 
 Why the line falls where it does — a recorded reversal. Before the split every Reuse Log
 defect was a warning, on the argument that a defect in content the author chose to publish is

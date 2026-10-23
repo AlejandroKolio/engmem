@@ -241,6 +241,21 @@ failure. `/engmem.save.quick` does not ask. Its contract is one preview and one 
 and a second question would break it. The user can still record an assessment later with
 `engmem feedback record`.
 
+## The Reuse Log starts from what the session found (US-27)
+
+Both save templates run `engmem feedback summary --session <id>` before the Reuse Log, and walk
+its finds marked `[read]` and its `read, not surfaced:` line: each either gets a row or is left
+out on purpose. The Reuse Log used to rest on the agent's recollection and the `cite as` lines
+it kept, and `Prior docs used: none.` was the line that cost least to write. The quick save runs
+the command too: it asks the user nothing, so its one preview and one confirmation stay.
+Through MCP only there is no such command (US-15 D5), so the kept `cite as` lines are the list.
+
+When completion warns that a none Reuse Log left reads out, both templates say to tell the user
+and not to edit the published file. The document is already active, engmem will not rewrite it,
+and writing `sessions/<id>.md` by hand is what both templates forbid; the user decides whether a
+row is missing. `template_stamps.WORKFLOW` stays 1: the runtime refuses no step an older
+template takes.
+
 ## Reads go through engmem, and the agent's own count is not a measurement (US-16)
 
 `/engmem` asks the agent to load found documents with `engmem read` (MCP: `engmem_read`) and to

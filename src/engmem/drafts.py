@@ -13,8 +13,9 @@ from pathlib import Path
 
 import yaml
 
-from engmem import confined, gate1
+from engmem import confined, cost, feedback, gate1
 from engmem.cache import identity_for
+from engmem.output import _escape_controls
 from engmem.settings import Mode, ModeSettingError, effective_mode, mode_setting_file
 from engmem.sections import split_sections
 # imported, not reimplemented, so a document written here is validated by the exact rules
@@ -565,4 +566,26 @@ def _citation_notes(store: Path, doc: Doc, surface: Surface) -> list[str]:
             + f" — next time cite the `<id>@<version>` the {surface.search} result's `cite as` "
             "line gives"
         )
+    notes.extend(_unlisted_reads_notes(store, doc.id, verdicts))
     return notes
+
+
+def _unlisted_reads_notes(store: Path, doc_id: str, verdicts: gate1.Verdicts) -> list[str]:
+    """A none Reuse Log in a session that read citable documents, named after publishing and
+    never refused; see contracts/mcp-server.md, "Reuse Log rows — refuse, then warn"."""
+    if doc_id not in verdicts.none_reports and doc_id not in verdicts.none_reports_kept_apart:
+        return []
+    try:
+        ids = cost.read_doc_ids(store, doc_id)
+        docs = load_store(store / "sessions").docs if ids else []
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"note: reads check did not run ({exc})"]
+    reads = feedback.citable_reads(doc_id, ids, docs)
+    if not reads:
+        return []
+    return [
+        "warning: Reuse Log says none, but this session read: "
+        + ", ".join(_escape_controls(r) for r in reads)
+        + " — if one changed a decision, the published Reuse Log is missing its row; tell the "
+        "user, who can add it"
+    ]

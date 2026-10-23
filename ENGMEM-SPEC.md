@@ -743,7 +743,10 @@ failure, and not applicable and harmful are listed apart from positive reuse. A 
 is not a causal result and is not part of the Gate 1 count (§11). Owner decisions of 2026-10-09:
 assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and only the full
 `/engmem.save` asks the question. `tools/gate1_report.py`
-prints the same summary after its audit block. Rules: `docs/design/contracts/gate1.md`,
+prints the same summary after its audit block. *(US-27)* With `--session`, a find the session
+read through `engmem read` is marked `[read]`, and citable documents it read that no search
+showed are named on a `read, not surfaced:` line; both save templates read this before the Reuse
+Log, and completing a none Reuse Log in such a session warns, naming them. Rules: `docs/design/contracts/gate1.md`,
 "Usefulness feedback".
 
 ### `engmem draft create DOC_ID` / `engmem draft complete DOC_ID --expected-version V` (document on stdin)
@@ -1097,6 +1100,9 @@ telemetry row and every Gate 1 figure are unchanged; see §5, `engmem read` and 
 *(2026-10-15, owner decision: US-26 adds `engmem_version` to every `telemetry.jsonl` and
 `cost.jsonl` row, so `engmem doctor` can tell a restarted client's server from one still
 running the engmem it started with. No reader of Gate 1 figures uses it; see §5, search 6a.)*
+*(2026-10-23, owner decision: US-27 is within "fixes to defects that stop a story being
+collected" and needs no exception; its completion check only warns.)* It reads the existing
+`surfaced` and `op: read` rows and adds no field or figure.
 
 ## 10. Principles
 

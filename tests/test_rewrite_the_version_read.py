@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import re
 import sys
 import threading
@@ -11,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from support import rpc
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, piped_stdin
 from support.fs import entry_names
 
 from engmem import backfill, drafts, mcp_documents, mcp_server, mcp_tools, staging
@@ -149,9 +148,7 @@ def test_a_draft_named_by_its_version_is_still_not_superseded(store):
 
 
 def _cli(capsys, monkeypatch, store: Path, stdin: str, *args: str) -> tuple[int, str]:
-    fake = io.TextIOWrapper(io.BytesIO(stdin.encode("utf-8")), encoding="utf-8")
-    fake.isatty = lambda: False  # type: ignore[method-assign]
-    monkeypatch.setattr(sys, "stdin", fake)
+    monkeypatch.setattr(sys, "stdin", piped_stdin(stdin))
     code = main([*args, "--store", str(store)])
     out, err = capsys.readouterr()
     return code, out + err

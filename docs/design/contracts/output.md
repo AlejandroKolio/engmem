@@ -248,7 +248,9 @@ the three covers is named as missing data.
 telemetry row. A read row in `telemetry.jsonl` would be counted as a search by `summarize`, by
 the Gate 1 audit and by the feedback finds, and a new search field would change every row. Here
 `telemetry.jsonl`, `engmem telemetry`, `feedback summary` and `tools/gate1_report.py` stay byte
-for byte what they were, and nothing on the Gate 1 side reads the new file. Each line carries
+for byte what they were, and nothing on the Gate 1 side reads the new file. Since US-27,
+`feedback summary --session` and `drafts._citation_notes` read its read ids, and only those;
+`gate1.py`, `gate1_report.py` and the store-wide summary still do not. Each line carries
 `ts`, `op_id` (a fresh uuid4 hex), `op`, `session_id` (explicit `null` when unattributed) and
 `channel`. `search` and `read` add `bytes`; `read` also adds `doc_id` and `role` (`null` for a
 whole document). `baseline` adds `tokens`, `seconds`, `call_id` and `"reported_by": "client"`.

@@ -192,6 +192,12 @@ document shape:
 
 ### Reuse Log rules
 
+Start from what this session found. With a shell, run `engmem feedback summary --session <id>`
+before writing the Reuse Log: every find marked `[read]` and every id on its
+`read, not surfaced:` line either gets a row below or is left out on purpose. Through MCP only,
+the `cite as` lines you kept are the list. If completing the draft warns that the Reuse Log says
+none while this session read documents, tell the user, and do not edit the published file.
+
 One row per prior document that **actually influenced** this work:
 
 | prior-doc | taken | impact | classification |

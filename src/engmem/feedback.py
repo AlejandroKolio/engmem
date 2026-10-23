@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import enum
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from engmem import confined
 from engmem.output import _escape_controls
+from engmem.spine import Doc
 from engmem.telemetry import SessionRow, _load_json_object, read_session_rows
 
 FEEDBACK_FILE = "feedback.jsonl"
@@ -232,6 +233,18 @@ def summarize(store: Path, known_ids: set[str], session_id: str | None = None) -
     )
 
 
+def citable_reads(session_id: str, read_ids: list[str], docs: list[Doc]) -> list[str]:
+    """The session's reads a Reuse Log row can cite: documents in the store, not drafts, not the
+    session itself; none for a session id that names no document (contracts/gate1.md)."""
+    status = {d.id: d.status for d in docs}
+    if session_id not in status:
+        return []
+    return sorted(
+        doc_id for doc_id in read_ids
+        if doc_id != session_id and doc_id in status and status[doc_id] != "draft"
+    )
+
+
 _LABELS = {
     Assessment.HELPED: "helped",
     Assessment.NOT_APPLICABLE: "not applicable",
@@ -239,12 +252,12 @@ _LABELS = {
 }
 
 
-def _pair(session_id: str, doc_id: str, weak: bool) -> str:
-    marker = " [weak candidate]" if weak else ""
+def _pair(session_id: str, doc_id: str, weak: bool, read: bool = False) -> str:
+    marker = (" [weak candidate]" if weak else "") + (" [read]" if read else "")
     return f"{_escape_controls(session_id)} -> {_escape_controls(doc_id)}{marker}"
 
 
-def _entry_line(entry: Feedback, weak: bool) -> str:
+def _entry_line(entry: Feedback, weak: bool, read: bool) -> str:
     details = [
         f"{name}: {_escape_controls(text)}"
         for name, text in (("decision", entry.decision), ("source", entry.source))
@@ -253,13 +266,16 @@ def _entry_line(entry: Feedback, weak: bool) -> str:
     suffix = " -- " + "; ".join(details) if details else ""
     return (
         f"  {_LABELS[entry.assessment]} (user assessment, via {_escape_controls(entry.channel)}): "
-        f"{_pair(entry.session_id, entry.doc_id, weak)}{suffix}"
+        f"{_pair(entry.session_id, entry.doc_id, weak, read)}{suffix}"
     )
 
 
-def render_summary(summary: FeedbackSummary, session_id: str | None = None) -> str:
+def render_summary(
+    summary: FeedbackSummary, session_id: str | None = None, reads: Sequence[str] = ()
+) -> str:
     """Found, assessed and unknown, each its own figure; with `session_id`, the unknown finds are
-    listed too, so the user can see what is left to assess."""
+    listed too, so the user can see what is left to assess, and `reads` (`citable_reads`) marks
+    what the session read."""
     scope = f" for session {_escape_controls(session_id)}" if session_id is not None else ""
     helped = summary.count(Assessment.HELPED)
     weak = {(f.session_id, f.doc_id): f.weak for f in summary.finds}
@@ -278,13 +294,22 @@ def render_summary(summary: FeedbackSummary, session_id: str | None = None) -> s
     ]
     for assessment in Assessment:
         lines.extend(
-            _entry_line(entry, weak[key])
+            _entry_line(entry, weak[key], key[1] in reads)
             for key, entry in sorted(summary.assessed.items())
             if entry.assessment == assessment
         )
     if session_id is not None:
         lines.extend(
-            f"  unknown: {_pair(f.session_id, f.doc_id, f.weak)}" for f in summary.unknown
+            f"  unknown: {_pair(f.session_id, f.doc_id, f.weak, f.doc_id in reads)}"
+            for f in summary.unknown
+        )
+    found = {f.doc_id for f in summary.finds}
+    unfound = [doc_id for doc_id in reads if doc_id not in found]
+    if unfound:
+        lines.append(
+            "read, not surfaced: " + ", ".join(_escape_controls(d) for d in unfound)
+            + " -- read through engmem but shown by no search; not a find, so it cannot be "
+            "assessed"
         )
     if summary.orphan_sessions:
         lines.append(

@@ -461,6 +461,7 @@ uv run python tools/gate1_report.py --store ~/Developer/engmem --since 2026-10-0
 uv run python tools/verify_citations.py --store ~/Developer/engmem   # exit 1 on a quote that does not match
 engmem telemetry                                                     # searches, hit rate, context spent
 engmem feedback summary                                              # finds, user assessments, unknown influence
+engmem feedback summary --session <session-id>                       # one session's finds, and what it read
 engmem cost summary --session <session-id>                           # what engmem delivered to one session
 ```
 
