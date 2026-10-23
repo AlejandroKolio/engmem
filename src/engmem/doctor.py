@@ -20,13 +20,11 @@ from engmem.install import (
     _HOME_SCOPED_AGENTS,
     LEGACY_TRIGGER_RULES,
     pending_path,
-    PUBLIC_BRIDGE_STATUS,
     _reject_local_home_scoped,
     _SKILL_AGENTS,
     _template_paths_for_agent,
     TRIGGER_MARKER,
     TRIGGER_RULE,
-    TUNNEL_BRIDGE_STATUS,
     _validate_agent,
 )
 from engmem.mcp_clients import (
@@ -36,7 +34,9 @@ from engmem.mcp_clients import (
     mcp_wiring,
     McpWiring,
     parse_toml,
+    PUBLIC_BRIDGE_STATUS,
     rewire_action,
+    TUNNEL_BRIDGE_STATUS,
     wiring_verdict,
     WiringVerdict,
 )

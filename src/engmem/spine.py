@@ -688,3 +688,22 @@ def _load_once(sessions_dir: Path, kept: KeptByPath[Doc] | None) -> tuple[LoadRe
             result.docs.append(doc)
 
         return result, folder.replaced()
+
+
+def read_drafts(sessions_dir: Path) -> list[Doc]:
+    """The store's drafts, silently: only files whose front matter mentions `draft` are parsed,
+    and a file that cannot be read or parsed is skipped (contracts/install.md, US-29)."""
+    drafts: list[Doc] = []
+    with confined.directory(sessions_dir, confined.SESSIONS_DEPTH) as folder:
+        for name in sorted(n for n in folder.names() if n.endswith(".md")):
+            path = sessions_dir / name
+            try:
+                text = folder.read_utf8(name)
+                if "draft" not in split_front_matter(text)[0].casefold():
+                    continue
+                doc = _parse_text(path, text, None)
+            except (yaml.YAMLError, ValueError, OSError):
+                continue
+            if doc.status == "draft":
+                drafts.append(doc)
+    return drafts

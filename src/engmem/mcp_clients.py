@@ -440,3 +440,33 @@ def shell_quoted_mcp_command(store: Path) -> str:
     if sys.platform == "win32":
         return subprocess.list2cmdline([subprocess.list2cmdline(argv)])
     return shlex.quote(shlex.join(argv))
+
+
+# engmem never observes who reaches either bridge, so neither line may call a setup protected:
+# contracts/install.md, "ChatGPT: which bridge, and what it protects"
+TUNNEL_BRIDGE_STATUS = (
+    "OpenAI's Secure MCP Tunnel is the one supported bridge; OpenAI decides who may reach it, "
+    "and engmem did not verify that"
+)
+PUBLIC_BRIDGE_STATUS = (
+    "a public bridge (supergateway plus ngrok or cloudflared) is not protected: whoever holds "
+    "its URL reads the store's documents, titles and search snippets; `engmem mcp --read-only` "
+    "only refuses writes and does not make the store private"
+)
+
+
+def print_chatgpt_steps(store: Path) -> None:
+    mcp_command = shell_quoted_mcp_command(store)
+    print(
+        "ChatGPT runs no local MCP server itself; it reaches `engmem mcp` through OpenAI's "
+        "Secure MCP Tunnel:\n"
+        "  1. create a tunnel at https://platform.openai.com/settings/organization/tunnels\n"
+        "  2. export CONTROL_PLANE_API_KEY=<the tunnel's runtime key>\n"
+        "     tunnel-client init --sample sample_mcp_stdio_local --profile engmem "
+        f"--tunnel-id <tunnel-id> --mcp-command {mcp_command}\n"
+        "     tunnel-client run --profile engmem\n"
+        "  3. in ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, then "
+        "Create app, Connection: Tunnel"
+    )
+    print(f"bridge: {TUNNEL_BRIDGE_STATUS}")
+    print(f"public bridge: {PUBLIC_BRIDGE_STATUS}")

@@ -53,6 +53,7 @@ def _real_user_paths() -> dict[Path, bytes | None]:
         _REAL_HOME / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
         _REAL_HOME / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",
         _REAL_HOME / ".claude" / "CLAUDE.md",
+        _REAL_HOME / ".claude" / "settings.json",
         _REAL_HOME / ".codex" / "AGENTS.md",
         _REAL_HOME / ".codex" / "config.toml",
         *(root / name for root in _REAL_CONFIG_ROOTS for name in ("store", "mode")),
@@ -139,6 +140,18 @@ def env(tmp_path, monkeypatch):
     redirect_home(monkeypatch, home)
     monkeypatch.chdir(project)
     return home, project
+
+
+@pytest.fixture
+def hermetic_git(tmp_path_factory, monkeypatch) -> None:
+    """The developer's own git config (signing, hooks, a default branch) must not steer a test;
+    the global ignore file is kept out by the XDG_CONFIG_HOME redirect."""
+    empty = tmp_path_factory.mktemp("gitconfig") / "config"
+    empty.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
