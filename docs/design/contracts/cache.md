@@ -1,7 +1,7 @@
 # Contract: the section cache
 
 Source: `src/engmem/cache.py`. A best-effort, per-document store of the tokenised section
-index `scoring.py` builds, so a repeated search does not re-tokenise a document whose body has
+index `section_index.py` builds, so a repeated search does not re-tokenise a document whose body has
 not changed.
 Nothing in it is authoritative: deleting the whole directory costs one slower search.
 
@@ -34,7 +34,7 @@ tokenises it, and the code is covered by the format version below, so a matching
 the condition under which the cached payload equals the one the search would compute. There is
 no invalidation step to forget, and no timestamp is consulted.
 
-**The hash is of the text the payload is built from.** `scoring._entries_for_doc` hashes
+**The hash is of the text the payload is built from.** `section_index.entries_for_doc` hashes
 `doc.body`, the very string it hands to `split_sections`; it never re-reads the file. One read
 in `spine.parse_document` yields both the text and, through it, the key, so there is no window
 between hashing and parsing. Hashing the file as it is at search time instead would file an
@@ -115,7 +115,7 @@ one — keeps what it built, and serves it again only where a cold load would bu
   identity is in the key because a document stating no `date:` takes it from the mtime, so a
   `touch` alone changes the parse. Only the MCP server passes `kept` (`mcp_server._KEPT_DOCS`);
   the CLI loads once per process and keeps nothing.
-- `scoring._entries_for_doc` keeps each document's section entries under the disk cache's own
+- `section_index.entries_for_doc` keeps each document's section entries under the disk cache's own
   rule, the hash of the body, plus the document's id, which every entry carries.
 - `scoring._doc_field_index` keeps the token sets of the four spine fields, keyed by their
   values.
@@ -212,7 +212,7 @@ well-formed hash of other text is indistinguishable from a stale entry. Warning 
 detectable slice alone would be arbitrary within one field, so the whole branch stays silent.
 Either way the miss is rebuilt from the document, so damage costs latency, never a result.
 
-A payload that loads here but does not have the shape `scoring` expects is decided a layer up,
+A payload that loads here but does not have the shape `section_index` expects is decided a layer up,
 as a warned miss (`contracts/scoring.md`, "A shape mismatch is a miss, never a crash").
 
 Warnings go to stderr only. The agent reads stdout (`ENGMEM-SPEC.md` §4), so a

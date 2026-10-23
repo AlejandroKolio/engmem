@@ -965,14 +965,14 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T3</span>
-        <span class="step-titles"><span class="step-t"><code>search()</code>: токены → очки → развилка по статусу</span><span class="step-s">scoring.py · ранжирование и фильтр, что вообще можно показать</span></span>
+        <span class="step-titles"><span class="step-t"><code>search()</code>: токены → очки → развилка по статусу</span><span class="step-s">scoring.py, section_index.py · ранжирование и фильтр, что вообще можно показать</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>Очки — веса полей на долю совпавших токенов плюс BM25 лучшего раздела тела; статус решает, доедет ли документ до выдачи вообще.</p></div>
         <div class="io">
           <div class="io-k">Что делает</div>
-          <div class="io-v"><p><code>_build_query_tokens()</code> режет запрос на осколки CamelCase и добавляет аббревиатуру из первых букв; короткие (≤3 символов) и числовые токены сравниваются только с неразбитыми токенами полей, иначе <code>ET</code> находило бы <code>ETAG</code>, а <code>482</code> — <code>1000001</code>. Дальше <code>_spine_score()</code> для каждого токена берёт поле с максимальным весом, где он совпал, а <code>_body_scores_from_entries()</code> добавляет BM25 лучшего совпавшего раздела. Токены разделов <code>_entries_for_doc()</code> берёт из кэша разбора, только если sha256 тела, которое поиск только что прочитал, совпадает с хэшем в записи кэша. Размер файла и время правки тут ничего не решают: поменялся текст — запись не подходит, и токены считаются заново:</p>
+          <div class="io-v"><p><code>_build_query_tokens()</code> режет запрос на осколки CamelCase и добавляет аббревиатуру из первых букв; короткие (≤3 символов) и числовые токены сравниваются только с неразбитыми токенами полей, иначе <code>ET</code> находило бы <code>ETAG</code>, а <code>482</code> — <code>1000001</code>. Дальше <code>_spine_score()</code> для каждого токена берёт поле с максимальным весом, где он совпал, а <code>_body_scores_from_entries()</code> добавляет BM25 лучшего совпавшего раздела. Токены разделов <code>entries_for_doc()</code> берёт из кэша разбора, только если sha256 тела, которое поиск только что прочитал, совпадает с хэшем в записи кэша. Размер файла и время правки тут ничего не решают: поменялся текст — запись не подходит, и токены считаются заново:</p>
             <pre><code>score = спайн + тело
 спайн = Σ max(вес поля, где совпал токен) × (совпало / всего)
         веса: id 5 · entities 3 · title 2 · tags 1
@@ -2047,14 +2047,14 @@ warnings[0] = "20260820-cache-new-endpoint.md: entities is empty"</code></pre>
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num">T3</span>
-        <span class="step-titles"><span class="step-t"><code>search()</code>: tokens, scores, the status branch</span><span class="step-s">scoring.py · ranking, and the filter on what's even shown</span></span>
+        <span class="step-titles"><span class="step-t"><code>search()</code>: tokens, scores, the status branch</span><span class="step-s">scoring.py, section_index.py · ranking, and the filter on what's even shown</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
         <div class="prose"><p>A score is field weights against the share of tokens that matched, plus the BM25 of the best body section; status decides whether the document reaches the results at all.</p></div>
         <div class="io">
           <div class="io-k">What runs</div>
-          <div class="io-v"><p><code>_build_query_tokens()</code> splits the query into CamelCase fragments and adds an initials acronym; short tokens (≤3 characters) and numeric ones compare only against unsplit field tokens, or <code>ET</code> would find <code>ETAG</code> and <code>482</code> would find <code>1000001</code>. Then, for every token, <code>_spine_score()</code> picks the field with the highest weight where it matched, and <code>_body_scores_from_entries()</code> adds the BM25 of the best matching section. <code>_entries_for_doc()</code> takes the section tokens from the parse cache only when the sha256 of the body this search just read equals the hash in the cache entry. The file's size and modification time decide nothing here: if the text changed, the entry does not fit, and the tokens are counted again:</p>
+          <div class="io-v"><p><code>_build_query_tokens()</code> splits the query into CamelCase fragments and adds an initials acronym; short tokens (≤3 characters) and numeric ones compare only against unsplit field tokens, or <code>ET</code> would find <code>ETAG</code> and <code>482</code> would find <code>1000001</code>. Then, for every token, <code>_spine_score()</code> picks the field with the highest weight where it matched, and <code>_body_scores_from_entries()</code> adds the BM25 of the best matching section. <code>entries_for_doc()</code> takes the section tokens from the parse cache only when the sha256 of the body this search just read equals the hash in the cache entry. The file's size and modification time decide nothing here: if the text changed, the entry does not fit, and the tokens are counted again:</p>
             <pre><code>score = spine + body
 spine = Σ max(weight of the field where the token matched) × (matched / total)
         weights: id 5 · entities 3 · title 2 · tags 1

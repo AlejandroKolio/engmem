@@ -608,9 +608,9 @@ def test_the_cache_key_the_docs_describe_is_the_one_the_search_uses():
 
     from engmem import cache
 
-    scoring = ast.parse((PACKAGE / "scoring.py").read_text(encoding="utf-8"))
+    index = ast.parse((PACKAGE / "section_index.py").read_text(encoding="utf-8"))
     entries_for_doc = next(
-        n for n in ast.walk(scoring) if isinstance(n, ast.FunctionDef) and n.name == "_entries_for_doc"
+        n for n in ast.walk(index) if isinstance(n, ast.FunctionDef) and n.name == "entries_for_doc"
     )
     keyed_by = {
         ast.unparse(call.args[0])
