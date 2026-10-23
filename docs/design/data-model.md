@@ -89,7 +89,8 @@ enforcement — they are read at review time, not validated at write time.
    Research mode only: a `mode: daily` session has none, and a research session that could not
    get a baseline records `baseline_unavailable` instead
 2. `## Decision Log` — decisions made + alternatives rejected, with reasons
-3. `## Lessons Learned` — pitfalls hit during the work
+3. `## Lessons Learned` — pitfalls hit during the work, each as Tried / Failed because /
+   Fixed by / Files
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-starting agent
 5. `## Reuse Log` — see **Reuse Log Entry** below
 6. `## Search Trace` — one of `shell | paste | miss`, alone on its line (`ENGMEM-SPEC.md` §6, start step 5)
