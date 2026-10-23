@@ -49,8 +49,8 @@ remove it. Uninstall never touches your documents.
 
 1. **Start.** `/engmem <task>` opens a draft for the session and searches the store before the
    agent proposes a plan.
-2. **Search.** The agent gets a ranked top 3, each hit with the section worth opening and the
-   sentence in it that matched:
+2. **Search.** The agent gets a ranked top 3, each hit with the sections worth opening and the
+   first sentence of each:
 
    ```text
    ### 1000001-widget-cache (score: 7.2)
@@ -59,8 +59,8 @@ remove it. Uninstall never touches your documents.
      §2-decision-log   0.1 KB   Warm-up runs after the schema check, never before it.
 
    old-cache-note: superseded by 1000001-widget-cache
-   cite as (Reuse Log prior-doc): 1000001-widget-cache@811c3af96cf357bb
-   docs: 5 | drafts: 0 | last doc: 58d ago
+   cite as (Reuse Log prior-doc): 1000001-widget-cache@e09c16a3c066ce4a
+   docs: 5 | drafts: 0 | last doc: 59d ago
    ```
 
    That came from `engmem search "WidgetCache warm-up"`. The older note that said otherwise was
