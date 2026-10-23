@@ -129,7 +129,19 @@ req-4471`, not "a request"). **British register, plain, no filler or marketing t
 11. **`## 11. Lessons Learned`** — pitfalls actually hit during the work. Also known in
     the wider corpus as "Landmines" — both spellings resolve to the same role, but this
     template uses the skill's own name. If none were hit, say so explicitly (`None hit.`)
-    rather than leaving the section blank.
+    rather than leaving the section blank. Write each pitfall as one lesson in this shape:
+
+    ```
+    - Tried: <what was done, one sentence ending with a full stop>
+      Failed because: <the cause, not the symptom>
+      Fixed by: <what made it work>
+      Files: <paths as git ls-files prints them, comma-separated>
+    ```
+
+    Nothing precedes the first bullet in the section: search shows its first sentence. `Tried:`
+    is always filled; a `Failed because:`, `Fixed by:` or `Files:` the session cannot state
+    keeps its label and reads `not stated in the available material.`, in place of `[Open]`.
+    `Files:` is not copied into `covers_files`.
 12. **`## 12. Knowledge Graph`** — the entities this work touched and how they relate,
     written as `Entity → Related Entity → Purpose` rows, kept consistent with the front
     matter's `entities:` and `related:`.

@@ -220,7 +220,8 @@ only when a pitfall was actually hit. The thin core, with each section's role
 1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store; research mode only —
    a daily session has none, and either save carries it over only when the draft has one
 2. `## Decision Log` — decisions + rejected alternatives with reasons
-3. `## Lessons Learned` — pitfalls hit along the way
+3. `## Lessons Learned` — pitfalls hit along the way, each as Tried / Failed because /
+   Fixed by / Files
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-start agent; 2–4 in
    the short record of `/engmem.save.quick`, whose first two are the search preview
 5. `## Reuse Log` — see §6

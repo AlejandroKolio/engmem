@@ -28,9 +28,9 @@ Pre-reg (step 5) when it has one, no other section needs filling.
   the diff, the git history. A Source is copied exactly as it appears there. Never build a
   link, PR number or ticket id from a pattern. A reason the conversation did not give is not
   supplied by you.
-- **Mark what is absent.** When the Reason, the Rejected alternative or the Source is not in
-  that material, its line keeps its label and says so in exactly these words, and is never
-  dropped or left blank:
+- **Mark what is absent.** When the Reason, the Rejected alternative, the Source, or a
+  lesson's `Failed because:`, `Fixed by:` or `Files:` is not in that material, its line
+  keeps its label and says so in exactly these words, and is never dropped or left blank:
 
   ```
   - Source: not stated in the available material.
@@ -61,8 +61,18 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    - Source: <PR, commit, ticket, path or link>
    ```
 
-   If a pitfall was actually hit, add it as one bullet under `## Lessons Learned`;
-   otherwise leave that section out.
+   If a pitfall was actually hit, add it as one lesson in this shape under
+   `## Lessons Learned`; otherwise leave that section out.
+
+   ```
+   - Tried: <what was done, one sentence ending with a full stop>
+     Failed because: <the cause, not the symptom>
+     Fixed by: <what made it work>
+     Files: <paths as git ls-files prints them, comma-separated>
+   ```
+
+   Nothing precedes the first bullet in the section: search shows its first sentence. `Tried:`
+   is always filled.
 2. Write `## Future LLM Context (cold-start primer)`: 2–4 lines. The first two are the
    search preview: short, about 240 characters together, and readable on their own.
 3. Write `## Reuse Log` as exactly `Prior docs used: none.` unless prior docs obviously

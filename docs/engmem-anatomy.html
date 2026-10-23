@@ -662,9 +662,11 @@ cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd</code></p
 без реальной пользы.
 
 ## 11. Lessons Learned
-Обращения к ResponseCache нужно мемоизировать в рамках
-запроса — повторный вызов внутри одного запроса заново
-дёргает апстрим и удваивает задержку.
+- Tried: вызывать ResponseCache дважды за один запрос.
+  Failed because: каждый вызов заново дёргал апстрим,
+  и задержка удваивалась.
+  Fixed by: мемоизация ResponseCache в рамках запроса.
+  Files: src/cache/ResponseCacheController.java
 
 ## 13. Future LLM Context (cold-start primer)
 ResponseCacheController отдаёт закешированные ответы для
@@ -1744,9 +1746,11 @@ carries the freshness data and an extra lookup would add
 latency for no real benefit.
 
 ## 11. Lessons Learned
-ResponseCache lookups must be memoized per-request — a
-repeated call inside the same request re-runs the upstream
-fetch and doubles latency.
+- Tried: calling ResponseCache twice in one request.
+  Failed because: each call re-ran the upstream fetch,
+  doubling latency.
+  Fixed by: per-request memoization of ResponseCache.
+  Files: src/cache/ResponseCacheController.java
 
 ## 13. Future LLM Context (cold-start primer)
 ResponseCacheController serves cached responses for read

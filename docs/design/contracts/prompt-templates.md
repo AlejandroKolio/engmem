@@ -179,7 +179,8 @@ term, so a query naming one record's decision still ranks that record first
 (`test_ac_07_2_marker_and_label_words_do_not_outrank_the_decision`). The labels are indexed
 body text too, shared by every short record: a query made only of label words
 (`decision reason`, `rejected alternative`) matches all of them alike. Handling such a weak
-match is US-14's question, not this template's.
+match is US-14's question, not this template's. The same wording marks a lesson's missing
+`Failed because:`, `Fixed by:` or `Files:` in both save templates.
 
 ### One confirmation, and a decline publishes nothing
 
@@ -204,6 +205,31 @@ the published content is the confirmed preview, nothing is published after a dec
 declined record is not found. The agent's turns are written by hand, so it does not prove that
 a real agent produces them from the template; that recorded session is owner-side acceptance
 (E-05).
+
+## A lesson is tried, failed, fixed, where (US-28)
+
+Both save templates write a pitfall as one bullet with four labelled parts: `Tried:`,
+`Failed because:`, `Fixed by:` and `Files:`. Those are what a later agent needs to avoid the
+same error: what not to repeat, why it fails, what to do instead and where. Free prose made
+the reader dig the fix and the files out of paragraphs.
+
+- **No code.** Nothing precedes the first bullet, so the section snippet (its first sentence,
+  `output._section_snippet`) starts with `- Tried:` and, with the full stop the template asks
+  for, ends before `Failed because:`. A `--role lessons` search shows what was tried with no
+  change to the output.
+- **`Tried:` is always filled.** A pitfall hit means something was tried, and an absent one
+  would make the snippet the absence marker. The other three parts use the marker above.
+- **`Files:` stays out of `covers_files`.** That field means the files the decision rests on,
+  and the snapshot line compares them between the record's `verified_at` commit and the
+  checkout's `HEAD` (`contracts/provenance.md`); lesson files would flag a decision as possibly
+  stale for unrelated commits. `Files:` uses the same path form.
+- **`None hit.` stays, and nothing is rewritten.** The change is to what a new save writes;
+  search reads both forms as body text.
+- **`template_stamps.WORKFLOW` stays 1.** The runtime refuses no step an older template takes
+  (`contracts/doctor.md`), so an older installed copy keeps working until the next install.
+
+`tests/test_lesson_shape.py` pins the block, its labels, both templates carrying it, and the
+snippet on a search.
 
 ## The usefulness question is the full save's, asked once (US-15)
 
