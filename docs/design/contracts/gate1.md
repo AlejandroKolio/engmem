@@ -718,6 +718,29 @@ line").
 (US-15 D5) No MCP tool reads finds or the summary. An MCP-only client knows what its own searches
 showed from its context, and a refused record lists the session's finds.
 
+#### What the session read (US-27)
+
+With `--session`, the summary also shows what the session read through `engmem read` /
+`engmem_read`, so the save can start its Reuse Log from a list rather than from memory. A find
+the session read carries `[read]` after any `[weak candidate]`; documents it read that no search
+showed are named on one line, `read, not surfaced: <id>, ...`. Those are not finds: `record`
+refuses a document no search of the session showed ("What `record` refuses"), and a read of a
+document a search of the session showed is already a find, whichever came first.
+
+- **A read is the `doc_id` of a `cost.jsonl` row with `op: read` and that `session_id`.**
+  `read_report.compose_read` records the resolved id after the document is found, so a role read
+  and a versioned read log the bare id and a refused read logs nothing.
+- **Only citable reads are shown** (`feedback.citable_reads`): documents in the store whose
+  current status is not `draft`, minus the session itself, sorted. A draft has no `cite as`
+  line. A superseded document is citable and shown. A document that has left the store is
+  dropped, and a find read in either case gets no marker.
+- **A session id that names no document lists no reads**, as its finds are not listed.
+- **The status is today's.** `cost.jsonl` keeps none at read time, and §9's freeze keeps it that
+  way: a document read while it was a draft and published since is listed.
+- **The store-wide summary does not read `cost.jsonl`,** so it and the report block stay byte
+  for byte what they were, and no Gate 1 figure moves. With `--session`, an unreadable
+  `cost.jsonl` exits 2 like the other logs below.
+
 ### Outside the Gate 1 count
 
 `gate1.py` does not read `feedback.jsonl`, and no §11 figure moves with it. The report prints

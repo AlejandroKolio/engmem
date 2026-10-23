@@ -401,7 +401,9 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
         ),
     )
     feedback_summary_parser.add_argument(
-        "--session", default=None, help="only this session, listing its unassessed finds too"
+        "--session",
+        default=None,
+        help="only this session, listing its unassessed finds too and what it read through engmem",
     )
     _add_store_option(feedback_summary_parser)
     feedback_summary_parser.set_defaults(func=cmd_feedback_summary)

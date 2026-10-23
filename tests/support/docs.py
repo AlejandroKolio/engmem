@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from support.paths import TESTS_DIR
@@ -94,3 +95,10 @@ Prior docs used: none.
 
 shell
 """
+
+
+def piped_stdin(text: str) -> io.TextIOWrapper:
+    """A non-terminal `sys.stdin` carrying `text` as UTF-8 bytes, as a shell pipe would."""
+    fake = io.TextIOWrapper(io.BytesIO(text.encode("utf-8")), encoding="utf-8")
+    fake.isatty = lambda: False  # type: ignore[method-assign]
+    return fake

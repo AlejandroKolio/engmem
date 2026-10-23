@@ -196,6 +196,7 @@ class _Op:
     session_id: str | None
     byte_count: int = 0
     baseline: Baseline | None = None
+    doc_id: str | None = None
 
 
 def _delivery_bytes(record: dict) -> int | None:
@@ -232,7 +233,11 @@ def _read_op(line: str) -> _Op | None:
         return None
     if op in _DELIVERY_OPS:
         byte_count = _delivery_bytes(record)
-        return None if byte_count is None else _Op(op, op_id, session_id, byte_count)
+        if byte_count is None:
+            return None
+        doc_id = record.get("doc_id")
+        readable = op == OP_READ and isinstance(doc_id, str) and doc_id
+        return _Op(op, op_id, session_id, byte_count, doc_id=doc_id if readable else None)
     if op == OP_BASELINE and session_id is not None:
         entry = _baseline_of(record, session_id, op_id)
         return None if entry is None else _Op(op, op_id, session_id, baseline=entry)
@@ -254,6 +259,15 @@ def _read_ops(path: Path) -> tuple[list[_Op], int]:
             continue
         ops.append(entry)
     return ops, unreadable
+
+
+def read_doc_ids(store: Path, session_id: str) -> list[str]:
+    """Ids the session read through engmem, in first-seen order; raises `OSError` /
+    `UnicodeDecodeError` when cost.jsonl cannot be read or decoded."""
+    ops, _ = _read_ops(store / COST_FILE)
+    return list(dict.fromkeys(
+        entry.doc_id for entry in ops if entry.session_id == session_id and entry.doc_id
+    ))
 
 
 def summarize(store: Path, session_id: str, known_ids: set[str]) -> CostSummary:

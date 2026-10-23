@@ -280,11 +280,14 @@ def cmd_feedback_summary(args: argparse.Namespace) -> int:
     session_id = _session_id(args.session)
     try:
         summary = feedback.summarize(store, {d.id for d in result.docs}, session_id)
+        reads = [] if session_id is None else feedback.citable_reads(
+            session_id, cost.read_doc_ids(store, session_id), result.docs
+        )
     except (OSError, UnicodeDecodeError) as exc:
         # an unreadable log is not a store with no finds -- the reasoning `cmd_telemetry` gives
         fail(f"engmem feedback summary: cannot read the store's logs ({exc})")
         return 2
-    print(feedback.render_summary(summary, session_id))
+    print(feedback.render_summary(summary, session_id, reads))
     return 0
 
 
