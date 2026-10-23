@@ -14,15 +14,9 @@ from support.docs import write_file
 from support.search import cli_search, mcp_search
 
 from engmem import cache
-from engmem.scoring import (
-    _MARK_PLANES,
-    _camel_expansion,
-    _mark_ranges,
-    _token_run_re,
-    search,
-    tokenize_raw,
-)
+from engmem.scoring import search
 from engmem.spine import load_store
+from engmem.tokens import _MARK_PLANES, _mark_ranges, _token_run_re, camel_expansion, tokenize_raw
 
 
 def _doc(doc_id: str, title: str, body: str, entities: str = "[]") -> str:
@@ -274,7 +268,7 @@ def test_ac_02_4_mixed_identifiers_and_queries_match(mixed_docs, query, expected
 
 
 def test_ac_02_4_diacritics_do_not_invent_ascii_fragments(mixed_docs):
-    assert _camel_expansion("CacheMémoire") == (["cache", "mémoire"], "cm")
+    assert camel_expansion("CacheMémoire") == (["cache", "mémoire"], "cm")
     for invented in ("moire", "cachem"):
         assert "6000-mixed" not in [h.doc.id for h in search(mixed_docs, invented).hits]
 
@@ -294,7 +288,7 @@ def test_ac_02_4_diacritics_do_not_invent_ascii_fragments(mixed_docs):
     ],
 )
 def test_ac_02_5_identifier_splitting_keeps_its_ascii_rules(raw, expected):
-    assert _camel_expansion(raw) == expected
+    assert camel_expansion(raw) == expected
 
 
 @pytest.mark.parametrize(

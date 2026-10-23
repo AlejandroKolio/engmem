@@ -1025,25 +1025,30 @@ and each removes a duplication this section exists to prevent.
 
 Full reasoning for both: `docs/design/contracts/gate1.md`.
 
-**Large modules: `scoring.py` stays whole; `mcp_server.py`, `install.py` and `cli.py` were
-split.** `scoring.py` was examined for a seam, and one exists, but cutting it would break the
-thing that makes it fast: `search`, `search_with_role_sections` and `role_coverage`
-deliberately share one built section index, and splitting them would either duplicate that
-sharing or widen the API between modules for no reader benefit. `mcp_server.py` stayed whole
-until a second protocol surface arrived: its write tools and path containment were a separate
-concern, but a split without a second caller cost a re-export layer for nothing. That surface
-arrived with `engmem draft create|complete` *(owner decision, 2026-10-13; §5)*, which writes
-through the same code as the MCP tools. So that code now lives in `src/engmem/drafts.py`, and
-both surfaces call it. Tests patch the module that owns a call, so no re-export layer was
-added. *(Owner request, 2026-10-22: split the large modules before they grow.)* `mcp_server.py`
-then lost two parts that never needed the server: the tool catalog, which is data, to
-`mcp_tools.py`, and the document-writing tools, the MCP-only supersede among them, to
-`mcp_documents.py`; `serve` and the dispatch stay. `install.py` lost its MCP client configs
-(Claude Desktop's JSON, Codex's TOML, the wiring verdict `doctor` and `store show` read) to
-`mcp_clients.py`, and the primitives for a file engmem edits but does not own to
-`user_files.py`, which both use. `cli.py` keeps the parser and the entry point; the subcommands
-it dispatches to are in `commands.py`. `scoring.py` has not been re-examined under that request
-yet; until it is, the reason above for keeping it whole stands.
+**Large modules: split where the seam does not cut the shared index.** `scoring.py` was
+examined for a seam, and one exists, but cutting it would break the thing that makes it fast:
+`search`, `search_with_role_sections` and `role_coverage` deliberately share one built section
+index, and splitting them would either duplicate that sharing or widen the API between modules
+for no reader benefit. `mcp_server.py` stayed whole until a second protocol surface arrived:
+its write tools and path containment were a separate concern, but a split without a second
+caller cost a re-export layer for nothing. That surface arrived with
+`engmem draft create|complete` *(owner decision, 2026-10-13; §5)*, which writes through the
+same code as the MCP tools. So that code now lives in `src/engmem/drafts.py`, and both surfaces
+call it. Tests patch the module that owns a call, so no re-export layer was added. *(Owner
+request, 2026-10-22: split the large modules before they grow.)* `mcp_server.py` then lost two
+parts that never needed the server: the tool catalog, which is data, to `mcp_tools.py`, and the
+document-writing tools, the MCP-only supersede among them, to `mcp_documents.py`; `serve` and
+the dispatch stay. `install.py` lost its MCP client configs (Claude Desktop's JSON, Codex's
+TOML, the wiring verdict `doctor` and `store show` read) to `mcp_clients.py`, and the
+primitives for a file engmem edits but does not own to `user_files.py`, which both use.
+`cli.py` keeps the parser and the entry point; the subcommands it dispatches to are in
+`commands.py`. `scoring.py` was split too, at the two seams that do not touch the shared index
+*(plan approved by the owner, 2026-10-23)*: how text becomes tokens to `tokens.py`, and section
+entries, their cache payload and how the index is built to `section_index.py`. The three entry
+points, ranking and scope stay together in `scoring.py`, which builds the store-wide index
+through one wrapper. The cost, accepted for a module of about 640 lines instead of 900: five
+names that were private are now imported across modules (`entries_for_doc`,
+`build_section_index`, `SectionEntry`, `camel_expansion`, `is_restricted`).
 
 Transliteration and stemming stay cut, and were re-tested rather than assumed: a
 measured comparison against `python-slugify` showed stdlib NFKD reproduces its output

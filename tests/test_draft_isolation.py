@@ -12,7 +12,7 @@ from support import rpc
 from support.docs import write_file
 from support.search import cli_search, mcp_search
 
-from engmem import scoring, search_report
+from engmem import scoring, search_report, section_index
 from engmem.cli import main
 from engmem.scoring import search, search_with_role_sections
 from engmem.spine import load_store
@@ -349,8 +349,10 @@ def test_one_search_loads_each_documents_section_entries_once(tmp_path, monkeypa
     """The draft pass reuses the published pass's entries instead of loading them again."""
     loaded = load_store(_write_store(tmp_path, {DRAFT_ID: DRAFT_V1}))
     loads: list[str] = []
-    real = scoring._entries_for_doc
-    monkeypatch.setattr(scoring, "_entries_for_doc", lambda doc: loads.append(doc.id) or real(doc))
+    real = section_index.entries_for_doc
+    monkeypatch.setattr(
+        section_index, "entries_for_doc", lambda doc: loads.append(doc.id) or real(doc)
+    )
 
     out = search_report.compose(
         tmp_path, loaded, [], [], QUERY, role, "s1", "cli", retain_versions=False, record_cost=False

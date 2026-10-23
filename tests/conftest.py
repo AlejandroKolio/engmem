@@ -107,10 +107,10 @@ def _isolated_cache_root(tmp_path_factory, monkeypatch):
 
 
 def _forget_kept(monkeypatch) -> None:
-    from engmem import cache, mcp_server, scoring
+    from engmem import cache, mcp_server, scoring, section_index
 
     monkeypatch.setattr(cache, "_last_pruned", None)
-    monkeypatch.setattr(scoring, "_KEPT_ENTRIES", cache.KeptByPath())
+    monkeypatch.setattr(section_index, "_KEPT_ENTRIES", cache.KeptByPath())
     monkeypatch.setattr(scoring, "_KEPT_FIELDS", cache.KeptByPath())
     monkeypatch.setattr(mcp_server, "_KEPT_DOCS", cache.KeptByPath())
 

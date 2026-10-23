@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import functools
 import math
-import re
-import sys
-import unicodedata
 from collections import Counter
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from engmem import cache
+from engmem import cache, section_index
+from engmem.section_index import SectionEntry
 from engmem.sections import (
     CANONICAL_ROLES,
     Section,
@@ -20,6 +16,7 @@ from engmem.sections import (
     split_sections,
 )
 from engmem.spine import Doc, linked_repos
+from engmem.tokens import camel_expansion, is_restricted, normalize_token, tokenize_raw
 
 FIELD_WEIGHTS = {"id": 5, "entities": 3, "title": 2, "tags": 1}
 
@@ -43,95 +40,6 @@ MIN_COVERED_WORDS = 2
 # as an identifier: `for`, `и`, `και`, `der` are what two-word coverage was cleared with (US-14)
 SHORT_WORD_MAX_CHARS = 3
 
-# Runs over a per-character class string, not the token itself: "A" upper/title-case letter,
-# "a" any other letter, "0" number, "m" combining mark. Same shape as the ASCII-era
-# `[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+`, with a mark riding on its base character.
-_CAMEL_CLASS_RE = re.compile(r"(?:Am*)+(?=Am*a)|(?:Am*)?(?:am*)+|(?:Am*)+|(?:0m*)+")
-
-
-# planes holding category M today; `test_the_mark_scan_covers_every_plane_with_marks` fails
-# when a Unicode version adds a mark elsewhere. Scanning 3 planes, not 17, is ~6x cheaper.
-_MARK_PLANES = (0, 1, 14)
-
-# modifier letters (category Lm, so inside `\w`) used as apostrophes: Ukrainian `обʼєкт` is
-# written with U+02BC as often as with `'` or `’`, and all forms must split alike
-_APOSTROPHE_LETTERS = "\u02bc\u02bb\u02bd\u02ee"
-
-
-def _mark_ranges(code_points: Iterable[int]) -> list[tuple[int, int]]:
-    """Inclusive code-point ranges of the combining marks (category M) among `code_points`."""
-    ranges: list[list[int]] = []
-    for cp in code_points:
-        if not unicodedata.category(chr(cp)).startswith("M"):
-            continue
-        if ranges and ranges[-1][1] == cp - 1:
-            ranges[-1][1] = cp
-        else:
-            ranges.append([cp, cp])
-    return [(lo, hi) for lo, hi in ranges]
-
-
-@functools.cache
-def _token_run_re() -> re.Pattern[str]:
-    """Letters, numbers and combining marks; built once, from this Python's Unicode database."""
-    # `\w` covers letters and numbers in every plane but not marks, and splitting on a mark cuts
-    # a word that has no precomposed form in two; `_` is excluded so snake_case still splits
-    planes = (range(plane << 16, (plane + 1) << 16) for plane in _MARK_PLANES)
-    ranges = _mark_ranges(cp for plane in planes for cp in plane)
-    # as ranges, not 2,000-odd single characters: the regex engine scans a range set 4x faster
-    marks = "".join(f"{re.escape(chr(lo))}-{re.escape(chr(hi))}" for lo, hi in ranges)
-    return re.compile(rf"(?:[^\W_{_APOSTROPHE_LETTERS}]|[{marks}])+")
-
-
-def normalize_token(token: str) -> str:
-    return unicodedata.normalize("NFKC", token).casefold()
-
-
-def tokenize_raw(text: str) -> list[str]:
-    # NFKC before splitting: it composes `e` + U+0301 into `é` and folds fullwidth forms and
-    # ligatures, so the split sees one spelling of each word
-    normalized = unicodedata.normalize("NFKC", text)
-    return _token_run_re().findall(normalized)
-
-
-def _char_class(char: str) -> str:
-    category = unicodedata.category(char)
-    if category in ("Lu", "Lt"):
-        return "A"
-    if category[0] == "L":
-        return "a"
-    if category[0] == "N":
-        return "0"
-    return "m"
-
-
-def camel_fragments(raw_token: str) -> list[str] | None:
-    # fast path for the common prose word: every character would classify as "a", one part
-    if raw_token.isalpha() and raw_token.islower():
-        return None
-    classes = "".join(_char_class(c) for c in raw_token)
-    parts = [raw_token[m.start():m.end()] for m in _CAMEL_CLASS_RE.finditer(classes)]
-    if len(parts) <= 1:
-        return None
-    return parts
-
-
-def _camel_expansion(raw_token: str) -> tuple[list[str], str] | None:
-    # normalized fragments + initial-letter acronym, e.g. "WidgetCache" ->
-    # (["widget", "cache"], "wc"); one shared rule so field/body/query agree
-    frac = camel_fragments(raw_token)
-    if not frac:
-        return None
-    parts_norm = [normalize_token(p) for p in frac]
-    acronym = "".join(p[0] for p in parts_norm if p)
-    return parts_norm, acronym
-
-
-def _is_restricted(token: str) -> bool:
-    # too short/generic to trust past an exact, unsplit match (§7); shared by
-    # the spine and body indexes so restricted-ness never disagrees between them
-    return len(token) <= 3 or token.isdigit()
-
 
 def _field_token_sets(value) -> tuple[frozenset[str], frozenset[str]]:
     """`(original_tokens, all_tokens_including_derived_fragments)`."""
@@ -144,7 +52,7 @@ def _field_token_sets(value) -> tuple[frozenset[str], frozenset[str]]:
             orig = normalize_token(raw)
             originals.add(orig)
             all_tokens.add(orig)
-            expansion = _camel_expansion(raw)
+            expansion = camel_expansion(raw)
             if expansion:
                 parts_norm, acronym = expansion
                 all_tokens.update(parts_norm)
@@ -191,7 +99,7 @@ def _build_query_words(query: str) -> list[_QueryWord]:
         if not orig:
             continue
         word_tokens = tokens.setdefault(orig, [orig])
-        expansion = None if _is_restricted(orig) else _camel_expansion(raw)
+        expansion = None if is_restricted(orig) else camel_expansion(raw)
         if expansion is None:
             continue
         # `responsecache` then `ResponseCache` is one word; the second spelling adds its parts
@@ -208,15 +116,15 @@ def _build_query_tokens(query: str) -> list[_QueryToken]:
 
     def add(text: str) -> None:
         if text and text not in tokens:
-            tokens[text] = _QueryToken(text, _is_restricted(text))
+            tokens[text] = _QueryToken(text, is_restricted(text))
 
     for raw in tokenize_raw(query):
         orig = normalize_token(raw)
         add(orig)
-        if _is_restricted(orig):
+        if is_restricted(orig):
             continue
 
-        expansion = _camel_expansion(raw)
+        expansion = camel_expansion(raw)
         if expansion:
             parts_norm, acronym = expansion
             for p in parts_norm:
@@ -281,7 +189,7 @@ class SearchOutcome:
     ambiguous: bool
     superseded_notes: list[SupersededNote]
     # the published corpus's section entries, so the draft pass does not load them again
-    entries: list[_SectionEntry] = field(default_factory=list, repr=False, compare=False)
+    entries: list[SectionEntry] = field(default_factory=list, repr=False, compare=False)
 
 
 def _id_field_weight(
@@ -383,178 +291,15 @@ def _spine_score(query_tokens: list[_QueryToken], doc: Doc) -> tuple[float, dict
     return score, matched_fields
 
 
-def _tokenize_counts(text: str) -> tuple[Counter[str], Counter[str]]:
-    """Literal and derived token-frequency counters for a chunk of body text."""
-    literal: Counter[str] = Counter()
-    derived: Counter[str] = Counter()
-    for raw in tokenize_raw(text):
-        orig = normalize_token(raw)
-        literal[orig] += 1
-        derived[orig] += 1
-        expansion = _camel_expansion(raw)
-        if expansion:
-            parts_norm, acronym = expansion
-            for p in parts_norm:
-                derived[p] += 1
-            if acronym:
-                derived[acronym] += 1
-    return literal, derived
-
-
-@dataclass
-class _SectionEntry:
-    doc_id: str
-    section: Section
-    literal_tf: Counter[str]
-    derived_tf: Counter[str]
-    length: int
-
-
-# `canonical` is the one nullable field, so it is checked separately below. `bool` is
-# excluded from the int fields on purpose: `isinstance(True, int)` is True, and an `index`
-# of `true` renders a locator of `§True-notes` — plausible, wrong and silent
-_PAYLOAD_FIELD_TYPES = {
-    "anchor": (str,),
-    "heading": (str,),
-    "body": (str,),
-    "size_bytes": (int,),
-    "level": (int,),
-    "index": (int,),
-    "literal_tf": (dict,),
-    "derived_tf": (dict,),
-}
-_NULLABLE_PAYLOAD_FIELDS = ("canonical",)
-
-
-def _section_to_payload(section: Section, literal: Counter[str], derived: Counter[str]) -> dict:
-    return {
-        "anchor": section.anchor,
-        "heading": section.heading,
-        "body": section.body,
-        "size_bytes": section.size_bytes,
-        "level": section.level,
-        "canonical": section.canonical,
-        "index": section.index,
-        "literal_tf": dict(literal),
-        "derived_tf": dict(derived),
-    }
-
-
-def _token_counts(table: dict, name: str) -> Counter[str]:
-    """A frequency table from a payload, rejected unless every value really is a token count."""
-    # `dict` in _PAYLOAD_FIELD_TYPES is only half the check — see contracts/scoring.md
-    for count in table.values():
-        if type(count) is not int or count < 0:
-            # TypeError even for the range violation: `_entries_from_cache` catches only
-            # (KeyError, TypeError), and anything else escapes and crashes the search
-            raise TypeError(f"{name} holds {count!r}, not a token count")
-    return Counter(table)
-
-
-def _section_entry_from_payload(doc_id: str, data: dict) -> _SectionEntry:
-    canonical = data["canonical"]
-    if canonical is not None and not isinstance(canonical, str):
-        raise TypeError("canonical is neither a string nor null")
-    # a value outside CANONICAL_ROLES is what a role added without a cache format bump
-    # writes; role_coverage's `counts = {role: 0 for role in CANONICAL_ROLES}` has no slot
-    # for it, so believing it here is the KeyError this whole block exists to prevent
-    if canonical is not None and canonical not in CANONICAL_ROLES:
-        raise TypeError(f"canonical is {canonical!r}, not a recognised role")
-    section = Section(
-        anchor=data["anchor"],
-        heading=data["heading"],
-        body=data["body"],
-        size_bytes=data["size_bytes"],
-        level=data["level"],
-        canonical=data["canonical"],
-        index=data["index"],
-    )
-    # every field, by type. `Counter` accepts any iterable, so a `literal_tf` that arrived as
-    # a list would count its elements and rank on a plausible index of all-ones; a non-string
-    # `body` reaches `output._section_snippet` and crashes the search there. Both are shapes
-    # that would otherwise pass, which is what "a mismatch is a miss, never a crash" claims
-    for name, expected in _PAYLOAD_FIELD_TYPES.items():
-        value = data[name]
-        if isinstance(value, bool) or not isinstance(value, expected):
-            raise TypeError(f"{name} is {type(value).__name__}, not {expected[0].__name__}")
-    literal_tf = _token_counts(data["literal_tf"], "literal_tf")
-    derived_tf = _token_counts(data["derived_tf"], "derived_tf")
-    return _SectionEntry(
-        doc_id=doc_id,
-        section=section,
-        literal_tf=literal_tf,
-        derived_tf=derived_tf,
-        length=sum(literal_tf.values()),
-    )
-
-
-def _entries_from_cache(doc: Doc, cached_payload: object) -> list[_SectionEntry] | None:
-    # a shape mismatch (payload predates a format bump) is a miss, not a crash
-    try:
-        return [
-            _section_entry_from_payload(doc.id, s) for s in cached_payload["sections"]
-        ]
-    except (KeyError, TypeError) as exc:
-        cache._warn(
-            f"cache payload for {doc.path.name} has an unexpected shape, "
-            f"recomputing ({exc})"
-        )
-        return None
-
-
-# the cache's own rule, kept in memory for a process that searches more than once
-_KEPT_ENTRIES: cache.KeptByPath[list[_SectionEntry]] = cache.KeptByPath()
-
-
-def _entries_for_doc(doc: Doc) -> list[_SectionEntry]:
-    """Section-level token index for one document, from cache when its body is unchanged."""
-    # the hash of the very text the payload is built from below, so an entry can only ever be
-    # served for that text — contracts/cache.md, "Keyed by content"
-    key = cache.content_key(doc.body)
-    return _KEPT_ENTRIES.get(doc.path, (doc.id, key), lambda: _built_entries(doc, key))
-
-
-def _built_entries(doc: Doc, key: str) -> list[_SectionEntry]:
-    cached_payload = cache.load(doc.path, key)
-    if cached_payload is not None:
-        entries = _entries_from_cache(doc, cached_payload)
-        if entries is not None:
-            return entries
-
-    entries = []
-    payload_sections = []
-    for section in split_sections(doc.body):
-        literal, derived = _tokenize_counts(f"{section.heading}\n{section.body}")
-        entries.append(
-            _SectionEntry(
-                doc_id=doc.id,
-                section=section,
-                literal_tf=literal,
-                derived_tf=derived,
-                length=sum(literal.values()),
-            )
-        )
-        payload_sections.append(_section_to_payload(section, literal, derived))
-
-    cache.store(doc.path, key, {"sections": payload_sections})
-    return entries
-
-
-def _build_section_index(docs: list[Doc], store_docs: list[Doc]) -> list[_SectionEntry]:
-    """Section entries for `docs`, pruning the cache against `store_docs` — the whole store,
-    which is the only set entitled to say an entry is an orphan."""
-    store_paths = [doc.path for doc in store_docs]
-    cache.prune_orphans(store_paths)
-    _KEPT_ENTRIES.retain(store_paths)
-    _KEPT_FIELDS.retain(store_paths)
-    entries: list[_SectionEntry] = []
-    for doc in docs:
-        entries.extend(_entries_for_doc(doc))
-    return entries
+def _build_section_index(docs: list[Doc], store_docs: list[Doc]) -> list[SectionEntry]:
+    """`section_index.build_section_index`, the one store-wide entry point: it also forgets the
+    spine field indexes of documents no longer in the store, before anything is built."""
+    _KEPT_FIELDS.retain(doc.path for doc in store_docs)
+    return section_index.build_section_index(docs, store_docs)
 
 
 def _document_frequencies(
-    entries: list[_SectionEntry], query_tokens: list[_QueryToken]
+    entries: list[SectionEntry], query_tokens: list[_QueryToken]
 ) -> tuple[Counter[str], Counter[str]]:
     """Entries holding each query token: the only frequencies `_bm25_entry_score` reads."""
     texts = {qt.text for qt in query_tokens}
@@ -565,7 +310,7 @@ def _document_frequencies(
 
 def _bm25_entry_score(
     query_tokens: list[_QueryToken],
-    entry: _SectionEntry,
+    entry: SectionEntry,
     df_literal: Counter[str],
     df_derived: Counter[str],
     n: int,
@@ -593,7 +338,7 @@ def _bm25_entry_score(
 
 
 def _body_scores_from_entries(
-    entries: list[_SectionEntry], query_tokens: list[_QueryToken]
+    entries: list[SectionEntry], query_tokens: list[_QueryToken]
 ) -> dict[str, tuple[float, list[SectionHit]]]:
     """A document scores its single best section, not the sum — else it wins by section count."""
     if not query_tokens:
@@ -627,7 +372,7 @@ def _cluster_key_for_short_token(token: str, doc: Doc) -> str | None:
     """The longer entity whose CamelCase acronym equals `token`, as this doc's cluster key."""
     for entity in doc.entities:
         for raw in tokenize_raw(entity):
-            expansion = _camel_expansion(raw)
+            expansion = camel_expansion(raw)
             if expansion is None:
                 continue
             _, acronym = expansion
@@ -731,8 +476,12 @@ def matching_drafts(
         if not {e.doc_id for e in published_entries} <= {doc.id for doc in published_corpus}:
             raise ValueError("published outcome is not of this store and scope")
     else:
-        published_entries = [entry for doc in published_corpus for entry in _entries_for_doc(doc)]
-    entries = published_entries + [entry for doc in candidates for entry in _entries_for_doc(doc)]
+        published_entries = [
+            entry for doc in published_corpus for entry in section_index.entries_for_doc(doc)
+        ]
+    entries = published_entries + [
+        entry for doc in candidates for entry in section_index.entries_for_doc(doc)
+    ]
     outcome = _search_core(corpus, docs, query, entries)
     wanted = {doc.id for doc in candidates}
     return [hit.doc for hit in outcome.hits if hit.doc.id in wanted]
@@ -742,7 +491,7 @@ def _search_core(
     corpus: list[Doc],
     store_docs: list[Doc],
     query: str,
-    entries: list[_SectionEntry],
+    entries: list[SectionEntry],
 ) -> SearchOutcome:
     """Ranks `corpus`; `store_docs` only resolves a superseded document's successor."""
     query_tokens = _build_query_tokens(query)
@@ -853,7 +602,7 @@ def _onward(
     return tuple(onward), False
 
 
-def _role_index_from_entries(entries: list[_SectionEntry]) -> dict[str, dict[str, Section]]:
+def _role_index_from_entries(entries: list[SectionEntry]) -> dict[str, dict[str, Section]]:
     """`doc_id -> {canonical role: Section}`, from the section index a search already parsed."""
     index: dict[str, dict[str, Section]] = {}
     # two passes: a role named by a section's own heading wins over one inherited from an

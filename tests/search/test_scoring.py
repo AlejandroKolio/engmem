@@ -9,20 +9,22 @@ import dataclasses
 from collections import Counter
 import json
 
-from engmem import cache
+from engmem import cache, section_index
 from engmem.scoring import (
-    _NULLABLE_PAYLOAD_FIELDS,
-    _PAYLOAD_FIELD_TYPES,
     _build_query_tokens,
     _build_section_index,
     _document_frequencies,
-    _entries_for_doc,
-    _section_entry_from_payload,
-    _section_to_payload,
-    _tokenize_counts,
     role_coverage,
     search,
     search_with_role_sections,
+)
+from engmem.section_index import (
+    _NULLABLE_PAYLOAD_FIELDS,
+    _PAYLOAD_FIELD_TYPES,
+    _section_entry_from_payload,
+    _section_to_payload,
+    _tokenize_counts,
+    entries_for_doc,
 )
 from engmem.sections import Section
 from engmem.spine import load_store
@@ -552,27 +554,23 @@ def test_warm_cache_produces_identical_results_to_cold_cache(tmp_path):
 
 
 def test_second_search_does_not_retokenize_unchanged_documents(tmp_path, monkeypatch):
-    import engmem.scoring as scoring_module
-
     docs = _write_cache_bench_docs(tmp_path)
     search(docs, "WidgetCache eviction")  # populates the cache for every doc
 
     calls = []
-    real_tokenize = scoring_module._tokenize_counts
+    real_tokenize = section_index._tokenize_counts
 
     def _spy(text):
         calls.append(text)
         return real_tokenize(text)
 
-    monkeypatch.setattr(scoring_module, "_tokenize_counts", _spy)
+    monkeypatch.setattr(section_index, "_tokenize_counts", _spy)
     search(docs, "WidgetCache eviction")
 
     assert calls == [], "a warm cache must skip re-tokenizing every unchanged document"
 
 
 def test_editing_one_document_only_retokenizes_that_document(tmp_path, monkeypatch):
-    import engmem.scoring as scoring_module
-
     docs = _write_cache_bench_docs(tmp_path, n=6)
     search(docs, "WidgetCache eviction")
 
@@ -583,13 +581,13 @@ def test_editing_one_document_only_retokenizes_that_document(tmp_path, monkeypat
     docs = load_store(tmp_path).docs
 
     calls = []
-    real_tokenize = scoring_module._tokenize_counts
+    real_tokenize = section_index._tokenize_counts
 
     def _spy(text):
         calls.append(text)
         return real_tokenize(text)
 
-    monkeypatch.setattr(scoring_module, "_tokenize_counts", _spy)
+    monkeypatch.setattr(section_index, "_tokenize_counts", _spy)
     search(docs, "WidgetCache eviction")
 
     # by count and by content: every untouched sibling shares two of its three section texts
@@ -776,7 +774,7 @@ A superseded decision must not count toward coverage either.
 
 
 # ---------------------------------------------------------------------------
-# cache payloads whose shape does not match what scoring expects
+# cache payloads whose shape does not match what section_index expects
 # ---------------------------------------------------------------------------
 
 
@@ -812,7 +810,7 @@ def test_a_cache_payload_of_the_wrong_shape_recomputes_instead_of_crashing(
     cache.store(doc.path, cache.content_key(doc.body), payload)
     capsys.readouterr()
 
-    entries = _entries_for_doc(doc)
+    entries = entries_for_doc(doc)
 
     assert entries, f"{label}: the document must still be indexed"
     assert any(e.section.canonical == "decisions" for e in entries)
@@ -833,9 +831,9 @@ def test_a_recomputed_entry_replaces_the_bad_payload(tmp_path, capsys):
     )
     cache.store(doc.path, cache.content_key(doc.body), {"sections": None})
 
-    _entries_for_doc(doc)
+    entries_for_doc(doc)
     capsys.readouterr()
-    _entries_for_doc(doc)
+    entries_for_doc(doc)
 
     assert "unexpected shape" not in capsys.readouterr().err
 
@@ -870,7 +868,7 @@ def test_a_stale_format_version_entry_is_ignored_even_when_the_file_is_unchanged
     record["format_version"] = 2
     entry_path.write_text(json.dumps(record), encoding="utf-8")
 
-    entries = _entries_for_doc(doc)
+    entries = entries_for_doc(doc)
 
     assert any(e.section.canonical == "testing" for e in entries), (
         "the stale entry must be recomputed with the current splitter, not served as-is"
@@ -911,10 +909,10 @@ def test_an_edit_during_a_search_does_not_poison_the_section_cache(tmp_path):
 
     doc = load_store(sessions).docs[0]
     path.write_text(front_matter + "## Notes\n\nThe newword path.\n", encoding="utf-8")
-    _entries_for_doc(doc)  # caches the sections of the body that was read
+    entries_for_doc(doc)  # caches the sections of the body that was read
 
     reloaded = load_store(sessions).docs[0]
-    bodies = " ".join(e.section.body for e in _entries_for_doc(reloaded))
+    bodies = " ".join(e.section.body for e in entries_for_doc(reloaded))
 
     assert "newword" in bodies
     assert "oldword" not in bodies
@@ -1033,7 +1031,7 @@ def test_a_payload_field_that_fails_the_type_table_is_recomputed_not_believed(
     on their own: each of these is wrong, silent, and cached for as long as the entry lives."""
     sessions = _store_with_each_status(tmp_path)
     doc = next(d for d in load_store(sessions).docs if d.id == "alpha-doc")
-    _entries_for_doc(doc)
+    entries_for_doc(doc)
 
     entry_path = cache._entry_path(doc.path)[0]
     record = json.loads(entry_path.read_text(encoding="utf-8"))
@@ -1045,7 +1043,7 @@ def test_a_payload_field_that_fails_the_type_table_is_recomputed_not_believed(
     capsys.readouterr()
     new_process()
 
-    entries = _entries_for_doc(doc)
+    entries = entries_for_doc(doc)
 
     assert not believed_it_would_be(entries[0]), (
         f"the damaged {'.'.join(field_path)} was believed, not recomputed"

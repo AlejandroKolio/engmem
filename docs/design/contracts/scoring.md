@@ -1,10 +1,12 @@
 # Contract: scoring internals
 
-Source: `src/engmem/scoring.py`. `ENGMEM-SPEC.md` §7 fixes the spine-field formula,
-normalisation and match rules, and §8's golden fixtures are the ground truth. This covers what
-§7 does not: BM25 over section bodies (`ENGMEM-SPEC.md` §9, "Built after all") and the shape of
-the ambiguity clustering. §9 also keeps this module whole: `search`,
-`search_with_role_sections` and `role_coverage` deliberately share one built section index.
+Source: `src/engmem/scoring.py` (ranking, scope and the three entry points), `tokens.py` (how
+text becomes tokens) and `section_index.py` (section entries, their cache payload and how the
+index is built). `ENGMEM-SPEC.md` §7 fixes the spine-field formula, normalisation and match rules,
+and §8's golden fixtures are the ground truth. This covers what §7 does not: BM25 over section
+bodies (`ENGMEM-SPEC.md` §9, "Built after all") and the shape of the ambiguity clustering.
+`search`, `search_with_role_sections` and `role_coverage` deliberately share one built section
+index, so they stay together in `scoring.py` (ENGMEM-SPEC "Large modules").
 
 ## Invariants
 
@@ -12,7 +14,7 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
   find before every weak candidate (below), then by score. BM25 scores move with corpus size,
   so golden tests pin order and membership, never an absolute score.
 - A document scores its single best section, not the sum, or it wins by section count.
-- Restricted-ness (`_is_restricted`: three characters or fewer, or purely numeric) is a
+- Restricted-ness (`tokens.is_restricted`: three characters or fewer, or purely numeric) is a
   property of the token's text, decided once in `_build_query_tokens` and read from
   `qt.restricted` by `_spine_score` and `_bm25_entry_score` alike; it is never re-derived.
 - `_NEVER_PRIMARY` (`draft`, `superseded`; data-model.md "State transitions") never appears as
@@ -21,7 +23,7 @@ the ambiguity clustering. §9 also keeps this module whole: `search`,
   successor that is itself superseded, the rest of the chain (`onward`, `loops`;
   `contracts/output.md`, "A redirect follows the chain").
 
-## Tokenisation (`tokenize_raw`, `normalize_token`, `camel_fragments`)
+## Tokenisation (`tokens.py`: `tokenize_raw`, `normalize_token`, `camel_fragments`)
 
 One rule set, applied by the same functions to front matter fields, section text and the
 query, so CLI and MCP cannot drift (both call `search`):
@@ -272,7 +274,7 @@ under the full save template.
 
 ## One rule per query token (`_build_query_tokens`)
 
-Returns distinct tokens, each carrying `_is_restricted` of its own text.
+Returns distinct tokens, each carrying `is_restricted` of its own text.
 
 By text, not by origin: §7's short-token rule is about the token, and the CamelCase expansion
 emits short tokens of its own (`mq` from `MQSweeper`, `rc` from `ResponseCache`). Stamped
@@ -398,24 +400,26 @@ a superseded match emits its ordinary redirect. Accepted consequence: two active
 sharing a cluster are not ambiguous when the only competing cluster came from a superseded
 document; ambiguity between a visible meaning and an invisible one is noise.
 
-## Section index caching (`_entries_for_doc`, `_build_section_index`)
+## Section index caching (`section_index.entries_for_doc`, `_build_section_index`)
 
-`_entries_for_doc` reads a per-document cache entry (`contracts/cache.md`) and recomputes only
-what changed; rebuilding the index on every call was fine at the 9-document fixture corpus and
-not at a shared store in the hundreds. The key is `cache.content_key(doc.body)`, the hash of
-the very text the sections are split from, never a re-read of the file at search time
-(`contracts/cache.md`, "Keyed by content").
+`section_index.entries_for_doc` reads a per-document cache entry (`contracts/cache.md`) and
+recomputes only what changed; rebuilding the index on every call was fine at the 9-document
+fixture corpus and not at a shared store in the hundreds. The key is
+`cache.content_key(doc.body)`, the hash of the very text the sections are split from, never a
+re-read of the file at search time (`contracts/cache.md`, "Keyed by content").
 
-`_build_section_index(docs, store_docs)` indexes the documents it was handed and prunes against
-the whole store. The second parameter has no default because a wrongly pruned cache neither
-fails nor warns, it only costs a rebuild. Every caller narrows: `role_coverage` to searchable
-documents, and pruning on that narrowed list deleted every draft and superseded document's
-entry on each `engmem roles`; `search` and `search_with_role_sections` to the ranking corpus,
-which would evict every draft's entry on each search.
+`_build_section_index(docs, store_docs)` in `scoring.py` is the one store-wide entry point: it
+forgets the spine field indexes of documents no longer in the store, then calls
+`section_index.build_section_index`, which prunes the disk cache and the kept entries and only
+then indexes the documents it was handed. The second parameter has no default because a wrongly
+pruned cache neither fails nor warns, it only costs a rebuild. Every caller narrows:
+`role_coverage` to searchable documents, and pruning on that narrowed list deleted every draft
+and superseded document's entry on each `engmem roles`; `search` and `search_with_role_sections`
+to the ranking corpus, which would evict every draft's entry on each search.
 
 ### A shape mismatch is a miss, never a crash
 
-`_entries_from_cache` treats a payload it cannot read — one written before a
+`section_index._entries_from_cache` treats a payload it cannot read — one written before a
 `cache.CACHE_FORMAT_VERSION` bump, or by a change that forgot to bump it — as a warned miss.
 Warned, unlike the shapes `cache.load` rejects silently, because a payload that survived every
 check there and still does not fit is a bug in this repo, not a stale file
@@ -479,7 +483,7 @@ Recorded, not fixed. Two classes of fix, both rejected for now:
   qt.text.isdigit()`) it survives that but makes one field a gate no other signal can
   outweigh: on `http 404 handling`, `404-cache-warmer` scores `1.67` on the digit alone and
   passes the gate, `7001-http-error-handling` scores `2.67` on two slug words and does not —
-  and `_is_restricted` classifies a bare digit as too generic to trust while `_id_field_weight`
+  and `is_restricted` classifies a bare digit as too generic to trust while `_id_field_weight`
   pays it the full tier, so the gate would make unbeatable the one signal the tokeniser
   distrusts.
 

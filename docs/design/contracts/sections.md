@@ -8,7 +8,7 @@ sub-splitting oversized ones on `###`, and resolves each heading to a stable can
 
 - `split_sections` tokenises nothing and is not cached: it measures well under a millisecond
   per document at an 800-document corpus. The expensive step is the tokenisation downstream,
-  which `scoring` caches on disk (`contracts/cache.md`).
+  which `section_index` caches on disk (`contracts/cache.md`).
 - A change here that alters what a cached payload holds for a document whose body did not
   change — the `canonical` a heading resolves to, or the section boundaries themselves — needs
   a `cache.CACHE_FORMAT_VERSION` bump, because the cache key, a hash of the body, cannot see

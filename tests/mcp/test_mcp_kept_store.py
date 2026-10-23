@@ -263,17 +263,18 @@ def test_a_document_gone_from_the_store_is_forgotten(store):
 
 
 def test_section_entries_of_a_document_gone_from_the_store_are_forgotten(store):
-    from engmem import scoring
+    from engmem import scoring, section_index
 
     sessions = store / "sessions"
     _search(store)
     gone = sessions / "ttl-etag-revalidation-v2.md"
-    assert str(gone) in scoring._KEPT_ENTRIES._kept and str(gone) in scoring._KEPT_FIELDS._kept
+    assert str(gone) in section_index._KEPT_ENTRIES._kept
+    assert str(gone) in scoring._KEPT_FIELDS._kept
 
     gone.unlink()
     _search(store)
 
-    assert str(gone) not in scoring._KEPT_ENTRIES._kept
+    assert str(gone) not in section_index._KEPT_ENTRIES._kept
     assert str(gone) not in scoring._KEPT_FIELDS._kept
 
 
