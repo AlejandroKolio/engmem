@@ -1,0 +1,38 @@
+name: Build constraints drift
+
+# Re-resolves .github/build-constraints.txt, the hash-locked build backend every `uv build`
+# uses, and fails when hatchling itself has moved; other packages moving is printed only.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
+          enable-cache: false
+
+      - name: Re-resolve in place with the committed command
+        # in place and with no header: the `# via` lines repeat the input path and a header would
+        # repeat the command, so anything else would differ every week with nothing moved
+        run: >-
+          uv pip compile .github/build-constraints.in --universal --generate-hashes
+          --python-version 3.11 --no-header --upgrade -o .github/build-constraints.txt
+
+      - name: Fail only when the build backend moved
+        run: |
+          git diff -- .github/build-constraints.txt
+          if git diff -- .github/build-constraints.txt | grep -q '^[-+]hatchling=='; then
+            echo "hatchling moved: refresh .github/build-constraints.txt (CONTRIBUTING.md)"
+            exit 1
+          fi
