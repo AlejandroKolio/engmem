@@ -8,6 +8,7 @@ import copy
 import enum
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -151,17 +152,53 @@ def toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
-def _codex_mcp_block(store: Path, newline: str) -> str:
+_CODEX_HEADER = "[mcp_servers.engmem]"
+# `\n` only: `str.splitlines` also splits on U+0085, U+2028 and U+2029, which `toml_string`
+# leaves raw in a store path
+_LINES_RE = re.compile(r"[^\n]*\n|[^\n]+")
+
+
+def _codex_entry_lines(store: Path) -> tuple[str, str, str]:
+    """The three lines of engmem's block it owns: the header, `command` and `args`."""
     entry = stdio_mcp_entry(store)
     args = ", ".join(toml_string(arg) for arg in entry["args"])
-    lines = (
-        CODEX_MCP_BEGIN,
-        "[mcp_servers.engmem]",
-        f"command = {toml_string(entry['command'])}",
-        f"args = [{args}]",
-        CODEX_MCP_END,
-    )
+    return _CODEX_HEADER, f"command = {toml_string(entry['command'])}", f"args = [{args}]"
+
+
+def _codex_mcp_block(store: Path, newline: str) -> str:
+    lines = (CODEX_MCP_BEGIN, *_codex_entry_lines(store), CODEX_MCP_END)
     return newline.join(lines) + newline
+
+
+def _ending(line: str) -> str:
+    return "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+
+
+def _is_one_line(line: str, key: str, kind: type) -> bool:
+    """`line` alone is exactly `key = <kind>`: a value continued on the next line is not."""
+    try:
+        parsed = tomllib.loads(line.rstrip("\r\n"))
+    except tomllib.TOMLDecodeError:
+        return False
+    return list(parsed) == [key] and isinstance(parsed[key], kind)
+
+
+def _refreshed_block(path: Path, block: str, store: Path) -> str:
+    """`block` with its header, `command` and `args` lines regenerated and every later line kept
+    byte for byte: Codex writes per-tool approvals below them (contracts/install.md)."""
+    lines = _LINES_RE.findall(block)
+    if (
+        len(lines) < 5
+        or lines[1].strip() != _CODEX_HEADER
+        or not _is_one_line(lines[2], "command", str)
+        or not _is_one_line(lines[3], "args", list)
+    ):
+        raise SetupError(
+            f"{path}: engmem's block must start with {_CODEX_HEADER}, then `command` and "
+            f"`args` on one line each — restore that order, or remove the block and re-run"
+        )
+    owned = "".join(new + _ending(old) for new, old in zip(_codex_entry_lines(store), lines[1:4]))
+    return lines[0] + owned + "".join(lines[4:])
 
 
 def parse_toml(path: Path, text: str) -> dict:
@@ -211,19 +248,24 @@ def install_codex_mcp(store: Path, path: Path | None = None) -> CodexMcpOutcome:
     entry = stdio_mcp_entry(store)
     block = _codex_mcp_block(store, newline)
     split = _split_codex_block(path, existing)
+    current = engmem_mcp_server(config)
     if split is None:
-        if engmem_mcp_server(config) is not None:
+        if current is not None:
             return CodexMcpOutcome.FOREIGN
         prefix = existing if not existing or existing.endswith(("\n", "\r")) else existing + newline
         composed, outcome = prefix + block, CodexMcpOutcome.ADDED
     else:
-        before, current, after = split
-        if current == block:
+        before, current_block, after = split
+        # a block whose lines were commented out holds no entry, so nothing in it is kept
+        refreshed = _refreshed_block(path, current_block, store) if current is not None else block
+        composed = before + refreshed + after
+        if composed == existing:
             return CodexMcpOutcome.PRESENT
-        _refuse_keys_added_to_the_block(path, config)
-        composed, outcome = before + block + after, CodexMcpOutcome.UPDATED
+        outcome = CodexMcpOutcome.UPDATED
     expected = copy.deepcopy(config)
-    expected.setdefault("mcp_servers", {})["engmem"] = entry
+    # only the two values engmem writes may change; whatever else the table holds is kept
+    kept = current if isinstance(current, dict) else {}
+    expected.setdefault("mcp_servers", {})["engmem"] = {**kept, **entry}
     if _parsed_or_none(composed) != expected:
         # an inline `mcp_servers = {}` cannot be extended by a later table header
         raise SetupError(
@@ -234,18 +276,6 @@ def install_codex_mcp(store: Path, path: Path | None = None) -> CodexMcpOutcome:
     ensure_directory(path.parent, "Codex config directory")
     replace_user_file(path, composed, bom)
     return outcome
-
-
-def _refuse_keys_added_to_the_block(path: Path, config: dict) -> None:
-    # the block is rewritten whole, so a key typed under its header would be dropped silently
-    current = engmem_mcp_server(config)
-    added = sorted(set(current) - {"command", "args"}) if isinstance(current, dict) else []
-    if added:
-        raise SetupError(
-            f"{path} has keys engmem did not write in its [mcp_servers.engmem] table "
-            f"({', '.join(added)}) — remove them, or remove the `{CODEX_MCP_BEGIN}` and "
-            f"`{CODEX_MCP_END}` lines to make the entry yours, and re-run"
-        )
 
 
 def _parsed_or_none(text: str) -> dict | None:
