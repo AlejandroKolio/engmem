@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shlex
@@ -228,15 +229,20 @@ def test_toml_string_round_trips_what_a_path_can_hold(value):
     [
         pytest.param("кириллица 🙂", id="non-ascii-and-astral"),
         pytest.param("delete\x7fchar", id="del-is-escaped"),
+        # written raw by toml_string; a block split with str.splitlines would break its line
+        pytest.param("line\u2028separator", id="unicode-line-separator"),
     ],
 )
-def test_a_store_path_toml_must_escape_round_trips(env, tmp_path, name):
+def test_a_store_path_toml_must_escape_round_trips(env, tmp_path, capsys, name):
     home, _ = env
     store = tmp_path / name
 
     assert _install("--agent", "codex", "--store", str(store)) == 0
-
     assert _engmem_entry(home)["args"][-1] == str(store)
+    capsys.readouterr()
+
+    assert _install("--agent", "codex", "--store", str(store)) == 0
+    assert "MCP server entry already current" in capsys.readouterr().out
 
 
 REFUSED_CONFIG_CASES = [
@@ -353,22 +359,164 @@ def test_codex_uninstall_passes_over_a_broken_config_it_never_wrote_to(env, tmp_
     assert _codex_config(home).read_bytes() == original
 
 
-def test_a_codex_reinstall_refuses_to_drop_a_key_the_user_put_in_the_block(env, tmp_path, capsys):
+def _edit_block(home: Path, old: str, new: str) -> None:
+    text = _codex_config(home).read_bytes().decode("utf-8")
+    assert text.count(old) == 1, old
+    _codex_config(home).write_bytes(text.replace(old, new).encode("utf-8"))
+
+
+def test_a_codex_reinstall_keeps_a_key_the_user_put_in_the_block(env, tmp_path, capsys):
     home, _ = env
     _install("--agent", "codex", "--store", str(tmp_path / "old"))
-    text = _codex_config(home).read_text(encoding="utf-8")
-    _codex_config(home).write_text(
-        text.replace("# engmem-mcp-server: end", "enabled = false\n# engmem-mcp-server: end"),
-        "utf-8",
-    )
+    command = f"command = {json.dumps(sys.executable)}"
+    _edit_block(home, command, 'command = "abstract-launcher"')
+    _add_before_end(home, "enabled = false\n")
+    capsys.readouterr()
+
+    exit_code = _install("--agent", "codex", "--store", str(tmp_path / "new"))
+
+    assert exit_code == 0, capsys.readouterr().out
+    entry = _engmem_entry(home)
+    assert entry["command"] == sys.executable
+    assert entry["args"] == _expected_args(tmp_path / "new")
+    assert entry["enabled"] is False
+
+
+CODEX_APPROVALS = (
+    "[mcp_servers.engmem.tools.engmem_create_draft]\napproval_mode = \"approve\"\n"
+    "\n[mcp_servers.engmem.tools.engmem_search]\napproval_mode = \"approve\"\n"
+)
+
+
+def _add_before_end(home: Path, text: str) -> None:
+    _edit_block(home, "# engmem-mcp-server: end", text + "# engmem-mcp-server: end")
+
+
+def test_a_codex_reinstall_keeps_the_approvals_codex_wrote_into_the_block(env, tmp_path, capsys):
+    """Codex writes "always allow" as tables under engmem's own, inside the block."""
+    home, _ = env
+    _install("--agent", "codex", "--store", str(tmp_path / "old"))
+    _add_before_end(home, CODEX_APPROVALS)
+    before_bytes = _codex_config(home).read_bytes()
+    before = before_bytes.decode("utf-8").splitlines()
+    capsys.readouterr()
+
+    assert _install("--agent", "codex", "--store", str(tmp_path / "old")) == 0
+    assert "MCP server entry already current" in capsys.readouterr().out
+    assert _codex_config(home).read_bytes() == before_bytes
+
+    assert _install("--agent", "codex", "--store", str(tmp_path / "new")) == 0
+
+    after = _codex_config(home).read_text(encoding="utf-8").splitlines()
+    changed = [(old, new) for old, new in zip(before, after) if old != new]
+    assert len(before) == len(after) and [old for old, _ in changed] == [
+        line for line in before if line.startswith("args = ")
+    ]
+    assert _engmem_entry(home)["tools"] == {
+        "engmem_create_draft": {"approval_mode": "approve"},
+        "engmem_search": {"approval_mode": "approve"},
+    }
+
+
+def test_a_command_key_in_a_subtable_of_the_block_is_left_alone(env, tmp_path, capsys):
+    home, _ = env
+    _install("--agent", "codex", "--store", str(tmp_path / "old"))
+    _add_before_end(home, '[mcp_servers.engmem.env]\ncommand = "abstract"\n')
+
+    exit_code = _install("--agent", "codex", "--store", str(tmp_path / "new"))
+
+    assert exit_code == 0, capsys.readouterr().out
+
+    assert _engmem_entry(home)["env"] == {"command": "abstract"}
+    assert _engmem_entry(home)["command"] == sys.executable
+
+
+def _args_first(text: str) -> str:
+    args = next(line for line in text.splitlines(keepends=True) if line.startswith("args = "))
+    return text.replace(args, "").replace("[mcp_servers.engmem]\n", "[mcp_servers.engmem]\n" + args)
+
+
+@pytest.mark.parametrize(
+    "reshape",
+    [
+        pytest.param(
+            lambda t: t.replace("[mcp_servers.engmem]\n", "[mcp_servers.engmem]\nenabled = true\n"),
+            id="key-before-command",
+        ),
+        pytest.param(lambda t: t.replace("args = [", "args = [\n"), id="multi-line-args"),
+        pytest.param(_args_first, id="args-first"),
+    ],
+)
+def test_a_block_out_of_engmems_shape_refuses_and_names_the_shape(env, tmp_path, capsys, reshape):
+    home, _ = env
+    _install("--agent", "codex", "--store", str(tmp_path / "old"))
+    _codex_config(home).write_bytes(reshape(_codex_config(home).read_bytes().decode()).encode())
     before = _codex_config(home).read_bytes()
     capsys.readouterr()
 
     exit_code = _install("--agent", "codex", "--store", str(tmp_path / "new"))
 
     assert exit_code == 2
-    assert "(enabled)" in capsys.readouterr().out
+    assert "`command` and `args` on one line each" in capsys.readouterr().out
     assert _codex_config(home).read_bytes() == before
+
+
+def test_text_that_only_looks_like_the_block_is_refused_by_meaning(env, tmp_path, capsys):
+    """The marker scan does not know TOML: a block quoted inside a string passes the line rule,
+    and only the meaning check sees that the real entry would not change."""
+    home, _ = env
+    original = (
+        'note = """\n' + CODEX_BEGIN + '\n[mcp_servers.engmem]\ncommand = "abstract-old"\n'
+        'args = ["abstract-old"]\n# engmem-mcp-server: end\n"""\n\n'
+        '[mcp_servers.engmem]\ncommand = "abstract"\nargs = []\n'
+    ).encode("utf-8")
+    _codex_config(home).parent.mkdir(parents=True)
+    _codex_config(home).write_bytes(original)
+
+    exit_code = _install("--agent", "codex", "--store", str(tmp_path / "store"))
+
+    assert exit_code == 2
+    assert "would not leave" in capsys.readouterr().out
+    assert _codex_config(home).read_bytes() == original
+
+
+def test_a_crlf_config_is_refreshed_in_its_own_line_ending(env, tmp_path):
+    home, _ = env
+    _codex_config(home).parent.mkdir(parents=True)
+    _codex_config(home).write_bytes(b'model = "o4"\r\n')
+    _install("--agent", "codex", "--store", str(tmp_path / "old"))
+
+    assert _install("--agent", "codex", "--store", str(tmp_path / "new")) == 0
+
+    data = _codex_config(home).read_bytes()
+    assert data.count(b"\n") == data.count(b"\r\n")
+    assert _engmem_entry(home)["args"] == _expected_args(tmp_path / "new")
+
+
+def test_a_commented_out_block_is_replaced_whole_on_reinstall(env, tmp_path):
+    home, _ = env
+    _codex_config(home).parent.mkdir(parents=True)
+    commented = b'\n# [mcp_servers.engmem]\n# command = "x"\n# engmem-mcp-server: end\n'
+    _codex_config(home).write_bytes(CODEX_BEGIN.encode() + commented)
+
+    assert _install("--agent", "codex", "--store", str(tmp_path / "store")) == 0
+
+    assert _engmem_entry(home)["args"] == _expected_args(tmp_path / "store")
+
+
+def test_codex_uninstall_takes_the_approvals_with_the_block(env, tmp_path, capsys):
+    home, _ = env
+    original = b'model = "o4"\n'
+    _codex_config(home).parent.mkdir(parents=True)
+    _codex_config(home).write_bytes(original)
+    _install("--agent", "codex", "--store", str(tmp_path / "store"))
+    _add_before_end(home, CODEX_APPROVALS)
+
+    exit_code = _uninstall("--agent", "codex", "--store", str(tmp_path / "store"))
+
+    assert exit_code == 0, capsys.readouterr().out
+
+    assert _codex_config(home).read_bytes() == original
 
 
 def test_codex_install_warns_when_an_override_file_hides_the_rule(env, tmp_path, capsys):

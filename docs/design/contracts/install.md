@@ -284,10 +284,26 @@ moved onto another server switches that server off. So every write compares mean
 requires the composed file to parse to the original config plus engmem's entry, uninstall
 requires it to parse to the original minus that entry (and minus `mcp_servers` when it was
 the only server). An inline `mcp_servers = {…}`, which a later table header cannot extend,
-fails the same comparison. A reinstall that would rewrite the block refuses when the user
-added keys inside it (`_refuse_keys_added_to_the_block`), naming them: the block is
-rewritten whole, so they would be dropped. Every refusal names the path and the fix, and
-leaves the bytes alone.
+fails the same comparison. Every refusal names the path and the fix, and leaves the bytes
+alone.
+
+A reinstall rewrites only the three lines engmem owns — `[mcp_servers.engmem]`, `command` and
+`args`, the first three after the begin marker — and keeps every later line of the block byte
+for byte (`_refreshed_block`). Codex itself writes there: "always allow" on a tool adds
+`[mcp_servers.engmem.tools.<tool>]` with `approval_mode = "approve"` inside the block (seen in
+a real config on 2026-10-23). The block used to be rewritten whole and a reinstall refused
+over any key it would drop, so one "always allow" blocked every later upgrade. The meaning
+check now allows exactly `command` and `args` to change. The three lines are rewritten whole,
+so a comment on one of them does not survive. They must keep engmem's shape — the header,
+then `command` and `args` on one line each, a one-line value being one that parses alone; a
+block reshaped by hand is refused with that rule named. A block whose lines were all
+commented out holds no entry and is replaced whole, as before. The block is split on `\n`
+only: `str.splitlines` also splits on U+0085, U+2028 and U+2029, which `toml_string` writes
+raw into a store path.
+
+Where Codex puts such a table when another table follows engmem's block is not verified. If
+it lands after the end marker, a reinstall still works, and uninstall refuses with "would
+change the rest of" rather than leave a stray `engmem` table behind.
 
 `toml_string` reuses `json.dumps`, whose escapes TOML shares, with two exceptions it handles:
 DEL, which TOML forbids raw and JSON leaves alone, and a lone surrogate (an undecodable byte
