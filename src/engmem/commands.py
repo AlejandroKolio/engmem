@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from engmem import cost, drafts, feedback
+from engmem import cost, drafts, feedback, unsaved_drafts
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.export import ExportError, prepare_export, render_preview, write_export
 from engmem.mcp_clients import (
@@ -21,10 +21,12 @@ from engmem.mcp_clients import (
     WiringVerdict,
 )
 from engmem.output import (
+    _escape_controls,
     render_backfill_proposal,
     render_scoreboard,
     render_telemetry_summary,
 )
+from engmem.provenance import find_checkout
 from engmem.read_report import ReadError, compose_read
 from engmem.runtime import (
     StoreSettingError,
@@ -254,6 +256,39 @@ def cmd_draft_create(args: argparse.Namespace) -> int:
         fail(f"engmem draft create: {exc}")
         return 2
     return 0
+
+
+def cmd_draft_status(args: argparse.Namespace) -> int:
+    """The unsaved drafts of the repository in the working directory (US-29)."""
+    if args.hook:
+        # a reminder must never break the client: any failure once the arguments parse prints
+        # nothing, since a SessionStart hook's stdout reaches the agent
+        try:
+            text = _draft_status_hook(resolve_store(args.store))
+        except Exception:
+            return 0
+        if text:
+            print(text)
+        return 0
+    checkout = find_checkout(Path.cwd())
+    if checkout.name is None:
+        print(f"engmem: {_escape_controls(checkout.reason)}")
+        return 0
+    try:
+        found = unsaved_drafts.unsaved_drafts(resolve_store(args.store), checkout.name)
+    except OSError as exc:
+        fail(f"engmem draft status: cannot read the store ({exc})")
+        return 2
+    print(unsaved_drafts.status_line(checkout.name, found))
+    return 0
+
+
+def _draft_status_hook(store: Path) -> str:
+    checkout = find_checkout(Path.cwd())
+    if checkout.name is None:
+        return ""
+    found = unsaved_drafts.unsaved_drafts(store, checkout.name)
+    return unsaved_drafts.hook_json(found) if found else ""
 
 
 def cmd_draft_complete(args: argparse.Namespace) -> int:

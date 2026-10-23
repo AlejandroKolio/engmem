@@ -67,6 +67,7 @@ Then wire it into your AI coding agent:
 ```bash
 engmem install --agent claude            # templates -> ~/.claude/commands/, rule -> ~/.claude/CLAUDE.md
 engmem install --agent claude --local    # templates -> ./.claude/commands/, rule -> ./CLAUDE.md
+engmem install --agent claude --hooks    # also a SessionStart hook that names unsaved drafts
 engmem install --agent copilot-ide       # templates -> ./.github/prompts/, rule -> ./.github/copilot-instructions.md
 engmem install --agent copilot-cli       # skills -> ~/.copilot/skills/ (Copilot CLI)
 engmem install --agent claude-desktop    # MCP server entry (Claude Desktop)

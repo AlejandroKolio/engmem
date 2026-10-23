@@ -248,7 +248,7 @@ path spelled `mcp`, both keep the ordinary stdout mirror. Which options take a v
 read off the actions each parser owns — argument groups included, since a group shares its
 parser's action list — so a new one cannot silently reopen the gap.
 
-### `engmem install [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--store PATH]`
+### `engmem install [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--hooks] [--store PATH]`
 
 Idempotent (re-running = upgrade, nothing breaks):
 1. Creates the store (`sessions/`, `git init` if missing).
@@ -302,6 +302,14 @@ Idempotent (re-running = upgrade, nothing breaks):
    saying the tunnel's access is checked by OpenAI and was not verified by engmem, and a
    `public bridge:` line saying such a bridge is not protected and that `--read-only` only
    refuses writes. Nothing engmem prints calls a setup protected. See `docs/remote-access.md`.
+8. `--agent claude --hooks` also adds one Claude Code `SessionStart` hook running
+   `engmem draft status --hook` to `~/.claude/settings.json` (with `--local`,
+   `.claude/settings.local.json`), written before the templates so a settings file it cannot
+   read refuses the whole install. The hook names unsaved drafts of the repository a session
+   starts in and records nothing; `uninstall --agent claude` removes exactly that handler.
+   Any other agent refuses `--hooks`. *(US-29, owner decision 2026-10-23: install may edit
+   these settings files when asked with `--hooks`.)* See `docs/design/contracts/install.md`,
+   "The SessionStart hook".
 
 ### `engmem store show [--store PATH]` / `engmem store set PATH`
 
@@ -771,6 +779,15 @@ templates do not fall back to a file write: the user is told the document was no
 only an explicit request from the user makes the agent write the file by hand, labelled as
 saved outside these checks. Rules: `docs/design/contracts/mcp-server.md`, "One writer for every
 surface", and `docs/design/contracts/prompt-templates.md`, "Writes go through engmem".
+
+### `engmem draft status [--hook] [--store PATH]`
+
+*(US-29)* Names the unsaved drafts whose `repos` names the repository the working directory is
+in (git's top level, matched as search scope matches), newest first, at most three. With
+`--hook` it prints the JSON a Claude Code `SessionStart` hook reads — a line for the user and
+context for the agent — or nothing, and exits 0 on every failure once its arguments parse; it
+never reads stdin and writes nothing. Rules: `docs/design/contracts/install.md`, "The
+SessionStart hook".
 
 ### `engmem read DOC_ID [--role ROLE] [--session ID] [--store PATH]`
 

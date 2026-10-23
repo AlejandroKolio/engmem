@@ -74,7 +74,10 @@ document is never scored from its old text, whatever its size or modification ti
 **Installing touches known paths only.** `engmem install` creates the store when it is missing
 and runs `git init` in it, writes templates into the agent directory you name, appends the
 trigger rule to the instructions file of `claude`, `copilot-ide` and `codex` and, for
-`claude-desktop` and `codex`, adds one server entry to that app's config. `engmem uninstall`
+`claude-desktop` and `codex`, adds one server entry to that app's config. With `--hooks`, it
+adds one Claude Code `SessionStart` hook; the hook reads the store's documents to find drafts,
+parsing only their front matter, and runs `git rev-parse`; it never reads the session transcript
+and writes nothing. `engmem uninstall`
 removes exactly what it added and never touches the store. The files engmem edits but does not
 own — your instructions file and those configs, which hold every other MCP server you configured
 — are replaced atomically, through any symlink rather than over it, so a failed write leaves

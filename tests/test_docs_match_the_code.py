@@ -580,9 +580,9 @@ def test_the_bridge_lines_the_docs_describe_are_the_ones_install_and_doctor_prin
     """The docs promise that engmem names the public bridge unprotected and `--read-only` not
     privacy; that promise is only as true as the lines install and doctor print."""
     from engmem.doctor import Status, _bridge_findings
-    from engmem.install import _print_chatgpt_steps
+    from engmem.mcp_clients import print_chatgpt_steps
 
-    _print_chatgpt_steps(tmp_path)
+    print_chatgpt_steps(tmp_path)
     printed = capsys.readouterr().out.splitlines()
     bridge = next(line for line in printed if line.startswith("bridge: "))
     public = next(line for line in printed if line.startswith("public bridge: "))

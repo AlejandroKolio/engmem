@@ -13,6 +13,7 @@ from importlib import resources
 from pathlib import Path
 
 from engmem import __version__
+from engmem.claude_hooks import install_hook, reject_hooks_flag, uninstall_hook
 from engmem.mcp_clients import (
     CODEX_MCP_NOTES,
     MCP_CONFIGS,
@@ -22,8 +23,8 @@ from engmem.mcp_clients import (
     codex_mcp_block_present,
     install_claude_desktop,
     install_codex_mcp,
+    print_chatgpt_steps,
     shell_argument,
-    shell_quoted_mcp_command,
     uninstall_claude_desktop,
     uninstall_codex_mcp,
 )
@@ -443,36 +444,6 @@ def _remove_trigger_rule_reporting_failure(instructions_file: Path | None) -> tu
         return 0, True
 
 
-# engmem never observes who reaches either bridge, so neither line may call a setup protected:
-# contracts/install.md, "ChatGPT: which bridge, and what it protects"
-TUNNEL_BRIDGE_STATUS = (
-    "OpenAI's Secure MCP Tunnel is the one supported bridge; OpenAI decides who may reach it, "
-    "and engmem did not verify that"
-)
-PUBLIC_BRIDGE_STATUS = (
-    "a public bridge (supergateway plus ngrok or cloudflared) is not protected: whoever holds "
-    "its URL reads the store's documents, titles and search snippets; `engmem mcp --read-only` "
-    "only refuses writes and does not make the store private"
-)
-
-
-def _print_chatgpt_steps(store: Path) -> None:
-    mcp_command = shell_quoted_mcp_command(store)
-    print(
-        "ChatGPT runs no local MCP server itself; it reaches `engmem mcp` through OpenAI's "
-        "Secure MCP Tunnel:\n"
-        "  1. create a tunnel at https://platform.openai.com/settings/organization/tunnels\n"
-        "  2. export CONTROL_PLANE_API_KEY=<the tunnel's runtime key>\n"
-        "     tunnel-client init --sample sample_mcp_stdio_local --profile engmem "
-        f"--tunnel-id <tunnel-id> --mcp-command {mcp_command}\n"
-        "     tunnel-client run --profile engmem\n"
-        "  3. in ChatGPT: Settings -> Apps & Connectors -> Advanced -> Developer mode, then "
-        "Create app, Connection: Tunnel"
-    )
-    print(f"bridge: {TUNNEL_BRIDGE_STATUS}")
-    print(f"public bridge: {PUBLIC_BRIDGE_STATUS}")
-
-
 def _cwd_is_repo_scoped(args: argparse.Namespace) -> bool:
     return args.agent == "copilot-ide" or args.local
 
@@ -583,7 +554,8 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     store = resolve_store(args.store)
     template_paths, instructions = _agent_targets(args)
 
-    entries_removed = entries_failed = 0
+    entries_removed = entries_failed = hooks_removed = hooks_failed = 0
+    hook_notes: list[str] = []
     if args.agent in _SKILL_AGENTS:
         removed, failed = _remove_skill_dirs(_agent_command_dir(args.agent, args.local))
     elif args.agent in ("claude-desktop", "chatgpt"):
@@ -594,16 +566,19 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         entries_removed, entries_failed = uninstall_claude_desktop()
     elif args.agent == "codex":
         entries_removed, entries_failed = uninstall_codex_mcp()
+    elif args.agent == "claude":
+        hooks_removed, hooks_failed, hook_notes = uninstall_hook(args.local)
 
     rule_lines, rule_failed = _remove_trigger_rule_reporting_failure(instructions)
 
-    incomplete = bool(failed or entries_failed) or rule_failed
+    incomplete = bool(failed or entries_failed or hooks_failed) or rule_failed
     # the verb itself must carry the outcome for a reader who stops at line one
     summary_verb = "engmem uninstall incomplete" if incomplete else "engmem uninstalled"
     removed_parts = [
         *([f"{removed} template file(s) removed"] if args.agent not in _MCP_ONLY_AGENTS else []),
         *([f"{entries_removed} config entry(ies) removed"] if args.agent in _MCP_AGENTS else []),
         f"{rule_lines} trigger rule line(s) removed",
+        *([f"{hooks_removed} hook(s) removed"] if hooks_removed else []),
     ]
     print(f"{summary_verb}: {', '.join(removed_parts)}, agent={args.agent}")
     if failed:
@@ -615,12 +590,16 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             f"the trigger rule could not be removed from {instructions} — "
             f"see stderr; re-run to retry"
         )
+    if hooks_failed:
+        print("the SessionStart hook could not be removed — see stderr; re-run to retry")
+    for note in hook_notes:
+        print(note)
     if args.agent == "chatgpt":
         print(
             "the ChatGPT connector lives in your ChatGPT workspace: stop `tunnel-client` and "
             "delete the engmem app under Settings -> Apps & Connectors"
         )
-    elif removed + entries_removed == 0 and not incomplete:
+    elif removed + entries_removed + hooks_removed == 0 and not incomplete:
         # nothing found for the requested agent — worth a nudge before the
         # user concludes engmem was never installed
         other_agents = _other_agents_with_files_present(args)
@@ -640,6 +619,10 @@ def cmd_install(args: argparse.Namespace) -> int:
         return invalid
     if args.local and args.agent in _HOME_SCOPED_AGENTS:
         return _reject_local_home_scoped("install", args.agent)
+    hooks_refusal = reject_hooks_flag(args.agent) if args.hooks else None
+    if hooks_refusal:
+        fail(f"engmem install: {hooks_refusal}")
+        return 2
     if _cwd_is_repo_scoped(args) and not (Path.cwd() / ".git").is_dir():
         return _reject_non_repo_cwd("install")
 
@@ -656,6 +639,8 @@ def _run_install(args: argparse.Namespace) -> int:
 
     trigger_outcome: TriggerRuleOutcome | None = None
     conflicts: list[Conflict] = []
+    # the one step that can refuse goes first, so a refusal leaves nothing (as Codex's config)
+    hook_lines = install_hook(args.local) if args.hooks else []
     if args.agent in ("claude", "copilot-ide"):
         conflicts = _install_templates(
             _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent]
@@ -684,6 +669,8 @@ def _run_install(args: argparse.Namespace) -> int:
     print(f"{verb}: store={store}, agent={args.agent}{trigger_note}")
     for conflict in conflicts:
         print(_conflict_note(conflict))
+    for line in hook_lines:
+        print(line)
     if args.agent == "codex":
         print(f"{CODEX_MCP_NOTES[codex_outcome]} in {codex_config_path()}")
         override = codex_home() / "AGENTS.override.md"
@@ -698,7 +685,7 @@ def _run_install(args: argparse.Namespace) -> int:
             f"when Codex asks"
         )
     if args.agent == "chatgpt":
-        _print_chatgpt_steps(store)
+        print_chatgpt_steps(store)
         return 0
     note = _store_note(store, args.agent)
     if note is not None:

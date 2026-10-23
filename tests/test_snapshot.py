@@ -4,7 +4,6 @@ at, per repository, without ever claiming the text is true."""
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import pytest
 
 from support import rpc
 from support.docs import DRAFT_CONTENT, write_file
+from support.git import git as _git, requires_git
 
 from engmem import provenance
 from engmem.cli import main
@@ -27,31 +27,11 @@ from engmem.search_report import render_result
 from engmem.spine import load_store, parse_document
 from engmem.telemetry import UNATTRIBUTED_CLI_NOTE, UNATTRIBUTED_MCP_NOTE
 
-pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+pytestmark = [requires_git, pytest.mark.usefixtures("hermetic_git")]
 
 ALPHA = "svc-alpha"
 BETA = "svc-beta"
 QUERY = "Settings"
-
-
-@pytest.fixture(autouse=True)
-def _hermetic_git(tmp_path_factory, monkeypatch):
-    """The developer's own git config (signing, hooks, a default branch) must not steer a test."""
-    empty = tmp_path_factory.mktemp("gitconfig") / "config"
-    empty.write_text("", encoding="utf-8")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
-        monkeypatch.delenv(name, raising=False)
-
-
-def _git(checkout: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(checkout), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-         "-c", "commit.gpgsign=false", *args],
-        check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-    )
-    return completed.stdout.strip()
 
 
 def _elsewhere(checkout: Path) -> str:

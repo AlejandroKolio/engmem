@@ -26,7 +26,7 @@ from support.platform import (
 
 from engmem import __version__
 from engmem.cli import main
-from engmem.install import TUNNEL_BRIDGE_STATUS
+from engmem.mcp_clients import TUNNEL_BRIDGE_STATUS
 
 
 def _install(agent: str, store: Path, capsys) -> None:

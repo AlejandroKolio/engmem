@@ -81,10 +81,14 @@ def render_result(
 DRAFTS_NAMED_MAX = 5
 
 
+def named_ids(docs: list[Doc], limit: int) -> str:
+    """The first `limit` ids, escaped, then `+N more` for the rest."""
+    ids = ", ".join(_escape_controls(doc.id) for doc in docs[:limit])
+    return ids + (f" +{len(docs) - limit} more" if len(docs) > limit else "")
+
+
 def drafts_note(drafts: list[Doc]) -> str:
-    ids = ", ".join(_escape_controls(doc.id) for doc in drafts[:DRAFTS_NAMED_MAX])
-    if len(drafts) > DRAFTS_NAMED_MAX:
-        ids += f" +{len(drafts) - DRAFTS_NAMED_MAX} more"
+    ids = named_ids(drafts, DRAFTS_NAMED_MAX)
     # one text on both channels: a search's result lines are the same on CLI and MCP (AC-09.4)
     return (
         f"unsaved drafts also match (not reviewed at save, not ranked, not citable): {ids} -- "

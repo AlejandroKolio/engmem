@@ -1,8 +1,9 @@
 # Contract: install and uninstall
 
 Source: `src/engmem/install.py` (templates, trigger rules, the install and uninstall commands),
-`mcp_clients.py` (the Claude Desktop and Codex MCP entries, and whether one still launches this
-engmem with this store) and `user_files.py` (reading and atomically replacing a file engmem does
+`mcp_clients.py` (the Claude Desktop and Codex MCP entries, whether one still launches this
+engmem with this store, and the ChatGPT steps), `claude_hooks.py` and `unsaved_drafts.py` (the
+SessionStart hook and what it prints) and `user_files.py` (reading and atomically replacing a file engmem does
 not own). What each agent mode writes, and where, is `ENGMEM-SPEC.md`
 §5. This file records how those writes happen; each rule was learned from damage.
 
@@ -202,7 +203,70 @@ different agent" nudge, so a config they cannot read counts as nothing found: th
 already done its work by then, and a second diagnosis of a file this run was never going to
 write would bury the summary that matters. For the same reason `engmem uninstall --agent codex`
 looks for its block before it parses `config.toml`: a broken config with no block in it holds
-nothing of engmem's, and is not reported.
+nothing of engmem's, and is not reported. `engmem uninstall --agent claude` does the same with
+the Claude Code settings file, and `engmem draft status --hook` swallows every failure by design
+("The SessionStart hook").
+
+## The SessionStart hook (US-29)
+
+Sessions were lost at the draft: `/engmem` writes one, and it becomes a record only when someone
+runs a save, which is easy to forget. Tools that capture every session through client hooks
+solve the forgetting by recording transcripts and tool output, which puts secrets and
+customer data into a store that is often synced. engmem takes the trigger and leaves the
+recording: `engmem install --agent claude --hooks` adds one Claude Code `SessionStart` hook,
+and the hook only names unsaved drafts.
+
+- **The entry.** `{"hooks": [{"type": "command", "command": "engmem draft status --hook",
+  "timeout": 10}]}`, appended to `hooks.SessionStart` with no `matcher`, so it runs on every
+  start, resume, clear and compact. The command is bare `engmem`, not the interpreter path the
+  MCP entries use: the string is then the same on every machine and needs no quoting for any
+  Windows shell, it survives a reinstall that moves the environment, and it depends on exactly
+  what the templates' own `engmem` calls depend on. The store resolves at run time. A missing
+  `engmem` shows as a non-blocking hook error and the session goes on (checked 2026-10-23 in
+  the terminal client; the desktop client is not checked). An older `engmem` without
+  `draft status` exits 2 with a usage error, which was not checked. `engmem doctor` already
+  reports a missing `engmem` and a version mismatch, so it gains no check of its own. Which
+  shell runs hooks on Windows is not verified.
+- **Which handler is engmem's.** One whose `command` equals that string. Install adds the entry
+  only when none exists; uninstall removes every such handler and nothing else — the group's
+  `matcher` and its other handlers stay — then drops a group, `SessionStart` and `hooks` that
+  the removal left empty. A handler that mentions `draft status` but is not that string (an
+  absolute path, `python -m engmem.cli`) is the user's: it is named in a `note:` and never
+  removed.
+- **Which file.** `~/.claude/settings.json`, or with `--local` the project's
+  `.claude/settings.local.json` — the personal file, never the committed `.claude/settings.json`,
+  which would remind every collaborator. On the machine checked it is ignored through the
+  user's global git ignore file; that cannot be assumed, so after writing it install runs
+  `git check-ignore` and, when git says it is not ignored, names it with "add it to
+  .gitignore"; when git cannot answer, a different note says so. engmem does not edit
+  `.gitignore`. `--local` keeps install's rule that the working directory holds a `.git`
+  directory, so it is refused in a linked worktree or submodule, where the hook itself still
+  works.
+- **Scope.** Uninstall looks in the scope `--local` selects, as it does for templates, so one
+  uninstall does not remove the other scope's hook. Whether Claude Code runs an identical
+  command twice when both scopes hold it is not verified.
+- **Order and failures.** The settings write is the one step of `install --hooks` that can
+  refuse — invalid JSON, a non-object, a `hooks`, `SessionStart` or group of another shape —
+  so it runs before the templates and the trigger rule, and a refusal leaves nothing, as
+  Codex's config does. The file is re-serialised with two-space indentation: keys and values
+  are kept, formatting is not. Uninstall first looks for the command in the file's bytes; a
+  file without it is not reported when it cannot be parsed or decoded, since it holds nothing
+  of engmem's.
+- **What the hook reads.** The store's documents, of which it parses only the front matter of
+  files whose front matter mentions `draft` (`spine.read_drafts`, a superset that cannot skip a
+  draft), and `git rev-parse` in the working directory; nothing else. It never
+  reads stdin, which carries a transcript path, and writes nothing in the store or home. A draft
+  is named when its `repos` holds the checkout's name under search's scope rule
+  (`scoring.in_scope`), newest first, at most three. A draft named otherwise, or with
+  `repos: []`, is missed, never another repository's. In a linked worktree or submodule the
+  checkout's name is that directory's, so reminders miss there too.
+- **What it prints.** JSON with `systemMessage` (shown to the user) and
+  `hookSpecificOutput.additionalContext` (given to the agent, which can offer to finish a
+  draft), or nothing. Every failure once the arguments parse — an unreadable store, a broken
+  saved store choice, no git, a bug — prints nothing and exits 0: a hook's stdout reaches the
+  agent, and a reminder must never break a session. An import failure or a usage error happens
+  before the command runs and is outside that promise. Without `--hook` the same command is
+  for a person, and fails as other commands do.
 
 ## Codex's `config.toml`: a block engmem owns inside a file it does not
 
@@ -421,7 +485,7 @@ code (`tests/test_no_network.py`, `contracts/mcp-server.md`). D2: a public bridg
 always called not protected.
 
 So after the tunnel steps install prints two lines, `TUNNEL_BRIDGE_STATUS` and
-`PUBLIC_BRIDGE_STATUS`, shared with doctor so the two cannot drift:
+`PUBLIC_BRIDGE_STATUS` (both in `mcp_clients.py`), shared with doctor so the two cannot drift:
 
 - `bridge:` names the tunnel and says who decides access: OpenAI, not verified by engmem. engmem
   sees neither the tunnel nor the workspace, so it does not say who that is ("your workspace",

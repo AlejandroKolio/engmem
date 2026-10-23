@@ -14,6 +14,7 @@ from engmem.commands import (
     cmd_cost_summary,
     cmd_draft_complete,
     cmd_draft_create,
+    cmd_draft_status,
     cmd_export,
     cmd_feedback_record,
     cmd_feedback_summary,
@@ -182,6 +183,14 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
         help=f"one of {', '.join(VALID_AGENTS)} (default: claude)",
     )
     install_parser.add_argument("--local", action="store_true")
+    install_parser.add_argument(
+        "--hooks",
+        action="store_true",
+        help=(
+            "claude only: also add a SessionStart hook that names unsaved drafts of the "
+            "repository a session starts in; it records nothing"
+        ),
+    )
     _add_store_option(install_parser)
     install_parser.set_defaults(func=cmd_install)
 
@@ -357,6 +366,20 @@ def build_parser(argv: list[str] | None = None) -> _Parser:
     )
     _add_store_option(draft_complete_parser)
     draft_complete_parser.set_defaults(func=cmd_draft_complete)
+    draft_status_parser = draft_commands.add_parser(
+        "status",
+        help="name the unsaved drafts linked to the repository in the working directory",
+    )
+    draft_status_parser.add_argument(
+        "--hook",
+        action="store_true",
+        help=(
+            "print the JSON a Claude Code SessionStart hook reads, or nothing; never fails "
+            "(what `install --hooks` runs)"
+        ),
+    )
+    _add_store_option(draft_status_parser)
+    draft_status_parser.set_defaults(func=cmd_draft_status)
 
     feedback_parser = subparsers.add_parser(
         "feedback",
