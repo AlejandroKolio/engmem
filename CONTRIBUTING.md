@@ -31,6 +31,22 @@ installed package metadata. Until 1.0 every release bumps the patch number:
 The tag triggers `release.yml`, which refuses a tag that does not match `pyproject.toml`,
 re-runs the suite, builds, and publishes to PyPI.
 
+### Build dependencies
+
+Every `uv build` (the release and CI's packaging jobs) installs its build backend from
+`.github/build-constraints.txt`: hatchling and what it needs, each pinned by version and sha256
+hash, with `--require-hashes`. `uv.lock` does not cover build dependencies, so without this file a
+new or compromised hatchling release would change what PyPI gets with no commit of ours. The same
+file is what someone rebuilding a release would reproduce it from. To refresh it:
+
+    uv pip compile .github/build-constraints.in --universal --generate-hashes \
+        --python-version 3.11 --no-header --upgrade -o .github/build-constraints.txt
+
+The `Build constraints drift` workflow runs that command weekly (or on demand) and fails when
+hatchling has moved; other packages moving is printed only. A corrupted or incomplete file fails
+every pull request's packaging job; a change to it is reviewed like code, since another real
+release with its own real hashes would build.
+
 ## What the tests enforce
 
 Some tests exist to protect invariants rather than behaviour. If one of these fails,

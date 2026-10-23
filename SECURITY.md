@@ -34,6 +34,23 @@ Out of scope: what you choose to put in your own store, and the contents of a st
 you have deliberately committed to a repository. engmem cannot tell a public note
 from a private one — that judgement is yours, before the file is written.
 
+## What the published package is built from
+
+The release workflow builds the sdist and wheel PyPI publishes from pinned inputs only:
+
+- every GitHub Action is pinned to a commit;
+- uv is the newest version whose checksum ships in that pinned `setup-uv`, not the latest at run
+  time;
+- the build backend (hatchling and its dependencies) comes from `.github/build-constraints.txt`
+  by version and hash;
+- the build job restores no cache, and builds with a uv-managed Python 3.11 (`--managed-python`),
+  whose download uv checks against a hash of its own, never an interpreter from the runner image.
+
+Not locked: the editable install CI's test jobs and the release's test job make
+(`uv sync`, `uv run`) builds the project with an unpinned hatchling. It cannot reach the published
+artifact, which the build job makes on its own runner, but it is unpinned third-party code running
+in CI with a read-only token.
+
 ## Windows is checked less than Linux and macOS
 
 CI runs the whole suite on Windows, but about fifty of its tests are skipped there, and some

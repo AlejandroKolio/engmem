@@ -26,6 +26,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
           enable-cache: true
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -45,7 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - run: uv build --wheel
+        with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
+      - run: >-
+          uv build --python 3.11 --managed-python --build-constraints .github/build-constraints.txt
+          --require-hashes --wheel
       - name: Assert the wheel requires nothing beyond the two declared dependencies
         run: |
           python - <<'PY'
@@ -76,7 +83,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - run: uv build --sdist
+        with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
+      # the release's exact command: the sdist, then the wheel built from it
+      - run: >-
+          uv build --python 3.11 --managed-python --build-constraints .github/build-constraints.txt
+          --require-hashes
 
       - name: Assert the sdist ships exactly the expected top-level entries
         run: |

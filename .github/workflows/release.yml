@@ -22,6 +22,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
           enable-cache: true
 
       - name: Assert the tag matches the version in pyproject.toml
@@ -51,12 +53,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          # the newest uv whose checksum ships in this pinned action, not `latest` at run time
+          version: latest-known
           # this job builds what PyPI publishes: a cache restored from another run could put
           # someone else's bytes into it, and a cold build costs seconds on a rare event
           enable-cache: false
 
       - name: Build the sdist and the wheel
-        run: uv build
+        # the build backend comes from a hash-locked file (.github/build-constraints.txt), and
+        # ci.yml's packaging job runs this exact command on every pull request
+        run: >-
+          uv build --python 3.11 --managed-python --build-constraints .github/build-constraints.txt
+          --require-hashes
 
       - name: Re-assert the sdist ships exactly the expected top-level entries
         # `ci.yml`'s packaging job owns this rule and runs it on every pull request, which
