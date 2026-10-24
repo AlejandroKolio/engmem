@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AlejandroKolio/engmem/main/docs/brand/engmem-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/AlejandroKolio/engmem/main/docs/brand/engmem-light.png">
-    <img alt="engmem" src="https://raw.githubusercontent.com/AlejandroKolio/engmem/main/docs/brand/engmem-light.png" width="200">
-  </picture>
+  <img alt="engmem" src="https://raw.githubusercontent.com/AlejandroKolio/engmem/main/docs/brand/engmem-logo.png" width="200">
 </p>
 
 # engmem
