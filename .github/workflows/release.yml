@@ -42,7 +42,8 @@ jobs:
           PY
 
       - name: Run the test suite
-        run: uv run pytest -q
+        # the lowest supported Python, as in the build job; bare `uv run` takes whatever Python the runner ships
+        run: uv run --python 3.11 --managed-python pytest -q
 
   build:
     needs: guard
