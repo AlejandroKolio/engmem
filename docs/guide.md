@@ -234,6 +234,25 @@ The daily loop runs through three agent slash commands, installed by `engmem ins
   supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row
   without a quote).
 
+### With another skill
+
+In Claude Code, `/engmem` combines with a skill that runs inline: put the skills straight after
+it at the start of the message, and the task text after them.
+
+```text
+/engmem /review-style fix the widget cache warm-up
+```
+
+Claude Code loads every skill named at the start of the message, up to six, and passes each the
+same task text, so the search runs on the task alone. A skill name completes with `Tab` after
+`/`, plugin skills included (`/<plugin>:<skill>`).
+
+Stacking stops at the first name that is not such a skill: a mistyped one, or one that runs as
+its own subagent, like `/code-review`, or takes another command as its argument, like `/loop`.
+From there the rest of the line, that name included, becomes the task text and reaches the
+search. Under `claude -p` and the Agent SDK only the first command loads: the other skill does
+not run, and its name becomes part of the task text.
+
 ## Search
 
 Direct search from the shell:
