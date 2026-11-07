@@ -320,8 +320,10 @@ snapshot: platform-core 9c1d2e4: HEAD is now 41aa07b, re-check | widget-cache-cl
 ```
 
 `same commit as HEAD` means the code has not moved since; it does not mean the text is right.
-A repository you are not in reads `unknown`, with the reason. An older single
-`verified_at_commit` counts only when the record names exactly one repository.
+A repository you are not in reads `unknown`, with the reason. Neighbouring repositories
+unknown for the same reason share it: `platform-core, widget-cache-client: unknown, no anchor
+recorded`. An older single `verified_at_commit` counts only when the record names exactly one
+repository.
 
 When `HEAD` has moved and the record lists `covers_files`, the search compares just those
 files between the two commits, so a change somewhere else is not a reason to re-check:
