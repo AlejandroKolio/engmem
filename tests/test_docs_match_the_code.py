@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from support import rpc
+from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, write_file
 
 from engmem.cli import main
 from engmem.install import (
@@ -855,3 +856,318 @@ def test_every_relative_link_names_a_file_that_exists(doc):
     assert [t for t in own if not (ROOT / t).exists()] == []
     if doc.name == "README.md":
         assert relative == []
+
+
+# ---------------------------------------------------------------------------
+# the start template: budget, measured values, plain words
+# ---------------------------------------------------------------------------
+
+_START = "engmem.start.md"
+_PROMPT_SOURCES = {f"mcp/{name}": source for name, source in PROMPT_TEMPLATES.items()}
+_CONTRACT = _flat(
+    (ROOT / "docs" / "design" / "contracts" / "prompt-templates.md").read_text(encoding="utf-8")
+)
+_SESSION = "20260101-widget-cache"
+
+
+def _start_copies(installed_copies: dict[str, str]) -> dict[str, str]:
+    copies = {
+        name: text for name, text in installed_copies.items()
+        if _PROMPT_SOURCES.get(name, name.split("/", 1)[1]) == _START
+    }
+    assert len(copies) == 5
+    return {_START: _start_template()} | copies
+
+
+def _draft_line(field: str) -> str:
+    return next(line for line in _start_template().splitlines() if line.startswith(f"{field}:"))
+
+
+def _save_text(name: str = "engmem.save.md") -> str:
+    return _flat((TEMPLATES / name).read_text(encoding="utf-8"))
+
+
+_REMOVED_FROM_START = {
+    "S1 the placeholder is accepted": "counts nowhere",
+    "S2 related reads uncounted": "plus each of their `related` documents",
+    "S3 a hand count of bytes": "Count it; do not estimate",
+    "S3 the agent's own byte count": "your own count",
+    "S4 a number kept in memory": "remember it for",
+    "S5 a spelling the agent cannot know yet": "as documents name it",
+    "S7 a second baseline path": "`baseline_tokens: <n>`",
+    "S9 an id shape the template never uses": "<story-id>-<slug>",
+    "S9 a file the agent never writes": "must equal the filename stem",
+    "S9 internal jargon": "Gate 1",
+}
+
+
+def test_no_start_copy_carries_a_claim_the_review_removed(installed_copies):
+    found = [
+        f"{name}: {why}"
+        for name, text in _start_copies(installed_copies).items()
+        for why, phrase in _REMOVED_FROM_START.items()
+        if phrase in _flat(text)
+    ]
+
+    assert found == []
+
+
+def test_the_drafts_mode_comment_says_engmem_refuses_the_placeholder(store):
+    """S1: create refuses the literal placeholder and names the configured mode."""
+    from engmem import drafts
+
+    placeholder, _, comment = _draft_line("mode").partition("#")
+    content = DRAFT_CONTENT.replace("mode: daily", placeholder.strip())
+
+    assert "engmem refuses this placeholder" in comment and "left as is" not in comment
+    with pytest.raises(drafts.WriteRefused) as refused:
+        drafts.create_draft(store, _SESSION, content, drafts.CLI)
+    assert "the configured mode is daily" in str(refused.value)
+
+
+def test_the_start_template_caps_the_documents_it_loads_related_ones_included():
+    """S2: a related list has no length limit, so a per-document allowance has no total."""
+    step4 = _flat(_start_step("## 4. Load what was found", "## 5."))
+
+    assert "load at most 5 documents in all, `related` documents included" in step4
+    assert "Take the found documents first" in step4
+    assert "in the order the found documents list them" in step4
+    assert step4.count("at most") == 1, "the cap is stated once"
+    assert "at most 5 documents in all" in _CONTRACT
+
+
+@pytest.mark.parametrize("template", sorted(p.name for p in TEMPLATES.glob("*.md")))
+def test_no_template_asks_the_agent_to_count_bytes(template):
+    """S3: a model cannot count bytes; engmem measures what its searches and reads deliver."""
+    text = _flat((TEMPLATES / template).read_text(encoding="utf-8"))
+
+    assert "Count it" not in text and "your own count" not in text
+    assert "count, do not estimate" not in text
+
+
+def test_the_start_template_leaves_the_bytes_to_engmem():
+    step4 = _flat(_start_step("## 4. Load what was found", "## 5."))
+
+    assert "engmem measures the bytes each search and read delivers; do not count them" in step4
+    assert "context_bytes" not in step4
+
+
+def test_the_full_save_takes_its_measured_numbers_from_the_cost_summary():
+    """S3, S7: the save copies the figures engmem holds; it never asks for a recollection."""
+    step6 = _save_text()[_save_text().index("## 6. Cost of this session"):]
+
+    assert "take the first two from `engmem cost summary --session <id>`" in step6
+    assert "without one, omit them" in step6
+    assert (
+        "baseline_tokens: # research mode: the sum of the tokens on the lines under `baseline call`"
+    ) in step6
+    section = _CONTRACT[_CONTRACT.index("## What the save takes from engmem"):]
+    assert "sum of the tokens on the lines under its `baseline call` line" in section[
+        :section.index(" ## ")
+    ]
+    assert "context_bytes: # the bytes its `total:` line shows" in step6
+
+
+def test_the_cost_summary_shows_the_lines_the_save_takes_its_numbers_from(store, capsys):
+    """S3, S4, S7: the labels the save templates name are the ones `engmem cost summary` prints."""
+    write_file(store / "sessions", f"{_SESSION}.md", DRAFT_CONTENT)
+    summary = ["cost", "summary", "--session", _SESSION, "--store", str(store)]
+
+    assert main(summary) == 0
+    before = capsys.readouterr().out
+    assert main(["search", "widget rollout", "--session", _SESSION, "--store", str(store)]) == 0
+    assert main(["cost", "record-baseline", _SESSION, "--tokens", "1840", "--store", str(store)]) == 0
+    capsys.readouterr()
+    assert main(summary) == 0
+    after = capsys.readouterr().out
+
+    assert "  search responses: 0 delivery(ies)" in before
+    searched = re.search(r"^  search responses: 1 delivery\(ies\), (\d+) bytes$", after, re.MULTILINE)
+    total = re.search(r"^  total: 1 delivery\(ies\), (\d+) bytes", after, re.MULTILINE)
+    assert searched and total and int(total.group(1)) == int(searched.group(1)) > 0
+    assert re.search(r"^baseline call .*\n  a call with no id: 1840 tokens", after, re.MULTILINE)
+    for name in ("engmem.save.md", "engmem.save.quick.md"):
+        assert "`search responses`" in _save_text(name), name
+    assert "`baseline call`" in _save_text() and "`total:`" in _save_text()
+
+
+@pytest.mark.parametrize(
+    "template, start, end",
+    [(_START, "## 4. Load what was found", "## 6."), ("engmem.save.md", "## 6. Cost", None)],
+)
+def test_a_number_only_the_agent_knows_is_omitted_when_lost_never_reconstructed(template, start, end):
+    """S4: compaction, a crash or another conversation loses what was never written down."""
+    text = _flat((TEMPLATES / template).read_text(encoding="utf-8"))
+    part = text[text.index(start):text.index(end) if end else None]
+
+    assert "only if you still have" in part and "omit" in part
+    assert "never reconstruct" in part
+    assert "remember" not in part
+
+
+@pytest.mark.parametrize("template", ["engmem.save.md", "engmem.save.quick.md"])
+def test_a_save_takes_the_search_trace_from_engmem_and_marks_one_it_cannot_tell(template):
+    """S4: with a shell the trace is read back from this session's own records."""
+    text = _save_text(template)
+
+    assert "a `search responses` count above 0 means `shell`" in text
+    assert "or `paste` if the user pasted the output" in text
+    assert (
+        "Otherwise write the value you still know, else `not stated in the available material.`"
+    ) in text
+    assert "value `/engmem` recorded" not in text and "recorded by `/engmem`" not in text
+
+
+@pytest.mark.parametrize("template", ["engmem.save.md", "engmem.save.quick.md"])
+def test_a_save_never_infers_miss_from_a_zero_count(template):
+    """ARCH-101: no attributed delivery also follows a failed cost write or a read-only server."""
+    text = _save_text(template)
+    start = text.index("cost summary --session")
+    rule = text[start:text.index("```", start)]
+
+    assert (
+        "Otherwise write the value you still know, else `not stated in the available material.`"
+    ) in rule
+    assert "`miss`" not in rule and " miss" not in rule
+
+
+def test_the_contract_says_a_zero_count_proves_nothing():
+    section = _CONTRACT[_CONTRACT.index("## What the save takes from engmem"):]
+    section = section[:section.index(" ## ")]
+
+    assert "A count of 0 proves nothing" in section
+    assert "it never infers `miss` from the count" in section
+    for case in ("without `--session`", "`note: cost not recorded`", "`--read-only` MCP server"):
+        assert case in section, case
+
+
+def test_the_contract_names_the_values_engmem_derives_and_the_ones_only_the_agent_knows():
+    section = _CONTRACT[_CONTRACT.index("## What the save takes from engmem"):]
+    section = section[:section.index(" ## ")]
+
+    for value in ("`context_bytes`", "`baseline_tokens`", "Search Trace", "`answer_steps`",
+                  "`answer_tokens`", "`paste`"):
+        assert value in section, value
+    assert "The cost record is authoritative" in section
+
+
+def test_the_draft_and_the_full_save_spell_repos_by_the_same_rule():
+    """S5: `engmem search --repo` filters on the spelling, so both templates use one."""
+    line = _draft_line("repos")
+
+    assert line.startswith("repos: [<repository>]")
+    assert "this checkout's top-level directory name; [] if unknown" in line
+    assert "Spell each as its directory name, every time" in _save_text()
+
+
+def test_the_start_template_runs_one_more_search_when_the_first_misses():
+    """S6: one retry with other words, so a vocabulary gap is not a miss, and no more."""
+    step3 = _flat(_start_step("## 3. Search for prior context", "## 4."))
+
+    assert "If no result is relevant, run one more search with other terms" in step3
+    assert "Pass the same session id" in step3
+    assert "Run at most two searches before step 4" in step3
+
+
+def test_the_start_template_records_the_baseline_one_way():
+    """S7: `engmem cost record-baseline` is the one path; the save copies its figure."""
+    text = _start_template()
+
+    assert "baseline_tokens" not in text
+    assert text.count("engmem cost record-baseline") == 1
+    assert text.count("engmem_record_baseline") == 1
+
+
+def test_the_self_written_baseline_says_what_was_already_in_context():
+    """S8: instruction files, memory and the conversation can already be in context."""
+    step1 = _flat(_start_step("## 1. Pre-reg", "## 2."))
+
+    assert "Write them from the task description only" in step1
+    assert "whether project instructions or memory files were already in your context" in step1
+    assert "`pre-reg source: sub-agent`" in step1
+    assert "`pre-reg source: self (no sub-agent available)`" in step1
+
+
+def test_the_audit_counts_a_self_baseline_that_names_its_context(tmp_path):
+    """S8: the source line keeps its prefix, so the Pre-reg still counts as one."""
+    from engmem import gate1, gate1_audit
+
+    step1 = _flat(_start_step("## 1. Pre-reg", "## 2."))
+    example = re.search(r"`(pre-reg source: self \(no sub-agent available\)[^`]+)`", step1).group(1)
+    plain = ACTIVE_CONTENT.replace("mode: daily", "mode: research")
+    named = plain.replace(_SESSION, "20260102-widget-cache").replace(
+        "pre-reg source: self (no sub-agent available)", example
+    )
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    write_file(sessions, f"{_SESSION}.md", plain)
+    write_file(sessions, "20260102-widget-cache.md", named)
+
+    verdicts = gate1.evaluate(tmp_path)
+    audit = gate1_audit.evaluate(tmp_path, verdicts)
+
+    assert example.startswith("pre-reg source: self (no sub-agent available); ")
+    assert sorted(verdicts.none_reports) == [_SESSION, "20260102-widget-cache"]
+    assert (audit.active_count, audit.no_prereg_docs, audit.missing_baseline_docs) == (2, [], [])
+
+
+def test_the_drafts_comments_and_steps_use_words_an_installed_agent_can_act_on():
+    """S9: the agent writes no file, and a contributor's internal name tells it nothing."""
+    assert _draft_line("id").partition("#")[2].strip() == "lowercase letters, digits and hyphens"
+    assert "differs only in a backfilled record" in _draft_line("task_date")
+    step5 = _flat(_start_step("## 5. Record the Search Trace", "## 6."))
+    assert "`shell` is the value for both the CLI and the `engmem_search` MCP tool" in step5
+
+
+def test_the_no_draft_branch_stays_first_in_step_3_and_the_contract_says_why():
+    """S10: an agent stops at the bullet for its runtime, so a branch after it goes unread."""
+    step3 = _start_step("## 3. Search for prior context", "## 4.")
+    bullets = step3.split("\n- ")[1:]
+
+    assert "could not create the draft" in bullets[0]
+    assert "The no-draft branch stays first" in _CONTRACT
+
+
+def test_the_start_templates_scoping_line_names_every_option_and_keeps_the_miss_warning():
+    """S11: read on every `/engmem` and used only on request, so one line names the options."""
+    from engmem import mcp_tools
+
+    step3 = _flat(_start_step("## 3. Search for prior context", "## 4."))
+    scoping = step3[step3.index("Search the whole store"):]
+    _, flags = _cli_names()
+    params = mcp_tools.tools_list()["tools"][0]["inputSchema"]["properties"]
+
+    for flag in ("--repo", "--unscoped", "--all-repos"):
+        assert f"`{flag}" in scoping and flag in flags, flag
+    for param in ("repo", "repos", "unscoped", "all_repos"):
+        assert f"`{param}`" in scoping and param in params, param
+    assert "`engmem search --help`" in scoping
+    assert scoping.endswith(
+        "A scoped result opens with a `scope:` line, and a miss under it says nothing about the "
+        "rest of the store."
+    )
+    assert len(scoping.encode("utf-8")) <= 600
+
+
+def _anatomy_step(half: str, opening: str) -> str:
+    start = half.index(opening)
+    return _flat(half[start:half.index('class="step-body"', half.index('class="step-body"', start) + 1)])
+
+
+@pytest.mark.parametrize(
+    "half, opening, cap, stale, limit",
+    [
+        pytest.param(ANATOMY_RU, "Самый дорогой шаг пути", "не больше пяти документов",
+                     "До трёх путей", "пределом в пять документов", id="ru"),
+        pytest.param(ANATOMY_EN, "The most expensive step on the path", "at most five documents",
+                     "Up to three paths", "five-document cap", id="en"),
+    ],
+)
+def test_the_anatomy_read_step_states_the_five_document_cap(half, opening, cap, stale, limit):
+    """S2: the start loads at most 5 documents in all, related ones included."""
+    step = _anatomy_step(half, opening)
+
+    assert cap in step and "related" in step
+    assert stale not in step
+    assert limit in step
+    assert "топ-3" not in step and "top 3" not in step

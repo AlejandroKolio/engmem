@@ -36,6 +36,7 @@ from engmem.runtime import (
     resolve_store,
 )
 from engmem.staging import newline_of, read_document
+from engmem.template_render import render
 from engmem.template_stamps import digest, read_stamp, stamp_line, written_by_engmem
 from engmem.user_files import SetupError, ensure_directory, read_user_file, replace_user_file
 
@@ -249,10 +250,15 @@ def _template_source(source_name: str) -> str:
     return (resources.files("engmem") / "templates" / source_name).read_text(encoding="utf-8")
 
 
+def _file_copy(source_name: str) -> str:
+    """The template as a file copy: never the MCP prompt, and blind to a mode set later."""
+    return render(_template_source(source_name), mcp=False)
+
+
 def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> list[Conflict]:
     ensure_directory(dest_dir, "templates directory")
     placed = (
-        _place_template(dest_dir / installed_name, _template_source(source_name), source_name)
+        _place_template(dest_dir / installed_name, _file_copy(source_name), source_name)
         for source_name, installed_name in install_map.items()
     )
     return [pending for pending in placed if pending is not None]
@@ -295,7 +301,7 @@ _SKILL_BODY_REWRITES = {
 def _install_skill_templates(skills_root: Path, agent: str) -> list[Conflict]:
     conflicts = []
     for source_name, skill_name in COPILOT_CLI_SKILL_MAP.items():
-        content = _SKILL_BODY_REWRITES[agent](_template_source(source_name))
+        content = _SKILL_BODY_REWRITES[agent](_file_copy(source_name))
         content = _to_skill_front_matter(content, skill_name)
         skill_dir = skills_root / skill_name
         ensure_directory(skill_dir, "skill directory")

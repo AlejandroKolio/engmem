@@ -85,8 +85,11 @@ in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `cap
    read the quote came from gave, a quoted span in `taken`, classification exactly `reuse` /
    `anti-reuse` / `harmful`; `engmem draft complete` and `engmem_complete_draft` refuse a row
    that breaks one and return it), but do not interrogate the user about it.
-4. Write `## Search Trace` with the `shell` / `paste` / `miss` value recorded by
-   `/engmem`, alone on its own line. `- shell` or `Trace: shell` counts as no trace:
+4. Write `## Search Trace` with the `shell` / `paste` / `miss` value alone on its own line.
+   With a shell, run `engmem cost summary --session <id>`: a `search responses` count above 0
+   means `shell`, or `paste` if the user pasted the output. Otherwise write the value you still
+   know, else `not stated in the available material.`
+   `- shell` or `Trace: shell` counts as no trace:
 
    ```
    ## Search Trace

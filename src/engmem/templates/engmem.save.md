@@ -42,7 +42,7 @@ Derive these fields; never guess them:
 - `pr` — the pull request number (`#482`) or URL; blank if no PR exists yet. Never invent one.
 
 Show the full YAML block and ask for `y` or edits. Apply the edits, then stop asking: one
-interactive round only. Do not ask about fields one at a time.
+interactive round only.
 
 ## 2. Body sections — the numbered seventeen, plus engmem's own two
 
@@ -125,9 +125,11 @@ Plus engmem's own two sections, in every save:
 - **`## Pre-reg`** — first, before the numbered sections. Carry it over **unedited** from the
   draft, if it has one; never rewrite it with hindsight. Skip it otherwise:
   a daily draft has none, and none is written now.
-- **`## Search Trace`** — last. The `shell` / `paste` / `miss` value `/engmem` recorded, alone
-  on its own line: the audit reads only a line that is exactly the value, so `- shell` or
-  `Trace: shell` counts as no trace.
+- **`## Search Trace`** — last: `shell`, `paste` or `miss`, alone on its own line. The audit
+  reads only that exact line; `- shell` or `Trace: shell` counts as no trace. With a shell, run
+  `engmem cost summary --session <id>`: a `search responses` count above 0 means `shell`, or
+  `paste` if the user pasted the output. Otherwise write the value you still know, else
+  `not stated in the available material.`
 
   ```
   ## Search Trace
@@ -164,8 +166,7 @@ One row per prior document that **actually influenced** this work:
   lower case, nothing else in the cell.
 - `engmem draft complete` and `engmem_complete_draft` refuse the whole document when any row
   has no quoted span, a classification outside those three, or a `prior-doc` version that is
-  not one a search showed, when the table's columns are not in the order above (the count
-  reads cells by position: a list or another column order is never counted), or when the
+  not one a search showed, when the table's columns are not in the order above, or when the
   section has neither a row nor `Prior docs used: none.`, and return each defect; fix it and
   complete again.
 - A valid row:
@@ -283,16 +284,17 @@ field if nothing like this happened. Never write an empty entry or invent one.
 
 ## 6. Cost of this session
 
-Carry the numbers `/engmem` collected into the front matter, as optional fields. Omit any
-you do not have; never invent one.
+Optional fields. With a shell, take the first two from `engmem cost summary --session <id>`;
+without one, omit them. Write the last two only if you still have `/engmem`'s number: omit a
+lost one, never reconstruct it.
 
 ```yaml
-baseline_tokens:   # research mode: what the no-memory sub-agent actually consumed, if reported
-context_bytes:     # your own count of prior-document text pulled into context; not engmem's measurement
+baseline_tokens:   # research mode: the sum of the tokens on the lines under `baseline call`
+context_bytes:     # the bytes its `total:` line shows
 answer_steps:      # tool calls needed after the search to reach the answer
 answer_tokens:     # only if the runtime really reports it
 ```
 
-`engmem cost summary --session <id>` shows what engmem itself measured. Never present the gap
-between the Pre-reg and the final plan as proof that memory helped: the Reuse Log is the
-evidence. Never present the cost of this task *without* memory as measured: nobody ran it.
+Never present the gap between the Pre-reg and the final plan as proof that memory helped: the
+Reuse Log is the evidence. Never present the cost of this task *without* memory as measured:
+nobody ran it.

@@ -210,21 +210,25 @@ def _installed_start(agent: str, home: Path, project: Path, store: Path) -> str:
 
 
 @pytest.mark.parametrize("agent", ["claude", "copilot-ide", "copilot-cli", "codex", "mcp"])
-def test_every_agent_reads_the_mode_before_any_baseline(agent, env, tmp_path):
+def test_every_agent_reads_the_mode_before_any_baseline(agent, env, tmp_path, mode_file):
+    """A file copy finds the mode itself; the MCP prompt is told it, and only a research prompt
+    carries the baseline step (contracts/prompt-templates.md)."""
     home, project = env
     (project / ".git").mkdir()
     store = tmp_path / "store"
     if agent == "mcp":
+        _save_mode(mode_file, b"research\n")
         (store / "sessions").mkdir(parents=True)
         _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem"))
         text = responses[0]["result"]["messages"][0]["content"]["text"]
+        assert text.startswith("engmem mode for this session: research")
     else:
         text = _installed_start(agent, home, project, store)
+        assert "engmem mode show" in text
+        assert "engmem/mode" in text
 
     mode_step = text.index("## 0. Mode")
     assert mode_step < text.index("## 1. Pre-reg") < text.index("## 3. Search")
-    assert "engmem mode show" in text
-    assert "engmem/mode" in text
     assert "mode: daily" in text and "mode: research" in text
     assert "no baseline sub-agent" in text
     assert "baseline_unavailable:" in text

@@ -522,14 +522,13 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
 свою таблицу с метаданными свежести — так
 проще контролировать инвалидацию.
 
-pre-reg source: sub-agent
-baseline_tokens: 1840</code></pre>
+pre-reg source: sub-agent</code></pre>
             <p>План уже предполагает таблицу, которую в прошлый раз отвергли.</p></div>
           <div class="io-k">Почему так</div>
           <div class="io-v"><ul>
             <li>Это <strong>pre-reg</strong>: план, записанный после чтения документов, свидетельством не будет — память переписывает себя под то, что знает.</li>
             <li>Печатать его человеку не нужно: польза шага достаётся разбору через месяц, а такие шаги бросают первыми.</li>
-            <li><code>baseline_tokens</code> — расход под-агента на наивный план, а не измеренная цена пути без памяти.</li>
+            <li><code>baseline_tokens</code> — расход под-агента на наивный план. Если рантайм его сообщил, агент записывает его через <code>engmem cost record-baseline</code>. Цену пути без памяти это число не измеряет.</li>
           </ul></div>
         </div>
       </div>
@@ -639,7 +638,7 @@ note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
         <div class="prose"><p>Самый дорогой шаг пути: в промпт физически уезжает текст найденных документов.</p></div>
         <div class="io">
           <div class="io-k">Что происходит</div>
-          <div class="io-v"><p>До трёх путей из выдачи открываются <strong>по разделам</strong>, а не целиком, плюс их <code>related</code> на глубину ровно 1; дальше по цепочке агент не идёт. Читает агент через engmem, по одной роли за раз: <code>engmem read</code> с id документа, ролью и id черновика (через MCP — <code>engmem_read</code>).</p></div>
+          <div class="io-v"><p>Из выдачи агент открывает не больше пяти документов, считая и связанные через <code>related</code>. Сначала берёт найденные, потом их <code>related</code> в том порядке, в каком они там перечислены, и только на глубину 1: дальше по цепочке агент не идёт. Каждый документ он открывает <strong>по разделам</strong>. Читает агент через engmem, по одной роли за раз: <code>engmem read</code> с id документа, ролью и id черновика (через MCP — <code>engmem_read</code>).</p></div>
           <div class="io-k">Команда</div>
           <div class="io-v"><pre><code>engmem read 1000001-response-cache --role decisions --session 20260820-cache-new-endpoint</code></pre>
             <pre><code>document: 1000001-response-cache -- Response Cache API (status: active)
@@ -672,7 +671,7 @@ cite as (Reuse Log prior-doc): 1000001-response-cache@0e7d4b936a1cd9bd</code></p
 ResponseCacheController отдаёт закешированные ответы для
 read-эндпоинтов, используя ETAG и TTL…</code></pre></div>
           <div class="io-k">Почему так</div>
-          <div class="io-v"><p>Флаг <code>--role</code> отдаёт один раздел вместо документа (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; ролей ровно девятнадцать — по числу обязательных заголовков, а <code>engmem roles</code> печатает список и покрытие хранилища). Вместе с топ-3 и глубиной связей 1 это ограничители одного назначения: чтобы контекст заполнялся задачей, а не памятью.</p></div>
+          <div class="io-v"><p>Флаг <code>--role</code> отдаёт один раздел вместо документа (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; ролей ровно девятнадцать — по числу обязательных заголовков, а <code>engmem roles</code> печатает список и покрытие хранилища). Вместе с пределом в пять документов и глубиной связей 1 это ограничители одного назначения: чтобы память не вытесняла из контекста саму задачу.</p></div>
           <div class="io-k">Чего это стоит</div>
           <div class="io-v"><p>Содержимое ваших документов физически передаётся модели при каждом старте задачи: инструмент в сеть не ходит, но агент — ходит, и для рабочего окружения это вопрос согласования с безопасностью, а не решённый по построению.</p></div>
         </div>
@@ -795,11 +794,11 @@ entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
           <div class="io-k">Чего это стоит</div>
           <div class="io-v"><p>Четыре необязательных поля отвечают, окупилась ли память по контексту:</p>
             <pre><code>baseline_tokens: 1840   # расход под-агента на наивный план
-context_bytes:   3120   # сколько текста доков втянуто в контекст
+context_bytes:   4155   # сколько текста доков втянуто в контекст
 answer_steps:       2   # вызовов инструментов ПОСЛЕ поиска
 answer_tokens:   9600   # только если рантайм реально его сообщает</code></pre>
             <p>Дёшево — пара килобайт поднято и почти нет обращений к коду; дорого — десятки килобайт втянуты, а вызовов столько же, сколько было бы без памяти. Поле опускается, если числа нет: выдуманная цифра портит единственный анализ, ради которого всё затевалось.</p>
-            <p>Эти числа агент считает сам. Что видел engmem, показывает <code>engmem cost summary --session 20260820-cache-new-endpoint</code>: сколько байтов ушло на поиски, сколько на чтения и сколько всего. Отчёт отдельно помечает, что engmem измерил сам, что сообщил клиент и что лишь оценка; чего нет, так и пишет, а экономию не заявляет никогда:</p>
+            <p>Два последних числа знает только агент, и сохранение пишет их, только если они у него остались. Первые два оно берёт из <code>engmem cost summary --session 20260820-cache-new-endpoint</code>: там видно, сколько байтов ушло на поиски, сколько на чтения и сколько всего. Отчёт отдельно помечает, что engmem измерил сам, что сообщил клиент и что лишь оценка; чего нет, так и пишет, а экономию не заявляет никогда:</p>
             <pre><code>observed cost for session 20260820-cache-new-endpoint -- only what engmem delivered through its own commands and tools
 measured by engmem, UTF-8 bytes of each response delivered:
   search responses: 1 delivery(ies), 2544 bytes
@@ -807,7 +806,8 @@ measured by engmem, UTF-8 bytes of each response delivered:
   total: 5 delivery(ies), 4155 bytes -- text repeated in different deliveries is counted each time
 estimated tokens of that total: 1188 -- ceil(bytes / 3.5), an estimate, not a measurement
 actual tokens of these deliveries: not reported by the client -- missing data
-baseline call (no-memory sub-agent): not reported by the client -- missing data
+baseline call (no-memory sub-agent), measured and reported by the client:
+  a call with no id: 1840 tokens (reported via cli)
 coverage, not complete:
   - a document opened as a file, not through `engmem read`, is not observed and not counted here
   - diagnostics a CLI command prints on stderr (load warnings and errors) reach a shell agent too and are not counted
@@ -1606,14 +1606,13 @@ verify_citations: 1 unverifiable citation(s), 0 citing a superseded document, 0 
 its own freshness-metadata table — easier to
 control invalidation that way.
 
-pre-reg source: sub-agent
-baseline_tokens: 1840</code></pre>
+pre-reg source: sub-agent</code></pre>
             <p>The plan already assumes the table that was rejected last time.</p></div>
           <div class="io-k">Why so</div>
           <div class="io-v"><ul>
             <li>This is <strong>pre-registration</strong>: a plan written after the documents are read is no longer evidence — memory rewrites itself to fit what it now knows.</li>
             <li>The human never types it, because this step's payoff goes to a review a month later, and steps like that are the first ones abandoned.</li>
-            <li><code>baseline_tokens</code> is the sub-agent's spend on the naive plan, not a measured cost of the no-memory path.</li>
+            <li><code>baseline_tokens</code> is the sub-agent's spend on the naive plan. When the runtime reports it, the agent records it with <code>engmem cost record-baseline</code>. It does not measure the cost of the no-memory path.</li>
           </ul></div>
         </div>
       </div>
@@ -1723,7 +1722,7 @@ note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
         <div class="prose"><p>The most expensive step on the path: the text of the found documents physically moves into the prompt.</p></div>
         <div class="io">
           <div class="io-k">What happens</div>
-          <div class="io-v"><p>Up to three paths from the results are opened <strong>section by section</strong>, not whole, plus their <code>related</code> at depth exactly 1; the agent never follows the chain further. The agent reads through engmem, one role at a time: <code>engmem read</code> with the document id, the role and the draft id (over MCP, <code>engmem_read</code>).</p></div>
+          <div class="io-v"><p>The agent opens at most five documents from the results, <code>related</code> ones included: the found ones first, then their <code>related</code> ones in the order they are listed, at depth exactly 1; the agent never follows the chain further. It opens each one <strong>section by section</strong>, not whole. The agent reads through engmem, one role at a time: <code>engmem read</code> with the document id, the role and the draft id (over MCP, <code>engmem_read</code>).</p></div>
           <div class="io-k">Command</div>
           <div class="io-v"><pre><code>engmem read 1000001-response-cache --role decisions --session 20260820-cache-new-endpoint</code></pre>
             <pre><code>document: 1000001-response-cache -- Response Cache API (status: active)
@@ -1756,7 +1755,7 @@ latency for no real benefit.
 ResponseCacheController serves cached responses for read
 endpoints using the ETAG and TTL values…</code></pre></div>
           <div class="io-k">Why so</div>
-          <div class="io-v"><p>The <code>--role</code> flag returns one section instead of a document (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; there are exactly nineteen roles, as many as there are mandatory headings, and <code>engmem roles</code> prints the list and the store's coverage). Together with top 3 and link depth 1, these are limits with one purpose: so the context fills with the task rather than with memory.</p></div>
+          <div class="io-v"><p>The <code>--role</code> flag returns one section instead of a document (<code>lessons</code>, <code>decisions</code>, <code>primer</code>; there are exactly nineteen roles, as many as there are mandatory headings, and <code>engmem roles</code> prints the list and the store's coverage). Together with the five-document cap and link depth 1, these are limits with one purpose: so the context fills with the task rather than with memory.</p></div>
           <div class="io-k">What it costs</div>
           <div class="io-v"><p>Your documents' contents are physically transmitted to the model on every task start: the tool never touches the network, but the agent does, and for a work environment that's a security sign-off question, not something settled by construction.</p></div>
         </div>
@@ -1879,11 +1878,11 @@ entities: []  →  [EndpointConfig, ResponseCacheController, ETAG]</code></pre>
           <div class="io-k">What it costs</div>
           <div class="io-v"><p>Four optional fields answer whether memory paid for itself in context:</p>
             <pre><code>baseline_tokens: 1840   # the sub-agent's spend on the naive plan
-context_bytes:   3120   # document text pulled into context
+context_bytes:   4155   # document text pulled into context
 answer_steps:       2   # tool calls AFTER the search
 answer_tokens:   9600   # only when the runtime really reports it</code></pre>
             <p>Cheap is a couple of kilobytes recovered and almost no further trips to the code; expensive is tens of kilobytes pulled in and the same number of tool calls you'd have made anyway. A field is omitted when the number isn't there: a fabricated figure corrupts the one analysis this whole thing exists for.</p>
-            <p>The agent counts these numbers itself. What engmem saw, <code>engmem cost summary --session 20260820-cache-new-endpoint</code> shows: how many bytes went to searches, how many to reads, and the total. The report labels apart what engmem measured itself, what the client reported and what is only an estimate; it says what is missing, and it never claims a saving:</p>
+            <p>Only the agent knows the last two numbers, and the save writes them only if the agent still has them. It takes the first two from <code>engmem cost summary --session 20260820-cache-new-endpoint</code>, which shows how many bytes went to searches, how many to reads, and the total. The report labels apart what engmem measured itself, what the client reported and what is only an estimate; it says what is missing, and it never claims a saving:</p>
             <pre><code>observed cost for session 20260820-cache-new-endpoint -- only what engmem delivered through its own commands and tools
 measured by engmem, UTF-8 bytes of each response delivered:
   search responses: 1 delivery(ies), 2544 bytes
@@ -1891,7 +1890,8 @@ measured by engmem, UTF-8 bytes of each response delivered:
   total: 5 delivery(ies), 4155 bytes -- text repeated in different deliveries is counted each time
 estimated tokens of that total: 1188 -- ceil(bytes / 3.5), an estimate, not a measurement
 actual tokens of these deliveries: not reported by the client -- missing data
-baseline call (no-memory sub-agent): not reported by the client -- missing data
+baseline call (no-memory sub-agent), measured and reported by the client:
+  a call with no id: 1840 tokens (reported via cli)
 coverage, not complete:
   - a document opened as a file, not through `engmem read`, is not observed and not counted here
   - diagnostics a CLI command prints on stderr (load warnings and errors) reach a shell agent too and are not counted

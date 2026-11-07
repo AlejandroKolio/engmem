@@ -226,7 +226,9 @@ only when a pitfall was actually hit. The thin core, with each section's role
 4. `## Future LLM Context (cold-start primer)` — 5–10 lines for a cold-start agent; 2–4 in
    the short record of `/engmem.save.quick`, whose first two are the search preview
 5. `## Reuse Log` — see §6
-6. `## Search Trace` — `shell | paste | miss`
+6. `## Search Trace` — `shell | paste | miss`, or `not stated in the available material.` when
+   the save can neither derive the value from engmem nor recall it; the audit reads no trace
+   from that line (`docs/design/contracts/prompt-templates.md`, "What the save takes from engmem")
 
 **Content rule:** the doc records only what isn't in the code, or what's expensive to
 re-derive (rejected alternatives, incidents, business constraints, agreements, glossary).
@@ -253,10 +255,11 @@ parser's action list — so a new one cannot silently reopen the gap.
 
 Idempotent (re-running = upgrade, nothing breaks):
 1. Creates the store (`sessions/`, `git init` if missing).
-2. Copies prompt templates into the agent's config: claude → `~/.claude/commands/` (or
-   `.claude/commands/` with `--local`); copilot-ide → `./.github/prompts/`; copilot-cli →
-   `~/.copilot/skills/`; codex → `~/.agents/skills/` (skills, mentioned as `$engmem`);
-   claude-desktop and chatgpt get no templates.
+2. Writes the prompt templates, each without the branches the agent can never take, into the
+   agent's config: claude → `~/.claude/commands/` (or `.claude/commands/` with `--local`);
+   copilot-ide → `./.github/prompts/`; copilot-cli → `~/.copilot/skills/`; codex →
+   `~/.agents/skills/` (skills, mentioned as `$engmem`); claude-desktop and chatgpt get no
+   templates. See `docs/design/contracts/prompt-templates.md`.
 3. Stamps the first line of every installed file:
    `<!-- engmem-template: <name> v<package version> workflow <level> sha256:<digest> -->`, the
    digest covering the file without that line. A file the user edited since engmem wrote it
@@ -870,8 +873,8 @@ take a document out of the store. Rules: `docs/design/contracts/export.md`.
 
 0. **Mode** (US-08): read it first — `engmem mode show`, the first line of the `engmem` MCP
    prompt, or the mode file; `daily` when nothing is saved or the mode cannot be read (said to
-   the user). Daily skips step 1 entirely: no Pre-reg, no baseline sub-agent. Research runs it
-   unchanged.
+   the user). Daily skips step 1 entirely: no Pre-reg, no baseline sub-agent, and a daily
+   `engmem` MCP prompt leaves step 1 out. Research runs it unchanged.
 1. **Pre-reg** (research mode): capture 2–3 lines of "how this would be solved without prior context" —
    BEFORE any search, and without asking the author. Preferably via a separate sub-agent
    that is given only the task statement, with no access to the store and no knowledge of
@@ -887,10 +890,14 @@ take a document out of the store. Rules: `docs/design/contracts/export.md`.
 3. **Search:** if you can run commands, call `engmem search "<key terms>" --session <id>`,
    the draft just created. If you can't
    (no shell), hand the user the ready-to-run command and ask them to paste the output
-   back into the chat (the paste bridge).
-4. Load ≤3 found docs + their related docs (depth 1, no further).
+   back into the chat (the paste bridge). If no result is relevant, one more search with other
+   terms and the same id; at most two before step 4.
+4. Load ≤5 docs in all, related docs included: the found ones first, then their related docs
+   (depth 1, no further) in the order the found docs list them.
 5. Record the Search Trace (shell | paste | miss) — it goes into the doc at save time, alone
-   on its own line: the audit reads only a line that is exactly the value.
+   on its own line: the audit reads only a line that is exactly the value. With a shell, the
+   save reads it back from engmem: a `search responses` count above 0 in `engmem cost summary`
+   means a search ran; a count of 0 proves nothing.
 6. Explicitly list what was pulled in (or "prior context: none found"), and answer the
    actual question IN THE SAME message. The ritual doesn't delay or replace the answer;
    there must be no message that consists only of a ritual report.

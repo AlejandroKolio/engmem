@@ -33,9 +33,9 @@ YAML front matter + a fixed set of markdown body sections.
 | `capture_minutes` | number \| null | no | agent at save | minutes the save ritual took, between two readings of the shell's UTC clock (contracts/prompt-templates.md); blank without both readings (`null` = never measured) |
 | `mode` | `daily` \| `research` | no | automatic, when the draft is created | the mode the session was started in (US-08), from `engmem mode show`; copied unchanged at save. Absent = written before modes existed (legacy), counted by Gate 1 exactly as before. `daily` keeps the document outside the experiment; another value loads with a warning and is excluded from the count until corrected (contracts/gate1.md, "Modes") |
 | `baseline_unavailable` | string | no | agent, before the first search | research mode only: why no uncontaminated baseline could be had. Present, the session is an incomplete observation, kept apart from the valid group and the baseline comparison; a value that is not a reason (`true`, `''`) still marks it, with a warning |
-| `baseline_tokens` | number | no | automatic | tokens the no-memory sub-agent consumed producing the Pre-reg baseline; omitted when the runtime does not report it |
-| `context_bytes` | number | no | automatic | the agent's own count of prior-document text pulled into context this session; not a measurement — `engmem cost summary` shows what engmem measured (US-16) |
-| `answer_steps` | number | no | automatic | tool calls needed *after* the search to reach the answer |
+| `baseline_tokens` | number | no | automatic | tokens the no-memory sub-agent consumed producing the Pre-reg baseline, summed over its calls, copied at save from `engmem cost summary`, which shows what `engmem cost record-baseline` recorded; omitted when the runtime did not report it or the save has no shell |
+| `context_bytes` | number | no | automatic | the bytes this session's searches and reads through engmem delivered, copied at save from the `total:` line of `engmem cost summary`; omitted without a shell. A document saved with templates from before this change holds the agent's own count instead (contracts/prompt-templates.md) |
+| `answer_steps` | number | no | automatic | tool calls needed *after* the search to reach the answer; written only if the agent still has the number, never reconstructed |
 | `answer_tokens` | number | no | automatic | tokens for the answering pass, only when the runtime really reports it |
 
 **No field is a load gate.** `derived` means the parser computes the value when the front

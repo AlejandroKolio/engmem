@@ -14,20 +14,27 @@ because a step did not work out.
 
 ## 0. Mode — daily or research
 
-Find this session's mode before anything else. With a shell, run `engmem mode show`: its first
-line is `mode: daily` or `mode: research`. Through the engmem MCP prompt, the line above this
-template names it. Otherwise read the one word in `$XDG_CONFIG_HOME/engmem/mode` (default
-`~/.config/engmem/mode`; `%APPDATA%\engmem\mode` on Windows); when that file does not exist,
-the mode is `daily`. If the mode cannot be read (an `error:` line), tell the user and continue
-as `daily`: a daily session is never counted in the experiment, so it cannot corrupt it.
+Find this session's mode before anything else.
+<!-- engmem-branch: mcp -->
+Through the engmem MCP prompt, the line above this template names it.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: files -->
+With a shell, run `engmem mode show`: its first line is `mode: daily` or `mode: research`.
+Otherwise read the one word in `$XDG_CONFIG_HOME/engmem/mode` (default `~/.config/engmem/mode`;
+`%APPDATA%\engmem\mode` on Windows); when that file does not exist, the mode is `daily`.
+<!-- engmem-branch: end -->
+If the mode cannot be read (an `error:` line), tell the user and continue as `daily`: a daily
+session is never counted in the experiment, so it cannot corrupt it.
 
 - **daily** — skip step 1: no Pre-reg, no baseline sub-agent. The draft records `mode: daily`
   and has no `## Pre-reg` section.
-- **research** — step 1 is the Gate 1 protocol, unchanged. The draft records `mode: research`.
+- **research** — run step 1: the research comparison needs its baseline. The draft records
+  `mode: research`.
 
 The mode is written once, into the draft's front matter in step 2, and never changed after:
 if the user switches mode during the task, the switch applies to the next session.
 
+<!-- engmem-branch: research -->
 ## 1. Pre-reg — generated, never asked of the user (research mode only)
 
 **Do not ask the user anything in this step.** Do not ask them to describe their approach,
@@ -43,13 +50,16 @@ prior context at all**. Two ways, in order of preference:
   Ask it for 2–3 lines: "how would you approach this?" Use its answer verbatim.
 - **Fallback — write it yourself, right now.** If you cannot spawn anything, write those
   2–3 lines yourself **before** running any search and before opening any store document.
-  After you read a prior document, the baseline is worthless.
+  Write them from the task description only. After you read a prior document, the baseline
+  is worthless.
 
 This is a *baseline for comparison*, not a plan you must follow. Do not defend it, do not
 refine it, and do not show it to the user for approval — write it down and move on.
 
 Record which way you got it, as the last line of the Pre-reg section:
-`pre-reg source: sub-agent` or `pre-reg source: self (no sub-agent available)`.
+`pre-reg source: sub-agent` or `pre-reg source: self (no sub-agent available)`. After the self
+line's closing bracket, say on the same line whether project instructions or memory files were
+already in your context: `pre-reg source: self (no sub-agent available); memory in context`.
 
 **When no baseline can be had.** If neither way works before the search — the sub-agent
 failed and you have already read a store document in this conversation, so anything you wrote
@@ -57,17 +67,16 @@ now would be contaminated — do not write a baseline. Record the reason instead
 `baseline_unavailable: <reason>` in the draft's front matter (step 2). Search and save go on as
 usual.
 
-If the sub-agent's token usage is reported back to you, note it too —
-`baseline_tokens: <n>`. Never estimate it: omit the line if you cannot see it. Once
-the draft exists (step 2), also record what was reported, tokens and/or seconds, with
-`engmem cost record-baseline <draft id> --tokens <n> --seconds <s> --call-id <the runtime's id
-for the call, if it shows one>` (MCP: `engmem_record_baseline`), leaving out what was not
-reported. Nothing reported means nothing to record.
+If the runtime reports the sub-agent's tokens or seconds, record them once the draft exists
+(step 2): `engmem cost record-baseline <draft id> --tokens <n> --seconds <s> --call-id <the
+runtime's id for the call, if it shows one>` (MCP: `engmem_record_baseline`). Leave out what was
+not reported, and never estimate. Nothing reported means nothing to record.
 
 **Why this exists** (so you do not "optimise" it away): the experiment compares this
 uncontaminated baseline with the plan made *after* prior documents are loaded. Written after
 the documents are read, it measures nothing.
 
+<!-- engmem-branch: end -->
 ## 2. Create the draft immediately
 
 engmem writes the draft itself, so you never write a file in the store. With a shell, run
@@ -84,10 +93,10 @@ draft is the front matter alone. Leave the other body sections for `/engmem.save
 
 ```yaml
 ---
-id: <YYYYMMDD>-<slug>          # or <story-id>-<slug>; must equal the filename stem
+id: <YYYYMMDD>-<slug>          # lowercase letters, digits and hyphens
 title: <short title from the task description>
 date: <today>                   # day resolution: not an anchor for capture_minutes
-task_date: <today>
+task_date: <today>              # equals date; differs only in a backfilled record
 status: draft
 superseded_by:
 backfilled: false
@@ -95,10 +104,10 @@ tags: []
 entities: []
 related: []
 covers_files: []
-repos: [<repository>]            # this task's repository as documents name it; [] if unknown
+repos: [<repository>]            # this checkout's top-level directory name; [] if unknown
 verified_at:                     # left empty: filled per repository at save
 capture_minutes:                 # left empty: a draft has measured nothing yet
-mode: <daily|research from step 0>   # write the one word; left as is, it counts nowhere
+mode: <daily|research from step 0>   # the one word; engmem refuses this placeholder
 ---
 ```
 
@@ -127,7 +136,7 @@ mode: <daily|research from step 0>   # write the one word; left as is, it counts
 - If step 2 could not create the draft, there is no id to pass: run the search without
   `--session` / `session_id`, and say so in your final report — an unattributed row is the
   cost of a missing draft, not a free pass. Never pass an id whose document was never
-  written: that row is attributed to a document that does not exist, and the Gate 1 audit
+  written: that row is attributed to a document that does not exist, and engmem's audit
   reports it as an orphan. Every bullet below assumes step 2 produced a draft.
 - If you can run shell commands: run
   `engmem search "<key terms from the task>" --session <the draft id from step 2>` directly.
@@ -140,20 +149,20 @@ mode: <daily|research from step 0>   # write the one word; left as is, it counts
   `engmem search "..." --session <id>` command for the user to run themselves, and ask them
   to paste the output back into the conversation. Do not silently skip this step.
 
-Search the whole store unless the user asks you to limit it to one repository: the document
-worth finding often comes from another repository. When they do, add `--repo <name>` (MCP:
-`repo`) with the name their documents write in `repos`; `--unscoped` (MCP: `unscoped: true`)
-finds the records linked to no repository. If they name several repositories, repeat
-`--repo` once per name (MCP: `repos: [<name>, <name>]`); if they want the whole store with
-each result's repository shown, add `--all-repos` (MCP: `all_repos: true`). Use these only
-when the user asks, for that one search; the next search goes back to the plain default. A
-scoped result opens with a `scope:` line, and a miss under it says nothing about the rest of
-the store.
+If no result is relevant, run one more search with other terms: synonyms, or the names of the
+components and files involved. Pass the same session id. Run at most two searches before step 4.
+
+Search the whole store unless the user asks you to limit it: the document worth finding often
+comes from another repository. Only on that request, and for that one search, add `--repo <name>`
+(repeatable), `--unscoped` or `--all-repos` (MCP: `repo`, `repos`, `unscoped`, `all_repos`).
+`engmem search --help` and the MCP tool's parameters say what each one does. A scoped result
+opens with a `scope:` line, and a miss under it says nothing about the rest of the store.
 
 ## 4. Load what was found — and measure what it cost
 
-From the search results, load at most 3 documents, plus each of their `related` documents
-at depth 1 only (do not follow related-of-related). "Load" means read enough of each
+From the search results, load at most 5 documents in all, `related` documents included. Take
+the found documents first. Then take their `related` documents at depth 1, in the order the
+found documents list them; do not follow related-of-related. "Load" means read enough of each
 document to actually use it — at minimum its Cold-start primer and Decision Log.
 
 Read them through engmem, so the read is counted toward this session's cost: run
@@ -171,33 +180,30 @@ document edited between the search and the read has a different version.
 **Read sections, not whole files.** A whole file is the biggest way engmem can cost more
 context than it saves.
 
-Then note three numbers for `/engmem.save`:
+engmem measures the bytes each search and read delivers; do not count them. Note two numbers
+for `/engmem.save` yourself:
 
-- `context_bytes: <n>` — bytes of prior-document text you actually pulled into context
-  (search output plus the parts of documents you read). Count it; do not estimate. This is your
-  own count, not engmem's measurement; `engmem cost summary --session <draft id>` shows what
-  engmem measured of it.
 - `answer_steps: <n>` — how many tool calls you needed **after** the search to reach the
   answer.
-- `answer_tokens: <n>` — only if your runtime actually reports it. Omit the line rather
-  than guessing.
+- `answer_tokens: <n>` — only if your runtime actually reports it.
+
+Nothing writes them down for you. `/engmem.save` writes each one only if you still have it.
+If you lost one, omit it: never reconstruct it.
 
 ## 5. Record the Search Trace
 
 Note which path step 3 actually took:
 
-- `shell` — you ran the search yourself, whether through the CLI or the `engmem_search`
-  MCP tool (regardless of whether it found anything); both write the same telemetry line
+- `shell` — you ran the search yourself, whatever it found: `shell` is the value for both the
+  CLI and the `engmem_search` MCP tool
 - `paste` — the user ran it and pasted the output back (regardless of the result)
 - `miss` — the search never ran at all (skipped, blocked, or the user declined the
   paste-bridge)
 
-A search that ran but found nothing is still `shell` or `paste` — the search *result*
-(`prior context: none found`) is already captured by telemetry; the Trace records the
-*execution path*.
-
-You need not write it into the draft now; remember it for `/engmem.save`. It is saved alone on its
-own line, because the audit reads a line that is exactly the value:
+You need not write it into the draft now. With a shell, `/engmem.save` reads `shell` back from
+engmem if a search was recorded. Otherwise it writes the value only if you still have it; never
+reconstruct it. It is saved alone on its own line, because engmem's audit reads a line that is
+exactly the value:
 
 ```
 ## Search Trace

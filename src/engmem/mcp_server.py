@@ -29,7 +29,7 @@ from engmem.mcp_tools import (
     tools_list,
 )
 from engmem.read_report import ReadError, compose_read
-from engmem.settings import ModeSettingError, mode_setting_file, saved_mode
+from engmem.settings import Mode, ModeSettingError, mode_setting_file, saved_mode
 from engmem.scoring import Scope
 from engmem.search_report import compose
 from engmem.sections import CANONICAL_ROLES
@@ -41,6 +41,7 @@ from engmem.spine import (
     sessions_dir_unreadable,
     stray_documents,
 )
+from engmem.template_render import render
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -53,8 +54,7 @@ INTERNAL_ERROR = -32603
 
 
 # prompt name -> source template filename under src/engmem/templates/ — the
-# same files install.py's _install_templates copies out; a second reader of
-# that one source of truth, not a fork of it
+# same files install.py renders into file copies; rendered here per request
 START_PROMPT_NAME = "engmem"
 PROMPT_TEMPLATES = {
     START_PROMPT_NAME: "engmem.start.md",
@@ -465,9 +465,9 @@ def _handle_prompts_list(params: dict, store: Path) -> dict:
     }
 
 
-def _mode_line() -> str:
-    """The answer to the start template's step 0, read on every call so a server that outlives
-    a `engmem mode set` hands the next session the new mode."""
+def _mode_line() -> tuple[str, Mode]:
+    """The answer to the start template's step 0 and the mode it names, read on every call so a
+    server that outlives a `engmem mode set` hands the next session the new mode."""
     setting = mode_setting_file()
     try:
         mode = saved_mode()
@@ -475,10 +475,13 @@ def _mode_line() -> str:
         return (
             f"engmem mode for this session: daily (the saved mode cannot be read: {exc} — "
             "tell the user, as step 0 says)"
-        )
+        ), Mode.DAILY
     if mode is None:
-        return f"engmem mode for this session: daily (default — no saved choice in {setting})"
-    return f"engmem mode for this session: {mode} (saved choice in {setting})"
+        return (
+            f"engmem mode for this session: daily (default — no saved choice in {setting})",
+            Mode.DAILY,
+        )
+    return f"engmem mode for this session: {mode} (saved choice in {setting})", mode
 
 
 def _handle_prompts_get(params: dict, store: Path) -> dict:
@@ -493,6 +496,8 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
     source_name = PROMPT_TEMPLATES[name]
 
     description, argument_hint, body = _load_template(source_name)
+    mode_line, mode = _mode_line() if name == START_PROMPT_NAME else (None, None)
+    body = render(body, mcp=True, mode=mode)
 
     if argument_hint:
         supplied = params.get("arguments")
@@ -507,8 +512,8 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
             )
         body = body.replace(_ARGUMENTS_PLACEHOLDER, value if value is not None else "")
 
-    if name == START_PROMPT_NAME:
-        body = f"{_mode_line()}\n\n{body}"
+    if mode_line is not None:
+        body = f"{mode_line}\n\n{body}"
 
     return {
         "description": description,

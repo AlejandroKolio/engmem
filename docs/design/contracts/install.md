@@ -58,8 +58,11 @@ next upgrade. AC-26.3 asks for the edit to survive or for a reviewable conflict.
 
 **Knowing what engmem wrote.** The stamp carries `sha256:<digest>`: the first 16 hex digits of
 the SHA-256 of the file without its stamp line, line endings read as `\n`
-(`template_stamps.digest`). A file whose body still matches is one engmem wrote and nobody
-changed, so install replaces it. Stamps written before US-26 have no digest. For them
+(`template_stamps.digest`). The body is the copy rendered for that agent, not the source
+template (`contracts/prompt-templates.md`, "Each target gets the branches it can take"), so a
+copy written before rendering still matches its own digest and is replaced. A file whose body
+still matches is one engmem wrote and nobody changed, so install replaces it. Stamps written
+before US-26 have no digest. For them
 `template_stamps.RELEASED_DIGESTS` lists the digest of every template v0.1.1 to v0.1.4
 installed, for every agent. They were computed by installing each tag into a scratch home, and
 an unedited old file is recognised by that list (owner decision, 2026-10-15). Treating every old
