@@ -4,132 +4,98 @@ description: Finish an engmem task — save what was learned as a complete sessi
 
 # /engmem.save — finish a task
 
-You are closing out the session started by `/engmem`. Find the `sessions/<id>.md` draft
-created at the start of this task (`status: draft`). Its content is exactly the text you passed
-to `engmem draft create` or to the `engmem_create_draft` MCP tool, so reuse that, together with
-the `version` it printed or returned — and complete it in the two passes below.
+Close out the session `/engmem` started. Its draft is `sessions/<id>.md`, `status: draft`,
+holding exactly the text you passed to `engmem draft create` or `engmem_create_draft`. Reuse
+that text and the `version` the call returned, and complete the draft in the passes below.
+This is the full shape; for a low-effort close-out, use `/engmem.save.quick`.
 
-This template produces the full knowledge-base shape: seventeen numbered sections plus
-engmem's own two operational ones, the list `ENGMEM-SPEC.md` §4 fixes. It is deliberately the
-long path: use it when the session is worth the ritual. For a low-effort close-out, use
-`/engmem.save.quick` instead.
+**Read the clock first.** With a shell, read the current UTC time before anything else:
+`date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
+in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `capture_minutes` blank.
 
 ## 1. Front-matter draft (one interactive round, not field-by-field)
 
-Generate a **complete** draft of every front-matter field from the code diff and this
-conversation:
+Draft **every** front-matter field from the diff and this conversation:
 
 `id`, `title`, `date`, `task_date`, `status`, `superseded_by`, `backfilled`, `tags`,
 `entities`, `related`, `covers_files`, `verified_at`, `capture_minutes`, `author`,
 `repos`, `branch`, `pr`, `mode`
 
-`mode`, and `baseline_unavailable` when the draft has it, are copied from the draft unchanged —
-never added, edited or dropped, even if the user has switched mode since: they record the
-condition this session was started under. A draft without `mode` was started before modes
-existed and stays without one.
+Copy `mode`, and `baseline_unavailable` when the draft has it, from the draft unchanged. Never
+add, edit or drop them, even if the user has switched mode since: they record how this session
+started. A draft without `mode` stays without one.
 
-`related`, `covers_files` and the last four before `mode` are worth a word each — derive them,
-never guess them:
+Derive these fields; never guess them:
 
-- `related` — document ids, never filenames: a `.md` suffix will not resolve. It breaks
-  both `gate1`'s adjacency check (a citation that should read `adjacent` reads `distant`
-  instead) and a search hit's rendered related line (a document that IS in the store
-  renders as "not in store").
-- `covers_files` — the files the decision rests on, each as a path from the repository's
-  top-level directory, the way `git ls-files` prints it (`src/export/ExportJob.java`, not
-  `ExportJob.java` or `./src/...`). A search compares exactly these files between the
-  `verified_at` commit and the checkout's current `HEAD`. They are read as files of the
-  record's one repository: with two or more in `repos` they are not compared.
-- `author` — who did the work. Prefer `git config user.name` (and `user.email` if you
-  want both); leave blank if neither is available rather than inventing a name.
-- `repos` — the repository or repositories this work actually touched, as a list (e.g.
-  `[platform-core]`, or `[platform-core, widget-cache-client]` for a cross-repo change).
-  Usually just the current repo's name; widen it only where `covers_files` genuinely spans
-  more than one checkout. It is the link `engmem search --repo` filters on, so spell each
-  repository the same way every time: its directory name.
-- `branch` — the branch this work happened on. Run `git rev-parse --abbrev-ref HEAD` if
-  you have a shell; leave it blank on detached HEAD or if you have no shell, never
-  fabricate a name.
-- `pr` — the pull request for this work, if one exists (a number, e.g. `#482`, or a URL).
-  Leave it blank if no PR has been opened yet; do not invent a number to fill the field.
+- `related` — document ids, never filenames: a `.md` suffix does not resolve.
+- `covers_files` — the files the decision rests on, as `git ls-files` prints them from the
+  repository's top-level directory (`src/export/ExportJob.java`, not `ExportJob.java` or
+  `./src/...`). Search compares them between `verified_at` and `HEAD`, only when `repos` has
+  one entry.
+- `author` — `git config user.name` (and `user.email` if you want both); blank if neither is
+  available. Never invent a name.
+- `repos` — the repositories this work touched, as a list: `[platform-core]`, or
+  `[platform-core, widget-cache-client]` only where `covers_files` spans more than one checkout.
+  Spell each as its directory name, every time: `engmem search --repo` filters on it.
+- `branch` — `git rev-parse --abbrev-ref HEAD`; blank on a detached HEAD or without a shell.
+  Never fabricate a name.
+- `pr` — the pull request number (`#482`) or URL; blank if no PR exists yet. Never invent one.
 
-Show the full YAML block to the user and ask for `y` or edits. Apply their edits and stop
-asking — more than one interactive round for this draft is a design failure. Do not ask
-about individual fields one at a time.
+Show the full YAML block and ask for `y` or edits. Apply the edits, then stop asking: one
+interactive round only. Do not ask about fields one at a time.
 
 ## 2. Body sections — the numbered seventeen, plus engmem's own two
 
-Write every section below, in this order, using the numbered headings exactly as shown
-(the number is part of the heading text — `## 8. Decision Log`, not `## Decision Log`).
-None of the 17 is optional here: this is the point of the full template. A section that
-genuinely has nothing to report for this document (see the hub/census note under Decision
-Log and Lessons Learned) still keeps its heading — say so in one explicit line, never
-delete the heading and never pad it with invented content to look complete.
+Write every section below, in this order, with the numbered heading exactly as shown
+(`## 8. Decision Log`, not `## Decision Log`). None of the 17 is optional. A section with
+nothing to report keeps its heading and says so in one line; never delete the heading or pad
+it with invented content. A **hub or census document** (one that surveys other documents, such
+as a glossary or a status board) often has nothing for Decision Log or Lessons Learned.
 
-**Gather ground truth before writing.** Read the actual diff, the actual git history, the
-actual ticket, and ask the user directly where something is unclear — do not infer what
-"probably" happened. If a source was unreachable (a ticket system you have no access to,
-a teammate you can't ask), say so plainly in the relevant section rather than inventing
-its contents.
+**Gather ground truth before writing.** Read the actual diff, git history and ticket, and ask
+the user where something is unclear; never infer what "probably" happened. Name a source you
+could not reach; never invent its contents.
 
-**Tag every factual claim.** `[Verified]` — you read it directly in the code, the git
-history, the ticket, or the user confirmed it. `[Assumed]` — a reasonable inference; say
-what it rests on. `[Open]` — a real gap; state it, don't paper over it. Never upgrade an
-`[Assumed]` to `[Verified]` because it would read better. If a section would end up mostly
-`[Assumed]`, that is a signal to go gather more ground truth, not to write prettier
-guesses.
+**Tag every factual claim.** `[Verified]` — read in the code, history or ticket, or confirmed
+by the user. `[Assumed]` — an inference; say what it rests on. `[Open]` — a real gap. Never
+upgrade `[Assumed]` to `[Verified]` to read better. A mostly `[Assumed]` section means: gather
+more ground truth.
 
-**Explain WHY, not only HOW.** For every non-obvious choice, name the problem it solves
-and what the alternative would have cost — a reader who only sees the "what" cannot judge
-whether the same choice still applies to their situation.
+**Explain WHY, not only HOW**: for each non-obvious choice, name the problem it solves and what
+the alternative would have cost. **Define every domain term before using it in a flow.**
 
-**Define every domain term before using it in a flow**, as if writing for a strong
-engineer who is new to this domain. A term used before it is defined forces the reader to
-go hunting for the definition mid-flow.
+**Diagrams in ASCII** — boxes and arrows, matching the prose. **Concrete over abstract** —
+real scenarios with real values (`request id req-4471`, not "a request"). **Write in plain
+technical English, following ASD-STE100 principles: one idea per sentence; sentences of 20
+words or fewer; active voice; one term for one concept, used the same way throughout. No
+filler and no marketing tone.**
 
-**Diagrams in ASCII** — boxes and arrows, rendering as plain text, matching what the prose
-says. **Concrete over abstract** — real scenarios with real values (`request id
-req-4471`, not "a request"). **British register, plain, no filler or marketing tone.**
-
-1. **`## 1. Executive Summary`** — 2–4 sentences, the elevator-pitch version of the
-   Decision Log. Write it after the Decision Log, never before, so it summarises what
-   actually happened rather than what was planned.
-2. **`## 2. Business Context`** — the glossary: every domain term this document uses,
-   defined — what it is, why it exists, who owns or uses it, where it lives in the
-   system. A newcomer should be able to read this section alone and then follow the rest
-   of the document without getting lost in vocabulary.
-3. **`## 3. End-to-End Business Flow`** — one concrete request or job traced start to
-   finish through the system, with an ASCII diagram of the path and real example values
-   at each hop (not "the request is processed" — "`POST /widgets/warm` arrives with
-   `widgetId: WGT-4471`, hits `WidgetCacheController`, which calls...").
-4. **`## 4. Functional Requirements`** — the acceptance-relevant behaviour contract, each
-   item tagged `[Verified]` / `[Assumed]` / `[Open]`.
-5. **`## 5. Acceptance Criteria Analysis`** — status of the criteria this work was judged
-   against, each one tagged `[Verified]` / `[Open]` against what was actually built.
-6. **`## 6. System Architecture`** — the shape of the *system* this work touched
-   (components, call path, an ASCII box-and-arrow diagram) — not the shape of the
-   *change*, which belongs in Code Implementation below.
-7. **`## 7. Code Implementation`** — for each changed class (or equivalent unit): its
-   purpose, its methods, the rules it enforces, what it depends on, and the risks of
-   touching it. Describe it at the level a reviewer would want, not pasted wholesale.
-8. **`## 8. Decision Log`** — for each decision: the options considered, why each rejected
-   option was rejected, and why the chosen option won. A decision log with no rejected
-   alternatives is usually incomplete. If this document genuinely records no decisions (a
-   hub or census document surveying other work rather than a bounded task — see below),
-   write the single line `No decisions recorded — <why>.` rather than fabricating one or
-   dropping the heading.
-9. **`## 9. Production Considerations`** — behaviour only visible once deployed: error
-   handling, edge cases, monitoring, logging, and the rollback path if this goes wrong.
-   Do not skip this one lightly — a real search that motivated this template answered an
-   HTTP 400 from a missing request header using exactly this section, in a document that
-   had no other place to put it.
-10. **`## 10. Testing Knowledge`** — what was actually tested, how, and what a future
-    agent should re-run before trusting this area. Tag anything not actually exercised
-    `[Assumed]`.
-11. **`## 11. Lessons Learned`** — pitfalls actually hit during the work. Also known in
-    the wider corpus as "Landmines" — both spellings resolve to the same role, but this
-    template uses the skill's own name. If none were hit, say so explicitly (`None hit.`)
-    rather than leaving the section blank. Write each pitfall as one lesson in this shape:
+1. **`## 1. Executive Summary`** — 2–4 sentences. Write it after the Decision Log, so it
+   summarises what happened, not what was planned.
+2. **`## 2. Business Context`** — the glossary: each domain term this document uses, with what
+   it is, why it exists, who owns it and where it lives. A newcomer can follow the rest after it.
+3. **`## 3. End-to-End Business Flow`** — one concrete request or job traced start to finish,
+   with an ASCII diagram and real values at each hop (`widgetId: WGT-4471` hits
+   `WidgetCacheController`, which calls...).
+4. **`## 4. Functional Requirements`** — the acceptance-relevant behaviour contract, each item
+   tagged `[Verified]` / `[Assumed]` / `[Open]`.
+5. **`## 5. Acceptance Criteria Analysis`** — each criterion this work was judged against,
+   tagged `[Verified]` / `[Open]` against what was built.
+6. **`## 6. System Architecture`** — the shape of the *system* this work touched (components,
+   call path, an ASCII diagram), not of the *change*.
+7. **`## 7. Code Implementation`** — per changed class or unit: purpose, methods, rules it
+   enforces, dependencies, and the risks of touching it. Do not paste it wholesale.
+8. **`## 8. Decision Log`** — per decision: the options considered, why each rejected one lost,
+   and why the chosen one won. A log with no rejected alternative is usually incomplete. With
+   no decisions (a hub or census document), write the single line
+   `No decisions recorded — <why>.`; never fabricate one.
+9. **`## 9. Production Considerations`** — what shows only once deployed: error handling, edge
+   cases, monitoring, logging, the rollback path. Do not skip it lightly: a later search may
+   need it.
+10. **`## 10. Testing Knowledge`** — what was tested, how, and what to re-run before trusting
+    this area. Tag anything not exercised `[Assumed]`.
+11. **`## 11. Lessons Learned`** — pitfalls actually hit. If none, say so (`None hit.`); never
+    leave it blank. Write each pitfall as one lesson in this shape:
 
     ```
     - Tried: <what was done, one sentence ending with a full stop>
@@ -142,47 +108,26 @@ req-4471`, not "a request"). **British register, plain, no filler or marketing t
     is always filled; a `Failed because:`, `Fixed by:` or `Files:` the session cannot state
     keeps its label and reads `not stated in the available material.`, in place of `[Open]`.
     `Files:` is not copied into `covers_files`.
-12. **`## 12. Knowledge Graph`** — the entities this work touched and how they relate,
-    written as `Entity → Related Entity → Purpose` rows, kept consistent with the front
-    matter's `entities:` and `related:`.
-13. **`## 13. Future LLM Context (cold-start primer)`** — 5–10 lines a cold-starting agent
-    with zero other context could use to get oriented immediately. This is the single
-    highest-leverage section: `engmem search` shows its first two lines as the result
-    preview, so a document without one is invisible in search output even when it is the
-    right answer. For a hub/census document, 2–3 lines pointing at what it surveys
-    satisfies this without inflating it.
-14. **`## 14. Search Keywords`** — free-text terms and synonyms a future search might use
-    that the front-matter `tags`/`entities` do not already cover verbatim. This exists to
-    close the wording gap lexical search cannot see on its own.
-15. **`## 15. One-Page Cheat Sheet`** — the single densest paragraph in the document: for
-    a reader who opens exactly one section, this is it.
+12. **`## 12. Knowledge Graph`** — `Entity → Related Entity → Purpose` rows, consistent with
+    the front matter's `entities:` and `related:`.
+13. **`## 13. Future LLM Context (cold-start primer)`** — 5–10 lines a cold-starting agent can
+    act on (2–3 for a hub or census document). `engmem search` shows its first two lines as
+    the result preview: without them the document is invisible there.
+14. **`## 14. Search Keywords`** — terms and synonyms a future search might use that `tags` and
+    `entities` do not already cover verbatim.
+15. **`## 15. One-Page Cheat Sheet`** — the densest paragraph, for a reader who opens one section.
 16. **`## 16. Reuse Log`** — see the rules below.
-17. **`## 17. Status at a Glance`** — a short table or bullets snapshot of where things
-    actually stand right now: what is done, what is deployed, what is still open, what is
-    blocked and on whom. Sections 1–16 describe the work; this one describes its *state*,
-    which is the thing most likely to have changed since. Appended as 17 rather than
-    inserted, so the sixteen numbers other documents already cite keep pointing at the
-    same sections.
+17. **`## 17. Status at a Glance`** — short table or bullets: what is done, deployed, open, and
+    blocked on whom. It records the work's *state*, which is what most likely changed since.
 
-A **hub or census document** — one that indexes or surveys other documents or entities
-rather than recording one bounded unit of work (e.g. a corpus-wide glossary, a
-cross-ticket status board) — legitimately has nothing substantive for Decision Log or
-Lessons Learned. Say so in one line, as above; do not delete the heading and do not pad it
-with invented content. The same principle extends to any of the 17 that genuinely does not
-apply to this particular document: say so explicitly in one line rather than either
-omitting the heading or inventing content to fill it.
+Plus engmem's own two sections, in every save:
 
-Plus engmem's own two operational sections, which every save carries regardless of
-document shape:
-
-- **`## Pre-reg`** — carry this over **unedited** from the draft `/engmem` created, if it
-  has one; a daily draft has none, and none is written now. Do not rewrite it with
-  hindsight. (Place it first, ahead of the numbered sections — it documents what was known
-  before this work started.)
-- **`## Search Trace`** — the exact `shell` / `paste` / `miss` value `/engmem` recorded
-  for this session, alone on its own line: the audit reads a line that is exactly the
-  value, so `- shell` or `Trace: shell` counts as no trace at all. (Place it last, after
-  Status at a Glance — it documents how this session's own retrieval went.)
+- **`## Pre-reg`** — first, before the numbered sections. Carry it over **unedited** from the
+  draft, if it has one; never rewrite it with hindsight. Skip it otherwise:
+  a daily draft has none, and none is written now.
+- **`## Search Trace`** — last. The `shell` / `paste` / `miss` value `/engmem` recorded, alone
+  on its own line: the audit reads only a line that is exactly the value, so `- shell` or
+  `Trace: shell` counts as no trace.
 
   ```
   ## Search Trace
@@ -203,61 +148,45 @@ One row per prior document that **actually influenced** this work:
 | prior-doc | taken | impact | classification |
 |---|---|---|---|
 
-- `prior-doc` is the cited document's id — its front-matter `id`, else its filename
-  **stem** — followed by `@` and the version you read: copy `<id>@<version>` exactly as the
-  `cite as (Reuse Log prior-doc):` line of the response the quote came from gives it — the
-  `engmem read` result's when you quote a read, the search result's when you quote the
-  search. Never the filename as written on disk: a `.md` suffix will not resolve, and the row is reported as citing a
-  document that is not in the store and dropped from the Gate 1 count. Never compute or
-  guess a version: engmem kept a copy of exactly that version when it showed it to you,
-  and the quote is checked against that copy later, whatever the document says by then. If
-  no search showed you the document (you opened it some other way), write the bare id; the
-  row is then checked against the document's current text and reported as legacy.
-- `taken` must name a concrete artifact (a class, contract, decision, or pitfall) **and**
-  include a direct quote from that prior document. A row without a quote is invalid —
-  do not write one. The quote is **verbatim**: copied character for character out of the
-  prior document, never paraphrased, tidied, or reconstructed from memory, and it is
-  wrapped in double quotes so it can be found. Before finalising, run the quote checker,
-  which checks every quote against the cited file. It ships in the engmem checkout, not in
-  the installed package, so run it from any directory through the checkout:
-  `uv run --project <engmem-checkout> python <engmem-checkout>/tools/verify_citations.py --store <store>`.
-  An approximate quote reads as a fabricated one.
+- `prior-doc` is `<id>@<version>`, copied exactly from the `cite as (Reuse Log prior-doc):`
+  line of the response the quote came from: the `engmem read` result's when you quote a read,
+  the search result's when you quote the search. The id is the front-matter `id`, else the
+  filename **stem**; a `.md` suffix does not resolve. Never compute or guess a version: the
+  quote is checked against engmem's copy of that version. If no search showed you the
+  document, write the bare id; the row is then checked against the current text as legacy.
+- `taken` names a concrete artifact (a class, contract, decision, or pitfall) **and** a direct
+  quote from that document, in double quotes. A row without a quote is invalid — do not write
+  one. The quote is **verbatim**: never paraphrased, tidied, or reconstructed from memory; an
+  approximate quote reads as a fabricated one. Completion checks every quote and returns
+  refusals and warnings; read them, each one names the defect and the row. A warning comes
+  after publishing, so tell the user and do not edit the published file.
 - `classification` is one of `reuse`, `anti-reuse`, `harmful` — exactly that spelling,
   lower case, nothing else in the cell.
-- `engmem_complete_draft` refuses the whole document when any row has no quoted span, a
-  classification outside those three, or a `prior-doc` version that is not one a search
-  showed, when the table's columns are not in the order above (the count reads cells by
-  position: a list or another column order is never counted), or when the section has
-  neither a row nor `Prior docs used: none.`, and returns each defect; fix it and call again. A shell save has
-  no such gate, so check these rules yourself before writing
-  the file; the checkout's report shows what the count will do with it:
-  `uv run --project <engmem-checkout> python <engmem-checkout>/tools/gate1_report.py --store <store>`.
-- A row that passes all three rules, cited by the `cite as` reference, quote copied out of the
-  prior document:
+- `engmem draft complete` and `engmem_complete_draft` refuse the whole document when any row
+  has no quoted span, a classification outside those three, or a `prior-doc` version that is
+  not one a search showed, when the table's columns are not in the order above (the count
+  reads cells by position: a list or another column order is never counted), or when the
+  section has neither a row nor `Prior docs used: none.`, and return each defect; fix it and
+  complete again.
+- A valid row:
 
   | prior-doc | taken | impact | classification |
   |---|---|---|---|
   | 20260101-widget-cache@3f9a0c1b2d4e5f60 | `CacheWarmer` ordering: "CacheWarmer must run before WidgetCache accepts traffic" | kept the warm-up step in the rollout plan | reuse |
-- Classify a row `anti-reuse` if the prior document was opened and quoted, and the
-  decision it caused was to deliberately go the other way — the new work departs from
-  what the document records, and that document is the reason the departure was a
-  decision rather than an oversight. The test is whether the new work followed the
-  prior document or went against it: adopting a rejection the document itself records
-  is still following it, and stays `reuse`; doing the thing the document rejected,
-  because the document made that choice visible, is `anti-reuse`. This differs from
-  `harmful`, where the author was actually misled — under `anti-reuse` the outcome is
-  better for having read the document.
-- Never estimate time saved in this row — that's a judgment for the human at review time,
-  not something to guess here. Record only the fact that the prior document was used.
-- Never list a merely topically-related document that was not actually opened and used.
+- `anti-reuse`: the document was quoted, and the work chose to deliberately go the other way
+  because of it. The test is whether the work followed the prior document or went against it:
+  adopting a rejection the document records is `reuse`; doing what it rejected is
+  `anti-reuse`. Under `harmful` the document misled the author; under `anti-reuse` the outcome
+  is better for having read it.
+- Never estimate time saved in a row; the human judges it at review. Never list a related
+  document that was not opened and used.
 - If nothing was reused, the entire section is exactly the sentence
   `Prior docs used: none.` — never leave it blank, never omit it.
 - **Before writing a row, check the cited document's `status`.** If it is `superseded`,
   ask the user: *"you cited <id>, which was superseded by <successor>. Did you rely on the
   stale document rather than its successor?"* Record their answer in the row's `impact`
-  cell. A row that reuses stale knowledge is not invalid — it is a finding, and one that
-  cannot be told apart from honest reuse after the fact. Classify it `harmful` if the
-  stale content led somewhere the successor would not have.
+  cell. Such a row is a finding, not invalid. Classify it `harmful` if the stale content led
+  somewhere the successor would not have.
 
 ## 3. Supersede check
 
@@ -267,37 +196,32 @@ yes:
 - If your runtime exposes the `engmem_mark_superseded` MCP tool: prefer it to editing the file
   when you have both. Call it with `id` set to the earlier document's id, `superseded_by` set
   to this document's id, and `expected_version` set to the version of the earlier document
-  this document was built on: the `<version>` of its `<id>@<version>` row in your Reuse Log,
-  as the `cite as` line of the search or read you took it from gave it. Do not read the
-  earlier document again to get a newer version: the check exists to catch a change made
-  after you built this document. Only if you have no such version, read it now with
-  `engmem_read`, check that this document really replaces what it says, and pass the version
-  on that read's `cite as` line. The tool touches only those two fields — everything else in
-  the earlier document is left exactly as it was — and refuses unless that document's
-  current status is `active`. If it refuses because the earlier document changed since you
-  read it, the refusal carries its current text and version: someone may have added a
-  decision your document drops. Read what changed, tell the user, and call again with that
+  this document was built on: the `<version>` of its `<id>@<version>` row in your Reuse Log.
+  Do not read the earlier document again to get a newer version: the check catches changes
+  made since you built this document. Only if you have no such version, read it now with
+  `engmem_read`, check that this document really replaces it, and pass that read's version.
+  The tool changes only those two fields and refuses unless the earlier document is `active`.
+  If it refuses because the earlier document changed since you read it, the refusal carries
+  its current text and version. Read what changed, tell the user, and call again with that
   version only if this document still replaces it.
 - Otherwise, if you can edit files directly: set that earlier document's `status: superseded`
-  and `superseded_by:` to this document's `id`. Nothing checks this edit against a change
-  made since you read the document, so read it again just before you edit it.
+  and `superseded_by:` to this document's `id`. Nothing checks this edit, so read the document
+  again just before you edit it.
 
 ## 4. Close out
 
 - Set `status: active` (from `draft`).
-- Set `capture_minutes` to the minutes the save ritual took only if you know when it really
-  started — a time you recorded, not the draft's `date:`, which has day resolution. Otherwise
-  leave it blank: blank means "never measured", and a guess corrupts the cost side of the
-  experiment.
+- Set `capture_minutes`. Just before you publish, read the UTC time again with the same command.
+  Write the whole minutes between the two readings. Without both readings, leave it blank: blank
+  means "never measured", and a guess corrupts the cost data. The draft's `date:` has day
+  resolution, so it is no start time.
 - Set `verified_at` to the commit each repository in `repos` was checked at, one entry per
   repository: `verified_at: {platform-core: <sha>}`, the sha from
   `git -C <that repository's checkout> rev-parse HEAD`. Leave a repository out when you have
   no shell or no checkout of it, and leave the field blank when you have neither; never guess
-  a sha. It records which code the decision was checked against, not that the text is true;
-  a search later shows each entry next to that checkout's current `HEAD`. Do not write the
-  older single `verified_at_commit`.
-- Write the finished document (finalised front matter from step 1 plus all body sections
-  from step 2) through engmem, never as a plain file write:
+  a sha. Do not write the older single `verified_at_commit`.
+- Write the finished document (front matter from step 1, body sections from step 2) through
+  engmem, never as a plain file write:
   - If your runtime exposes the `engmem_complete_draft` MCP tool: call it with `id` set to
     `<id>`, `content` set to the document, and `expected_version` set to the version create
     gave. Prefer it to the shell when you have both.
@@ -309,25 +233,22 @@ yes:
     `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, since Windows PowerShell 5.1
     otherwise sends every non-ASCII character as `?`, then
     `@'` … `'@ | engmem draft complete <id> --expected-version <version>`.
-  - Either way: it refuses to run unless the document on disk is still `status: draft`, and
-    refuses the new content unless its own front matter states `status: active` — so this is
-    the one call that actually performs the `draft -> active` transition. If it refuses
-    because the draft changed since you read it, the refusal carries the current draft and
-    its version: re-read it, carry what changed into your document, and call again with that
-    version. Never retry the same content with the new version without reading what
-    changed. If you no longer have the version, pass an empty `expected_version` (or
-    `--expected-version ""`): nothing is written, and the refusal carries the current draft
-    and its version the same way.
+  - Either way, it performs the `draft -> active` transition. It refuses unless the document
+    on disk is still `status: draft` and your content states `status: active`. If the draft
+    changed since you read it, the refusal carries the current draft and its version: read
+    it, carry what changed into your document and call again with that version. Never retry
+    the same content with the new version without reading what changed. If you no longer have
+    the version, pass an empty `expected_version` (or `--expected-version ""`): nothing is
+    written, and the refusal carries the current draft and its version.
   - If you can do neither, or it fails for a reason you cannot fix in the document: do not
-    write `sessions/<id>.md` yourself. Tell the user the document was not saved and why,
-    and keep the finished text in your reply. The draft stays a draft, out of search. Only
-    if the user then explicitly asks you to write the file by hand, write it as
-    `sessions/<id>.md` in the store, and tell them it was saved outside engmem's checks: no
-    version check, no Reuse Log check and no lock against another writer. The store is the
-    path on the first line of `engmem store show`; without a shell it resolves in this order:
-    `$ENGMEM_HOME` if set, otherwise the one path saved in `$XDG_CONFIG_HOME/engmem/store`
-    (default `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file
-    exists, otherwise `~/Developer/engmem`.
+    write `sessions/<id>.md` yourself. Tell the user the document was not saved and why, and
+    keep the finished text in your reply; the draft stays a draft, out of search. Only if the
+    user then explicitly asks, write it by hand as `sessions/<id>.md` in the store, and tell
+    them it was saved outside engmem's checks: no version check, no Reuse Log check, no lock.
+    The store is the first line of `engmem store show`. Without a shell: `$ENGMEM_HOME` if
+    set, else the path saved in `$XDG_CONFIG_HOME/engmem/store` (default
+    `~/.config/engmem/store`; `%APPDATA%\engmem\store` on Windows) if that file exists, else
+    `~/Developer/engmem`.
 
 ### Usefulness feedback (optional)
 
@@ -341,16 +262,15 @@ searches showed: *"did any of these help, not apply, or do harm?"* `engmem feedb
 - Through MCP: call `engmem_record_feedback` with `session_id`, `doc_id`, `assessment`, and
   `decision` / `source` when given.
 
-The record says the assessment is the user's, so never record your own judgement, never fill
-in a document the user did not assess, and record nothing if the user does not answer. A
-document left unassessed is reported as unknown influence, which is not a failure. This is not
-the Reuse Log and changes nothing in it.
+The assessment is the user's: never record your own judgement, never fill in a document the
+user did not assess, and record nothing if the user does not answer. This changes nothing in
+the Reuse Log.
 
 ## 5. Navigation misses — the other half of the retrieval instrument
 
-If at any point in this session you used a store document that `engmem search` did **not**
-surface — you found it by grep, by memory, or by following `related` from somewhere the
-search never pointed to — record it as optional front matter, one entry per document:
+If you used a store document that `engmem search` did **not** surface (found by grep, by
+memory, or through `related` of a document the search never showed), record it as optional
+front matter, one entry per document:
 
 ```yaml
 navigation_miss:
@@ -358,21 +278,13 @@ navigation_miss:
     query: <the exact query that should have found it and did not>
 ```
 
-Both fields are required in an entry. The id says a miss happened; the query says which
-*kind* of miss it was — a wording gap (the document says the same thing in different words,
-which lexical matching cannot see) or a ranking gap (it matched but lost to the documents
-that were shown). The decision about whether engmem ever needs semantic search is
-pre-registered against these entries, and a bare count cannot settle it.
-
-Omit the field entirely if nothing like this happened — never write an empty entry, and
-never invent one to look thorough. A miss recorded that did not happen corrupts the same
-analysis a missing one does.
+Both fields are required in an entry: the query shows what kind of miss it was. Omit the
+field if nothing like this happened. Never write an empty entry or invent one.
 
 ## 6. Cost of this session
 
-Carry the numbers `/engmem` collected into the front matter, as optional fields. The
-parser ignores fields it does not know, so omitting any of them is safe — and omitting
-one is always better than inventing it.
+Carry the numbers `/engmem` collected into the front matter, as optional fields. Omit any
+you do not have; never invent one.
 
 ```yaml
 baseline_tokens:   # research mode: what the no-memory sub-agent actually consumed, if reported
@@ -381,21 +293,6 @@ answer_steps:      # tool calls needed after the search to reach the answer
 answer_tokens:     # only if the runtime really reports it
 ```
 
-These answer two different questions, and it is worth keeping them apart:
-
-- **Did memory help?** — the difference between the Pre-reg baseline and what was actually
-  done. Qualitative, secondary, and read at review time only where the document records
-  `pre-reg source: sub-agent`; a self-written baseline came from something that had already
-  seen the code, so its divergence measures nothing. The primary evidence is the Reuse Log.
-- **Did memory pay for itself in context?** — `context_bytes` against `answer_steps`. What
-  engmem itself measured — the bytes of each search and `engmem read` response — is in
-  `engmem cost summary --session <id>`, labelled apart from estimates and missing data.
-  Cheap looks like: a few kilobytes recovered, almost no tool calls afterwards. Expensive
-  looks like: tens of kilobytes pulled in and the same number of tool calls as without it,
-  which means the document was read but did not actually shorten the path.
-
-**What is not measured, and must not be presented as if it were:** the cost of finishing
-this task *without* memory. The baseline is a plan, not an execution — nobody ran the
-no-memory path to completion. Only a deliberate two-pass comparison on the same task
-(same question answered twice, once with the store and once without) yields a real
-side-by-side number.
+`engmem cost summary --session <id>` shows what engmem itself measured. Never present the gap
+between the Pre-reg and the final plan as proof that memory helped: the Reuse Log is the
+evidence. Never present the cost of this task *without* memory as measured: nobody ran it.

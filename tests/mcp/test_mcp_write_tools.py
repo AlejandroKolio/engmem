@@ -415,7 +415,6 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
     assert "not in the store" in text
     assert "20260101-widget-cache.md:" in text
     assert "prior-doc takes the document's id" in text
-    assert "uv run --project <engmem-checkout> python <engmem-checkout>/tools/verify_citations.py --store" in text
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
     assert written == content
 
@@ -671,6 +670,32 @@ def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
     text = rpc.text(result)
     assert "quote not found in" in text
     assert "this exact sentence is not in the cited document" in text
+
+
+def test_the_citation_warning_lists_each_problem_and_sends_no_one_to_a_source_checkout(store):
+    _write_cited_doc(store)
+    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    content = _with_reuse_rows(
+        '| some-prior-doc.md | "a quote that cannot be checked" | helped | reuse |',
+        '| 20260101-other-doc | "this exact sentence is not in the cited document" '
+        "| helped | reuse |",
+    )
+
+    result, is_error = rpc.call(
+        store,
+        name=COMPLETE_TOOL,
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": content}),
+    )
+
+    assert not is_error
+    warning = next(line for line in rpc.text(result).splitlines() if "citation problem" in line)
+    assert warning.startswith("warning: 2 Reuse Log citation problem(s)")
+    assert "cited document some-prior-doc.md is not in the store" in warning
+    assert 'quote not found in 20260101-other-doc — "this exact sentence' in warning
+    assert warning.count("20260101-widget-cache.md:") == 2
+    assert "tell the user, who can correct them" in warning
+    for checkout_step in ("<engmem-checkout>", "verify_citations", "uv run", "tools/"):
+        assert checkout_step not in warning
 
 
 def test_complete_draft_only_reports_its_own_documents_citation_problems(store):

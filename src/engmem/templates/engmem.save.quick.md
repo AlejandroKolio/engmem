@@ -4,9 +4,9 @@ description: Save the useful core of a decision in one preview — the decision,
 
 # /engmem.save.quick — save the useful core
 
-For when the session produced a decision worth keeping and a full report is not. Close out
-the session started by `/engmem` with a **short record**: five components in one preview,
-one confirmation, and one published document. Nothing else is asked of the user.
+For a decision worth keeping when a full report is not. Close out the session `/engmem`
+started with a **short record**: five components, one preview, one confirmation, one
+published document. Ask the user nothing else.
 
 ## The five components
 
@@ -25,9 +25,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
 ## Rules
 
 - **Never invent.** Take every component from what this session can see: the conversation,
-  the diff, the git history. A Source is copied exactly as it appears there. Never build a
-  link, PR number or ticket id from a pattern. A reason the conversation did not give is not
-  supplied by you.
+  the diff, the git history. Copy a Source exactly as it appears there; never build a link, PR
+  number or ticket id from a pattern. Never supply a reason the conversation did not give.
 - **Mark what is absent.** When the Reason, the Rejected alternative, the Source, or a
   lesson's `Failed because:`, `Fixed by:` or `Files:` is not in that material, its line
   keeps its label and says so in exactly these words, and is never dropped or left blank:
@@ -41,14 +40,16 @@ Pre-reg (step 5) when it has one, no other section needs filling.
   nothing, and leave the draft as it is.
 - **One confirmation, no questions.** No field-by-field prompting, no YAML review round, no
   supersede question.
-- This path degrades document *completeness*, never document *validity*: the result must
-  still parse cleanly, with valid YAML front matter and every required field present.
-- **What it skips.** There is no supersede question, so a document this decision overturns
-  keeps surfacing as current until someone marks it. The Reuse Log is not reviewed with the
-  user, so reuse evidence the experiment needs may be missing. Use `/engmem.save` when either
-  matters.
+- The record may be less *complete*, never less *valid*: it must parse cleanly, with valid
+  YAML front matter and every required field present.
+- **What it skips:** the supersede question and a Reuse Log review with the user. Use
+  `/engmem.save` when either matters.
 
 ## Steps
+
+**Read the clock first.** With a shell, read the current UTC time before anything else:
+`date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
+in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `capture_minutes` blank.
 
 1. From the conversation and the diff, take the decision and its reason. If more than one
    decision is worth keeping, repeat the four lines for each, at most three. Write them in
@@ -95,20 +96,19 @@ Pre-reg (step 5) when it has one, no other section needs filling.
 5. Carry `## Pre-reg` over unedited from the draft, first in the body. Skip it when the
    draft has none: a daily draft has none, and none is written now.
 
-   Headings here carry the same names as `/engmem.save`'s but **no numbers**. The numbers
-   there index a fixed set of seventeen; a short record numbered 8 and 13 would read as one
-   with gaps where sections were dropped, which is exactly what this path does not claim.
-   The sections this path writes are listed in `ENGMEM-SPEC.md` §4.
+   Headings here carry the same names as `/engmem.save`'s but **no numbers**: numbered
+   sections would read as a full record with gaps.
 6. Generate the complete front matter automatically (same fields as `/engmem.save`, with
    `verified_at` holding, for each repository in `repos`, the sha from
    `git -C <its checkout> rev-parse HEAD` (`verified_at: {platform-core: <sha>}`; a repository
    with no checkout or no shell at hand is left out, never guessed), `covers_files` as paths
-   from the repository's top-level directory the way `git ls-files` prints them, and
-   `capture_minutes` blank unless you know when the save really started; the draft's
-   `date:` has day resolution and is no anchor; `mode`, and `baseline_unavailable` if the
-   draft has it, copied from the draft unchanged), and set `status: active`. Name the
-   decision in `title`, and put the classes, services or components it is about in
-   `entities`: search weighs both above the body.
+   from the repository's top-level directory the way `git ls-files` prints them, and `mode`,
+   and `baseline_unavailable` if the draft has it, copied from the draft unchanged), and set
+   `status: active`. Name the decision in `title`, and put the classes, services or components
+   it is about in `entities`: search weighs both above the body. Fill `capture_minutes` last:
+   read the UTC time again with the same command, and write the whole minutes between the two
+   readings. Take this reading here, not at publishing: the document must not change after the
+   user confirms it. Without both readings, leave it blank; the draft's `date:` is no start time.
 7. **The preview.** Show the user the finished document in one message and ask exactly one
    thing: save it? Then act on the reply once:
    - **Confirmed** (`ok`, `yes`): publish that document as shown.
@@ -116,9 +116,8 @@ Pre-reg (step 5) when it has one, no other section needs filling.
    - **Declined** (`no`, `cancel`, `don't save`), or a reply you cannot read as either of
      the above: publish nothing. Do not run `engmem draft complete`, do not call
      `engmem_complete_draft`, and do not set
-     `status: active`. The draft stays as it is, `status: draft`, which keeps it out of
-     search, and it still holds the Pre-reg this session's searches are attributed to:
-     deleting it would leave them pointing at no document. Tell the user it stays a draft
+     `status: active`. The draft stays as it is, `status: draft`, out of search. Do not
+     delete it: this session's searches are attributed to it. Tell the user it stays a draft
      that `/engmem.save` or `/engmem.save.quick` can finish later.
 
    To publish, call the `engmem_complete_draft` MCP tool with `id`, the document as
@@ -140,10 +139,10 @@ Pre-reg (step 5) when it has one, no other section needs filling.
 
    If you can do neither, or the call fails for a reason no change to the document fixes,
    publish nothing and tell the user it was not saved and why. Keep the confirmed document in
-   your reply, so nothing is lost, and say the draft stays a draft that `/engmem.save.quick`
-   can finish once engmem can write. Write the file by hand only if the user then explicitly
-   asks: as `sessions/<id>.md` in the store `engmem store show` names (without a shell, the
-   order `/engmem.save` gives), and tell them it was saved outside engmem's checks.
+   your reply, and say the draft stays a draft that `/engmem.save.quick` can finish once
+   engmem can write. Write the file by hand only if the user then explicitly asks: as
+   `sessions/<id>.md` in the store `engmem store show` names (without a shell, the order
+   `/engmem.save` gives), and tell them it was saved outside engmem's checks.
 
 ## Example
 
