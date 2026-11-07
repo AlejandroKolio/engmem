@@ -42,14 +42,18 @@ numbers other documents cite.
 - **unreadable** is told to the user and run as daily: a daily session cannot put a wrong
   observation into the experiment, so it is the one safe guess.
 
-The draft's YAML shows `mode: <daily|research from step 0>`, not a real value: a shell agent's
-draft is not checked by any tool, and a placeholder that is a valid word would be copied as a
-claim. Copied literally, this one is an unrecognized mode and counts nowhere.
+The draft's YAML shows `mode: <daily|research from step 0>`, not a real value: a placeholder
+that is a valid word would be copied as a claim. `engmem draft create` and
+`engmem_create_draft` refuse this one and name the configured mode. A document written by hand
+reaches no such check; there it is an unrecognized mode and counts nowhere
+(`contracts/mcp-server.md`, "A hand-written document is unguarded").
 
 The mode is written once, into the draft, and the save templates copy `mode` and
 `baseline_unavailable` unchanged — never added, edited or dropped, whatever the saved mode is by
-then. `engmem_complete_draft` enforces that for MCP clients; a shell save has the template's word
-for it, as it has for the Reuse Log rules. Both save templates carry the Pre-reg over only when
+then. `engmem draft complete` and `engmem_complete_draft` both enforce that, as they enforce the
+Reuse Log rules: one writer serves both surfaces (`contracts/mcp-server.md`, "One writer for
+every surface"). So the full save states the refusals once, for both, and asks no self-check
+on the shell. Both save templates carry the Pre-reg over only when
 the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
 short save is the daily path the story is about.
 
@@ -59,6 +63,20 @@ No template introduces a CLI flag, field, or command that this feature's contrac
 already define. `ENGMEM-SPEC.md` §9 is a standing rejection list. If a template's
 behaviour appears to need something from it, work stops and the author is asked
 (`ENGMEM-SPEC.md` §10, principle IX) — it is not built anyway.
+
+## A template step runs from the installed package
+
+The wheel ships `src/engmem` only (`pyproject.toml`, `[tool.hatch.build.targets.wheel]`), so a
+user installed from PyPI has no source checkout and no `tools/`. No template step runs a file
+from either. The quote check reaches the agent through completion instead: refusals before the
+write, warnings after it (`contracts/mcp-server.md`, "Reuse Log rows — refuse, then warn"),
+each naming the defect and the row. `tools/verify_citations.py` and `tools/gate1_report.py`
+stay store-wide review tools for a maintainer with the checkout (`docs/guide.md`). No template
+cites a file the wheel leaves out either: not `ENGMEM-SPEC.md`, a smoke id or a story id. An
+installed agent cannot open them, so a template states the one fact it needs instead. The
+contracts keep their references, since their readers have the checkout. Pinned by
+`tests/test_docs_match_the_code.py`: the steps on every template, the cited files on every
+installed copy.
 
 ## Writes go through engmem (US-24)
 
@@ -276,3 +294,79 @@ nothing reads the field as a measurement. A baseline figure goes to `engmem cost
 because the record needs the session document; `baseline_tokens` in front matter keeps its old
 rule. With nothing reported the template records nothing, and the report shows the baseline as
 missing data.
+
+## `capture_minutes` is two readings of the shell clock
+
+Both save templates fill `capture_minutes` from two readings of the UTC clock in the agent's
+shell: `date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
+in PowerShell. The first reading is the save's first action, an unnumbered line before step 1,
+so no step number other documents cite moves. The field had asked for "a time you recorded",
+and no template said to record one. An agent has no clock of its own, and the draft's `date:`
+has day resolution, so the field stayed blank on almost every save. The commands are the
+system's own, so the templates add no engmem command or field.
+
+- **Blank still means never measured** (`data-model.md`). An agent without a shell, or with only
+  one reading, leaves the field blank: a guess corrupts the cost side, and a gap does not.
+- **The second reading is the last change to the document.** The full save takes it at close-out,
+  just before it publishes. The quick save takes it as it writes the front matter, before the
+  preview: the user confirms the document as shown, and a value changed after that would publish
+  a document the user did not see. The quick count leaves out the wait for that confirmation.
+- **It measures the save ritual, not the task.** `/engmem` does not read the clock, since the
+  field has never covered the work itself.
+- **`template_stamps.WORKFLOW` stays 1.** The runtime checks no reading, so an older installed
+  copy keeps working and still leaves the field blank.
+
+Pinned by `tests/test_docs_match_the_code.py`, on both templates and every installed copy.
+
+## A template states the rule; this file keeps the reason
+
+An agent loads the whole template on every run, so each sentence costs context. A template keeps
+every instruction. It keeps at most one sentence of reason, and only where the reason stops an
+agent from optimising the rule away. The longer reasons live here, or in the contract named.
+`tests/test_docs_match_the_code.py` holds `engmem.save.md` at or below 70 % of its size in
+release v0.1.10, 26,511 bytes. `template_stamps.WORKFLOW` stays 1: the cut changes no step.
+
+Reasons the templates no longer spell out:
+
+- **Ids, never filenames.** A `.md` suffix names no document. In `related`, a citation that
+  should read `adjacent` can read `distant` (`gate1._distance`), and a stored document renders
+  as `(not in store)`. In a Reuse Log `prior-doc`, the row is excluded as citing a document not
+  in the store (`contracts/gate1.md`).
+- **One front-matter round.** More than one interactive round for the draft is a design
+  failure (`ENGMEM-SPEC.md` §6, `/engmem.save` step 1).
+- **Why and terms.** A reader who sees only the "what" cannot judge whether the choice still
+  applies to their case. A term used before its definition sends the reader to look for it
+  mid-flow.
+- **Production Considerations.** A real search that shaped the template answered an HTTP 400
+  from a missing request header with this section, in a document with no other place for it.
+- **Status at a Glance is 17.** It was appended, so the sixteen numbers other documents cite
+  still point at the same sections. Lessons Learned keeps the skill's own name; `Landmines`
+  resolves to the same role (`contracts/sections.md`).
+- **A stale citation is asked about at once.** After the session, a row that reused superseded
+  knowledge looks like honest reuse. The review side keeps it a flag (`contracts/gate1.md`,
+  "Supersession is a flag, not a filter").
+- **A navigation miss needs its query.** The id says a miss happened. The query says which kind:
+  a wording gap, where the document says the same thing in other words that lexical matching
+  cannot see, or a ranking gap, where it matched and lost to the documents shown. Embeddings
+  are parked (`ENGMEM-SPEC.md` §9), and a bare count cannot say which gap these entries show.
+  An invented entry corrupts that evidence as much as a missing one.
+- **The cost fields answer two questions.** *Did memory help?* is the Pre-reg against the
+  final plan: secondary, and read only from `pre-reg source: sub-agent` sessions (above). *Did
+  memory pay for itself in context?* is `context_bytes` against `answer_steps`. A few kilobytes
+  and almost no later tool calls is cheap. Tens of kilobytes and as many calls as without
+  memory means the document was read but did not shorten the path. The cost of the task
+  without memory is not measured: the baseline is a plan, not a run. Only the same task done
+  twice, with and without the store, gives that number. The fields are optional because the
+  parser ignores fields it does not know (`data-model.md`).
+- **The start's measured numbers.** `baseline_tokens` is the one cost of the no-memory path
+  that is measured, not guessed. `answer_steps` near zero is the saving being measured. A
+  fabricated `answer_tokens` corrupts the analysis the project exists to produce.
+- **The start's draft.** Placeholder values with every field present keep the draft valid to
+  the parser from the moment it exists. Empty `entities` is a warning, not an error, until the
+  save fills it. A daily draft's empty body draws no `document is empty` warning
+  (`spine.py`). Over MCP, no shell quoting or pipe encoding stands between the text and
+  engmem. A `store show` error means another directory, which is another store.
+- **What the short capture skips.** With no supersede question, a document the decision
+  overturns keeps surfacing as current until someone marks it. With no Reuse Log review, reuse
+  evidence may be missing. Its headings carry no numbers because a short record numbered 8 and
+  13 reads as a full one with gaps.

@@ -143,7 +143,7 @@ related:
   - ttl-etag-revalidation-v2       # ids of other docs; the reason goes in a comment
 covers_files: [ResponseCacheController.java]
 verified_at: {platform-core: 9c1d2e4}  # per repository: the commit it was checked at (US-11)
-capture_minutes: 12               # minutes the save ritual took; blank unless a real start time is known
+capture_minutes: 12               # minutes the save ritual took, from two shell UTC readings; blank without both
 author: A. Engineer               # git config user.name
 repos: [platform-core]            # repositories the work touched; `search --repo` filters on it
 branch: feature/response-cache
@@ -156,7 +156,7 @@ baseline_unavailable:             # research only: why no baseline could be had;
 Manually filled fields — **zero**: id/date/verified_at/author/branch are computed
 automatically; title/tags/entities/related/covers_files/repos/pr are drafted by the agent
 from the diff and transcript, and the human replies "y". `capture_minutes` is filled by the
-agent only when a real start time is known, and left blank otherwise. `mode` is written into the
+agent from two readings of its shell's UTC clock, and left blank otherwise. `mode` is written into the
 draft from `engmem mode show` and copied unchanged at save, as is `baseline_unavailable`; a
 document without `mode` predates US-08 and is a legacy document (§11).
 
@@ -204,8 +204,9 @@ then reports `none found` with the answer sitting in the store. Ritual telemetry
 knowledge: a document whose capture duration was never measured is still true and still
 useful.
 
-**Body sections.** This is the one authoritative list; the templates and
-`docs/design/data-model.md` cite this list as the authority. `/engmem.save` writes
+**Body sections.** This is the one authoritative list; `docs/design/data-model.md` cites it.
+The templates name the same sections themselves, because the installed package does not ship
+this file, so a change here is made in the templates by hand. `/engmem.save` writes
 nineteen: `## Pre-reg` first, seventeen numbered sections — 1. Executive Summary,
 2. Business Context, 3. End-to-End Business Flow, 4. Functional Requirements, 5. Acceptance
 Criteria Analysis, 6. System Architecture, 7. Code Implementation, 8. Decision Log,
@@ -915,8 +916,9 @@ take a document out of the store. Rules: `docs/design/contracts/export.md`.
    `engmem_mark_superseded` with the version of that doc this one was built on (its Reuse
    Log `<id>@<version>`), which refuses a doc changed since (US-25); an agent without the tool
    sets that doc's `status: superseded` and `superseded_by` by hand.
-5. Flip `status: draft → active`, set `capture_minutes` only when a real start time is
-   known (otherwise leave it blank — "never measured"), fill in `verified_at`: for each
+5. Flip `status: draft → active`, set `capture_minutes` to the whole minutes between two
+   readings of the shell's UTC clock, one as the save starts and one just before it publishes
+   (otherwise leave it blank — "never measured"), fill in `verified_at`: for each
    repository in `repos`, `git -C <its checkout> rev-parse HEAD`; a repository with no
    checkout or no shell at hand is left out, never guessed.
 6. *(US-15, optional)* Ask the user once whether the documents this session's searches showed
