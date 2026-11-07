@@ -613,6 +613,169 @@ def test_a_section_line_shows_its_first_sentence_capped(body, expected):
     assert len(_section_snippet(section)) <= 140
 
 
+def _primer_hit_text(primer_body: str) -> str:
+    from engmem.scoring import Hit, SearchOutcome, SectionHit
+    from engmem.sections import split_sections
+
+    doc = _bare_doc(body=f"## Cold-start primer\n\n{primer_body}\n")
+    section_hit = SectionHit(
+        section=split_sections(doc.body)[0], score=1.0, matched_tokens=["cachewarmer"]
+    )
+    hit = Hit(doc=doc, score=5.0, matched_fields={"id": ["cache"]}, section_hits=[section_hit])
+    return render_search_results(SearchOutcome(hits=[hit], ambiguous=False, superseded_notes=[]),
+                                 [doc])
+
+
+def test_a_section_line_does_not_repeat_the_primer_excerpt_shown_below_it():
+    """The excerpt opens with the same words, so the section line keeps only its locator and size
+    (contracts/output.md, "A section line does not repeat the primer excerpt")."""
+    text = _primer_hit_text("CacheWarmer preloads the registry on boot.\nIt runs before traffic.")
+
+    assert "  §1-cold-start-primer   0.1 KB   (shown below)" in text.splitlines()
+    assert "CacheWarmer preloads the registry on boot. It runs before traffic." in text.splitlines()
+    assert text.count("CacheWarmer preloads the registry") == 1
+
+
+def test_a_cut_snippet_is_not_repeated_when_the_excerpt_shows_the_whole_sentence():
+    sentence = "CacheWarmer preloads " + "the registry and " * 10 + "then serves."
+    text = _primer_hit_text(sentence)
+
+    assert len(sentence) > 140
+    assert "  §1-cold-start-primer   0.2 KB   (shown below)" in text.splitlines()
+    assert sentence in text.splitlines()
+
+
+def test_only_the_primer_section_line_is_called_shown_below():
+    """A one-word Landmines body that happens to open the primer is that section's own text."""
+    from engmem.scoring import Hit, SearchOutcome, SectionHit
+    from engmem.sections import split_sections
+
+    doc = _bare_doc(body=(
+        "## Cold-start primer\n\nNone of the caches are warmed before traffic. It runs first.\n\n"
+        "## Landmines\n\nNone\n"
+    ))
+    hit = Hit(doc=doc, score=5.0, matched_fields={"id": ["cache"]}, section_hits=[
+        SectionHit(section=s, score=1.0, matched_tokens=["none"]) for s in split_sections(doc.body)
+    ])
+    lines = render_search_results(
+        SearchOutcome(hits=[hit], ambiguous=False, superseded_notes=[]), [doc]
+    ).splitlines()
+
+    assert "  §1-cold-start-primer   0.1 KB   (shown below)" in lines
+    assert "  §2-landmines   0.0 KB   None" in lines
+
+
+def test_only_a_snippet_the_excerpt_opens_with_is_called_shown_below():
+    """A sentence found later in the excerpt is not that section's text, and nothing is not text."""
+    from engmem.output import _opens_with
+
+    assert _opens_with("CacheWarmer preloads the registry. It runs first.", "CacheWarmer preloads…")
+    assert not _opens_with("CacheWarmer preloads the registry. It runs first.", "It runs first.")
+    assert not _opens_with("CacheWarmer preloads the registry.", "")
+    assert not _opens_with("CacheWarmer preloads the registry.", "…")
+
+
+def _trimmed_between_a_section_line_and_its_primer(middle: int = 261, related=()) -> str:
+    from engmem.scoring import Hit, SearchOutcome, SectionHit
+    from engmem.sections import split_sections
+
+    docs, hits = [], []
+    for i, n_words in ((1, 180), (2, middle), (3, 180)):
+        doc = _bare_doc(
+            id=f"doc-{i}",
+            path=Path(f"/store/sessions/doc-{i}.md"),
+            verified_at_commit=None,
+            related=list(related) if i == 3 else [],
+            body=(
+                f"## Cold-start primer\n\nWarmer{i} preloads the registry on boot.\n"
+                f"It runs before traffic.\n\n## Decision Log\n\nKept the warm-up for doc {i}.\n"
+            ),
+        )
+        docs.append(doc)
+        hits.append(Hit(
+            doc=doc,
+            score=9.0 - i,
+            matched_fields={"id": [f"w{n:03d}" for n in range(n_words)]},
+            section_hits=[
+                SectionHit(section=s, score=1.0, matched_tokens=["warmer"])
+                for s in split_sections(doc.body)
+            ],
+        ))
+    return render_search_results(
+        SearchOutcome(hits=hits, ambiguous=False, superseded_notes=[]), docs
+    )
+
+
+def test_a_trim_never_keeps_shown_below_without_the_primer_it_points_at():
+    """The cut falls after doc-3's section lines, so its primer line below them is gone."""
+    text = _trimmed_between_a_section_line_and_its_primer()
+
+    assert "[output trimmed to fit 4 KB]" in text and "### doc-3 " in text
+    assert "Warmer3 preloads the registry on boot. It runs before traffic." not in text
+    assert "Warmer3 preloads the registry on boot." in text
+    for block in text.split("\n\n"):
+        if "(shown below)" in block:
+            assert "preloads the registry on boot. It runs before traffic." in block
+
+
+def test_a_trim_after_the_primer_line_keeps_shown_below():
+    """The cut falls between doc-3's primer line and its related line: nothing to restore."""
+    text = _trimmed_between_a_section_line_and_its_primer(
+        238, [f"missing-related-document-{n}" for n in range(3)]
+    )
+    last = text.split("\n[output trimmed")[0].split("\n\n")[-1]
+
+    assert last.startswith("### doc-3 ") and "related:" not in last
+    assert "Warmer3 preloads the registry on boot. It runs before traffic." in last
+    assert "  §1-cold-start-primer   0.1 KB   (shown below)" in last.splitlines()
+
+
+@pytest.mark.parametrize("middle", range(150, 600, 3))
+def test_no_cut_position_leaves_shown_below_without_its_primer(middle):
+    for block in _trimmed_between_a_section_line_and_its_primer(middle).split("\n\n"):
+        if "(shown below)" in block:
+            assert "preloads the registry on boot. It runs before traffic." in block
+
+
+def test_a_section_line_keeps_a_sentence_the_primer_excerpt_does_not_show_whole():
+    """The excerpt stops after two lines; a first sentence running onto a third is not in it."""
+    text = _primer_hit_text("CacheWarmer preloads\nthe registry\non boot.")
+
+    assert "  §1-cold-start-primer   0.0 KB   CacheWarmer preloads the registry on boot." in (
+        text.splitlines()
+    )
+    assert "(shown below)" not in text
+
+
+def test_a_search_result_keeps_every_part_but_the_repeated_primer_text(fixture_store, capsys):
+    """M3 cut one part, the primer text a section line repeated; every other part stays."""
+    from support.search import run_search
+
+    exit_code, out, _ = run_search(
+        fixture_store, "ETAG TTL response cache", "--session", "20261107-draft", capsys=capsys
+    )
+    first, second = out.split("\n\n")[:2]
+    lines = first.splitlines()
+
+    assert exit_code == 0
+    assert lines[0].startswith("### 1000001-response-cache (score: ")
+    assert lines[1].startswith("path: ") and lines[1].endswith("1000001-response-cache.md")
+    assert lines[2].startswith("snapshot: ")
+    assert lines[3].startswith("matched: entities=")
+    assert lines[4:7] == [
+        "  §4-cold-start-primer   0.2 KB   (shown below)",
+        "  §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already "
+        "sends instead of adding a separate cache-metadata table; rejected the…",
+        "  §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated "
+        "call inside the same request re-runs the upstream fetch and doubles latency.",
+    ]
+    assert lines[7].startswith("ResponseCacheController serves cached responses")
+    assert first.count("ResponseCacheController serves cached responses") == 1
+    assert "\nrelated: 1000001-response-cache (" in second
+    assert "\ncite as (Reuse Log prior-doc): 1000001-response-cache@" in out
+    assert out.rstrip("\n").splitlines()[-1].startswith("docs: ")
+
+
 def test_render_search_results_shows_multiple_matched_sections():
     from engmem.scoring import Hit, SearchOutcome
 

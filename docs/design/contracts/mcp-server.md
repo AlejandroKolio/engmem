@@ -59,6 +59,38 @@ acceptance procedure for AC-19.2 does exactly that (`docs/remote-access.md`). Th
 tell whether it was spawned by `tunnel-client` or by a public bridge, since both speak stdio to
 it, so no behaviour here keys on the bridge.
 
+## Tool descriptions: instructions, not reasons
+
+A client that loads tools eagerly sends the whole `tools/list` result in every turn of every
+session, not only during `/engmem`. Before this rule the `tools/list` result was 16,087 bytes
+as JSON (`json.dumps(tools_list())`, without the JSON-RPC envelope).
+`tests/mcp/test_tool_descriptions.py` caps it at 60 % of that number
+(`BASELINE_TOOLS_LIST_BYTES`).
+
+Each description keeps what a model needs to call the tool correctly: what the tool does, when
+to use it, what each argument means, the refusals to expect, and what the result contains. The
+same test keeps a checklist of these phrases for each tool. A reason gets one sentence at most,
+and the longer reasons stay in this contract. The schema part (names, types, `required`, enums,
+`minItems`) is compared with `tests/fixtures/mcp-tool-schemas.json`, because clients and saved
+prompts call these names.
+
+The write tools keep their refusal rules and the Reuse Log shape, although the save templates
+state them too. A prompt is optional for a client, so a model can call a tool with no template
+in its context. Without the rules in the description, that model learns them only from a
+refusal.
+
+Reasons that the descriptions no longer give:
+
+- `engmem_search_by_role` is a separate tool because a keyword search misses role questions.
+  The sections that answer "what did we reject" discuss different subjects and share only
+  their role in the document.
+- `engmem_complete_draft` changes only a draft, so a confused or repeated call cannot destroy a
+  finished document.
+- A Reuse Log list or a different column order is not counted because the count reads cells by
+  position ("`engmem_complete_draft`: Reuse Log rows — refuse, then warn", below).
+- What reads the feedback and cost logs is in `contracts/gate1.md` ("Usefulness feedback") and
+  `contracts/output.md` ("Observed cost"), not in the tool descriptions.
+
 ## One process, many calls: the store is kept, never trusted
 
 Every tool call loads the store through `_load_store_for_tool`, which passes the process's

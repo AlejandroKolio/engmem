@@ -344,8 +344,9 @@ are listed above that line.
 ## The snippet is the section's first sentence
 
 Each section line ends with the first sentence of that section, capped at
-`SECTION_SNIPPET_MAX_CHARS`. Spec 002 US-1 replaced it with the sentence holding the most query
-tokens (#47) and was reverted (2026-10-22) on a measurement, not a preference.
+`SECTION_SNIPPET_MAX_CHARS`, unless the primer excerpt already shows it ("A section line does
+not repeat the primer excerpt", below). Spec 002 US-1 replaced it with the sentence holding the
+most query tokens (#47) and was reverted (#59) on a measurement, not a preference.
 
 The case for it was that a value later in a section never reached the agent, which then grepped
 and opened the file. Replayed against the 20,112-document store with the first query of each of
@@ -356,6 +357,51 @@ sentence is longer than a first one, and those results already sit near the 4 KB
 3,850 bytes), so the trim dropped the line that held the value. The agents' follow-up calls
 after a search (median four) were not for a missing value: in 80 of the 125 runs it was already
 shown, and they still opened the target document or grepped for other words.
+
+## A section line does not repeat the primer excerpt
+
+A hit block shows the first two lines of its Cold-start primer below its section lines. When
+the primer section is also one of those section lines, its snippet is the first sentence of the
+same text. The block then printed the same words twice, up to 140 characters of them.
+The primer section's own line now shows `(shown below)` in place of its snippet when the primer
+excerpt opens with that snippet. The locator and the size stay, so the reader still sees which
+sections matched and how large they are.
+
+Two checks decide it. `_primer_for` passes the excerpt only to the line of the section that
+`_primer_section` picks, by its locator. Every other section keeps its snippet, even when its
+text happens to open the excerpt: a Landmines body of `None` next to a primer that starts with
+"None of the caches" is that section's own text. `_opens_with` is a prefix test on
+whitespace-normalised text. A snippet cut with `…` counts by the text before the `…`. A first
+sentence that runs past the excerpt's two lines keeps its snippet.
+
+The trim can separate the two. The primer line comes after all the section lines, and the 4 KB
+trim cuts at a line boundary, so it can keep a `(shown below)` line and cut the primer line it
+points at. The snippet's words would then be gone, and the line would say they are there.
+`render_search_results` checks the trimmed text (`_orphaned_block`): when the last block it kept
+has a `(shown below)` line and ends on a section line, that block's section lines get their own
+snippets back (`_with_snippets`), and the result is trimmed again. Only those lines are
+rewritten, so no git call runs a second time for the block's `snapshot:` line. The blocks above
+it are whole, so their primer lines are there. The rewritten block is the block as it was before
+this change, so the trim keeps at least what it kept then. The excerpt stays below the section
+lines: moving it up would put it ahead of the other section lines in every trimmed result,
+which is a change of what a trim keeps, not only of its size.
+
+This cut changes no ranking and no selection. It was replayed against the build before it, in
+two sets:
+
+- The 125 real first queries of the synthetic retrieval round on the 20,112-document store (the
+  bench spec 002 used for US-1, run on a copy of the corpus). The target document's block held
+  the answer value in 78 results, against 70 before, and the target was shown in 87, against 84.
+  No result lost either. 33 results were trimmed, against 37, and none kept a `(shown below)`
+  without its primer line. The median result went from 3,402 to 3,202 bytes.
+- In the repository: the 18 queries of `tests/fixtures/retrieval-eval/v1` on two temporary
+  stores, six searches (hit, redirect, miss, two scopes, role) and 101 searches on a store built
+  to be trimmed. The shown and cited ids were the same in all 143 results. In two trimmed ones
+  the cut fell right after a `(shown below)` line, and its snippets came back; in one of
+  them a section line that the earlier build cut was now shown. No result lost a line.
+
+`context_bytes` is smaller for such results from this change on, so telemetry rows before and
+after it are not directly comparable (`ENGMEM-SPEC.md` §5, search 6a).
 
 ## A redirect follows the chain
 

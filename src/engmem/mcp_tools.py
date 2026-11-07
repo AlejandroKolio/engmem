@@ -9,189 +9,114 @@ from engmem.sections import CANONICAL_ROLES
 
 TOOL_NAME = "engmem_search"
 TOOL_DESCRIPTION = (
-    "Search prior engineering session documents recorded by engmem — decisions, "
-    "pitfalls, and cold-start context captured from past work in this codebase. "
-    "Call this before planning or implementing any non-trivial engineering task, "
-    "with the key terms of the task as the query. Returns the best-matching "
-    "documents (or the sentence 'prior context: none found' if nothing matched) "
-    "plus a one-line summary of how many documents the store holds. Whenever a "
-    "draft session document exists for the current task, pass its id as "
-    "`session_id` — without it this retrieval cannot be tied to the document "
-    "that reuses it."
+    "Search prior engmem session documents: decisions, pitfalls and context from past work. "
+    "Call it before you plan a non-trivial task, with its key terms as `query`. Returns the "
+    "best matches, or 'prior context: none found', and a one-line store count. Once a draft "
+    "exists, pass its id as `session_id`."
 )
 
 ROLE_TOOL_NAME = "engmem_search_by_role"
 ROLE_TOOL_DESCRIPTION = (
-    "Retrieve a specific kind of section — e.g. Decision Log, Lessons Learned, "
-    "Production Considerations — from across the most relevant prior engineering "
-    "session documents, instead of the single best word-matching passage "
-    "`engmem_search` returns. Reach for this when the question is about a "
-    "document's STRUCTURE rather than its subject matter — questions like 'what "
-    "did we reject and why', 'what broke in production', or 'what should I have "
-    "known going in' — because a plain keyword search misses those: the matching "
-    "sections discuss different subjects and share no vocabulary with each other, "
-    "only their role in the document. Documents are still ranked by the query's "
-    "words, exactly as `engmem_search` ranks them; this tool then returns that "
-    "role's section from each of the top-ranked documents that actually has one. "
-    "A document lacking the requested role is skipped, never padded with the "
-    "wrong section. Call `engmem_search` first for an ordinary content question; "
-    "reach for this tool instead when the question names a kind of section, not "
-    "a topic. Whenever a draft session document exists for the current task, pass "
-    "its id as `session_id` — without it this retrieval cannot be tied to the "
-    "document that reuses it."
+    "Return one kind of section (`role`) from each top-ranked prior session document. Use it "
+    "when the question names a kind of section, not a topic ('what did we reject and why'); "
+    "for a topic, use `engmem_search`. `query` ranks documents as in `engmem_search`; a "
+    "document without the `role` section is skipped, never replaced. Once a draft exists, pass "
+    "its id as `session_id`."
 )
 
-# ---------------------------------------------------------------------------
-# write tools — the save half of the workflow for a shell-less runtime (Claude Desktop): create a
-# draft, finish it (draft -> active), mark an earlier document superseded.
 CREATE_DRAFT_TOOL_NAME = "engmem_create_draft"
 CREATE_DRAFT_TOOL_DESCRIPTION = (
-    "Create a new engmem session document as a draft — the first step of "
-    "`/engmem` in a runtime with no shell access. Writes `sessions/<id>.md` "
-    "with exactly the `content` given: the complete YAML front matter block "
-    "followed by the body. The front matter's `status` MUST be `draft`, its "
-    "`id` MUST equal the `id` argument, and its `mode` MUST be the configured "
-    "mode (`daily` or `research`; the `engmem` prompt names it) — this tool "
-    "refuses to create anything else and names the configured mode when it does. "
-    "A `research` draft also carries the `## Pre-reg` baseline, or "
-    "`baseline_unavailable: <reason>` when none could be had; a `daily` draft "
-    "needs no Pre-reg. NEVER overwrites: "
-    "if `sessions/<id>.md` already exists, the call fails and nothing is "
-    "written, regardless of what the existing file contains. Use "
-    "`engmem_complete_draft` to finish a draft this tool already created. The "
-    "result names the draft's version: keep it and pass it as `expected_version` "
-    "when you complete the draft. "
-    f"{drafts.REUSE_LOG_SHAPE}; the count reads cells by position, so a list or "
-    "another column order is not counted."
+    "Create a session document as a draft: the first step of `/engmem` without a shell. Writes "
+    "`content` as `sessions/<id>.md`. The front matter needs `status: draft`, `id` equal to the "
+    "`id` argument, and `mode` equal to the configured mode (`daily` or `research`); the "
+    "`engmem` prompt and a refusal name it. A `research` draft also needs a `## Pre-reg` "
+    "section or `baseline_unavailable: <reason>`. It never overwrites: if `sessions/<id>.md` "
+    "exists, nothing is written. The result names the draft's version; pass it as "
+    "`expected_version` to `engmem_complete_draft`. "
+    f"{drafts.REUSE_LOG_SHAPE}; a list or another column order is not counted."
 )
 
 COMPLETE_DRAFT_TOOL_NAME = "engmem_complete_draft"
 COMPLETE_DRAFT_TOOL_DESCRIPTION = (
-    "Finish an existing draft — the last step of `/engmem.save` (or "
-    "`/engmem.save.quick`) in a runtime with no shell access. Replaces "
-    "`sessions/<id>.md` with the complete new `content` (front matter + full "
-    "body): the ONLY sanctioned use is completing a document `engmem_create_draft` "
-    "made. This tool refuses to run unless `sessions/<id>.md` already exists AND "
-    "its current front matter `status` is `draft`, and refuses the new `content` "
-    "unless its front matter `status` is `active` and its `id` equals the `id` "
-    "argument. It will never touch a document that is already `active` or "
-    "`superseded` — a confused or repeated call cannot destroy work outside a "
-    "document still in draft. It also refuses `content` whose Reuse Log holds a "
-    f"row without a quoted span or with a classification other than {drafts.CLASSIFICATION_CHOICES}, "
-    f"a table whose columns are not in the order `{drafts.REUSE_LOG_TABLE_HEADER}`, or neither a "
-    "table row nor `Prior docs used: none.`, returning each defect so it can be fixed in the "
-    "same turn. A `Prior docs used: none.` in a session that read documents through engmem is "
-    "published with a warning naming them: tell the user, do not rewrite the document. "
-    "To mark a DIFFERENT, already-finished document as superseded by this one, call "
-    "`engmem_mark_superseded` instead — never pass that document's id here. "
-    "Always pass `expected_version`, the version "
-    "`engmem_create_draft` returned for this draft: if the draft changed since "
-    "then, the call is refused and its result carries the current draft and its "
-    "version — re-read it, carry its changes into `content`, and call again with "
-    "that version. Without `expected_version` nothing is written: the refusal "
-    "carries the current draft and its version the same way."
+    "Finish a draft from `engmem_create_draft`: the last step of `/engmem.save` or "
+    "`/engmem.save.quick` without a shell. Replaces `sessions/<id>.md` with `content`. Refused "
+    "unless the file has `status: draft` and `content` has `status: active` and the same `id`. "
+    "Also refused, with each defect named: a Reuse Log row without a quoted span or with a "
+    f"classification other than {drafts.CLASSIFICATION_CHOICES}, columns not in the order "
+    f"`{drafts.REUSE_LOG_TABLE_HEADER}`, or neither a row nor `Prior docs used: none.`. That "
+    "line in a session that read documents is published with a warning naming them: tell the "
+    "user, do not rewrite. To supersede another document, use `engmem_mark_superseded`; never "
+    "pass its id here. Always pass `expected_version` from `engmem_create_draft`. If the draft "
+    "changed, or the version is missing, nothing is written and the result gives the current "
+    "draft and version: carry its changes into `content` and call again with that version."
 )
 
 MARK_SUPERSEDED_TOOL_NAME = "engmem_mark_superseded"
 MARK_SUPERSEDED_TOOL_DESCRIPTION = (
-    "Mark an earlier, already-`active` engmem session document as superseded by "
-    "a newer one — the supersede-check step of `/engmem.save`. Takes only the "
-    "two ids involved, `id` (the earlier document) and `superseded_by` (the "
-    "document that replaces it); every other line of `sessions/<id>.md` — body, "
-    "other front matter fields — is left exactly as it was. Refuses to run "
-    "unless `sessions/<id>.md` exists and its current `status` is `active` (never "
-    "a draft, never an already-superseded document, and never itself: `id` and "
-    "`superseded_by` must differ). This does not require `superseded_by` to "
-    "already exist as a document — it is fine to mark the earlier document first. "
-    "Always pass `expected_version`, the earlier document's version your new document "
-    "was built on — the `<version>` of its `<id>@<version>` Reuse Log row, from the "
-    "`cite as` line of that search or `engmem_read`: if it changed since "
-    "then, or no version is given, nothing is written and the result carries its "
-    "current text and version — re-read it, check that your document still holds "
-    "against it, and call again with that version."
+    "Mark an earlier session document as superseded by a newer one: the supersede step of "
+    "`/engmem.save`. Changes only the `status` and `superseded_by` lines of `sessions/<id>.md`. "
+    "Refused unless that document has `status: active` and `id` differs from `superseded_by`; "
+    "`superseded_by` need not exist yet. Always pass `expected_version`: the version your new "
+    "document was built on, from its `<id>@<version>` Reuse Log row (a `cite as` line). If the "
+    "document changed, or the version is missing, nothing is written and the result gives its "
+    "current text and version: check that your document still replaces it, then call again "
+    "with that version."
 )
-
 
 RECORD_FEEDBACK_TOOL_NAME = "engmem_record_feedback"
 RECORD_FEEDBACK_TOOL_DESCRIPTION = (
-    "Record the USER's assessment of one document a search showed in this session: "
-    "`helped`, `not-applicable` or `harmful`, optionally with the decision it changed and "
-    "where that can be seen. Call it only with an assessment the user stated in this "
-    "conversation -- never your own judgement, and never to fill in one the user did not "
-    "give; an unassessed find is reported as unknown influence, which is not a failure. "
-    "Refuses unless `session_id` names a session document in the store and a search "
-    "attributed to it showed `doc_id`. Appends to the store's feedback log; no session "
-    "document is changed and the Gate 1 count does not read it."
+    "Record the USER's assessment of one document a search showed in this session. Call it only "
+    "with an assessment the user stated in this conversation, never your own judgement; an "
+    "unassessed find is not a failure. Refused unless `session_id` names a session document "
+    "and a search with that `session_id` showed `doc_id`. Changes no session document."
 )
-
 
 READ_TOOL_NAME = "engmem_read"
 READ_TOOL_DESCRIPTION = (
-    "Read one engmem session document by id, or by the `<id>@<version>` a search cites -- the "
-    "whole body, or with `role` only its sections of that role (e.g. 'decisions'). Use it to "
-    "load a document a search showed: the text it returns is counted toward this session's "
-    "observed cost, while a document opened any other way is not observed. A cited version "
-    "the document no longer has is read from its retained copy and says so; a draft is read "
-    "marked as not reviewed, with no reference to cite. Refuses an id with no document. "
-    "Whenever a draft session document exists for the current task, pass its id as "
-    "`session_id`, as on `engmem_search`."
+    "Read one session document by id, or by the `<id>@<version>` a search cites: the whole "
+    "body, or with `role` only the sections of that role. Use it to load a document a search "
+    "showed; only reads through this tool count toward the session's observed cost. An older "
+    "cited version is read from its retained copy and says so. A draft is marked as not "
+    "reviewed and has no reference to cite. Refused for an id with no document. Once a draft "
+    "exists, pass its id as `session_id`."
 )
 
 RECORD_BASELINE_TOOL_NAME = "engmem_record_baseline"
 RECORD_BASELINE_TOOL_DESCRIPTION = (
-    "Record the tokens and/or seconds your runtime REPORTED for the no-memory baseline call of "
-    "this session (the sub-agent of the Pre-reg step), with the runtime's id for that call when "
-    "it gives one. Only figures the runtime reported -- never an estimate or a count of your "
-    "own; with nothing reported, do not call it, and the cost summary shows the baseline as "
-    "missing. Refuses unless `session_id` names a session document in the store. Appends to "
-    "the store's cost log; no session document is changed."
+    "Record the tokens and/or seconds your runtime REPORTED for this session's no-memory "
+    "baseline call (the Pre-reg sub-agent). Only reported figures, never an estimate; if nothing "
+    "was reported, do not call it. Refused unless `session_id` names a session document. "
+    "Changes no session document."
 )
 
 
 _SESSION_ID_SCHEMA = {
     "type": "string",
-    "description": (
-        "The id of the draft session document this search belongs to. Pass it on "
-        "every search once the draft exists — it is the only field that ties this "
-        "retrieval to the document that later cites it. Omitted, the search is "
-        "logged unattributed and drops out of the analysis entirely. Leave it out "
-        "only when no draft has been created yet."
-    ),
+    "description": "Pass this task's draft id; without it the search is logged unattributed.",
 }
 
-# US-09/US-10: the same scope `engmem search --repo` / `--unscoped` / `--all-repos` take, under
-# the same rules
 _REPO_SCHEMA = {
     "type": "string",
-    "description": (
-        "Search only the records whose `repos` front matter names this repository "
-        "(case-insensitive). Title and tags never stand in for that link, so a record "
-        "with no `repos` is left out. For several repositories use `repos`. Omit every "
-        "scope argument to search the whole store."
-    ),
+    "description": "Only records whose `repos` names this repository (case-insensitive).",
 }
 _REPOS_SCHEMA = {
     "type": "array",
     "items": {"type": "string"},
     "minItems": 1,
     "description": (
-        "Search only the records linked to any of these repositories, each record once. "
-        "Same matching as `repo`, and joined with it when both are passed. Only when the "
-        "user asks to bring in other repositories; never empty."
+        "As `repo`, for several repositories. Only when the user asks for them."
     ),
 }
 _UNSCOPED_SCHEMA = {
     "type": "boolean",
     "description": (
-        "true: search only the records linked to no repository (no readable `repos` "
-        "value). Not combined with another scope argument."
+        "true: only records with no `repos`. Use no other scope argument."
     ),
 }
 _ALL_REPOS_SCHEMA = {
     "type": "boolean",
     "description": (
-        "true: search the whole store, as with no scope argument, but say so in a `scope:` "
-        "line and show each result's `repos:` links. Not combined with another scope argument."
+        "true: the whole store, with each result's `repos:`. Use no other scope argument."
     ),
 }
 _SCOPE_PROPERTIES = {
@@ -214,10 +139,7 @@ def tools_list() -> dict:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": (
-                                "Key terms describing the current task — the same "
-                                "words you would pass to `engmem search` on the CLI."
-                            ),
+                            "description": "Key terms of the current task.",
                         },
                         "session_id": _SESSION_ID_SCHEMA,
                         **_SCOPE_PROPERTIES,
@@ -233,24 +155,14 @@ def tools_list() -> dict:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": (
-                                "Key terms describing the current task — used to "
-                                "rank documents exactly as `engmem_search` does. "
-                                "Role filtering happens after ranking, not instead "
-                                "of it."
-                            ),
+                            "description": "Key terms of the current task.",
                         },
                         "role": {
                             "type": "string",
                             "enum": list(CANONICAL_ROLES),
                             "description": (
-                                "Which section role to retrieve from each "
-                                "top-ranked document — e.g. 'decisions' for a "
-                                "Decision Log, 'lessons' for Lessons Learned, "
-                                "'production' for Production Considerations. A "
-                                "document ranked by the query but lacking this "
-                                "role is skipped, not returned with a substitute "
-                                "section."
+                                "The section role, e.g. 'decisions' (Decision Log), "
+                                "'lessons' (Lessons Learned)."
                             ),
                         },
                         "session_id": _SESSION_ID_SCHEMA,
@@ -268,19 +180,13 @@ def tools_list() -> dict:
                         "id": {
                             "type": "string",
                             "description": (
-                                "The new document's id — must equal the filename "
-                                "stem and the front matter's own 'id' field, and "
-                                "must match <story-id>-<slug> or <YYYYMMDD>-<slug> "
-                                "(lowercase letters, digits, and hyphens only)."
+                                "<story-id>-<slug> or <YYYYMMDD>-<slug>: lowercase letters, "
+                                "digits and hyphens only."
                             ),
                         },
                         "content": {
                             "type": "string",
-                            "description": (
-                                "The complete file content to create: the YAML "
-                                "front matter block (--- ... ---) followed by the "
-                                "body. Front matter 'status' must be 'draft'."
-                            ),
+                            "description": "The complete file: YAML front matter, then the body.",
                         },
                     },
                     "required": ["id", "content"],
@@ -294,28 +200,19 @@ def tools_list() -> dict:
                     "properties": {
                         "id": {
                             "type": "string",
-                            "description": (
-                                "The id of the existing draft to finish — "
-                                "sessions/<id>.md must already exist with "
-                                "status: draft."
-                            ),
+                            "description": "The id of the draft to finish.",
                         },
                         "content": {
                             "type": "string",
                             "description": (
-                                "The complete replacement file content: front "
-                                "matter (with 'status: active' and the same 'id') "
-                                "followed by the full body sections."
+                                "The complete new file: front matter with `status: active` "
+                                "and the same `id`, then the full body."
                             ),
                         },
                         "expected_version": {
                             "type": "string",
                             "description": (
-                                "The draft's version as engmem_create_draft "
-                                "returned it, or as a refusal of this tool "
-                                "reported it after you re-read the draft. The "
-                                "call is refused, and nothing written, if the "
-                                "draft on disk is no longer that version."
+                                "The version engmem_create_draft or a refusal of this tool gave."
                             ),
                         },
                     },
@@ -330,27 +227,16 @@ def tools_list() -> dict:
                     "properties": {
                         "id": {
                             "type": "string",
-                            "description": (
-                                "The id of the earlier, currently-active document "
-                                "to mark superseded."
-                            ),
+                            "description": "The id of the earlier, active document.",
                         },
                         "superseded_by": {
                             "type": "string",
-                            "description": (
-                                "The id of the document that supersedes it."
-                            ),
+                            "description": "The id of the document that supersedes it.",
                         },
                         "expected_version": {
                             "type": "string",
                             "description": (
-                                "The earlier document's version your new "
-                                "document was built on, as the `cite as` "
-                                "line of that search or engmem_read named it, or "
-                                "as a refusal of this tool reported it after "
-                                "you re-read the document. The call is "
-                                "refused, and nothing written, if the "
-                                "document on disk is no longer that version."
+                                "The version a `cite as` line or a refusal of this tool gave."
                             ),
                         },
                     },
@@ -366,8 +252,7 @@ def tools_list() -> dict:
                         "session_id": {
                             "type": "string",
                             "description": (
-                                "The session document whose search showed the document -- "
-                                "the id passed as `session_id` on that search."
+                                "The `session_id` of the search that showed the document."
                             ),
                         },
                         "doc_id": {
@@ -377,20 +262,20 @@ def tools_list() -> dict:
                         "assessment": {
                             "type": "string",
                             "enum": list(feedback.Assessment),
-                            "description": "The user's assessment, as the user gave it.",
+                            "description": "As the user gave it.",
                         },
                         "decision": {
                             "type": "string",
                             "description": (
-                                "Optional: the decision the document changed, in the "
-                                f"user's words, at most {feedback.TEXT_MAX} characters."
+                                "Optional: the decision it changed, in the user's words, at "
+                                f"most {feedback.TEXT_MAX} characters."
                             ),
                         },
                         "source": {
                             "type": "string",
                             "description": (
-                                "Optional: where that can be seen, e.g. a commit, PR or "
-                                f"review, at most {feedback.TEXT_MAX} characters."
+                                "Optional: where that shows (commit, PR, review), at most "
+                                f"{feedback.TEXT_MAX} characters."
                             ),
                         },
                     },
@@ -405,24 +290,17 @@ def tools_list() -> dict:
                     "properties": {
                         "id": {
                             "type": "string",
-                            "description": (
-                                "The id of the document to read, as a search showed it, or "
-                                "the `<id>@<version>` its `cite as` line names."
-                            ),
+                            "description": "A document id, or `<id>@<version>`.",
                         },
                         "role": {
                             "type": "string",
                             "enum": list(CANONICAL_ROLES),
-                            "description": (
-                                "Optional: return only the document's sections of this role."
-                            ),
+                            "description": "Optional: only the sections of this role.",
                         },
                         "session_id": {
                             "type": "string",
                             "description": (
-                                "The id of the draft session document this read belongs to, "
-                                "as on `engmem_search`. Omitted, the read is counted "
-                                "unattributed and in no session's cost."
+                                "This task's draft id; without it the read is unattributed."
                             ),
                         },
                     },
@@ -452,7 +330,7 @@ def tools_list() -> dict:
                         "call_id": {
                             "type": "string",
                             "description": (
-                                "Optional: the runtime's id for that call, at most "
+                                "Optional: the runtime's id for the call, at most "
                                 f"{cost.CALL_ID_MAX} characters; a later report with the same "
                                 "id replaces this one."
                             ),
