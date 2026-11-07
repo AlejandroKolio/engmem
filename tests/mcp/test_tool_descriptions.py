@@ -11,8 +11,9 @@ from support.paths import TESTS_DIR
 
 from engmem import drafts, mcp_tools
 
-BASELINE_TOOLS_LIST_BYTES = 16087
-TOOLS_LIST_BYTES_CAP = BASELINE_TOOLS_LIST_BYTES * 60 // 100
+TOOLS_LIST_BYTES_AFTER_CUT = 9628
+CORRECTION_MARGIN_BYTES = 400
+TOOLS_LIST_BYTES_CAP = TOOLS_LIST_BYTES_AFTER_CUT + CORRECTION_MARGIN_BYTES
 SCHEMA_SNAPSHOT = TESTS_DIR / "fixtures" / "mcp-tool-schemas.json"
 
 
@@ -28,7 +29,9 @@ def _wire_bytes(message: dict) -> int:
     return len(json.dumps(message).encode("utf-8"))
 
 
-def test_tools_list_is_at_most_sixty_percent_of_its_size_before_the_cut():
+def test_tools_list_is_at_most_its_size_after_the_cut_plus_a_400_byte_correction_margin():
+    """A correction spends the margin; past it, a new sentence costs a cut elsewhere, and the
+    cap is never raised to fit (contracts/mcp-server.md)."""
     assert _wire_bytes(mcp_tools.tools_list()) <= TOOLS_LIST_BYTES_CAP
 
 

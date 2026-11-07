@@ -1281,6 +1281,54 @@ def test_related_line_reflects_the_target_documents_status(
         assert related_line.count("(") == paren_count
 
 
+def test_a_related_line_does_not_repeat_the_path_its_own_block_shows(tmp_path):
+    """A successor lists the document it replaced, and that one's successor is the block itself:
+    its path is already on the block's `path:` line."""
+    docs = _store_with(
+        tmp_path,
+        ("widget-cache-new", "active", "", "widget-cache-old, widget-cache-two", "Rule."),
+        ("widget-cache-old", "superseded", "widget-cache-new", "", "STALE eviction rule."),
+        ("widget-cache-two", "superseded", "widget-cache-three", "", "STALE eviction rule."),
+        ("widget-cache-three", "active", "", "", "Another rule."),
+    )
+
+    text = render_search_results(search(docs, "WidgetCache"), docs)
+
+    block = text.split("\n\n")[0]
+    assert block.startswith("### widget-cache-new ")
+    related = next(line for line in block.splitlines() if line.startswith("related:"))
+    assert related.startswith("related: widget-cache-old (superseded by widget-cache-new), ")
+    assert block.count("widget-cache-new.md") == 1
+    assert "widget-cache-two (superseded by widget-cache-three, " in related
+    assert related.endswith("widget-cache-three.md)")
+
+
+def test_a_snapshot_part_without_a_repository_or_a_reason_is_never_folded(monkeypatch):
+    """Only named repositories unknown for one reason share a part; a legacy anchor, which
+    names none, and two states with no reason at all keep their own."""
+    from engmem import output
+    from engmem.provenance import RepoSnapshot, SnapshotState
+
+    unknown = SnapshotState.UNKNOWN
+    found = [
+        RepoSnapshot("svc-a", "", unknown, reason="same"),
+        RepoSnapshot("", "abc1234", unknown, reason="same", legacy=True),
+        RepoSnapshot("svc-x", "", unknown, reason="same"),
+        RepoSnapshot("svc-y", "", unknown, reason="same"),
+        RepoSnapshot("svc-b", "abc1234", SnapshotState.MATCH, current="abc1234" + "0" * 33),
+        RepoSnapshot("svc-c", "def5678", SnapshotState.DIFFERS, current="1" * 40),
+    ]
+    monkeypatch.setattr(output, "snapshots", lambda doc, checkout: found)
+
+    line = output._snapshot_line(_bare_doc(), None)
+
+    assert line == (
+        "snapshot: svc-a: unknown, same | verified_at_commit abc1234: unknown, same | "
+        "svc-x, svc-y: unknown, same | svc-b abc1234: same commit as HEAD | "
+        "svc-c def5678: HEAD is now 1111111, re-check"
+    )
+
+
 def test_a_long_entities_list_is_capped_in_the_backfill_preview():
     """The preview is what a human reads before typing yes; a whole `Search Keywords` section
     can yield hundreds of terms, and one 5000-character line is not something anyone reads."""

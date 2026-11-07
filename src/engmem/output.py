@@ -139,6 +139,13 @@ def _section_line(section_hit: SectionHit, primer: str = "") -> str:
     return f"  {locator}   {size_kb:.1f} KB   {shown}"
 
 
+def _related_part(safe_rid: str, notes: list[str], target: Doc, doc: Doc) -> str:
+    """`id (notes, path)`, without the path the block's own `path:` line already shows."""
+    if target.path != doc.path:
+        notes = [*notes, _escape_controls(target.path)]
+    return f"{safe_rid} ({', '.join(notes)})" if notes else safe_rid
+
+
 def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
     if not doc.related:
         return ""
@@ -155,14 +162,12 @@ def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
             if successor is None:
                 parts.append(f"{safe_rid} (superseded)")
             else:
-                parts.append(
-                    f"{safe_rid} (superseded by {_escape_controls(successor.id)}, "
-                    f"{_escape_controls(successor.path)})"
-                )
+                notes = [f"superseded by {_escape_controls(successor.id)}"]
+                parts.append(_related_part(safe_rid, notes, successor, doc))
         elif related_doc.status == "draft":
-            parts.append(f"{safe_rid} (draft, {_escape_controls(related_doc.path)})")
+            parts.append(_related_part(safe_rid, ["draft"], related_doc, doc))
         else:
-            parts.append(f"{safe_rid} ({_escape_controls(related_doc.path)})")
+            parts.append(_related_part(safe_rid, [], related_doc, doc))
     if len(doc.related) > RELATED_MAX:
         parts.append(f"+{len(doc.related) - RELATED_MAX} more")
     return "related: " + ", ".join(parts)
@@ -183,8 +188,14 @@ def _anchor_shown(anchor: str) -> str:
     return shown if len(shown) <= ANCHOR_DISPLAY_MAX else shown[: ANCHOR_DISPLAY_MAX - 1] + "…"
 
 
-def _snapshot_part(snapshot: RepoSnapshot) -> str:
-    """Says which commit matches which, and never that the text is true (AC-11.1)."""
+def _repo_subject(snapshot: RepoSnapshot) -> str:
+    subject = _escape_controls(snapshot.repo)
+    return subject + (f" {_anchor_shown(snapshot.anchor)}" if snapshot.anchor else "")
+
+
+def _snapshot_part(snapshot: RepoSnapshot, neighbours: tuple[RepoSnapshot, ...] = ()) -> str:
+    """Says which commit matches which, and never that the text is true (AC-11.1);
+    `neighbours` are repositories unknown for the same reason, named in the same part."""
     if snapshot.legacy:
         subject = "verified_at_commit"
         if snapshot.anchor:
@@ -192,9 +203,7 @@ def _snapshot_part(snapshot: RepoSnapshot) -> str:
     elif not snapshot.repo:
         subject = "verified_at"
     else:
-        subject = _escape_controls(snapshot.repo)
-        if snapshot.anchor:
-            subject += f" {_anchor_shown(snapshot.anchor)}"
+        subject = ", ".join(_repo_subject(each) for each in (snapshot, *neighbours))
     if snapshot.state is SnapshotState.MATCH:
         return f"{subject}: same commit as HEAD"
     if snapshot.state is SnapshotState.DIFFERS:
@@ -230,10 +239,22 @@ def _covered_part(covered: CoveredCheck | None) -> str:
 
 
 def _snapshot_line(doc: Doc, checkout: SessionCheckout | None) -> str:
-    """One part per repository, so a check of one never reads as a check of another (AC-11.4);
-    nothing for a record that names no repository and carries no anchor."""
-    parts = [_snapshot_part(snapshot) for snapshot in snapshots(doc, checkout)]
+    """A part per repository or per run of neighbours unknown for one reason (AC-11.4); nothing
+    for a record that names no repository and carries no anchor."""
+    groups: list[list[RepoSnapshot]] = []
+    for snapshot in snapshots(doc, checkout):
+        if groups and _unknown_alike(groups[-1][0], snapshot):
+            groups[-1].append(snapshot)
+        else:
+            groups.append([snapshot])
+    parts = [_snapshot_part(first, tuple(rest)) for first, *rest in groups]
     return "snapshot: " + " | ".join(parts) if parts else ""
+
+
+def _unknown_alike(first: RepoSnapshot, snapshot: RepoSnapshot) -> bool:
+    """Two named repositories, both unknown for one reason: the reason is printed once."""
+    named = bool(first.repo and snapshot.repo)
+    return named and first.reason is not None and first.reason == snapshot.reason
 
 
 def _scope_name(name: str) -> str:

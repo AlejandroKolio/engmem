@@ -63,9 +63,26 @@ it, so no behaviour here keys on the bridge.
 
 A client that loads tools eagerly sends the whole `tools/list` result in every turn of every
 session, not only during `/engmem`. Before this rule the `tools/list` result was 16,087 bytes
-as JSON (`json.dumps(tools_list())`, without the JSON-RPC envelope).
-`tests/mcp/test_tool_descriptions.py` caps it at 60 % of that number
-(`BASELINE_TOOLS_LIST_BYTES`).
+as JSON (`json.dumps(tools_list())`, without the JSON-RPC envelope). The cut in #80 brought it
+to 9,628 bytes.
+
+**The cap is the size after the cut plus a 400-byte margin.**
+`tests/mcp/test_tool_descriptions.py` caps the result at 10,028 bytes
+(`TOOLS_LIST_BYTES_AFTER_CUT` plus `CORRECTION_MARGIN_BYTES`), and the test's name states the
+rule. A correction may spend the margin. Once it is spent, a new sentence has to be paid for by
+a cut somewhere else, and the cap is never raised to fit one. #80 capped the result at 60 % of
+16,087, which is 9,652 bytes and left 24 bytes of room, so a one-word correction would already
+fail the test. The owner asked for this policy to be decided with the rest of these questions.
+These were the other two options:
+
+- Keep the ratchet. It blocks even a needed correction, so the cap would get raised every time
+  one comes along, and a cap that is raised with every change stops holding anything.
+- Give each tool its own budget. That means eight numbers to keep in step with the eight
+  descriptions, and a correction in one tool could not use room another tool no longer needs.
+  The total is what a client pays every turn, so the total is what is capped.
+
+400 bytes is about four sentences of the size the descriptions use, 4 % of the total. That is
+enough for a real correction and too little for the reasons to come back.
 
 Each description keeps what a model needs to call the tool correctly: what the tool does, when
 to use it, what each argument means, the refusals to expect, and what the result contains. The

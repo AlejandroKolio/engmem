@@ -431,6 +431,42 @@ def test_ac_11_4_an_anchor_for_an_unlinked_repository_is_still_shown(
     )
 
 
+def test_ac_11_4_neighbouring_repositories_unknown_for_one_reason_share_one_part(
+    tmp_path, store, monkeypatch, capsys
+):
+    """Each repository is still named, with its anchor, and the reason is printed once."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    sha_a, sha_b = "a" * 40, "b" * 40
+    _add(store, "2406-bare", repos=f"[{ALPHA}, {BETA}]")
+    _add(store, "2407-anchored", repos=f"[{ALPHA}, {BETA}]",
+         verified_at=f"{{{ALPHA}: {sha_a}, {BETA}: {sha_b}}}")
+
+    out = _cli(store, capsys)
+
+    assert _snapshot_line(out, "2406-bare") == (
+        f"snapshot: {ALPHA}, {BETA}: unknown, no anchor recorded"
+    )
+    assert _snapshot_line(out, "2407-anchored") == (
+        f"snapshot: {ALPHA} aaaaaaa, {BETA} bbbbbbb: unknown, {_outside(Path.cwd())}"
+    )
+
+
+def test_ac_11_4_only_neighbours_share_a_part_so_the_repository_order_holds(
+    tmp_path, store, monkeypatch, capsys
+):
+    gamma = "svc-gamma"
+    alpha, head = _checkout(tmp_path, ALPHA)
+    _add(store, "2408-three", repos=f"[{BETA}, {ALPHA}, {gamma}]",
+         verified_at=f"{{{ALPHA}: {head}}}")
+    monkeypatch.chdir(alpha)
+
+    assert _snapshot_line(_cli(store, capsys), "2408-three") == (
+        f"snapshot: {BETA}: unknown, no anchor recorded | {ALPHA} {head[:7]}: same commit as "
+        f"HEAD | {gamma}: unknown, no anchor recorded"
+    )
+
+
 def test_a_successor_block_shows_its_own_snapshot(tmp_path, store, monkeypatch, capsys):
     alpha, head = _checkout(tmp_path, ALPHA)
     monkeypatch.chdir(alpha)
@@ -469,7 +505,7 @@ def test_legacy_anchor_with_exactly_one_repository_becomes_its_anchor(
     ),
     pytest.param(
         f"[{ALPHA}, {BETA}]",
-        f"snapshot: {ALPHA}: unknown, no anchor recorded | {BETA}: unknown, no anchor recorded | "
+        f"snapshot: {ALPHA}, {BETA}: unknown, no anchor recorded | "
         "verified_at_commit abc1234: unknown, the record names 2 repositories",
         id="two-repositories",
     ),

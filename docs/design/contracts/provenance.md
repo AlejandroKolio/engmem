@@ -219,10 +219,30 @@ someone re-checks the decision and writes the new commit into `verified_at`, whi
 
 One `snapshot:` line per block, after `path:` (and after `repos:` in a scoped search), in every
 hit, successor and `--role` block, on both channels through `search_report.compose`. The parts
-are joined by ` | `, one per repository in `repos` order, then repositories named only in
-`verified_at`, then an unattributed old anchor. One line per block, not one per repository:
+are joined by ` | `, one per repository, or one per run of neighbours unknown for one reason
+(below), in `repos` order, then repositories named only in `verified_at`, then an unattributed
+old anchor. One line per block, not one per repository:
 a record linked to two repositories costs one line, and the two states still read separately
 (AC-11.4).
+
+**Neighbours unknown for one reason share a part.** When repositories next to each other on the
+line are both `unknown` for the same reason, the reason is printed once:
+`svc-a, svc-b: unknown, no anchor recorded`, or `svc-a abc1234, svc-b def5678: unknown, no
+checkout of it here, engmem's working directory is in …/x` (`_unknown_alike`). Each repository
+is still named, with its anchor when it has one, and the order stays the `repos` order, because
+only neighbours are joined. A part that names no repository (the old single anchor, or
+`verified_at` alone) is never joined, and `same commit as HEAD` or `HEAD is now …` has no reason
+to share. The owner asked for the repeated reason to be decided by measurement, on the 125
+real first queries of the synthetic retrieval round against the 20,112-document store and on the
+in-repository replay (`contracts/output.md`, "Measured, and kept or cut"). Joining neighbours on
+its own put the answer value into the target's block in 81 results instead of 78, with 28
+trimmed results instead of 33 and no result losing its target or its value.
+
+Printing the reason once per result, the other option, gave the same 81 and 28 on that bench and
+saved fewer bytes: 404,125 for the 125 results against 402,962, from 405,857 before. It was also
+rejected because a block read alone would lose the reason. A block quoted somewhere else would
+say `unknown` without saying why, and AC-11.3 holds per block. Joining inside one block keeps
+every block complete.
 
 A record that names no repository and carries no anchor gets no line: there is no repository
 to state anything about, and an identical "unknown" on every such record would be noise.

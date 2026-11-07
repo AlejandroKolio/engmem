@@ -125,7 +125,9 @@ Every hit, successor and `--role` block of a record that carries an anchor or a 
 has a `snapshot:` line after `path:` (and after `repos:` when scoped): per repository, the
 recorded commit next to the current checkout's `HEAD`, as `same commit as HEAD`,
 `HEAD is now <sha>, re-check`, or `unknown, <reason>` (`_snapshot_line`; the rules are
-`contracts/provenance.md`). A record with neither gets no line.
+`contracts/provenance.md`). Neighbouring repositories unknown for the same reason share one
+part, `svc-a, svc-b: unknown, <reason>` (`contracts/provenance.md`, "Where it is shown"). A
+record with neither gets no line.
 
 When the commits differ and the record lists `covers_files`, US-12 replaces the bare
 `re-check` with the result of comparing those files (`_covered_part`): `covered files
@@ -402,6 +404,77 @@ two sets:
 
 `context_bytes` is smaller for such results from this change on, so telemetry rows before and
 after it are not directly comparable (`ENGMEM-SPEC.md` §5, search 6a).
+
+## Measured, and kept or cut
+
+After #80 four parts of a hit block were still open questions. The owner asked for each one to
+be decided by measurement: cut a part only when no result loses its answer or its target and
+no reader loses what it reads, and then only when the cut saves bytes. Each option was measured
+on its own against the build of #80, in two sets:
+
+- The bench: the 125 real first queries of the synthetic retrieval round on a copy of the
+  20,112-document store, the same bench as above. Before: 405,857 bytes in all, median 3,202,
+  the target shown in 87 results, the answer value in the target's block in 78, 33 trimmed.
+- The in-repository replay: the same 143 searches as above.
+
+| Option | Value in the target's block | Trimmed | Bytes | Decision |
+|---|---|---|---|---|
+| a `related:` path the block already shows, left out | 86 | 23 | 401,803 | cut |
+| `snapshot:` neighbours with one reason share a part | 81 | 28 | 402,962 | cut (`provenance.md`) |
+| `path:` relative to the store | 87 | 23 | 386,113 | kept absolute |
+| `path:` left out | 87 | 11 | 367,047 | kept |
+| a table snippet shows its first data row | 78 | 33 | 405,812 | kept |
+| `matched:` without its section part | 85 | 23 | 388,362 | kept |
+| `matched:` names the section `first section` | 83 | 33 | 400,885 | kept |
+
+No option lost a target or a value in any result. With both cuts the bench gives 398,229 bytes,
+median 3,148, the target in 87 results and its value in all 87, and 17 trimmed. The replay
+shows the same documents, cites the same ids and lists the same sections in all 143 results; 12
+of them changed, all in the two cut lines, from 390,542 to 389,802 bytes in all.
+
+**A `related:` entry never repeats the block's own path.** A successor usually lists the record it
+replaced, and that record's successor is the block itself:
+`related: v1 (superseded by v2, /…/sessions/v2.md)` under `path: /…/sessions/v2.md`. The path
+is left out when it is the one on the block's `path:` line (`_related_part`):
+`related: v1 (superseded by v2)`. In the same block, a few lines up, so nothing is lost even
+when the block is read alone. On the bench 83 related entries were such repeats.
+
+**The `path:` line stays, absolute.** It took 51,451 of the 405,857 bytes, and its length
+depends on where the store is. Who reads it:
+
+- The current templates read a found document by id (`engmem read`, `engmem_read`), and so do
+  the released templates of 0.1.3 and 0.1.4. Those of 0.1.1 and 0.1.2 say "load" without a
+  command, so an agent opens the file by its path. Every template before 0.1.5 is workflow 0,
+  which doctor reports as incompatible with the install command to run (`contracts/doctor.md`).
+- The paste bridge. A person runs `engmem search` and pastes the result into a chat whose agent
+  has no shell. That agent cannot run `engmem read`, and neither it nor the person knows the
+  store's directory without `engmem store show`. The absolute path is what either of them
+  opens. A path relative to the store, or none, takes that away.
+- An MCP client with file tools (Claude Code, Codex) can open the path instead of calling
+  `engmem_read`. The templates ask for `engmem_read`, and a file opened directly stays possible
+  and unobserved ("Observed cost").
+- Scoped and `--all-repos` results show the same line. Nothing in engmem parses it: the audit,
+  `tools/` and telemetry read ids.
+
+With the two cuts above, every shown target already carries its value, so a shorter path could
+only save bytes, at the cost of the paste-bridge reader.
+
+**A table snippet keeps its header.** All 33 section lines on the bench that open with a table
+open with the Reuse Log's own table, `| prior-doc | taken | impact | classification |`, and 2
+of them are in the target's block. Showing the first data row instead kept 78 values and saved 45
+bytes over the 125 results. It gains nothing, and the header is what names the columns of the
+row shown after it. Like US-1, this would change the text an agent judges by, so only the
+bench decides it, and the bench shows no gain.
+
+**`matched:` keeps its section part.** It took 22,423 bytes on the bench. It always names the
+section shown first below it (`scoring` names only the winning section), so it never changes
+which block comes first or which section line leads, and dropping it changes no ranking. Its
+words are not all elsewhere: 714 matched words on the bench appear in no other part of a
+`matched:` line. With the two cuts above both options keep the value in all 87 results, so
+neither adds an answer. Dropping the part (5.0 % fewer bytes, 11 trimmed) loses those words.
+Naming it `first section` keeps them (1.3 % fewer bytes, 11 trimmed). But it puts a position
+where a name was, and a trim that cuts the block after its `matched:` line would leave the
+position pointing at nothing.
 
 ## A redirect follows the chain
 
