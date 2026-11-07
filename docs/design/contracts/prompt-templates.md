@@ -25,6 +25,14 @@ has broken the experiment twice over: it contaminates the baseline with the user
 thinking, and it turns the capture ritual into a precondition for getting an answer.
 Recording *which* source was used is what keeps the two cases distinguishable later.
 
+A self-written baseline is not blind either: project instructions, memory files and the
+conversation can already be in the agent's context before `/engmem` runs. The protocol stays as
+it is (2026-11-07). The agent writes the baseline from the task description only, and says on
+the `pre-reg source: self (no sub-agent available)` line, after its closing bracket, whether
+project instructions or memory were already in context. The reviewer then knows how blind the
+baseline was. No code parses the line: `gate1_audit` looks for the `## Pre-reg` section, and the
+review reads the line by its prefix, so the prefix stays exactly as it was.
+
 ## The mode is read first, and recorded once (US-08)
 
 `engmem.start.md` opens with step 0, before the Pre-reg it decides: the mode comes from the first
@@ -44,9 +52,10 @@ numbers other documents cite.
 
 The draft's YAML shows `mode: <daily|research from step 0>`, not a real value: a placeholder
 that is a valid word would be copied as a claim. `engmem draft create` and
-`engmem_create_draft` refuse this one and name the configured mode. A document written by hand
-reaches no such check; there it is an unrecognized mode and counts nowhere
-(`contracts/mcp-server.md`, "A hand-written document is unguarded").
+`engmem_create_draft` refuse this one and name the configured mode, and the comment beside it
+says so. It said a copied placeholder "counts nowhere" until 2026-11-07, which is now true only
+of a document written by hand. That reaches no such check; there it is an unrecognized mode and
+counts nowhere (`contracts/mcp-server.md`, "A hand-written document is unguarded").
 
 The mode is written once, into the draft, and the save templates copy `mode` and
 `baseline_unavailable` unchanged — never added, edited or dropped, whatever the saved mode is by
@@ -56,6 +65,76 @@ every surface"). So the full save states the refusals once, for both, and asks n
 on the shell. Both save templates carry the Pre-reg over only when
 the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
 short save is the daily path the story is about.
+
+## Each target gets the branches it can take (2026-11-07)
+
+A template is written once and delivered two ways. `engmem install` writes it as a file for
+claude, copilot-ide, copilot-cli and codex. The MCP server returns it from `prompts/get`, to any
+client that connects, Claude Desktop, ChatGPT and Codex among them. Both pass it through
+`template_render.render` first. That function leaves out a marked branch only when the target
+can never take it. A branch is dropped only when it is provably never used. Otherwise the cost is
+an agent that has no instruction for the situation it is in.
+
+**What each target cannot take.**
+
+| Branch | File copy | MCP prompt |
+|---|---|---|
+| shell, POSIX and PowerShell | kept | kept |
+| MCP tools | kept | kept |
+| paste bridge, no-shell fallbacks | kept | kept |
+| step 0, "the line above this template" (`mcp`) | dropped | kept |
+| step 0, `engmem mode show` and the mode file (`files`) | kept | dropped |
+| step 1, the Pre-reg (`research`) | kept | dropped from a daily start prompt |
+
+- **A file copy is never the MCP prompt**, so the sentence about the line above it is never
+  true there. It cannot know the mode either: `engmem mode set` changes the mode after install,
+  and nothing rewrites the copy then. So it keeps step 0's ways to find the mode, and step 1.
+- **A file copy keeps the MCP branch.** Claude Code, VS Code and Codex can all have engmem's MCP
+  server as well as a shell. The templates prefer the MCP tool for writes when both are there.
+- **No copy drops a shell branch by the install-time OS.** One `.github/prompts/` is committed and
+  read on every teammate's OS. A home directory can be shared between machines. Claude Code
+  on Windows runs a POSIX shell, and WSL and Git Bash are POSIX shells on Windows. The install-time
+  OS proves nothing about the shell that runs the command.
+- **The MCP prompt keeps the shell and the paste bridge.** A client of the MCP server can have a
+  shell too: Codex, or Claude Code and VS Code with engmem added as a server. Then the shell is
+  the only way to read the clock for `capture_minutes`. A `--read-only` server lists only the
+  searches, so its client has no MCP tool to create or complete a draft. Some clients also let
+  the user turn single tools off. So engmem's MCP tools may be missing, and the no-draft and
+  paste branches stay.
+- **The MCP start prompt knows the mode.** `_mode_line` reads it on every `prompts/get` and
+  writes it as the first line. Step 0's other ways to find the mode are then never taken. A
+  daily start prompt also leaves out step 1, which a daily session skips. The read that names
+  the mode on the first line also decides the rendering, so the two cannot disagree. An
+  unreadable mode is daily in both. The save prompts are rendered without a mode: a save
+  follows the draft's mode, and the saved mode may have changed since the draft was created.
+  For that reason a `research` branch is allowed only in the start template.
+
+**The mechanism.** A branch is a run of whole lines between two marker lines,
+`<!-- engmem-branch: files -->`, `mcp` or `research`, and `<!-- engmem-branch: end -->`. Markers
+are matched only as a whole line. They do not nest, and an unknown name, an unclosed branch or a
+stray end raises a `ValueError` that names the line. A broken marker otherwise drops or keeps a
+branch in every copy without a word. A rendered copy never holds a marker line. The source stays
+readable as one document, and the tests that read the source still see every branch. The MCP
+server renders before it puts the user's `$ARGUMENTS` text in, so a marker in that text is never
+parsed.
+
+**Stamps and upgrade.** The stamp's digest covers the body install writes, so it covers the
+rendered copy (`contracts/install.md`, "An installed template is engmem's until someone edits
+it"). An unedited copy from an earlier release still matches its own stamp's digest, so the next
+install replaces it with the rendered one. A user edit still breaks that match and is kept as a
+conflict. `RELEASED_DIGESTS` lists the bodies v0.1.1–v0.1.4 wrote. They stay frozen: rendering
+changes only what this version writes. `template_stamps.WORKFLOW` stays 1. Rendering drops no
+step a target can take, and it adds no step the runtime refuses.
+
+**What every copy must still hold.** The guards on the save templates hold on every copy,
+since the save templates carry no marker: the short capture's example record, the lesson block,
+the clock readings. The session id inside each search bullet, the no-draft branch first, and the
+other step 3–6 guards are outside any branch, so they hold on every start copy too. The guards on
+step 1, such as the Pre-reg source line and the single baseline path, read the source. Every
+copy that keeps step 1 is rendered from that source, and a daily MCP prompt has no step 1 to
+guard. `tests/test_template_render.py` checks each target's diff from the full source: a file
+copy loses only the `mcp` lines, and an MCP prompt only the `files` lines and, when daily, the
+`research` lines.
 
 ## Templates may not grow the tool
 
@@ -85,7 +164,9 @@ The start and save templates create and complete the session document only throu
 Neither tells an agent to write `sessions/<id>.md` itself, even when it could. A plain file
 write skips the checks those commands make (`contracts/mcp-server.md`, "One writer for every
 surface"), and the guarantee then depended on which client happened to run the task. The
-start draft records the working repository in `repos` next to `id` and `mode`.
+start draft records the working repository in `repos` next to `id` and `mode`. It spells it as
+the full save does, the checkout's top-level directory name, since `engmem search --repo` filters
+on that spelling and the agent has seen no document yet to copy one from.
 
 When neither channel is there, or a write fails for a reason the document cannot fix, there is
 no silent fallback:
@@ -140,6 +221,9 @@ orphan (`orphan_session_ids` / `orphan_row_count`, printed by `tools/gate1_repor
 no id at all is simply absent from that join (`telemetry.read_session_rows` keeps only rows
 naming a non-blank `session_id`).
 
+The no-draft branch stays first, for the reason in this section's first paragraph (review of
+2026-11-07).
+
 Nothing about the id is enforced — `session_id` stays optional in the MCP schema and
 `--session` optional on the CLI, because a search before any draft exists is legitimate. The
 MCP tool surface asks for it in three places (`contracts/mcp-server.md`, "`session_id`:
@@ -150,12 +234,36 @@ unattributed search with a trailing `note: unattributed search — pass ...` lin
 (`telemetry.UNATTRIBUTED_CLI_NOTE` / `UNATTRIBUTED_MCP_NOTE`; the recorded reversal in that
 same section), a reminder at the point of use that the template's wording cannot give.
 
+## The start's budget: two searches, five documents (2026-11-07)
+
+`engmem.start.md` step 3 runs one more search, with other terms and the same session id, when no
+result of the first is relevant: a document that says the same thing in other words is a
+wording gap that lexical search cannot close, and synonyms or the component and file names can.
+It stops at two searches before step 4, so the retry cannot turn into a search loop whose output
+is paid for in context.
+
+Step 4 loads at most 5 documents in all, `related` documents included: the found ones first,
+then their related ones in the order the found documents list them. A `related` list has no
+length limit, so the old rule of 3 found documents plus each one's related documents had no
+total, and a rich store pulled 3 + 3×N documents into every start. The cap is stated once, so no
+wording leaves a related read uncounted.
+
+Step 3 keeps the default, the whole store, with its one-sentence reason, and names the scope
+options in one line: `--repo` (repeatable), `--unscoped`, `--all-repos`, and the MCP tool's
+`repo`, `repos`, `unscoped` and `all_repos`. Every `/engmem` reads that paragraph and few use
+it, so what each option does is left to `engmem search --help` and the tool's own schema
+descriptions (`mcp_tools.tools_list`). The warning that a scoped miss says nothing about the rest
+of the store stays, because that is the misreading a scoped result invites.
+
 ## A search over MCP is still `shell`
 
 The Search Trace records how the search was *executed*, not how it travelled. An agent
 calling the `engmem_search` MCP tool ran the search itself, and writes the same telemetry
 line as a shell invocation, so both are `shell`. Only a human pasting output back is
-`paste`, and only a search that never happened is `miss`.
+`paste`, and only a search that never happened is `miss`. A search that found nothing is still
+`shell` or `paste`: telemetry already records the result (`prior context: none found`), and the
+Trace records the execution path. The start template says "whatever it found" and "regardless
+of the result" on the two bullets, and no longer spells out this reason.
 
 ## The short capture keeps the schema it has
 
@@ -287,13 +395,55 @@ reference of the response it came from, the read's or the search's, in `/engmem.
 `/engmem.save.quick` alike: a read can deliver a later version than the search showed
 (ARCH-001).
 
-The `context_bytes` and `answer_steps` front-matter fields stay, as the agent's own count. The
-templates call `context_bytes` that and point at `engmem cost summary` for what engmem measured;
-nothing reads the field as a measurement. A baseline figure goes to `engmem cost record-baseline`
-(MCP: `engmem_record_baseline`) only when the runtime reported it, after the draft exists,
-because the record needs the session document; `baseline_tokens` in front matter keeps its old
-rule. With nothing reported the template records nothing, and the report shows the baseline as
-missing data.
+`context_bytes` used to be the agent's own count of what it pulled into context. A model cannot
+count bytes, so the field now holds engmem's measurement (next section). A document saved with
+templates from before this change keeps the old count, and nothing in the code reads the field.
+A baseline figure goes to `engmem cost record-baseline` (MCP: `engmem_record_baseline`) only
+when the runtime reported it, after the draft exists, because the record needs the session
+document. With nothing reported the template records nothing, and the report shows the baseline
+as missing data.
+
+## What the save takes from engmem (2026-11-07)
+
+`/engmem` used to ask the agent to remember numbers and the Search Trace path until
+`/engmem.save`. Nothing wrote them down, so context compaction, a crash or a save in another
+conversation lost them, or the agent invented them. The save now takes from engmem what engmem
+can derive, and writes what only the agent knows only while the agent still has it.
+
+Derived, with a shell, from `engmem cost summary --session <id>` at save:
+
+- **`context_bytes`** is the bytes on its `total:` line: what this session's searches and reads
+  through engmem delivered. A file opened directly is not in it, and the report says so.
+- **`baseline_tokens`** is the sum of the tokens on the lines under its `baseline call` line,
+  as the client reported them to `engmem cost record-baseline`. Each line is one call the
+  no-memory path made: a second report of the same call id replaces its line
+  (`cost.summarize`), so a retried sub-agent adds a line, and both calls were spent on the
+  baseline. The lines keep the order each call id first appeared, so no line can be read as the
+  latest. A line with seconds only adds nothing; with no tokens on any line, the field is
+  omitted. The cost record is authoritative: `cost.jsonl` holds the figure, and the
+  front-matter field is a copy for a reader of the document. `/engmem` names only that one way
+  to record it.
+- **The Search Trace** is `shell` when its `search responses` count is above 0, or `paste`
+  when the user pasted the output. A search, hit or miss, writes one delivery attributed to the
+  session (`search_report.compose`), so a count above 0 proves a search ran. A count of 0 proves
+  nothing: a search leaves no attributed delivery when it ran without `--session` because no
+  draft existed, when `record_delivery` failed (the output says `note: cost not recorded`), or
+  on a `--read-only` MCP server, which records no cost (`mcp_server.py`). At 0 the agent writes
+  the value it still knows, else the absence marker below; it never infers `miss` from the
+  count. A remembered `shell` with no telemetry row then still reaches `gate1_audit`'s
+  cross-check (`unreconstructable_docs`), so that failure stays loud.
+
+Known only to the agent: `answer_steps`, `answer_tokens`, and whether the user pasted the
+output (`paste`). Each is written only if the agent still has it, and omitted otherwise; never
+reconstructed. A Search Trace the agent can neither derive nor recall reads
+`not stated in the available material.`, the absence marker both save templates already use, so
+every save still carries the section. The audit reads no trace value from that line.
+
+There is no MCP tool that shows the cost summary, and adding one would grow the tool. An agent
+with MCP only therefore omits `context_bytes` and `baseline_tokens`, and writes the Search Trace
+it still knows. The baseline it recorded through `engmem_record_baseline` stays in `cost.jsonl`
+either way. `template_stamps.WORKFLOW` stays 1: the runtime refuses no step an older template
+takes.
 
 ## `capture_minutes` is two readings of the shell clock
 
@@ -333,7 +483,10 @@ Reasons the templates no longer spell out:
   as `(not in store)`. In a Reuse Log `prior-doc`, the row is excluded as citing a document not
   in the store (`contracts/gate1.md`).
 - **One front-matter round.** More than one interactive round for the draft is a design
-  failure (`ENGMEM-SPEC.md` §6, `/engmem.save` step 1).
+  failure (`ENGMEM-SPEC.md` §6, `/engmem.save` step 1). The step's heading says "not
+  field-by-field", so the step no longer repeats it.
+- **Column order.** The count reads a Reuse Log row's cells by position, so a list or another
+  column order is never counted (`gate1.py`).
 - **Why and terms.** A reader who sees only the "what" cannot judge whether the choice still
   applies to their case. A term used before its definition sends the reader to look for it
   mid-flow.
@@ -365,7 +518,13 @@ Reasons the templates no longer spell out:
   the parser from the moment it exists. Empty `entities` is a warning, not an error, until the
   save fills it. A daily draft's empty body draws no `document is empty` warning
   (`spine.py`). Over MCP, no shell quoting or pipe encoding stands between the text and
-  engmem. A `store show` error means another directory, which is another store.
+  engmem. A `store show` error means another directory, which is another store. The YAML
+  comments say only what the agent acts on (2026-11-07). The `id` comment names the characters
+  `spine.validate_doc_id` accepts, and drops the filename rule, since engmem names the file. The
+  `task_date` comment says it equals `date` except in a backfilled record (`data-model.md`).
+- **Plain words for internal names.** An installed agent cannot look up "Gate 1", so the start
+  template says "the research comparison" and "engmem's audit". The Search Trace values keep
+  their spelling, since `gate1_audit` matches them exactly.
 - **What the short capture skips.** With no supersede question, a document the decision
   overturns keeps surfacing as current until someone marks it. With no Reuse Log review, reuse
   evidence may be missing. Its headings carry no numbers because a short record numbered 8 and

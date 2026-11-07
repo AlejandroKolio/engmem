@@ -300,7 +300,9 @@ template's step 0 must be answerable before the Pre-reg it decides. Only the sta
 the line; the save prompts copy the mode from the draft. An unreadable file reads there as
 `daily` with the error quoted, which is what the template tells a shell agent to do. The mode
 is not in `initialize`'s result: a server outlives many sessions, and a value read once at
-launch would ignore a later `engmem mode set`.
+launch would ignore a later `engmem mode set`. The same read decides how the start prompt is
+rendered: the start prompt leaves out step 0's other ways to find the mode, and a daily one also
+leaves out step 1 (`contracts/prompt-templates.md`, "Each target gets the branches it can take").
 
 ### `engmem_complete_draft`: Reuse Log rows — refuse, then warn
 

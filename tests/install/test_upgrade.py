@@ -14,6 +14,7 @@ import pytest
 
 from support import rpc
 from support.paths import TESTS_DIR
+from support.templates import MCP_PROMPT_SENTENCE, before_rendering
 
 from engmem import __version__
 from engmem.cli import main
@@ -239,6 +240,54 @@ def test_install_leaves_an_edited_file_and_puts_its_version_beside_it(
     stamp, body = read_stamp(pending.read_text(encoding="utf-8"))
     assert written_by_engmem(stamp, body) and stamp.version == __version__
     assert f"conflict: {start}" in out and str(pending) in out
+
+
+@pytest.mark.parametrize(
+    "agent, start_path",
+    [("claude", _claude_start), ("copilot-cli", _copilot_start)],
+    ids=["template", "skill"],
+)
+def test_an_unedited_copy_from_before_rendering_is_replaced_by_the_rendered_one(
+    home, tmp_path, shell_path, capsys, agent, start_path
+):
+    """Its stamp's digest covers the body it was written with, whatever that body held."""
+    store = tmp_path / "notes"
+    _install(agent, store, capsys)
+    start = start_path(home)
+    old = before_rendering(agent, "engmem.start.md")
+    start.write_text(_insert_stamp(old, stamp_line("engmem.start.md", "0.1.10", old)), encoding="utf-8")
+    assert MCP_PROMPT_SENTENCE in " ".join(start.read_text(encoding="utf-8").split())
+
+    assert _install(agent, store, capsys) == 0
+
+    assert not start.with_name(start.name + PENDING_SUFFIX).exists()
+    stamp, body = read_stamp(start.read_text(encoding="utf-8"))
+    assert written_by_engmem(stamp, body) and stamp.version == __version__
+    assert MCP_PROMPT_SENTENCE not in " ".join(body.split())
+
+
+@pytest.mark.parametrize(
+    "agent, start_path",
+    [("claude", _claude_start), ("copilot-cli", _copilot_start)],
+    ids=["template", "skill"],
+)
+def test_an_edited_copy_from_before_rendering_is_kept_as_an_edit(
+    home, tmp_path, shell_path, capsys, agent, start_path
+):
+    store = tmp_path / "notes"
+    _install(agent, store, capsys)
+    start = start_path(home)
+    old = before_rendering(agent, "engmem.start.md")
+    start.write_text(
+        _insert_stamp(old, stamp_line("engmem.start.md", "0.1.10", old)) + EDIT, encoding="utf-8"
+    )
+    edited = start.read_bytes()
+
+    assert _install(agent, store, capsys) == 2
+
+    assert start.read_bytes() == edited
+    pending = start.with_name(start.name + PENDING_SUFFIX)
+    assert MCP_PROMPT_SENTENCE not in " ".join(pending.read_text(encoding="utf-8").split())
 
 
 def test_an_unknown_unstamped_body_is_kept_as_an_edit(home, tmp_path, shell_path, capsys):

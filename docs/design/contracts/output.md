@@ -316,8 +316,9 @@ zero (or not finite), a call with neither figure, a session with no document and
 `cost.CALL_ID_MAX` characters. The report shows them as "measured and reported by the client",
 tied to the call id, or "a call with no id". A later report naming the same call id replaces the
 earlier one, and the report says how many were replaced. Without a report the baseline is
-"not reported by the client -- missing data". A `baseline_tokens` value in front matter is the
-agent's note and is not read here.
+"not reported by the client -- missing data". A `baseline_tokens` value in front matter is a
+copy the save takes from this report (`contracts/prompt-templates.md`, "What the save takes from
+engmem") and is not read here.
 
 **Estimates say so.** Estimated tokens are `ceil(bytes / 3.5)` of the measured total, the
 estimator `engmem telemetry` uses, on a line that ends "an estimate, not a measurement". No
