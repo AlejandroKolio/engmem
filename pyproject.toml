@@ -54,5 +54,8 @@ packages = ["src/engmem"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "tools"]
 addopts = "--strict-markers -ra"
+markers = [
+    "e2e: the end-to-end agent harness (tools/agentsim, contracts/e2e.md); deselect with -m 'not e2e'",
+]
