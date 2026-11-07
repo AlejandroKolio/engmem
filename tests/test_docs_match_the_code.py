@@ -859,7 +859,7 @@ def test_every_relative_link_names_a_file_that_exists(doc):
 
 
 # ---------------------------------------------------------------------------
-# the start template review of 2026-11-07
+# the start template: budget, measured values, plain words
 # ---------------------------------------------------------------------------
 
 _START = "engmem.start.md"

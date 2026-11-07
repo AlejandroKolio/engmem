@@ -27,7 +27,7 @@ Recording *which* source was used is what keeps the two cases distinguishable la
 
 A self-written baseline is not blind either: project instructions, memory files and the
 conversation can already be in the agent's context before `/engmem` runs. The protocol stays as
-it is (2026-11-07). The agent writes the baseline from the task description only, and says on
+it is. The agent writes the baseline from the task description only, and says on
 the `pre-reg source: self (no sub-agent available)` line, after its closing bracket, whether
 project instructions or memory were already in context. The reviewer then knows how blind the
 baseline was. No code parses the line: `gate1_audit` looks for the `## Pre-reg` section, and the
@@ -53,7 +53,7 @@ numbers other documents cite.
 The draft's YAML shows `mode: <daily|research from step 0>`, not a real value: a placeholder
 that is a valid word would be copied as a claim. `engmem draft create` and
 `engmem_create_draft` refuse this one and name the configured mode, and the comment beside it
-says so. It said a copied placeholder "counts nowhere" until 2026-11-07, which is now true only
+says so. An earlier comment said a copied placeholder "counts nowhere"; that is true only
 of a document written by hand. That reaches no such check; there it is an unrecognized mode and
 counts nowhere (`contracts/mcp-server.md`, "A hand-written document is unguarded").
 
@@ -66,7 +66,7 @@ on the shell. Both save templates carry the Pre-reg over only when
 the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
 short save is the daily path the story is about.
 
-## Each target gets the branches it can take (2026-11-07)
+## Each target gets the branches it can take
 
 A template is written once and delivered two ways. `engmem install` writes it as a file for
 claude, copilot-ide, copilot-cli and codex. The MCP server returns it from `prompts/get`, to any
@@ -221,8 +221,7 @@ orphan (`orphan_session_ids` / `orphan_row_count`, printed by `tools/gate1_repor
 no id at all is simply absent from that join (`telemetry.read_session_rows` keeps only rows
 naming a non-blank `session_id`).
 
-The no-draft branch stays first, for the reason in this section's first paragraph (review of
-2026-11-07).
+The no-draft branch stays first, for the reason in this section's first paragraph.
 
 Nothing about the id is enforced — `session_id` stays optional in the MCP schema and
 `--session` optional on the CLI, because a search before any draft exists is legitimate. The
@@ -234,7 +233,7 @@ unattributed search with a trailing `note: unattributed search — pass ...` lin
 (`telemetry.UNATTRIBUTED_CLI_NOTE` / `UNATTRIBUTED_MCP_NOTE`; the recorded reversal in that
 same section), a reminder at the point of use that the template's wording cannot give.
 
-## The start's budget: two searches, five documents (2026-11-07)
+## The start's budget: two searches, five documents
 
 `engmem.start.md` step 3 runs one more search, with other terms and the same session id, when no
 result of the first is relevant: a document that says the same thing in other words is a
@@ -403,7 +402,7 @@ when the runtime reported it, after the draft exists, because the record needs t
 document. With nothing reported the template records nothing, and the report shows the baseline
 as missing data.
 
-## What the save takes from engmem (2026-11-07)
+## What the save takes from engmem
 
 `/engmem` used to ask the agent to remember numbers and the Search Trace path until
 `/engmem.save`. Nothing wrote them down, so context compaction, a crash or a save in another
@@ -519,7 +518,7 @@ Reasons the templates no longer spell out:
   save fills it. A daily draft's empty body draws no `document is empty` warning
   (`spine.py`). Over MCP, no shell quoting or pipe encoding stands between the text and
   engmem. A `store show` error means another directory, which is another store. The YAML
-  comments say only what the agent acts on (2026-11-07). The `id` comment names the characters
+  comments say only what the agent acts on. The `id` comment names the characters
   `spine.validate_doc_id` accepts, and drops the filename rule, since engmem names the file. The
   `task_date` comment says it equals `date` except in a backfilled record (`data-model.md`).
 - **Plain words for internal names.** An installed agent cannot look up "Gate 1", so the start
