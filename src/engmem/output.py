@@ -16,7 +16,7 @@ from engmem.provenance import (
     SnapshotState,
     snapshots,
 )
-from engmem.scoring import SHORT_WORD_MAX_CHARS, Scope, SearchOutcome, SectionHit, Strength
+from engmem.scoring import SHORT_WORD_MAX_CHARS, Hit, Scope, SearchOutcome, SectionHit, Strength
 from engmem.sections import Section, split_sections
 from engmem.spine import Doc, is_commit_id, linked_repos
 
@@ -39,6 +39,7 @@ WEAK_TAG = "  [weak candidate]"
 NO_RELIABLE_MATCH = "prior context: no reliable match — only weak candidates below"
 SECTION_DISPLAY_MAX = 3  # sections named per hit; mirrors TOP_N's reasoning
 SECTION_SNIPPET_MAX_CHARS = 140
+SHOWN_BELOW = "(shown below)"
 # the scope's names are typed by the caller; a miss is never trimmed, so its lead line must be
 # short: each name is cut to the first cap, and the names listed stop at the second
 SCOPE_NAME_DISPLAY_MAX = 120
@@ -117,12 +118,25 @@ def _section_snippet(section: Section, max_chars: int = SECTION_SNIPPET_MAX_CHAR
     return snippet
 
 
-def _section_line(section_hit: SectionHit) -> str:
+def _opens_with(primer: str, snippet: str) -> bool:
+    """The primer excerpt already opens with the snippet's whole text."""
+    text = snippet.removesuffix("…")
+    return bool(text) and " ".join(primer.split()).startswith(text)
+
+
+def _primer_for(doc: Doc, section_hit: SectionHit, primer: str) -> str:
+    """`primer` for the primer section's own line, and nothing for any other section."""
+    own = _primer_section(doc)
+    return primer if own is not None and own.locator == section_hit.section.locator else ""
+
+
+def _section_line(section_hit: SectionHit, primer: str = "") -> str:
     section = section_hit.section
     size_kb = section.size_bytes / 1024
     locator = _escape_controls(section.locator)
-    snippet = _escape_controls(_section_snippet(section))
-    return f"  {locator}   {size_kb:.1f} KB   {snippet}"
+    snippet = _section_snippet(section)
+    shown = SHOWN_BELOW if _opens_with(primer, snippet) else _escape_controls(snippet)
+    return f"  {locator}   {size_kb:.1f} KB   {shown}"
 
 
 def _related_line(doc: Doc, docs_by_id: dict[str, Doc]) -> str:
@@ -267,6 +281,27 @@ def _trim_to_bytes(text: str, limit: int) -> str:
     return cut.rsplit("\n", 1)[0] + "\n" + TRIM_MARKER
 
 
+def _orphaned_block(text: str) -> int | None:
+    """The index of the block where the trim kept a `(shown below)` line and cut the primer line
+    it points at."""
+    kept, marker, _ = text.partition("\n" + TRIM_MARKER)
+    if not marker:
+        return None
+    kept_blocks = kept.split("\n\n")
+    last = kept_blocks[-1].split("\n")
+    if last[-1].startswith("  ") and any(line.endswith(SHOWN_BELOW) for line in last):
+        return len(kept_blocks) - 1
+    return None
+
+
+def _with_snippets(block: str, hit: Hit) -> str:
+    """`block` with each section line's own snippet in place of `(shown below)`."""
+    primer = _primer_excerpt(hit.doc)
+    shown = hit.section_hits[:SECTION_DISPLAY_MAX]
+    own = {_section_line(h, _primer_for(hit.doc, h, primer)): _section_line(h) for h in shown}
+    return "\n".join(own.get(line, line) for line in block.split("\n"))
+
+
 def _rendered(blocks: list[str], footer: str = "") -> str:
     """Joins the blocks inside the output budget, reserving the footer's bytes so the trim
     cannot eat the line that explains the cut (D3; see contracts/output.md)."""
@@ -304,9 +339,9 @@ def _hit_block(
         lines.append(f"matched: {why}")
     if strength is not None and strength.weak:
         lines.append(_weak_line(strength))
-    for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
-        lines.append(_section_line(section_hit))
     primer = _primer_excerpt(doc)
+    for section_hit in (section_hits or [])[:SECTION_DISPLAY_MAX]:
+        lines.append(_section_line(section_hit, _primer_for(doc, section_hit, primer)))
     if primer:
         lines.append(_escape_controls(primer))
     related = _related_line(doc, docs_by_id)
@@ -380,10 +415,12 @@ def render_search_results(
         # right under the scope line, as `render_no_match` puts `none found`
         blocks = [f"{scope_lead}\n{NO_RELIABLE_MATCH}"] if scope_lead else [NO_RELIABLE_MATCH]
 
+    hit_at: dict[int, Hit] = {}
     for hit in shown_hits:
         tag = "  [ambiguous]" if hit.ambiguous else ""
         tag += WEAK_TAG if hit.weak else ""
         header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
+        hit_at[len(blocks)] = hit
         blocks.append(
             _hit_block(
                 hit.doc, docs_by_id, header, _why_matched(hit), hit.section_hits, show_repos,
@@ -443,6 +480,12 @@ def render_search_results(
         else ""
     )
 
+    text = _rendered(blocks, withheld_line)
+    cut = _orphaned_block(text)
+    if cut is None:
+        return text
+    if cut in hit_at:
+        blocks[cut] = _with_snippets(blocks[cut], hit_at[cut])
     return _rendered(blocks, withheld_line)
 
 

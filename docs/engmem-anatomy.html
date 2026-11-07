@@ -596,7 +596,7 @@ mode: research
 path: /Users/…/sessions/1000001-response-cache.md
 snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered files unchanged
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
-  §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
+  §4-cold-start-primer   0.2 KB   (shown below)
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
 ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
@@ -605,7 +605,7 @@ ResponseCacheController serves cached responses for read endpoints using the ETA
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
 snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered file changed: src/cache/CacheRevalidationController.java, re-check
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
-  §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
+  §4-cold-start-primer   0.2 KB   (shown below)
   §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
@@ -615,7 +615,7 @@ docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
 note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
               <li>Разрыв 20.7 против 16.3 отделяет прямое попадание от касательного, а <code>matched</code> показывает, чем: пятью словами, а не одним.</li>
-              <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт.</li>
+              <li>Строки с <code>§</code> — адреса разделов: агент прочитает <code>§2-decision-log</code>, триста байт вместо двадцати килобайт. У праймера вместо первой фразы стоит <code>(shown below)</code>: эта фраза уже есть в строке под разделами, и второй раз её не печатают.</li>
               <li>Строка <code>snapshot:</code> говорит, на каком коде запись проверяли. Первый документ сверяли на коммите <code>b5cb7e6</code>; с тех пор <code>HEAD</code> ушёл вперёд, но файлы из его <code>covers_files</code> не менялись. У второго нужный файл изменился, и строка кончается на <code>re-check</code>. Верен ли сам текст, эта строка не говорит.</li>
               <li>Здесь обе находки надёжные: у каждой совпали сущности из шапки целиком. Документ, у которого с длинным запросом совпало одно слово и ни одного идентификатора, пришёл бы с пометкой <code>[weak candidate]</code> и строкой с причиной и стоял бы после надёжных. Если надёжных нет вовсе, вывод начинается строкой <code>prior context: no reliable match</code>.</li>
               <li>Строка <code>cite as</code> — готовая ссылка для журнала переиспользования. Каждую показанную версию engmem сохранил в <code>versions/</code>, и цитату потом сверят именно с этой копией.</li>
@@ -1680,7 +1680,7 @@ control invalidation that way.</code></pre></div>
 path: /Users/…/sessions/1000001-response-cache.md
 snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered files unchanged
 matched: entities=responsecachecontroller,response,cache,controller,etag; §4-cold-start-primer=responsecachecontroller,response,cache,controller,etag
-  §4-cold-start-primer   0.2 KB   ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already…
+  §4-cold-start-primer   0.2 KB   (shown below)
   §2-decision-log   0.3 KB   Reused the ETAG and TTL headers the upstream service already sends instead of adding a separate cache-metadata table; rejected the…
   §3-landmines   0.1 KB   ResponseCache lookups must be memoized per-request — a repeated call inside the same request re-runs the upstream fetch and doubles latency.
 ResponseCacheController serves cached responses for read endpoints using the ETAG (entity tag) and TTL (time to live) values already present on the upstream response.
@@ -1689,7 +1689,7 @@ ResponseCacheController serves cached responses for read endpoints using the ETA
 path: /Users/…/sessions/ttl-etag-revalidation-v2.md
 snapshot: platform-core b5cb7e6: HEAD is now 4f97c9d, covered file changed: src/cache/CacheRevalidationController.java, re-check
 matched: entities=cache,controller,etag,revalidation; §4-cold-start-primer=response,cache,controller,etag,revalidation
-  §4-cold-start-primer   0.2 KB   CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness…
+  §4-cold-start-primer   0.2 KB   (shown below)
   §2-decision-log   0.2 KB   Kept revalidation inside CacheRevalidationController rather than extracting a separate RevalidationResolver; rejected the extraction…
   §1-pre-reg   0.1 KB   Rework revalidation so TTL and ETAG are carried through to v2 of the cache API.
 CacheRevalidationController v2 resolves a response's TTL (time to live) and ETAG (entity tag) together in one pass, reusing the freshness metadata from the response-cache work.
@@ -1699,7 +1699,7 @@ docs: 7 (1 failed to load) | drafts: 1 | last doc: 19d ago
 note: unattributed search — pass --session &lt;draft-id&gt;</code></pre>
             <ul>
               <li>The gap between 20.7 and 16.3 separates a direct hit from a tangential one, and <code>matched</code> shows by what: five words, not one.</li>
-              <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes.</li>
+              <li>The <code>§</code> lines are section addresses: the agent reads <code>§2-decision-log</code>, three hundred bytes instead of twenty kilobytes. The primer's line says <code>(shown below)</code> instead of its first sentence: that sentence is already in the line under the sections, so it is not printed twice.</li>
               <li>The <code>snapshot:</code> line says which code the record was checked against. The first document was checked at commit <code>b5cb7e6</code>; <code>HEAD</code> has moved on since, but the files in its <code>covers_files</code> have not changed. The second one's file has changed, so its line ends in <code>re-check</code>. Whether the text itself is right, the line does not say.</li>
               <li>Both finds here are reliable: each matched entities from its header in full. A document that shared one word with a longer query and no identifier would come back tagged <code>[weak candidate]</code>, with a line giving the reason, after the reliable ones. When nothing reliable matched, the output opens with <code>prior context: no reliable match</code>.</li>
               <li>The <code>cite as</code> line is the reference ready for the Reuse Log. engmem kept a copy of each version it showed under <code>versions/</code>, and the quote is later checked against that copy.</li>

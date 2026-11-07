@@ -547,7 +547,8 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    (`contracts/scoring.md`, "Several repositories are a union").
 3. Scoring — §7. Output is the top 3 docs: id, path, score, why-matched (which tokens
    matched in which fields), the first 2 lines of the Cold-start primer, their related docs
-   (id + path only), plus the locator and first line of each matched section. Total size
+   (id + path only), plus the locator and first line of each matched section (`(shown below)`
+   instead of a first line the primer excerpt already opens with). Total size
    ≤4 KB (`output.MAX_OUTPUT_BYTES`; the cap was doubled when section locators joined
    the output),
    format is paste-able markdown (for the paste bridge).
@@ -648,7 +649,10 @@ instead of a human pasting `engmem search` output across the paste-bridge.
     ids, table pipes, camelCase identifiers), as the byte-weighted midpoint between
     locator/header lines (~3 bytes/token) and prose-like primer excerpts (~4). Read
     it as a floor: prose-heavy text lands within ~10% of its real cost, while
-    identifier/table-dense text commonly runs 15-30% above.
+    identifier/table-dense text commonly runs 15-30% above. Its value follows the output: a
+    section line that repeats the primer excerpt shows `(shown below)` instead (item 3), so
+    `context_bytes` is smaller for such results, and rows from before and after that change
+    are not directly comparable.
 
 6b. *(US-09)* `scope` rides the same line: `null` for a whole-store search — explicit, like
     `session_id`, so it differs from a row written before the field existed — else

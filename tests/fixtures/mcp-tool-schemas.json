@@ -1,0 +1,256 @@
+{
+  "tools": [
+    {
+      "name": "engmem_search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "unscoped": {
+            "type": "boolean"
+          },
+          "all_repos": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "engmem_search_by_role",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "acceptance",
+              "architecture",
+              "cheatsheet",
+              "code",
+              "context",
+              "decisions",
+              "flow",
+              "graph",
+              "keywords",
+              "lessons",
+              "prereg",
+              "primer",
+              "production",
+              "requirements",
+              "reuse",
+              "status",
+              "summary",
+              "testing",
+              "trace"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "unscoped": {
+            "type": "boolean"
+          },
+          "all_repos": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "query",
+          "role"
+        ]
+      }
+    },
+    {
+      "name": "engmem_create_draft",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "engmem_complete_draft",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "expected_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "content",
+          "expected_version"
+        ]
+      }
+    },
+    {
+      "name": "engmem_mark_superseded",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "superseded_by": {
+            "type": "string"
+          },
+          "expected_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "superseded_by",
+          "expected_version"
+        ]
+      }
+    },
+    {
+      "name": "engmem_record_feedback",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "doc_id": {
+            "type": "string"
+          },
+          "assessment": {
+            "type": "string",
+            "enum": [
+              "helped",
+              "not-applicable",
+              "harmful"
+            ]
+          },
+          "decision": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "doc_id",
+          "assessment"
+        ]
+      }
+    },
+    {
+      "name": "engmem_read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "acceptance",
+              "architecture",
+              "cheatsheet",
+              "code",
+              "context",
+              "decisions",
+              "flow",
+              "graph",
+              "keywords",
+              "lessons",
+              "prereg",
+              "primer",
+              "production",
+              "requirements",
+              "reuse",
+              "status",
+              "summary",
+              "testing",
+              "trace"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "engmem_record_baseline",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "call_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    }
+  ]
+}
