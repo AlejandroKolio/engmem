@@ -188,6 +188,53 @@ def test_a_draft_changed_since_create_is_refused_with_its_current_text(store, ca
     assert load_store(store / "sessions").docs[0].status == "draft"
 
 
+@pytest.mark.parametrize(
+    "content, refusal",
+    [
+        pytest.param(
+            ACTIVE.replace(
+                "Prior docs used: none.\n",
+                "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
+                "| 20260101-widget-cache | CacheWarmer ordering | kept the warm-up step | reuse |\n",
+            ),
+            "Reuse Log row rejected — no quoted span of four or more characters",
+            id="unquoted-reuse-log-row",
+        ),
+        pytest.param(
+            ACTIVE.replace("mode: daily", "mode: research"),
+            "content's mode is 'research', but the draft was started with 'daily'",
+            id="changed-mode",
+        ),
+    ],
+)
+def test_a_shell_save_is_refused_as_an_mcp_save_is_and_writes_nothing(
+    store, capsys, monkeypatch, content, refusal
+):
+    _code, created = _cli(capsys, monkeypatch, store, DRAFT, "draft", "create", DOC_ID)
+
+    code, output = _cli(capsys, monkeypatch, store, content, "draft", "complete", DOC_ID,
+                        "--expected-version", _version_in(created))
+
+    assert code == 2
+    assert f"refusing to complete sessions/{DOC_ID}.md" in output and refusal in output
+    assert (store / "sessions" / f"{DOC_ID}.md").read_bytes() == DRAFT.encode("utf-8")
+    assert sorted(p.name for p in (store / "sessions").iterdir()) == [f"{DOC_ID}.md"]
+
+
+@pytest.mark.parametrize("name", TEMPLATES)
+def test_no_template_says_a_shell_save_goes_unchecked(name):
+    text = _template(name)
+
+    assert "no such gate" not in text
+    assert "check these rules yourself" not in text
+
+
+def test_the_full_save_says_both_surfaces_refuse_a_bad_reuse_log():
+    text = _template("engmem.save.md")
+
+    assert "`engmem draft complete` and `engmem_complete_draft` refuse the whole document" in text
+
+
 def test_a_declined_preview_publishes_nothing_in_the_quick_template():
     text = _template("engmem.save.quick.md")
     declined = text[text.index("**Declined**"):text.index("To publish,")]

@@ -10,6 +10,16 @@ from pathlib import Path
 
 import pytest
 
+from support import rpc
+
+from engmem.cli import main
+from engmem.install import (
+    COPILOT_CLI_SKILL_MAP,
+    COPILOT_IDE_TEMPLATE_INSTALL_MAP,
+    TEMPLATE_INSTALL_MAP,
+)
+from engmem.mcp_server import PROMPT_TEMPLATES
+
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "engmem"
 DOCS = (
@@ -357,6 +367,15 @@ def test_the_start_templates_read_step_tells_an_agent_without_a_draft_not_to_pas
     assert "could not create the" in step4 and "never pass an id" in step4
 
 
+def test_the_start_templates_opening_counts_the_mode_step_in_the_ritual():
+    """Step 0 (mode) is part of the ritual and step 6 is the answer itself, so the opening names 0-5."""
+    template = _start_template()
+    opening = " ".join(template[: template.index("## 0.")].split())
+
+    assert "steps 0–5 exist to serve that request" in opening
+    assert "steps 1–5" not in opening
+
+
 def test_the_save_templates_cite_a_quote_by_the_response_it_came_from():
     """A read can deliver a later version than the search showed; citing the search's version for
     a quote taken from the read fails its check (US-16, ARCH-001)."""
@@ -431,13 +450,143 @@ def test_the_anatomy_page_states_two_dependencies_in_both_languages():
 
 
 @pytest.mark.parametrize("template", sorted(TEMPLATES.glob("*.md")), ids=lambda p: p.name)
-def test_a_template_naming_a_gate1_tool_says_it_lives_in_the_checkout(template):
-    """`tools/` is not in the wheel: a bare `tools/verify_citations.py` resolves nowhere from the
-    repository an agent is working in."""
+def test_no_template_step_needs_a_file_outside_the_installed_package(template):
+    """The wheel ships `src/engmem` only, so a user installed from PyPI has no `tools/` to run."""
     text = template.read_text(encoding="utf-8")
-    for tool in ("tools/verify_citations.py", "tools/gate1_report.py"):
-        for line in (line for line in text.splitlines() if tool in line):
-            assert f"<engmem-checkout>/{tool}" in line, f"{template.name}: {line.strip()}"
+    shipped = {path.name for path in PACKAGE.rglob("*.py")}
+
+    assert "<engmem-checkout>" not in text
+    assert "uv run" not in text
+    assert "tools/" not in text
+    assert [p for p in re.findall(r"[\w./<>-]+\.py\b", text) if Path(p).name not in shipped] == []
+
+
+_UNSHIPPED_REFERENCES = {
+    "the spec": re.compile(r"ENGMEM-SPEC\.md"),
+    "a smoke id": re.compile(r"\bS7\b"),
+    "a story id": re.compile(r"\bUS-\d+"),
+}
+
+
+@pytest.fixture
+def installed_copies(env, tmp_path) -> dict[str, str]:
+    """Every installed copy of every template, keyed `<agent>/<source>` or `mcp/<prompt>`."""
+    home, project = env
+    (project / ".git").mkdir()
+    store = tmp_path / "store"
+    (store / "sessions").mkdir(parents=True)
+    for agent in ("claude", "copilot-ide", "copilot-cli", "codex"):
+        assert main(["install", "--agent", agent, "--store", str(store)]) == 0
+    copies = {}
+    for source in TEMPLATE_INSTALL_MAP:
+        skill = COPILOT_CLI_SKILL_MAP[source]
+        copies[f"claude/{source}"] = home / ".claude" / "commands" / TEMPLATE_INSTALL_MAP[source]
+        copies[f"copilot-ide/{source}"] = (
+            project / ".github" / "prompts" / COPILOT_IDE_TEMPLATE_INSTALL_MAP[source]
+        )
+        copies[f"copilot-cli/{source}"] = home / ".copilot" / "skills" / skill / "SKILL.md"
+        copies[f"codex/{source}"] = home / ".agents" / "skills" / skill / "SKILL.md"
+    texts = {name: path.read_text(encoding="utf-8") for name, path in copies.items()}
+    for msg_id, name in enumerate(PROMPT_TEMPLATES, start=1):
+        _, responses, _ = rpc.run(store, rpc.prompts_get_msg(msg_id, name=name))
+        texts[f"mcp/{name}"] = responses[0]["result"]["messages"][0]["content"]["text"]
+    return texts
+
+
+def test_no_installed_template_cites_a_file_the_package_does_not_ship(installed_copies):
+    """The spec, the smoke list and the stories stay in the repository; an installed agent
+    cannot open them."""
+    copies = installed_copies
+
+    assert len(copies) == 15
+    found = [
+        f"{name}: {kind} {match.group()!r}"
+        for name, text in copies.items()
+        for kind, pattern in _UNSHIPPED_REFERENCES.items()
+        for match in pattern.finditer(text)
+    ]
+    assert found == []
+
+
+_WRITING_RULE = (
+    "Write in plain technical English, following ASD-STE100 principles: one idea per sentence; "
+    "sentences of 20 words or fewer; active voice; one term for one concept, used the same way "
+    "throughout. No filler and no marketing tone."
+)
+
+
+def test_the_full_save_template_states_the_ste100_writing_rule():
+    assert _WRITING_RULE in _flat((TEMPLATES / "engmem.save.md").read_text(encoding="utf-8"))
+
+
+def test_no_template_or_installed_copy_carries_the_owners_register(installed_copies):
+    """A public template states a published writing standard, not one person's register."""
+    texts = {path.name: path.read_text(encoding="utf-8") for path in TEMPLATES.glob("*.md")}
+    texts |= installed_copies
+
+    assert len(texts) == 18
+    assert [name for name, text in texts.items() if "british" in text.lower()] == []
+
+
+_SAVE_TEMPLATES = {
+    "engmem.save.md": ("## 1. Front-matter draft", "## 4. Close out", None),
+    "engmem.save.quick.md": ("1. From the", None, "**The preview.**"),
+}
+_CLOCK_READINGS = ("`date -u +%Y-%m-%dT%H:%M:%SZ`", "`(Get-Date).ToUniversalTime().ToString('o')`")
+_SECOND_READING = "read the UTC time again with the same command"
+
+
+def _assert_the_save_reads_the_clock(name: str, text: str, source: str) -> None:
+    first_step, second_after, second_before = _SAVE_TEMPLATES[source]
+    text = _flat(text)
+    assert [command for command in _CLOCK_READINGS if command not in text] == [], name
+    first_reading = min(text.index(command) for command in _CLOCK_READINGS)
+
+    assert first_reading < text.index(first_step), f"{name}: the clock is not read first"
+    assert text.count(_SECOND_READING) == 1, name
+    second_reading = text.index(_SECOND_READING)
+    assert second_reading > first_reading, name
+    if second_after:
+        assert text.index(second_after) < second_reading, f"{name}: read again before {second_after}"
+    if second_before:
+        assert second_reading < text.index(second_before), f"{name}: read again after {second_before}"
+    assert "the whole minutes between the two readings" in text, name
+    assert "Without a shell, leave `capture_minutes` blank." in text, name
+    assert "Without both readings, leave it blank" in text, name
+
+
+@pytest.mark.parametrize("template", sorted(_SAVE_TEMPLATES))
+def test_a_save_template_measures_capture_minutes_with_the_shell_clock(template):
+    """The agent has no clock of its own, so a minute count it did not read twice is a guess."""
+    text = (TEMPLATES / template).read_text(encoding="utf-8")
+
+    _assert_the_save_reads_the_clock(template, text, template)
+
+
+def test_every_installed_save_copy_measures_capture_minutes(installed_copies):
+    prompts = {f"mcp/{name}": source for name, source in PROMPT_TEMPLATES.items()}
+    sources = {name: prompts.get(name, name.split("/", 1)[1]) for name in installed_copies}
+    saves = [name for name, source in sources.items() if source in _SAVE_TEMPLATES]
+
+    assert len(saves) == 10
+    for name in saves:
+        _assert_the_save_reads_the_clock(name, installed_copies[name], sources[name])
+
+
+def test_the_spec_does_not_claim_the_templates_cite_its_section_list():
+    """The installed templates cannot open the spec, so they name the sections themselves."""
+    body_sections = _flat((ROOT / "ENGMEM-SPEC.md").read_text(encoding="utf-8")).split(
+        "**Body sections.**", 1
+    )[1][:400]
+
+    assert "the templates and `docs/design/data-model.md` cite" not in body_sections
+    assert "The templates name the same sections themselves" in body_sections
+
+
+def test_the_data_model_cites_the_spec_for_its_sections():
+    text = (ROOT / "docs" / "design" / "data-model.md").read_text(encoding="utf-8")
+
+    assert "ENGMEM-SPEC.md` §4" in text
 
 
 @pytest.mark.parametrize(
@@ -446,12 +595,51 @@ def test_a_template_naming_a_gate1_tool_says_it_lives_in_the_checkout(template):
      ROOT / "docs" / "design" / "data-model.md"],
     ids=lambda p: p.name,
 )
-def test_the_section_list_cites_the_spec_and_no_stale_count(doc):
+def test_the_section_list_states_no_stale_count(doc):
     text = doc.read_text(encoding="utf-8")
 
-    assert "ENGMEM-SPEC.md` §4" in text, f"{doc.name} must cite ENGMEM-SPEC.md §4 for its sections"
     for count in ("16-section", "six-section", "all 17"):
         assert count not in text, f"{doc.name} restates a section count: {count!r}"
+
+
+_FULL_SAVE_BYTES_BEFORE_THE_CUT = 26511
+_FULL_SAVE_CUT = 0.30
+_FULL_SAVE_MAX_BYTES = int(_FULL_SAVE_BYTES_BEFORE_THE_CUT * (1 - _FULL_SAVE_CUT))
+
+
+def _full_save_line(start: str) -> str:
+    text = (TEMPLATES / "engmem.save.md").read_text(encoding="utf-8")
+    bullet = text[text.index(start):]
+    return _flat(re.split(r"\n(?:- |\n)", bullet, maxsplit=1)[0])
+
+
+def test_the_full_save_leaves_pr_blank_only_when_no_pr_exists():
+    """A merged or closed PR is no longer open but still belongs in the record."""
+    line = _full_save_line("- `pr`")
+
+    assert "if no PR exists yet" in line
+    assert "is open" not in line
+
+
+def test_the_full_save_says_a_multi_repository_record_is_not_compared():
+    line = _full_save_line("- `covers_files`")
+
+    assert "only when `repos` has one entry" in line
+
+
+def test_the_full_save_says_a_supersede_refusal_carries_the_current_version():
+    """Without it, "call again with that version" names no version the agent holds."""
+    text = _flat((TEMPLATES / "engmem.save.md").read_text(encoding="utf-8"))
+    step = text[text.index("## 3. Supersede check"):text.index("## 4. Close out")]
+
+    assert "the refusal carries its current text and version" in step
+
+
+def test_the_full_save_template_stays_at_least_thirty_percent_below_its_old_size():
+    """The template is loaded on every `/engmem.save`; its rationale lives in the contracts."""
+    size = len((TEMPLATES / "engmem.save.md").read_text(encoding="utf-8").encode("utf-8"))
+
+    assert size <= _FULL_SAVE_MAX_BYTES, f"{size} bytes, limit {_FULL_SAVE_MAX_BYTES}"
 
 
 @pytest.mark.parametrize(

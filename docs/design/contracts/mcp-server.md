@@ -368,6 +368,10 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
      impossible here by construction: tier 1 refused it with the same parser and regex.
      `version_unavailable` is reported the same way, with `row.version_problem` as its reason
      (the cited version has no intact retained copy, so the quote stays unverified).
+     The warning names no command to run next: the store-wide checker,
+     `tools/verify_citations.py`, ships in the source checkout and not in the wheel, and each
+     listed problem already names its row. It says "tell the user, who can correct them"
+     instead, because the document is already active and the agent does not edit it.
      `cited_superseded` and `verdicts.conflicts` are NOT reported: both are a judgement call
      for the reviewing human, and the store-wide tools surface them at the next run.
      Rows `gate1.checked_against_current_text` names — no version, quotes compared with the

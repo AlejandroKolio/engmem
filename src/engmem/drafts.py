@@ -554,9 +554,8 @@ def _citation_notes(store: Path, doc: Doc, surface: Surface) -> list[str]:
                 )
     if problems:
         notes.append(
-            f"warning: {len(problems)} Reuse Log citation problem(s) — run the engmem "
-            "checkout's checker, uv run --project <engmem-checkout> python "
-            "<engmem-checkout>/tools/verify_citations.py --store <store>: " + "; ".join(problems)
+            f"warning: {len(problems)} Reuse Log citation problem(s) — tell the user, who can "
+            "correct them: " + "; ".join(problems)
         )
     if legacy:
         notes.append(

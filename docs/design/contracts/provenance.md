@@ -248,7 +248,8 @@ telemetry rows written before. Records with neither are byte-identical. Owner de
 shell at hand is left out, and a sha is never guessed. `/engmem` writes the draft with
 `verified_at:` empty.
 Both templates ask for `covers_files` as paths from the repository's top-level directory, the
-way `git ls-files` prints them, and say that a record of several repositories is not compared.
+way `git ls-files` prints them. The full save template also says they are compared only when
+`repos` has one entry; the short capture does not repeat it.
 
 `engmem_complete_draft` never refuses a record over its anchors. Each `verified_at` and
 `verified_at_commit` load warning is named in the result as `warning: sessions/<id>.md: <load

@@ -542,7 +542,7 @@ baseline_tokens: 1840</code></pre>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
-        <div class="prose"><p>Файл заводится до работы. Время создания нигде не записывается, а в <code>date:</code> хранится только день, поэтому <code>capture_minutes</code>, цену ритуала в минутах, заполняют лишь тогда, когда настоящее время начала известно. Иначе поле остаётся пустым: пустое значит «не измеряли».</p></div>
+        <div class="prose"><p>Файл заводится до работы. Время создания нигде не записывается, а в <code>date:</code> хранится только день, так что по черновику цену ритуала не узнать. Поэтому <code>capture_minutes</code>, цену ритуала в минутах, агент меряет сам: смотрит время UTC через shell в начале сохранения и ещё раз ближе к концу и записывает разницу в целых минутах. Если какого-то замера нет, поле остаётся пустым: пустое значит «не измеряли».</p></div>
         <div class="io">
           <div class="io-k">Что получается</div>
           <div class="io-v"><pre><code>~/Developer/engmem/sessions/20260820-cache-new-endpoint.md</code></pre>
@@ -779,7 +779,7 @@ engmem feedback: recorded helped for 1000001-response-cache in session 20260820-
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">08</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
-        <span class="step-titles"><span class="step-t">Документ закрывается и входит в память</span><span class="step-s">draft → active, цена ритуала — если время начала известно</span></span>
+        <span class="step-titles"><span class="step-t">Документ закрывается и входит в память</span><span class="step-s">draft → active, цена ритуала — по двум замерам часов</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
@@ -1626,7 +1626,7 @@ baseline_tokens: 1840</code></pre>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
-        <div class="prose"><p>The file is opened before the work. Its creation time is recorded nowhere, and <code>date:</code> holds only the day, so <code>capture_minutes</code>, the ritual's price in minutes, is filled in only when a real start time is known. Otherwise the field stays blank: blank means "never measured".</p></div>
+        <div class="prose"><p>The file is opened before the work. Its creation time is recorded nowhere, and <code>date:</code> holds only the day, so the draft cannot tell what the ritual cost. The agent measures <code>capture_minutes</code>, the ritual's price in minutes, itself: it reads the UTC time from its shell when the save starts and again near the end, and writes the whole minutes between the two readings. Without both readings the field stays blank: blank means "never measured".</p></div>
         <div class="io">
           <div class="io-k">What comes back</div>
           <div class="io-v"><pre><code>~/Developer/engmem/sessions/20260820-cache-new-endpoint.md</code></pre>
@@ -1863,7 +1863,7 @@ engmem feedback: recorded helped for 1000001-response-cache in session 20260820-
     <article class="step">
       <button class="step-head" type="button" aria-expanded="false">
         <span class="step-num"><span class="step-num-n">08</span><span class="acc-track" aria-hidden="true"><span class="acc-fill committed" style="width:100%"></span></span></span>
-        <span class="step-titles"><span class="step-t">The document closes and joins the memory</span><span class="step-s">draft → active, and the ritual's cost, if its start is known</span></span>
+        <span class="step-titles"><span class="step-t">The document closes and joins the memory</span><span class="step-s">draft → active, and the ritual's cost, from two clock readings</span></span>
         <span class="chev" aria-hidden="true">+</span>
       </button>
       <div class="step-body" hidden>
