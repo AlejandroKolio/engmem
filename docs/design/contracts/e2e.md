@@ -120,7 +120,7 @@ notes of its own, and it is engmem's structural advantage, not a retrieval resul
 
 ## Test data
 
-`agentsim.corpus.generate` writes the stores from a seed: the same seed gives the same bytes.
+`agentsim.corpus.generate` writes the stores from a fixed seed, so every run writes the same bytes.
 The content is abstract: invented components, four invented repositories, no real names. The
 hand-written core holds every answer, a superseded decision with its successor, a near-duplicate
 of the class 1 answer, documents that share vocabulary and answer another question, and an

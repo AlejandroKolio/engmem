@@ -26,8 +26,7 @@ def _tokenize_counts(text: str) -> tuple[Counter[str], Counter[str]]:
             parts_norm, acronym = expansion
             for p in parts_norm:
                 derived[p] += 1
-            if acronym:
-                derived[acronym] += 1
+            derived[acronym] += 1
     return literal, derived
 
 
@@ -53,9 +52,6 @@ _PAYLOAD_FIELD_TYPES = {
     "literal_tf": (dict,),
     "derived_tf": (dict,),
 }
-
-
-_NULLABLE_PAYLOAD_FIELDS = ("canonical",)
 
 
 def _section_to_payload(section: Section, literal: Counter[str], derived: Counter[str]) -> dict:

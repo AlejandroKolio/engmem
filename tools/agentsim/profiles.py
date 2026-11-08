@@ -334,8 +334,6 @@ class Agent:
 
     def _save_unavailable(self) -> None:
         """A profile that cannot save still reads the save template it is handed, then stops."""
-        if self.profile.condition != ENGMEM:
-            return
         text = self._save_template(full=False)
         self.state.template_checks["save template says what to do without a write path"] = NO_WRITE_FALLBACK in text
         self.state.save_note = "no write path: the template's fallback publishes nothing"

@@ -90,7 +90,7 @@ def camel_expansion(raw_token: str) -> tuple[list[str], str] | None:
     if not frac:
         return None
     parts_norm = [normalize_token(p) for p in frac]
-    acronym = "".join(p[0] for p in parts_norm if p)
+    acronym = "".join(p[0] for p in parts_norm)
     return parts_norm, acronym
 
 

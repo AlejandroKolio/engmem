@@ -269,12 +269,8 @@ def _run_bounded(argv: list[str]) -> tuple[int, str, str]:
         )
 
 
-# shared with the snapshot lookup (contracts/provenance.md); the name doctor.md cites
-_on_path = on_path
-
-
 def _shell_engmem_finding(agent: str, local: bool) -> Finding:
-    found = _on_path("engmem")
+    found = on_path("engmem")
     if found is None:
         return Finding(
             Status.ERROR, "engmem command",
@@ -566,7 +562,7 @@ def _command_finding(wiring: McpWiring) -> Finding:
             f"in — {fix}, an absolute path",
         )
     if not command.is_absolute():
-        found = _on_path(wiring.command)
+        found = on_path(wiring.command)
         if found is None:
             return Finding(
                 Status.ERROR, "mcp command",
@@ -610,7 +606,7 @@ def _sandbox_finding(agent: str, choice: StoreChoice | None) -> Finding:
 def _bridge_findings() -> list[Finding]:
     """Neither line is ever `ok`: engmem sees neither bridge's access control —
     contracts/doctor.md, "ChatGPT: the bridge"."""
-    found = _on_path("tunnel-client")
+    found = on_path("tunnel-client")
     where = (
         f"`tunnel-client` is {found} on this shell's PATH (not run)"
         if found is not None

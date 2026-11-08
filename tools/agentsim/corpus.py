@@ -728,9 +728,9 @@ def answer_topic_chain(count: int) -> list[Doc]:
     ]
 
 
-def filler_docs(count: int, seed: int = SEED) -> list[Doc]:
+def filler_docs(count: int) -> list[Doc]:
     """Random filler, chained per component and topic, plus the one chain on the class 7 answer's topic."""
-    rng = random.Random(seed + 1)
+    rng = random.Random(SEED + 1)
     return _with_supersede_chains([_filler_doc(rng, i) for i in range(count)]) + answer_topic_chain(count)
 
 
@@ -754,11 +754,11 @@ def _write_store(directory: Path, docs: list[Doc]) -> Path:
     return sessions
 
 
-def generate(root: Path, *, filler: int = DEFAULT_FILLER, scale_filler: int = SCALE_FILLER, seed: int = SEED) -> Corpus:
-    """Writes the base store, the scale store and `tasks.json` under `root`; same seed, same bytes."""
-    core = core_docs(random.Random(seed))
-    base = _write_store(root / "base", core + filler_docs(filler, seed))
-    scale = _write_store(root / "scale", core + filler_docs(scale_filler, seed))
+def generate(root: Path, *, filler: int = DEFAULT_FILLER, scale_filler: int = SCALE_FILLER) -> Corpus:
+    """Writes the base store, the scale store and `tasks.json` under `root`; the same bytes on every run."""
+    core = core_docs(random.Random(SEED))
+    base = _write_store(root / "base", core + filler_docs(filler))
+    scale = _write_store(root / "scale", core + filler_docs(scale_filler))
     all_tasks = tasks()
     (root / "tasks.json").write_text(
         json.dumps([asdict(t) for t in all_tasks], indent=2) + "\n", encoding="utf-8", newline="\n"

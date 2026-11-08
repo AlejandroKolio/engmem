@@ -19,7 +19,6 @@ from engmem.scoring import (
     search_with_role_sections,
 )
 from engmem.section_index import (
-    _NULLABLE_PAYLOAD_FIELDS,
     _PAYLOAD_FIELD_TYPES,
     _section_entry_from_payload,
     _section_to_payload,
@@ -1146,7 +1145,7 @@ def test_a_section_survives_the_payload_round_trip_field_by_field():
 
     assert entry.section == section
     assert entry.literal_tf == literal and entry.derived_tf == derived
-    assert set(payload) == set(_PAYLOAD_FIELD_TYPES) | set(_NULLABLE_PAYLOAD_FIELDS)
+    assert set(payload) == set(_PAYLOAD_FIELD_TYPES) | {"canonical"}
     # the equality above cannot see a *defaulted* field forgotten in the `Section(...)`
     # kwargs — both sides would take the default — so the field list is checked directly
     assert set(payload) - {"literal_tf", "derived_tf"} == {

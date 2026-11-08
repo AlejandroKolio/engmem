@@ -58,10 +58,8 @@ class Transcript:
         self.steps.append(step)
         return step
 
-    def context(self, *, phases: tuple[str, ...] | None = None) -> str:
-        return "\n".join(
-            s.text for s in self.steps if s.kind != TEMPLATE and (phases is None or s.phase in phases)
-        )
+    def context(self) -> str:
+        return "\n".join(s.text for s in self.steps if s.kind != TEMPLATE)
 
     def calls(self, phase: str | None = None) -> int:
         return sum(1 for s in self.steps if s.kind != TEMPLATE and (phase is None or s.phase == phase))

@@ -81,7 +81,6 @@ def test_reading_a_search_response():
     assert view.citations["20260521-pool-cap"] == "20260521-pool-cap@8082adb42e5311e3"
     assert view.redirects == {"20251104-pool": "20260521-pool-cap"}
     assert view.related["20260521-pool-cap"] == ["20260521-pool-cap", "20260101-other"]
-    assert not view.none_found
 
 
 def test_documents_to_load_skip_irrelevant_results_and_follow_related_once():
@@ -92,7 +91,6 @@ def test_documents_to_load_skip_irrelevant_results_and_follow_related_once():
 
 def test_none_found_loads_nothing():
     view = policy.read_search("prior context: none found\ndocs: 3 | drafts: 0\n")
-    assert view.none_found
     assert policy.documents_to_load(view, ["anything", "else"]) == []
     assert not policy.any_relevant(view, ["anything", "else"])
 

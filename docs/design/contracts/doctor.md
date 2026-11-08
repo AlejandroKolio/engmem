@@ -82,7 +82,7 @@ not is unusual enough that a second probe file is not worth it.
 ## Executables: stat first, then run only what engmem wrote
 
 Doctor reports `sys.executable` and the package version as facts. For the agents whose
-templates run `engmem` in a shell, `_on_path("engmem")` finds the command and
+templates run `engmem` in a shell, `executables.on_path("engmem")` finds the command and
 `engmem --version` runs it. A missing command is an error. A different version is a warning:
 two installs, and the shell runs the other one.
 
@@ -107,12 +107,13 @@ it printed. And `shutil.which` on Windows tries the current directory before PAT
 probe runs with `cwd` set to the filesystem root (`os.path.abspath(os.sep)`) and with
 `PYTHONSAFEPATH=1`, which keeps the working directory off `sys.path` on Python 3.11 and later.
 The neutral `cwd` also covers an older Python in the entry, and a relative `PYTHONPATH` entry
-such as `.`, which `PYTHONSAFEPATH` does not touch. Commands are looked up by `_on_path`, not
-`shutil.which`: it walks only the absolute PATH entries, with `PATHEXT` on Windows. There, as
-in `shutil.which`, a name that already ends in one of the `PATHEXT` extensions (`python.exe`) is
-tried as given before the suffixed names, and a bare name gets each suffix. An empty or
-relative entry names the current directory too, and is skipped. The agent's shell starts in a
-directory of its own, so a file found there tells nothing about what the agent will run.
+such as `.`, which `PYTHONSAFEPATH` does not touch. Commands are looked up by
+`executables.on_path`, not `shutil.which`: it walks only the absolute PATH entries, with
+`PATHEXT` on Windows. There, as in `shutil.which`, a name that already ends in one of the
+`PATHEXT` extensions (`python.exe`) is tried as given before the suffixed names, and a bare name
+gets each suffix. An empty or relative entry names the current directory too, and is skipped.
+The agent's shell starts in a directory of its own, so a file found there tells nothing about
+what the agent will run.
 
 Every probe is bounded by `_PROBE_SECONDS` (15.0), and `subprocess.run` kills the child when the
 time runs out. Its output goes to anonymous temporary files, not pipes (read up to 64 KiB each).

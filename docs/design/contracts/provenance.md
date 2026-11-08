@@ -65,8 +65,8 @@ The lookup is one `git rev-parse --show-toplevel HEAD`:
   a shown block has a well-formed anchor to compare, and reuses the answer for the rest of
   that search. A store with no anchors never runs git. `compose` makes a new one per call, so a
   long-running MCP server sees `HEAD` move between calls.
-- **git is found the way doctor finds a command** (`executables.on_path`, cited in
-  `contracts/doctor.md` as `_on_path`): absolute `PATH` entries only, never the working
+- **git is found the way doctor finds a command** (`executables.on_path`, as in
+  `contracts/doctor.md`): absolute `PATH` entries only, never the working
   directory, which is the project's.
 - **Only `rev-parse`.** It reads refs and config and runs nothing from them. `git status` would
   tell a dirty tree apart, but it refreshes the index, and a repository's own
@@ -191,7 +191,7 @@ empty allow-list alone refuses the transport before anything connects, and the l
 cat-file failed: fatal: transport '<name>' not allowed`. Either way nothing is fetched and no
 configured program runs; the tests pin each variable on its own. Same as the lookup: absolute-PATH git, repository-locating variables
 removed, `LC_ALL=C`, `GIT_LOOKUP_SECONDS`, files instead of pipes, git's error line only
-(`git cat-file failed: <line>`). `compare_covered` refuses an anchor or a `HEAD` that is not a
+(`git cat-file failed: <line>`). The comparison refuses an anchor or a `HEAD` that is not a
 commit id before asking git: an empty one would make `<commit>:<dir>` the index path `:<dir>`,
 and reading the index is what runs `core.fsmonitor`.
 

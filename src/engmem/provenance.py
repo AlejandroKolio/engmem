@@ -121,8 +121,6 @@ class SessionCheckout:
     def covered(self, anchor: str, paths: list[str]) -> CoveredCheck:
         """`paths` between `anchor` and the HEAD `lookup` found; only for a DIFFERS snapshot."""
         found = self.lookup()
-        if found.directory is None or found.head is None:
-            return _covered_unknown(found.reason or "no checkout here")
         if self._git_failure is not None:
             return _covered_unknown(self._git_failure)
         try:
@@ -386,17 +384,9 @@ def _run_cat_file(git: str, directory: Path, requests: bytes) -> tuple[int, byte
         )
 
 
-def compare_covered(directory: Path, anchor: str, head: str, paths: list[str]) -> CoveredCheck:
-    """CHANGED when any covered path differs or is gone at `head`; otherwise UNKNOWN when any
-    could not be compared; UNCHANGED only when every one was found at `anchor` and is the same
-    at `head`. Every way git can fail is a reason, never an exception."""
-    try:
-        return _compare_covered(directory, anchor, head, paths)
-    except _GitUnavailable as exc:
-        return _covered_unknown(exc.reason)
-
-
 def _compare_covered(directory: Path, anchor: str, head: str, paths: list[str]) -> CoveredCheck:
+    """CHANGED when any covered path differs or is gone at `head`; otherwise UNKNOWN when any
+    could not be compared; UNCHANGED only when every one is the same at `anchor` and `head`."""
     # an empty or non-hex commit would turn `<commit>:<dir>` into `:<dir>`, an index read,
     # and reading the index runs the repository's core.fsmonitor
     if not is_commit_id(anchor):
