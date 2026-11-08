@@ -22,7 +22,6 @@ ROLE_WORDS = {
     "tested": "testing",
     "rollback": "production",
 }
-MAX_SEARCHES = 2
 MAX_DOCS_LOADED = 5
 READ_ROLES = ("primer", "decisions")
 GREP_TOP_LINES = 20
@@ -97,7 +96,6 @@ class SearchView:
     citations: dict[str, str]
     redirects: dict[str, str]
     related: dict[str, list[str]]
-    none_found: bool
 
 
 def _split_cite(line: str) -> dict[str, str]:
@@ -144,7 +142,6 @@ def read_search(text: str) -> SearchView:
         citations=citations,
         redirects=redirects,
         related=related,
-        none_found=NONE_FOUND in text,
     )
 
 

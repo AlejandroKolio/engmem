@@ -41,7 +41,6 @@ class Plan:
     tasks: tuple[str, ...] = tuple(t.id for t in corpus_module.tasks())
     every_profile_everywhere: bool = False
     smoke: bool = False
-    seed: int = corpus_module.SEED
 
     def classes_for(self, name: str) -> tuple[int, ...]:
         """Every class, except class 1 only for the extra shell variants and, in `smoke`, as listed."""
@@ -191,9 +190,7 @@ def _mean_doc_bytes(sessions: Path) -> int:
 def run(out: Path, plan: Plan, progress=None) -> dict:
     """Generates the corpus under `out`, runs the plan, and returns the results document."""
     out.mkdir(parents=True, exist_ok=True)
-    corpus = corpus_module.generate(
-        out / "corpus", filler=plan.filler, scale_filler=plan.scale_filler, seed=plan.seed
-    )
+    corpus = corpus_module.generate(out / "corpus", filler=plan.filler, scale_filler=plan.scale_filler)
     ctx = _Context(out=out, corpus=corpus)
     runs = []
     started = time.perf_counter()
@@ -205,7 +202,7 @@ def run(out: Path, plan: Plan, progress=None) -> dict:
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "token_method": TOKEN_METHOD,
-            "seed": plan.seed,
+            "seed": corpus_module.SEED,
             "base_store_docs": sum(1 for _ in corpus.stores["base"].glob("*.md")),
             "scale_store_docs": sum(1 for _ in corpus.stores["scale"].glob("*.md")),
             "mean_doc_bytes": _mean_doc_bytes(corpus.stores["base"]),

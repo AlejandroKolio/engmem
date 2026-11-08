@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 MAX_OUTPUT_BYTES = 4096
 TOP_N = 3
 ROLE_TOP_N = TOP_N  # role-filtered search shows the same "top matches" cap
+PRIMER_MAX_LINES = 2
 PRIMER_MAX_CHARS = 240
 RELATED_MAX = 3
 SCOREBOARD_RESERVE = 128
@@ -85,7 +86,7 @@ def _primer_section(doc: Doc) -> Section | None:
     return None
 
 
-def _primer_excerpt(doc: Doc, max_lines: int = 2) -> str:
+def _primer_excerpt(doc: Doc) -> str:
     section = _primer_section(doc)
     if section is None:
         return ""
@@ -98,7 +99,7 @@ def _primer_excerpt(doc: Doc, max_lines: int = 2) -> str:
             break
         if line:
             lines.append(line)
-        if len(lines) == max_lines:
+        if len(lines) == PRIMER_MAX_LINES:
             break
     excerpt = " ".join(lines)
     if len(excerpt) > PRIMER_MAX_CHARS:
@@ -106,15 +107,15 @@ def _primer_excerpt(doc: Doc, max_lines: int = 2) -> str:
     return excerpt
 
 
-def _section_snippet(section: Section, max_chars: int = SECTION_SNIPPET_MAX_CHARS) -> str:
+def _section_snippet(section: Section) -> str:
     # heading or first sentence, capped: lets the agent judge relevance without opening the section
     text = " ".join(section.body.split())
     if not text:
         return section.heading
     match = _SENTENCE_RE.match(text)
     snippet = match.group(0) if match else text
-    if len(snippet) > max_chars:
-        snippet = snippet[: max_chars - 1].rsplit(" ", 1)[0] + "…"
+    if len(snippet) > SECTION_SNIPPET_MAX_CHARS:
+        snippet = snippet[: SECTION_SNIPPET_MAX_CHARS - 1].rsplit(" ", 1)[0] + "…"
     return snippet
 
 

@@ -24,8 +24,6 @@ TRACE_VALUES = TRACE_RAN | {"miss"}
 @dataclass
 class AuditReport:
     window_label: str
-    since_error: str | None  # a `--since` value this module could not parse; window falls back
-    # to all-time rather than failing the report (gate1_report.py exits 0 unconditionally)
 
     draft_count: int
     active_count: int
@@ -198,7 +196,6 @@ def evaluate(
 
     return AuditReport(
         window_label=window_label,
-        since_error=since_error,
         draft_count=len(draft),
         active_count=len(active),
         superseded_count=len(superseded),

@@ -130,8 +130,6 @@ def _pattern(
 
 def _title_spans(text: str, patterns: _Patterns) -> tuple[list[int], list[int]]:
     """`(starts, ends)` of the longest neighbour title at each position of `text`, in order."""
-    if patterns.titles_ahead is None:
-        return [], []
     found = [(m.start(), m.start() + len(m.group(1))) for m in patterns.titles_ahead.finditer(text)]
     return [a for a, _b in found], [b for _a, b in found]
 

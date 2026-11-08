@@ -709,27 +709,27 @@ def _executable_file(path: Path) -> Path:
 def test_on_windows_a_name_that_carries_its_extension_is_found_as_given(
     tmp_path, monkeypatch, name
 ):
-    from engmem.doctor import _on_path
+    from engmem.executables import on_path
 
     bin_dir = tmp_path / "bin"
     found = _executable_file(bin_dir / name)
-    monkeypatch.setattr("engmem.doctor.sys.platform", "win32")
+    monkeypatch.setattr("engmem.executables.sys.platform", "win32")
     monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    assert _on_path(name) == str(found)
+    assert on_path(name) == str(found)
 
 
 def test_on_windows_a_bare_name_still_gets_each_pathext_suffix(tmp_path, monkeypatch):
-    from engmem.doctor import _on_path
+    from engmem.executables import on_path
 
     bin_dir = tmp_path / "bin"
     found = _executable_file(bin_dir / "tool.BAT")
-    monkeypatch.setattr("engmem.doctor.sys.platform", "win32")
+    monkeypatch.setattr("engmem.executables.sys.platform", "win32")
     monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    assert _on_path("tool") == str(found)
+    assert on_path("tool") == str(found)
 
 
 def test_a_bare_mcp_command_with_its_extension_is_found_on_path(home, tmp_path, monkeypatch, capsys):

@@ -241,7 +241,6 @@ def execute(
     confirmed: bool,
     pilot: bool,
     pass_env: list[str],
-    filler: int = corpus_module.DEFAULT_FILLER,
 ) -> list[dict]:
     """Runs the plan for real; refuses without confirmation, and a full run refuses without a pilot."""
     if not confirmed:
@@ -253,7 +252,7 @@ def execute(
     _require_binaries(runs)
     selected = runs[:1] if pilot else runs
     out.mkdir(parents=True, exist_ok=True)
-    generated = corpus_module.generate(out / "corpus", filler=filler)
+    generated = corpus_module.generate(out / "corpus")
     results = [_execute_one(run, out / "sandboxes" / f"{i}", generated, pass_env) for i, run in enumerate(selected)]
     target = out / (PILOT_FILE if pilot else "live-results.json")
     target.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")

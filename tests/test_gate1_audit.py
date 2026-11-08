@@ -407,8 +407,7 @@ def test_an_unparseable_since_value_falls_back_to_all_time_without_crashing(tmp_
 
     report = _evaluate(tmp_path, since="not-a-real-date")
 
-    assert report.since_error is not None
-    assert report.window_label.startswith("all-time")
+    assert report.window_label.startswith("all-time (")
     assert report.telemetry_rows_with_session == 1, "falls back to counting everything"
 
 

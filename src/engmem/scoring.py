@@ -56,8 +56,7 @@ def _field_token_sets(value) -> tuple[frozenset[str], frozenset[str]]:
             if expansion:
                 parts_norm, acronym = expansion
                 all_tokens.update(parts_norm)
-                if acronym:
-                    all_tokens.add(acronym)
+                all_tokens.add(acronym)
 
     return frozenset(originals), frozenset(all_tokens)
 
@@ -96,8 +95,6 @@ def _build_query_words(query: str) -> list[_QueryWord]:
     camel: set[str] = set()
     for raw in tokenize_raw(query):
         orig = normalize_token(raw)
-        if not orig:
-            continue
         word_tokens = tokens.setdefault(orig, [orig])
         expansion = None if is_restricted(orig) else camel_expansion(raw)
         if expansion is None:
@@ -105,7 +102,7 @@ def _build_query_words(query: str) -> list[_QueryWord]:
         # `responsecache` then `ResponseCache` is one word; the second spelling adds its parts
         camel.add(orig)
         parts_norm, acronym = expansion
-        word_tokens += [t for t in (*parts_norm, acronym) if t and t not in word_tokens]
+        word_tokens += [t for t in (*parts_norm, acronym) if t not in word_tokens]
     return [_QueryWord(orig, tuple(ts), orig in camel) for orig, ts in tokens.items()]
 
 
@@ -115,7 +112,7 @@ def _build_query_tokens(query: str) -> list[_QueryToken]:
     tokens: dict[str, _QueryToken] = {}
 
     def add(text: str) -> None:
-        if text and text not in tokens:
+        if text not in tokens:
             tokens[text] = _QueryToken(text, is_restricted(text))
 
     for raw in tokenize_raw(query):

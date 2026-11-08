@@ -184,7 +184,7 @@ def _run_search_for_tool(
     return text, False
 
 
-def _handle_record_feedback(arguments: object, store: Path) -> tuple[str, bool]:
+def _handle_record_feedback(arguments: dict, store: Path) -> tuple[str, bool]:
     try:
         result, _, _ = _load_store_for_tool(store)
         entry = feedback.record(
@@ -207,7 +207,7 @@ def _optional_number(arguments: dict, field_name: str, *, integer: bool) -> obje
     return value
 
 
-def _handle_record_baseline(arguments: object, store: Path) -> tuple[str, bool]:
+def _handle_record_baseline(arguments: dict, store: Path) -> tuple[str, bool]:
     tokens = _optional_number(arguments, "tokens", integer=True)
     seconds = _optional_number(arguments, "seconds", integer=False)
     try:
@@ -221,7 +221,7 @@ def _handle_record_baseline(arguments: object, store: Path) -> tuple[str, bool]:
     return cost.confirmation(entry), False
 
 
-def _handle_read(arguments: object, store: Path) -> tuple[str, bool]:
+def _handle_read(arguments: dict, store: Path) -> tuple[str, bool]:
     role = arguments.get("role")
     if role is not None and role not in CANONICAL_ROLES:
         raise _ProtocolError(
@@ -329,10 +329,9 @@ def _scope_names(args: dict) -> list[str]:
     return ([repo] if repo is not None else []) + (repos or [])
 
 
-def _search_scope(arguments: object) -> Scope | None:
+def _search_scope(args: dict) -> Scope | None:
     """The scope a search tool call asks for; `null` and `false` are absent
     (contracts/mcp-server.md)."""
-    args = arguments if isinstance(arguments, dict) else {}
     unscoped = args.get("unscoped")
     all_repos = args.get("all_repos")
     names = _scope_names(args)
@@ -383,7 +382,7 @@ def _handle_tools_call(params: dict, store: Path, read_only: bool = False) -> di
                     f"invalid params: {field_name!r} must be a non-empty string",
                 )
         for field_name in _WRITE_TOOL_OPTIONAL_STRING_ARGS.get(name, ()):
-            value = arguments.get(field_name) if isinstance(arguments, dict) else None
+            value = arguments.get(field_name)
             if value is not None and not isinstance(value, str):
                 raise _ProtocolError(
                     INVALID_PARAMS, f"invalid params: {field_name!r} must be a string"
@@ -402,7 +401,7 @@ def _handle_tools_call(params: dict, store: Path, read_only: bool = False) -> di
             INVALID_PARAMS, "invalid params: 'query' must be a non-empty string"
         )
 
-    session_id = arguments.get("session_id") if isinstance(arguments, dict) else None
+    session_id = arguments.get("session_id")
     if session_id is not None and not isinstance(session_id, str):
         # wrong JSON type is malformed, not something to coerce — str() on a
         # dict would write Python repr syntax into the log
@@ -415,7 +414,7 @@ def _handle_tools_call(params: dict, store: Path, read_only: bool = False) -> di
     scope = _search_scope(arguments)
 
     if name == ROLE_TOOL_NAME:
-        role = arguments.get("role") if isinstance(arguments, dict) else None
+        role = arguments.get("role")
         if not isinstance(role, str) or role not in CANONICAL_ROLES:
             raise _ProtocolError(
                 INVALID_PARAMS,

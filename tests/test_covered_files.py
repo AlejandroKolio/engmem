@@ -694,10 +694,13 @@ def test_a_git_that_times_out_is_asked_once_per_search(store, moved, capsys, mon
     pytest.param("HEAD", "a" * 40, "its anchor is not a commit id", id="ref-anchor"),
     pytest.param("a" * 40, "", "HEAD is not a commit id", id="empty-head"),
 ])
-def test_compare_covered_never_asks_git_without_two_commit_ids(
-    tmp_path, git_calls, anchor, head, reason
+def test_the_covered_check_never_asks_git_without_two_commit_ids(
+    tmp_path, git_calls, monkeypatch, anchor, head, reason
 ):
-    check = provenance.compare_covered(tmp_path, anchor, head, ["src/a.py"])
+    found = provenance.Checkout(name="alpha", head=head, directory=tmp_path)
+    monkeypatch.setattr(provenance, "find_checkout", lambda directory: found)
+
+    check = SessionCheckout(tmp_path).covered(anchor, ["src/a.py"])
 
     assert (check.state, check.reason) == (CoveredState.UNKNOWN, reason)
     assert git_calls == []

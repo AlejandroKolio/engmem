@@ -22,29 +22,29 @@ from engmem.staging import commit, decode_document, discard, newline_of
 _ToolError = drafts.WriteRefused
 
 
-def handle_create_draft(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    content = arguments.get("content") if isinstance(arguments, dict) else None
+def handle_create_draft(arguments: dict, store: Path) -> tuple[str, bool]:
+    doc_id = arguments.get("id")
+    content = arguments.get("content")
     try:
         return drafts.create_draft(store, doc_id, content, drafts.MCP), False
     except _ToolError as exc:
         return str(exc), True
 
 
-def handle_complete_draft(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    content = arguments.get("content") if isinstance(arguments, dict) else None
-    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
+def handle_complete_draft(arguments: dict, store: Path) -> tuple[str, bool]:
+    doc_id = arguments.get("id")
+    content = arguments.get("content")
+    expected_version = arguments.get("expected_version")
     try:
         return drafts.complete_draft(store, doc_id, content, expected_version, drafts.MCP), False
     except _ToolError as exc:
         return str(exc), True
 
 
-def handle_mark_superseded(arguments: object, store: Path) -> tuple[str, bool]:
-    doc_id = arguments.get("id") if isinstance(arguments, dict) else None
-    superseded_by = arguments.get("superseded_by") if isinstance(arguments, dict) else None
-    expected_version = arguments.get("expected_version") if isinstance(arguments, dict) else None
+def handle_mark_superseded(arguments: dict, store: Path) -> tuple[str, bool]:
+    doc_id = arguments.get("id")
+    superseded_by = arguments.get("superseded_by")
+    expected_version = arguments.get("expected_version")
 
     try:
         target = drafts.resolve_write_target(store, doc_id)

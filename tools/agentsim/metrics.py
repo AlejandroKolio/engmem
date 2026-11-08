@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from agentsim.corpus import Task
+from agentsim.policy import NONE_FOUND
 from agentsim.profiles import LOAD, SAVE, SEARCH, START, Profile, RunState
 from agentsim.trace import TEMPLATE, TOOL, PASTE, Transcript, tokens
 
@@ -52,7 +53,7 @@ def outcome(task: Task, profile: Profile, transcript: Transcript, state: RunStat
     stale = _stale_avoided(task, context)
     correct = bool(quoted) and stale is not False if has_answer else True
     pitfall = (correct or task.pitfall in context) if task.pitfall else None
-    none_found = ("prior context: none found" in context) if task.scenario_class == 5 and profile.condition == "engmem" else None
+    none_found = (NONE_FOUND in context) if task.scenario_class == 5 and profile.condition == "engmem" else None
     saved = state.saved if state is not None and profile.saves else None
     row = state.reuse_row if state is not None else ""
     citation_valid = None
