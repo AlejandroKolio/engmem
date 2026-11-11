@@ -244,8 +244,18 @@ mode is read and before the Pre-reg. A research session therefore exists only fo
 agent took for engineering work, and the research population is engineering tasks only. A task
 the gate skipped wrongly leaves no draft, no telemetry row and no cost row, so no figure here or
 in `gate1_audit` can see it: a false skip is invisible to every audit figure. The gate decides
-from the task description alone, so it cannot select tasks by what the store holds. Whether this
-changes how §11 is read is not settled here.
+from the task description alone, so it cannot select tasks by what the store holds. The owner
+recorded this in `ENGMEM-SPEC.md` §11 as an amendment. Nothing else in §11 was amended with it:
+whether daily searches belong in the population of secondary endpoint 2 (navigation misses
+against total searches, which `engmem telemetry` counts over every row) is an open question.
+
+**A daily session is written at its save.** A daily start writes nothing, and its searches and
+reads log rows with no `session_id`, which `read_session_rows` skips: no daily start adds an
+attributed row, an orphan or an unreconstructable document to the audit block. The daily save
+creates the draft and completes it in two calls, one right after the other, so a daily document
+is a draft only between them. A daily document lists the prior documents it used in `related`; `_distance` reads
+that field, and why it changes no figure is in `contracts/prompt-templates.md`, "Daily mode pays
+only for the product".
 
 **Transition rule, stated rather than versioned.** No new protocol version is introduced:
 research mode is the current Gate 1 protocol plus one recorded fact, `baseline_unavailable`.

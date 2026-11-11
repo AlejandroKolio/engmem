@@ -33,6 +33,13 @@ Otherwise read the one word in `$XDG_CONFIG_HOME/engmem/mode` (default `~/.confi
 <!-- engmem-branch: end -->
 If the mode cannot be read (an `error:` line), tell the user and continue as `daily`: a daily
 session is never counted in the experiment, so it cannot corrupt it.
+<!-- engmem-branch: daily -->
+
+In daily mode, follow `## Daily mode` below: steps 1–6 are research mode's. In research mode,
+a copy with no `## 1. Pre-reg` section was installed for daily mode: tell the user that
+`engmem doctor` names the command that reinstalls it, and follow `## Daily mode` meanwhile.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 
 - **daily** — skip step 1: no Pre-reg, no baseline sub-agent. The draft records `mode: daily`
   and has no `## Pre-reg` section.
@@ -42,7 +49,6 @@ session is never counted in the experiment, so it cannot corrupt it.
 The mode is written once, into the draft's front matter in step 2, and never changed after:
 if the user switches mode during the task, the switch applies to the next session.
 
-<!-- engmem-branch: research -->
 ## 1. Pre-reg — generated, never asked of the user (research mode only)
 
 **Do not ask the user anything in this step.** Do not ask them to describe their approach,
@@ -84,7 +90,6 @@ not reported, and never estimate. Nothing reported means nothing to record.
 uncontaminated baseline with the plan made *after* prior documents are loaded. Written after
 the documents are read, it measures nothing.
 
-<!-- engmem-branch: end -->
 ## 2. Create the draft immediately
 
 engmem writes the draft itself, so you never write a file in the store. With a shell, run
@@ -232,3 +237,28 @@ message whose only content is the ritual's progress.
 If the answer changed because of what you recovered, say so in one line, naming the
 document and the specific thing you took from it. Never give vague credit ("gave useful
 context"): the Reuse Log will have to quote the named artifact.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+
+## Daily mode
+
+Daily mode writes nothing when it starts: no draft, no Pre-reg, and no session id on a search or
+a read.
+
+1. **Search.** With a shell, run `engmem search "<key terms from the task>"`. Over MCP, call
+   `engmem_search` with those terms as `query`. With neither, give the user that command and ask
+   them to paste the output back. If no result is relevant, search once more with other terms:
+   synonyms, or the names of the components and files involved. Two searches at most. Search
+   the whole store unless the user asks you to limit it (`--repo <name>`, `--unscoped`,
+   `--all-repos`; MCP: `repo`, `repos`, `unscoped`, `all_repos`); a miss under a `scope:` line
+   says nothing about the rest of the store.
+2. **Read.** Load at most 5 documents in all: the found ones first, then their `related`
+   documents at depth 1. Read sections, not whole files: `engmem read <id> --role primer`, then
+   `--role decisions` (MCP: `engmem_read` with `id` and `role`). Keep the `cite as` line of each
+   search and read: a save (`/engmem.save.quick`, `/engmem.save`) lists the ids (the part before
+   `@`) of the documents you used, and supersedes by the version it gives.
+3. **Report, then answer in the same message.** Open with `prior context:` and the documents you
+   loaded, one line each on what is relevant, or `prior context: none found`. Then answer or
+   propose the plan at once. If what you recovered changed the answer, name the document and the
+   specific thing you took from it.
+<!-- engmem-branch: end -->

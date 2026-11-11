@@ -39,7 +39,7 @@ a run whose stores, with their sandbox copies, would leave less than 2 GB free o
 
 | profile | agent it stands for | how it calls engmem | how it saves |
 |---|---|---|---|
-| `shell-claude` | Claude Code | `engmem install --agent claude`; reads `~/.claude/commands/engmem.md`; CLI via subprocess | `engmem draft create` / `draft complete`, content on stdin |
+| `shell-claude` | Claude Code | `engmem install --agent claude`; reads `~/.claude/commands/engmem.md`; CLI via subprocess | one git call, then `engmem draft create` / `draft complete`, content on stdin |
 | `shell-codex` | Codex, shell only | `engmem install --agent codex`; reads `~/.agents/skills/engmem/SKILL.md` | as `shell-claude` |
 | `shell-copilot-cli` | Copilot CLI | `engmem install --agent copilot-cli`; reads `~/.copilot/skills/engmem/SKILL.md` | as `shell-claude` |
 | `mcp-shell` | Claude Code with the MCP server | `engmem mcp` over stdio: `prompts/get`, `tools/list`, `tools/call`; the shell for `store show`, git and the clock | `engmem_create_draft` / `engmem_complete_draft` |
@@ -50,9 +50,14 @@ a run whose stores, with their sandbox copies, would leave less than 2 GB free o
 | `no-history` | the same agent with nothing | nothing | none |
 
 Every engmem profile first reads the start template and applies its scope gate (below,
-"Policies"). Shell profiles then run it in its order: `engmem mode show` (step 0), then
-`engmem store show` and `engmem draft create` (step 2). Stdin stands in for the template's quoted
-heredoc, so no profile needs a POSIX shell and every profile runs on Windows. The three shell
+"Policies"). Shell profiles then run `engmem mode show` (step 0). In daily mode, the default, the
+start writes nothing: the profiles search and read with no session id and create no draft. The
+save follows the daily save template literally: one git call for the front-matter facts (shell
+profiles), then `engmem draft create` with the front matter and `engmem draft complete` with the
+document, or `engmem_create_draft` and `engmem_complete_draft` over MCP. In research mode a profile
+runs the research steps as before: `engmem store show` and `engmem draft create` (step 2) at the
+start, the session id on every search and read, and the research save. Stdin stands in for the
+template's quoted heredoc, so no profile needs a POSIX shell and every profile runs on Windows. The three shell
 variants differ only in the installed copy. By default `shell-codex` and `shell-copilot-cli` run
 class 1 only; `--every-profile` runs them everywhere. Real Codex also has the MCP server and its
 template prefers MCP for the draft; that path is the `mcp-shell` profile. Each MCP request times
@@ -63,7 +68,9 @@ out after 60 seconds, so a hung server fails the run instead of hanging it.
 Declared once, applied to every profile and condition, and never read from the answer a run is
 scored on. A policy that is wrong for engmem stays wrong in the report.
 
-- **Mode.** Daily, the default; no Pre-reg and no baseline sub-agent.
+- **Mode.** Daily, the default; no Pre-reg, no baseline sub-agent, no draft before the save. No
+  run sets research mode, so the harness measures the daily product; the research templates are
+  held byte for byte by `tests/test_daily_templates.py` instead.
 - **Scope gate.** A task whose description holds a word from a fixed list (`interview`,
   `practise`, `practice`, `study`, `homework`, `essay`, `blog`, `newsletter`, `marketing`,
   `holiday`, `vacation`, `recipe`, `birthday`) is not engineering work. An engmem profile then
@@ -98,8 +105,10 @@ scored on. A policy that is wrong for engmem stays wrong in the report.
   takes its successor. The cap is the same five documents. The second search runs when no opened file shows two query terms.
 - **Save.** `/engmem.save.quick` for every task; `/engmem.save` for the class 8 saver. The
   decision is the task's known answer when its quote reached the context, else the naive one.
-  A Reuse Log row is written only when the quote reached the context; it cites the `cite as`
-  reference of the read that returned the quote, else of the search block. When completion
+  A daily save lists in `related` the document the quote came from, and writes no Reuse Log,
+  Search Trace or `capture_minutes`. In research mode a Reuse Log row is written only when the
+  quote reached the context; it cites the `cite as` reference of the read that returned the
+  quote, else of the search block. When completion
   refuses the row, the run keeps the attempted row, scores its citation invalid, and completes
   again with `Prior docs used: none.`. The simulated user confirms the preview, answers no to
   the supersede question and gives no usefulness feedback.
@@ -168,9 +177,12 @@ Per scenario × profile:
   gate. In class 9 an engmem run is correct only when it skipped and `store_written`, which
   compares a digest of every file in the store before and after the run, is false. `citation valid`: completion accepted the
   document with its row and reported no citation problem; a refused row scores no. `Reuse Log
-  row`: the row cites an answer document and is classified `reuse`.
+  row`: the row cites an answer document and is classified `reuse`. Both are research-only and
+  empty for a daily run; a daily run scores `related names answer`: its saved `related` names an
+  answer document. `drafts_left` counts the session documents a run wrote that are still drafts.
 - **engmem's ledger.** The bytes `cost.jsonl` recorded for the run's session beside the bytes
-  the harness received. MCP rows must match exactly; CLI rows are larger by the stderr warnings
+  the harness received. A daily run has no session id, so its ledger is the unattributed rows of
+  its fresh store; a class 8 finder's store also holds the saver's rows, so it has no ledger. MCP rows must match exactly; CLI rows are larger by the stderr warnings
   and the closing `note:` lines the ledger does not count.
 
 ## How to read the report

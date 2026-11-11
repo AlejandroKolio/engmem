@@ -63,10 +63,25 @@ SAVE_NAMES = {
     "copilot-cli": ("engmem/SKILL.md", "engmem-save/SKILL.md", "engmem-save-quick/SKILL.md"),
     "copilot-ide": ("engmem.prompt.md", "engmem.save.prompt.md", "engmem.save.quick.prompt.md"),
 }
-FILES_COPY_PHRASES = ("engmem draft create", "engmem search", "--session", "engmem read", "engmem store show")
-MCP_PROMPT_PHRASES = ("engmem_create_draft", "engmem_search", "session_id", "engmem_read")
-SAVE_SHELL_PHRASES = ("engmem draft complete", "--expected-version", "engmem feedback summary")
-SAVE_MCP_PHRASES = ("engmem_complete_draft", "expected_version")
+DAILY = "daily"
+FILES_COPY_PHRASES = {
+    "research": ("engmem draft create", "engmem search", "--session", "engmem read", "engmem store show"),
+    DAILY: ("engmem mode show", "engmem search", "engmem read"),
+}
+MCP_PROMPT_PHRASES = {
+    "research": ("engmem_create_draft", "engmem_search", "session_id", "engmem_read"),
+    DAILY: ("engmem_search", "engmem_read"),
+}
+SAVE_SHELL_PHRASES = {
+    "research": ("engmem draft complete", "--expected-version", "engmem feedback summary"),
+    DAILY: ("engmem draft create", "engmem draft complete", "--expected-version"),
+}
+SAVE_MCP_PHRASES = {
+    "research": ("engmem_complete_draft", "expected_version"),
+    DAILY: ("engmem_create_draft", "engmem_complete_draft", "expected_version"),
+}
+DAILY_START_LEAVES_OUT = ("engmem draft create", "--session", "session_id", "## Search Trace")
+GIT_FACTS = "git rev-parse --show-toplevel HEAD --abbrev-ref HEAD; git config user.name"
 NO_WRITE_FALLBACK = "If you can do neither"
 SCOPE_SKIP_LINE = "engmem: skipped — not an engineering task"
 
@@ -79,7 +94,7 @@ class RunState:
     today: str
     draft_id: str | None = None
     version: str | None = None
-    mode: str = "daily"
+    mode: str = DAILY
     skipped: bool = False
     searched: bool = False
     write_tools: bool = False
@@ -89,6 +104,7 @@ class RunState:
     save_text: str = ""
     save_note: str = ""
     reuse_row: str = ""
+    related: str = ""
     row_refused: bool = False
 
 
@@ -173,11 +189,14 @@ class Agent:
             self.state.skipped = True
             self.state.save_note = "skipped at the scope gate: no draft, no search"
             return
-        self._start_calls()
-        self._create_draft(description, saver)
+        self._start_calls(text)
+        if self.state.mode != DAILY:
+            self._create_draft(description, saver)
         views = self._search(description)
         self._load(views, description)
-        if self.profile.saves and self.state.draft_id:
+        if self.profile.saves and self.state.mode == DAILY:
+            self._save_daily(saver)
+        elif self.profile.saves and self.state.draft_id:
             self._save(saver)
         else:
             self._save_unavailable()
@@ -187,37 +206,49 @@ class Agent:
         if self.mcp is not None:
             text, seconds = self.mcp.prompt("engmem", description)
             self.t.add(Step(START, TEMPLATE, "prompts/get engmem", seconds, text))
-            self.state.template_checks["start prompt names the MCP steps"] = _contains_all(text, MCP_PROMPT_PHRASES)
             tools, seconds = self.mcp.tools()
             self.t.add(Step(START, TEMPLATE, "tools/list", seconds, json.dumps(tools)))
             self.state.write_tools = any(tool["name"] == "engmem_create_draft" for tool in tools)
             self.state.template_checks["write tools match the server mode"] = self.state.write_tools != self.profile.read_only
-            if self.profile.read_only:
-                self.state.template_checks["start prompt says what to do without a write tool"] = NO_WRITE_FALLBACK in text
             match = re.search(r"engmem mode for this session: (\w+)", text)
-            self.state.mode = match.group(1) if match else "daily"
+            self.state.mode = match.group(1) if match else DAILY
+            if self.profile.read_only and self.state.mode != DAILY:
+                self.state.template_checks["start prompt says what to do without a write tool"] = NO_WRITE_FALLBACK in text
+            self.state.template_checks["start prompt names the MCP steps"] = _contains_all(
+                text, MCP_PROMPT_PHRASES[self.state.mode]
+            )
+            self._check_daily_start(text)
             return text
         started = time.perf_counter()
         text = _copy(self.sandbox, self.profile, self.checkout, 0).read_text(encoding="utf-8")
         text = text.replace("$ARGUMENTS", description)
         self.t.add(Step(START, TEMPLATE, "installed copy", time.perf_counter() - started, text))
-        self.state.template_checks["installed copy names the shell steps"] = _contains_all(text, FILES_COPY_PHRASES)
         if self.profile.paste:
             self.state.template_checks["copy describes the paste bridge"] = "paste the output back" in text
         return text
 
-    def _start_calls(self) -> None:
-        """Step 0's mode read and step 2's store check, the calls an engineering task makes first."""
+    def _check_daily_start(self, text: str) -> None:
+        if self.state.mode == DAILY and "\n## 1. Pre-reg" not in text:
+            self.state.template_checks["daily start writes nothing and passes no session id"] = not any(
+                phrase in text for phrase in DAILY_START_LEAVES_OUT
+            )
+
+    def _start_calls(self, text: str) -> None:
+        """Step 0's mode read and, in research mode, step 2's store check: the first calls."""
         if self.mcp is not None:
-            if self.profile.shell:
+            if self.profile.shell and self.state.mode != DAILY:
                 self._cli(START, "engmem store show", "store", "show")
             return
-        if self.profile.paste:
-            return
-        shown = self._cli(START, "engmem mode show", "mode", "show")
-        match = re.search(r"^mode: (\w+)", shown.text, re.MULTILINE)
-        self.state.mode = match.group(1) if match else "daily"
-        self._cli(START, "engmem store show", "store", "show")
+        if not self.profile.paste:
+            shown = self._cli(START, "engmem mode show", "mode", "show")
+            match = re.search(r"^mode: (\w+)", shown.text, re.MULTILINE)
+            self.state.mode = match.group(1) if match else DAILY
+        self.state.template_checks["installed copy names the shell steps"] = _contains_all(
+            text, FILES_COPY_PHRASES[self.state.mode]
+        )
+        self._check_daily_start(text)
+        if not self.profile.paste and self.state.mode != DAILY:
+            self._cli(START, "engmem store show", "store", "show")
 
     def _draft_text(self, doc_id: str, title: str) -> str:
         return "\n".join([
@@ -340,12 +371,16 @@ class Agent:
         if self.mcp is not None:
             text, seconds = self.mcp.prompt(name, None)
             self.t.add(Step(SAVE, TEMPLATE, f"prompts/get {name}", seconds, text))
-            self.state.template_checks["save prompt names the MCP write"] = _contains_all(text, SAVE_MCP_PHRASES)
+            self.state.template_checks["save prompt names the MCP write"] = _contains_all(
+                text, SAVE_MCP_PHRASES[self.state.mode]
+            )
             return text
         started = time.perf_counter()
         text = _copy(self.sandbox, self.profile, self.checkout, index).read_text(encoding="utf-8")
         self.t.add(Step(SAVE, TEMPLATE, "installed copy", time.perf_counter() - started, text))
-        self.state.template_checks["save copy names the shell write"] = _contains_all(text, SAVE_SHELL_PHRASES)
+        self.state.template_checks["save copy names the shell write"] = _contains_all(
+            text, SAVE_SHELL_PHRASES[self.state.mode]
+        )
         return text
 
     def _save_unavailable(self) -> None:
@@ -389,6 +424,42 @@ class Agent:
             self.state.save_refusals += 1
         self.state.saved = accepted
 
+    def _git_facts(self) -> tuple[str, str, str]:
+        """The daily save's one shell call for the front matter: the sha, the author, the branch."""
+        if not self.sandbox.has_git:
+            return "", "", ""
+        facts = self.sandbox.run(["git", "rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD"], cwd=self.checkout)
+        author = self.sandbox.run(["git", "config", "user.name"], cwd=self.checkout)
+        text = facts.stdout + facts.stderr + author.stdout + author.stderr
+        self.t.add(Step(SAVE, TOOL, GIT_FACTS, facts.seconds + author.seconds, text, facts.returncode == 0))
+        lines = facts.stdout.splitlines() if facts.returncode == 0 else []
+        sha, branch = (lines[1], lines[2]) if len(lines) == 3 else ("", "")
+        return sha, author.stdout.strip() if author.returncode == 0 else "", branch
+
+    def _save_daily(self, saver: dict | None) -> None:
+        """The daily save as its template says: one git call, then create and complete."""
+        self._save_template(saver is not None)
+        slug = saver["doc_slug"] if saver else self.task.id
+        doc_id = f"{self.state.today.replace('-', '')}-{slug}"
+        sha, author, branch = self._git_facts() if self.profile.shell else ("", "", "")
+        related = "" if saver else used_document(self.t, self.task.quote)
+        self.state.related = related
+        content = compose_daily_save(self, doc_id, saver, related, sha=sha, author=author, branch=branch)
+        front = content[: content.index("\n---\n", 4) + 5].replace("status: active", "status: draft", 1)
+        if self.mcp is not None:
+            step = self._tool(SAVE, "engmem_create_draft", {"id": doc_id, "content": front})
+        else:
+            step = self._cli(SAVE, "engmem draft create", "draft", "create", doc_id, stdin=front)
+        match = VERSION.search(step.text)
+        if not (step.ok and match):
+            self.state.save_refusals += 1
+            self.state.save_text = step.text
+            return
+        self.state.draft_id, self.state.version = doc_id, match.group(1)
+        self.state.saved = self._complete(content)
+        if not self.state.saved:
+            self.state.save_refusals += 1
+
     def _complete(self, content: str) -> bool:
         session = self.state.draft_id
         assert session is not None and self.state.version is not None
@@ -414,6 +485,15 @@ class Agent:
         if reference is None:
             return ""
         return f'| {reference} | {self.task.artifact}: "{quote}" | changed the decision | reuse |'
+
+
+def used_document(transcript: Transcript, quote: str) -> str:
+    """The id of the prior document the task's quote came from, which a daily save lists in
+    `related`; empty when the quote never reached the context."""
+    if not quote:
+        return ""
+    reference = quoting_reference(transcript, quote)
+    return reference.split("@", 1)[0] if reference else ""
 
 
 def quoting_reference(transcript: Transcript, quote: str) -> str | None:
@@ -489,7 +569,55 @@ def compose_save(agent: Agent, saver: dict | None, row: str, *, sha: str, author
     ])
 
 
-def _full_body(saver: dict, reuse: str, trace: str) -> str:
+def compose_daily_save(
+    agent: Agent, doc_id: str, saver: dict | None, related: str, *, sha: str, author: str, branch: str
+) -> str:
+    """The daily document: the example's front matter, and the product sections only."""
+    task, state = agent.task, agent.state
+    entities = saver["entities"] if saver else [policy.component_terms(task.files)[0]]
+    title = saver["title"] if saver else task.description[:80]
+    front = "\n".join([
+        "---",
+        f"id: {doc_id}",
+        f"title: {title}",
+        f"date: {state.today}",
+        f"task_date: {state.today}",
+        "status: active",
+        "superseded_by:",
+        "backfilled: false",
+        "tags: [sim]",
+        f"entities: [{', '.join(entities)}]",
+        f"related: [{related}]",
+        f"covers_files: [{', '.join(task.files)}]",
+        f"verified_at: {f'{{{task.repo}: {sha}}}' if sha else ''}",
+        f"author: {author}",
+        f"repos: [{task.repo}]",
+        f"branch: {branch if branch != 'HEAD' else ''}",
+        "pr:",
+        f"mode: {DAILY}",
+        "---",
+        "",
+    ])
+    if saver:
+        return front + _full_body(saver, None, None)
+    reached = bool(related) or bool(task.quote and task.quote in agent.t.context())
+    decision = task.decision_found if reached else task.decision_naive
+    return front + "\n".join([
+        "## Decision Log",
+        "",
+        f"- Decision: {decision}",
+        f"- Reason: {NOT_STATED if not reached else 'the prior decision recorded the same constraint.'}",
+        f"- Rejected alternative: {NOT_STATED}",
+        f"- Source: {NOT_STATED}",
+        "",
+        "## Future LLM Context (cold-start primer)",
+        "",
+        decision,
+        "",
+    ])
+
+
+def _full_body(saver: dict, reuse: str | None, trace: str | None) -> str:
     tried, failed, fixed, files = saver["lesson"]
     sections = {
         "1. Executive Summary": "Order intake retries now carry an idempotency key.",
@@ -513,7 +641,7 @@ def _full_body(saver: dict, reuse: str, trace: str) -> str:
         "17. Status at a Glance": "- Done.",
         "Search Trace": trace,
     }
-    return "\n".join(f"## {heading}\n\n{text}\n" for heading, text in sections.items())
+    return "\n".join(f"## {heading}\n\n{text}\n" for heading, text in sections.items() if text is not None)
 
 
 class GrepAgent:

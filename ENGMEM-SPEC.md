@@ -33,11 +33,14 @@ explicit permission.
 measurement parts: the Reuse Log checks, the Pre-reg, the Search Trace, session-id attribution,
 and the cost and timing fields. Research sessions keep the protocol exactly as written here. A
 daily session is already outside every Gate 1 figure (`docs/design/contracts/gate1.md`,
-"Modes"), so what it drops removes nothing from the count. So far the runtime uses the permission
-in three places: a daily completion makes no Reuse Log refusal and no citation or unlisted-reads
-note, a daily draft's create result leaves out the Reuse Log shape, and a search or read made
-while the saved mode is daily does not end with the unattributed note. The checks that protect
-the data (the front matter, the id, the mode, the version read) hold in every mode.
+"Modes"), so what it drops removes nothing from the count. The runtime uses the permission in
+three places: a daily completion makes no Reuse Log refusal and no citation or unlisted-reads
+note, a daily draft's create result leaves out the Reuse Log shape and the session-id directive,
+and a search or read made while the saved mode is daily does not end with the unattributed note.
+The templates use it too: a daily start writes nothing, and a daily save writes a document
+without the Pre-reg, the Reuse Log, the Search Trace, `capture_minutes`, the cost fields and
+`navigation_miss` (§6). The checks that protect the data (the front matter, the id, the mode,
+the version read) hold in every mode.
 
 **The project's success metric** is knowledge reused, not document count and not the tool's
 feature count.
@@ -166,9 +169,11 @@ baseline_unavailable:             # research only: why no baseline could be had;
 Manually filled fields — **zero**: id/date/verified_at/author/branch are computed
 automatically; title/tags/entities/related/covers_files/repos/pr are drafted by the agent
 from the diff and transcript, and the human replies "y". `capture_minutes` is filled by the
-agent from two readings of its shell's UTC clock, and left blank otherwise. `mode` is written into the
-draft from `engmem mode show` and copied unchanged at save, as is `baseline_unavailable`; a
-document without `mode` predates US-08 and is a legacy document (§11).
+agent from two readings of its shell's UTC clock, and left blank otherwise; a daily document does
+not write it. In research mode `mode` is written into the draft from `engmem mode show` and
+copied unchanged at save, as is `baseline_unavailable`; a daily session has no draft before its
+save, which writes `mode: daily` and lists the prior documents it used in `related`. A document
+without `mode` predates US-08 and is a legacy document (§11).
 
 **No field is required.** A document with no front matter, or with an incomplete one,
 always loads. Missing values are derived: `id` from the filename stem, `title` from the
@@ -226,7 +231,9 @@ Sheet, 16. Reuse Log, 17. Status at a Glance — and `## Search Trace` last.
 `/engmem.save.quick` writes the short record, five unnumbered: Pre-reg, Decision Log (one
 labelled line each for the decision, its reason, the rejected alternative and the source),
 Future LLM Context (cold-start primer), Reuse Log and Search Trace; it adds Lessons Learned
-only when a pitfall was actually hit. The thin core, with each section's role
+only when a pitfall was actually hit. In daily mode neither save writes the Pre-reg, the Reuse
+Log (section 16 of the full save) or the Search Trace; the other numbers stay as they are. The
+thin core, with each section's role
 (`/engmem.save.quick` writes 3 only for a pitfall hit):
 1. `## Pre-reg` — 2–3 lines of intent, written BEFORE opening the store; research mode only —
    a daily session has none, and either save carries it over only when the draft has one
@@ -281,14 +288,16 @@ Idempotent (re-running = upgrade, nothing breaks):
    `docs/design/contracts/install.md`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` /
    `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`) if not
-   already present: "Before proposing a plan for engineering work in a repository (not study, writing or personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
+   already present: "Before proposing a plan for engineering work in a repository (not study, writing or personal tasks), run `engmem search "<key terms for the task>"`, adding `--session <draft-id>` only when `/engmem` created a draft for this task (research mode; without it that search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
    rule the user reworded is recognised and never duplicated; a skip for this reason
    is reported on stdout, not left silent. A line that is exactly an earlier wording engmem
    itself wrote (with or without the sentinel below) is not skipped but updated in place to
    the current wording and reported as updated — otherwise the marker check would freeze
    the first wording ever installed. *(2026-09-18: `--session` joined the rule; every CLI
    search on the record until then was unattributed. The owner later narrowed the rule to
-   engineering work in a repository, as the start's scope gate is, §6.)* The appended line is
+   engineering work in a repository, as the start's scope gate is, §6, and then asked for the
+   session id only when `/engmem` created a draft, since a daily start creates none.)* The
+   appended line is
    written after an
    `<!-- engmem-trigger-rule -->` sentinel comment so `uninstall` removes precisely
    the line engmem wrote, not any line that merely contains the same substring — an
@@ -349,12 +358,16 @@ is no `store unset` — deleting the file restores the default.)*
 Added by US-08. `mode set` saves `daily` or `research` (case-insensitive) as the one word of the
 mode file (§3), atomically; another word exits 2 with a named cause and leaves the file as it
 was. It also says that the next session started with `/engmem` records the new mode and that
-sessions already started keep theirs. `mode show` prints `mode: <mode>` on its first line — the
+sessions already started keep theirs, though a session saved after the switch gets the new
+mode's save steps, so the note says to finish open sessions first. `mode show` prints `mode: <mode>` on its first line — the
 line the `engmem.start` template reads in its step 0 — then `source:` (`saved choice (<file>)` or
 `default (no saved choice in <file>)`) and one line on what the mode means. A mode file that
-cannot be used exits 2 with a named cause on both streams. No other command reads the file except
-`engmem mcp`, whose start prompt and `engmem_create_draft` read it on every call
-(`contracts/mcp-server.md`, "The mode a draft records").
+cannot be used exits 2 with a named cause on both streams. `engmem mcp` reads the file on every
+prompt and every `engmem_create_draft` call (`contracts/mcp-server.md`, "The mode a draft
+records"), a search or read reads it to leave out the unattributed note, and `engmem install`
+renders the copies under the user's home for the saved mode (`contracts/install.md`). `mode set`
+then prints `engmem install --agent <agent>` for each agent whose home copies were installed for
+the other mode, and `engmem doctor` warns about such a copy until it is reinstalled.
 
 ### `engmem doctor [--agent claude|copilot-ide|copilot-cli|claude-desktop|codex|chatgpt] [--local] [--store PATH]`
 
@@ -904,8 +917,8 @@ figure can see it (`docs/design/contracts/gate1.md`, "Modes"). Rules: `docs/desi
 
 0. **Mode** (US-08): read it first — `engmem mode show`, the first line of the `engmem` MCP
    prompt, or the mode file; `daily` when nothing is saved or the mode cannot be read (said to
-   the user). Daily skips step 1 entirely: no Pre-reg, no baseline sub-agent, and a daily
-   `engmem` MCP prompt leaves step 1 out. Research runs it unchanged.
+   the user). Daily runs none of steps 1–6: it follows the daily steps below, and a daily copy
+   or `engmem` MCP prompt leaves steps 1–6 out. Research runs them unchanged.
 1. **Pre-reg** (research mode): capture 2–3 lines of "how this would be solved without prior context" —
    BEFORE any search, and without asking the author. Preferably via a separate sub-agent
    that is given only the task statement, with no access to the store and no knowledge of
@@ -915,7 +928,7 @@ figure can see it (`docs/design/contracts/gate1.md`, "Modes"). Rules: `docs/desi
    uncontaminated baseline can be had before the search, none is written and the draft records
    `baseline_unavailable: <reason>`; search and save go on, and the session is an incomplete
    observation (§11).
-2. **Draft:** immediately create `sessions/<id>.md` with front matter `status: draft`, `mode`
+2. **Draft** (research mode): immediately create `sessions/<id>.md` with front matter `status: draft`, `mode`
    from step 0, and, in research mode, the Pre-reg section. No creation time is recorded (`date:` has day resolution), so nothing
    here anchors `capture_minutes`.
 3. **Search:** if you can run commands, call `engmem search "<key terms>" --session <id>`,
@@ -932,6 +945,12 @@ figure can see it (`docs/design/contracts/gate1.md`, "Modes"). Rules: `docs/desi
 6. Explicitly list what was pulled in (or "prior context: none found"), and answer the
    actual question IN THE SAME message. The ritual doesn't delay or replace the answer;
    there must be no message that consists only of a ritual report.
+
+**Daily mode** (the default) writes nothing when it starts: after the scope gate and step 0, up
+to two searches and up to five reads by role, with no session id, then `prior context: …` and
+the answer in the same message. No draft, no `store show`, no Search Trace, no cost notes. A
+daily `/engmem` that never saves leaves nothing behind. Rules and reasons:
+`docs/design/contracts/prompt-templates.md`, "Daily mode pays only for the product".
 
 ### `/engmem.save` (finish)
 
@@ -964,6 +983,14 @@ figure can see it (`docs/design/contracts/gate1.md`, "Modes"). Rules: `docs/desi
    record`, or `engmem_record_feedback`); no answer is recorded as nothing, and the find stays
    unknown. Never record an assessment the user did not give.
 
+**Daily mode:** no draft exists, so the save composes the document, takes the front-matter facts
+from one git call, and then runs `engmem draft create` with the front matter and
+`engmem draft complete` with the whole document (MCP: `engmem_create_draft`,
+`engmem_complete_draft`). It writes `mode: daily`, lists the prior documents it used in `related`,
+and writes no Pre-reg, Reuse Log (section 16), Search Trace, `capture_minutes`, cost fields or
+`navigation_miss`, and asks no usefulness question. The supersede step stays, with the version
+from the `cite as` line the start kept.
+
 ### `/engmem.save.quick` (short capture)
 
 One preview, one confirmation: the decision, its reason, the rejected alternative and the
@@ -973,7 +1000,9 @@ for any save; front matter filled automatically, `mode` copied from the draft, s
 is written as `not stated in the available material.`, never invented. Confirmed or edited →
 published once, no second round. Declined → nothing published; the draft stays a draft. No
 supersede question. This degrades the doc's completeness, not its validity or the
-experiment's ritual. Constraints: `docs/design/contracts/prompt-templates.md`.
+experiment's ritual. In daily mode the record has no Reuse Log and no Search Trace, the front
+matter comes from one git call, and the document is created and completed only after the
+confirmation, so a decline writes nothing. Constraints: `docs/design/contracts/prompt-templates.md`.
 
 ## 7. Scoring (deterministic, no ML)
 
@@ -1353,6 +1382,12 @@ unchanged. The other figures are unchanged too unless a `prior-doc` cell contain
 naming how many rows are which. A versioned row whose cited document is gone stays
 `cited_missing`. This is an owner-approved exception to the §9 measurement freeze. See `docs/design/contracts/gate1.md`,
 "Versioned citations".
+
+**Amendment, recorded with the daily split (owner decision): the research population is
+engineering tasks only.** From the scope gate (PR #85) on, the research population is engineering tasks only:
+the gate runs before the Pre-reg, from the task description alone, and a false skip leaves no
+draft, telemetry or cost row, so no audit figure can see it. See `docs/design/contracts/gate1.md`,
+"Modes".
 
 ### What does not count as evidence
 

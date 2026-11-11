@@ -11,6 +11,7 @@ from support.home import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
+    ENGINEERING_TRIGGER_RULE,
     LEGACY_TRIGGER_RULE,
     SESSION_TRIGGER_RULE,
     TRIGGER_RULE,
@@ -391,6 +392,8 @@ TRIGGER_RULE_REMOVAL_CASES = [
     pytest.param(TRIGGER_RULE, False, id="current-rule-bare"),
     pytest.param(SESSION_TRIGGER_RULE, True, id="any-task-rule-with-sentinel"),
     pytest.param(SESSION_TRIGGER_RULE, False, id="any-task-rule-bare"),
+    pytest.param(ENGINEERING_TRIGGER_RULE, True, id="draft-in-every-mode-rule-with-sentinel"),
+    pytest.param(ENGINEERING_TRIGGER_RULE, False, id="draft-in-every-mode-rule-bare"),
 ]
 
 

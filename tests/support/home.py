@@ -28,6 +28,12 @@ INSTALLED_NAMES_COPILOT_IDE = (
 )
 TRIGGER_RULE = (
     "Before proposing a plan for engineering work in a repository (not study, writing or "
+    'personal tasks), run `engmem search "<key terms for the task>"`, adding '
+    "`--session <draft-id>` only when `/engmem` created a draft for this task (research mode; "
+    "without it that search is unattributed)"
+)
+ENGINEERING_TRIGGER_RULE = (
+    "Before proposing a plan for engineering work in a repository (not study, writing or "
     'personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the '
     "draft `/engmem` just created; without it the search is unattributed)"
 )

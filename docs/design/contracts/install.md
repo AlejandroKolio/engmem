@@ -102,6 +102,30 @@ would silently stop taking effect.
 `uninstall` still removes an edited template. It is the user's own request to remove engmem's
 files, and refusing it would leave a command the user just asked to be rid of.
 
+## A home copy carries the saved mode
+
+The copies under the user's home (`~/.claude/commands`, `~/.copilot/skills`, and
+`~/.agents/skills` for Codex) are rendered for the saved mode (`install.copy_mode`): a daily user's
+copy has no research steps, a research user's no daily ones (`contracts/prompt-templates.md`,
+"Each target gets the branches it can take"). A project copy (`.github/prompts`, `--local`) is
+read by people whose modes differ, so it keeps both. A home copy installed while the saved mode
+cannot be read keeps both too: rendering it as daily would hide the research steps from a user
+whose file is only damaged, and the file's error reaches the user from `engmem mode show`.
+
+**The stamp names the mode** as an optional token after the workflow level:
+`<!-- engmem-template: <name> v<version> workflow <level> mode daily sha256:<digest> -->`. A copy
+that keeps both modes has no token, and every stamp written before the token existed still parses
+(`template_stamps.read_stamp`), as a copy with both modes. The digest covers the body as before,
+so a copy rendered for one mode is replaced like any unedited copy when the mode or the version
+changes. An engmem from before the token cannot parse a stamp that carries it, so a downgrade
+treats that copy as the user's and puts its own beside it, as it does for an edit.
+
+**A copy can fall behind the mode.** `engmem mode set` rewrites no copy. It prints
+`engmem install --agent <agent>` for each agent whose home copies carry the other mode
+(`install.agents_installed_for_another_mode`), and `engmem doctor` warns about such a copy
+(`contracts/doctor.md`). The MCP prompts need nothing: they are rendered on every call.
+`template_stamps.WORKFLOW` stays 1, since the runtime refuses no step an older copy takes.
+
 ## The file is read as bytes, and appended to in its own dialect
 
 `read_user_file` decodes the bytes itself (`staging.read_document`) rather than calling
@@ -146,7 +170,14 @@ not for. The start template's scope gate (`contracts/prompt-templates.md`,
 "Engineering work only") and the two MCP descriptions that say when to start
 (`contracts/mcp-server.md`, "Tool descriptions") carry the same limit, since the rule reaches
 only the clients install writes it for.
-`tests/support/home.py` carries its own copy of both the current and the legacy text, so a change
+
+The third entry is that engineering-only wording, which asked for `--session <draft-id>` on every
+search. A daily start creates no draft (`contracts/prompt-templates.md`, "Daily mode pays only for
+the product"), so an agent following it in daily mode had no id to pass, and an id it invented
+became an orphan row in `gate1_audit`. The current rule asks for the search, and for the session
+id only when `/engmem` created a draft for the task, which is research mode. A file holding the
+engineering-only wording is updated in place to it, and uninstall still removes that wording.
+`tests/support/home.py` carries its own copy of the current and every legacy text, so a change
 to either constant fails a test rather than silently moving the goalposts.
 
 ## `--store` is used once, and said to be used once

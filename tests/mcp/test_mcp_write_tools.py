@@ -74,11 +74,12 @@ def test_create_draft_writes_a_document_load_store_parses_cleanly(store):
     assert doc.status == "draft"
 
 
-def test_create_draft_success_text_carries_the_id_into_the_next_search(store):
+def test_create_draft_success_text_carries_the_id_into_the_next_search(store, research_mode):
     """The draft id is produced here and needed on the next search call; without the directive
     nothing carries it across, and every search of the task is logged unattributed."""
     result, is_error = rpc.call(
-        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
+        store, name=CREATE_TOOL,
+        arguments={"id": "20260101-widget-cache", "content": RESEARCH_DRAFT_CONTENT},
     )
     text = rpc.text(result)
 

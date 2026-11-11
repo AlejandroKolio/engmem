@@ -34,6 +34,9 @@ ACTIVE = (
     "## Decision Log\n\nOrderRequest keeps reference optional: old clients omit it.\n\n"
     "## Reuse Log\n\nPrior docs used: none.\n"
 )
+RESEARCH_DRAFT = DRAFT.replace(
+    "mode: daily\n---\n", "baseline_unavailable: no sub-agent\nmode: research\n---\n"
+)
 TEMPLATES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
 
 
@@ -93,7 +96,7 @@ def test_a_cli_session_is_created_and_completed_through_the_one_writer(store, ca
     assert code == 0, created
     version = _version_in(created)
     assert version == version_of(DRAFT.encode("utf-8"))
-    assert f"pass --session {DOC_ID} on every engmem search" in created
+    assert "--session" not in created, "a daily draft is created at save, after every search"
     assert "--expected-version to engmem draft complete" in created
     draft = load_store(store / "sessions").docs[0]
     assert (draft.id, draft.status, draft.mode, draft.repos) == (
@@ -337,15 +340,24 @@ def test_the_next_session_finds_the_completed_record_and_reads_that_version(
     assert "OrderRequest keeps reference optional" in read
 
 
-def test_the_mcp_tools_keep_their_own_wording_through_the_shared_writer(store):
+def test_the_mcp_tools_keep_their_own_wording_through_the_shared_writer(store, research_mode):
     _code, responses, _raw = rpc.run(
         store, rpc.tools_call_msg(1, name="engmem_create_draft",
-                                  arguments={"id": DOC_ID, "content": DRAFT}),
+                                  arguments={"id": DOC_ID, "content": RESEARCH_DRAFT}),
     )
     text = rpc.text(responses[0]["result"])
 
     assert f'pass session_id: "{DOC_ID}" on every engmem_search' in text
     assert "expected_version to engmem_complete_draft" in text
+
+
+def test_a_research_cli_draft_names_the_session_id_in_the_cli_wording(
+    store, capsys, monkeypatch, research_mode
+):
+    code, created = _cli(capsys, monkeypatch, store, RESEARCH_DRAFT, "draft", "create", DOC_ID)
+
+    assert code == 0, created
+    assert f"pass --session {DOC_ID} on every engmem search" in created
 
 
 def test_an_interrupted_create_reports_no_draft_and_leaves_none(store, capsys, monkeypatch):

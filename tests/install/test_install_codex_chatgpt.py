@@ -79,9 +79,11 @@ def test_codex_installs_one_skill_per_template_under_the_agents_skills_root(env,
         assert not any(line.startswith("argument-hint:") for line in lines[1:closing])
 
 
-def test_codex_skill_bodies_mention_skills_the_way_codex_invokes_them(env, tmp_path):
+@pytest.mark.parametrize("mode", ["daily", "research"])
+def test_codex_skill_bodies_mention_skills_the_way_codex_invokes_them(env, tmp_path, mode):
     """Codex mentions a skill as `$name`; a `/engmem.save` left in a body points at nothing."""
     home, _ = env
+    assert main(["mode", "set", mode]) == 0
 
     _install("--agent", "codex", "--store", str(tmp_path / "store"))
 
@@ -95,7 +97,10 @@ def test_codex_skill_bodies_mention_skills_the_way_codex_invokes_them(env, tmp_p
     assert "`$engmem-save`" in bodies["engmem"]
     assert "`$engmem-save-quick`" in bodies["engmem-save"]
     assert "`$engmem`" in bodies["engmem-save-quick"]
-    assert "`~/Developer/engmem`" in bodies["engmem-save"], "a store path is not a command reference"
+    if mode == "research":
+        assert "`~/Developer/engmem`" in bodies["engmem-save"], (
+            "a store path is not a command reference"
+        )
 
 
 def test_codex_appends_the_trigger_rule_to_the_codex_agents_file(env, tmp_path):

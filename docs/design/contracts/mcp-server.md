@@ -194,8 +194,9 @@ model reads while the template's instruction has scrolled out of the transcript:
 `_SESSION_ID_SCHEMA["description"]` is imperative and names the consequence of omitting it
 (the rejected wording opened with "Optional:" and produced a store with no attributed row);
 `TOOL_DESCRIPTION` and `ROLE_TOOL_DESCRIPTION` each ask once; `drafts.create_draft`'s success
-text names the id and what to do with it, since nothing else carries the id from the call
-that produced it to the call that needs it.
+text for a research draft names the id and what to do with it, since nothing else carries the id
+from the call that produced it to the call that needs it. A daily draft is created after the last
+search, so its text asks for nothing.
 
 Recorded reversal. Two measurements a week apart (2026-09-11 and 2026-09-18: 0 of 33, then
 2 of 44 rows attributed) showed the three wordings were not enough, so a search without an id
@@ -357,12 +358,14 @@ moves the session out of the valid group.
 **The `engmem` prompt names the mode on its first line** (`_mode_line`), read on every
 `prompts/get`, because a client with no shell has no `engmem mode show` to run and the start
 template's step 0 must be answerable before the Pre-reg it decides. Only the start prompt gets
-the line; the save prompts copy the mode from the draft. An unreadable file reads there as
-`daily` with the error quoted, which is what the template tells a shell agent to do. The mode
-is not in `initialize`'s result: a server outlives many sessions, and a value read once at
-launch would ignore a later `engmem mode set`. The same read decides how the start prompt is
-rendered: the start prompt leaves out step 0's other ways to find the mode, and a daily one also
-leaves out step 1 (`contracts/prompt-templates.md`, "Each target gets the branches it can take").
+the line. An unreadable file reads there as `daily` with the error quoted, which is what the
+template tells a shell agent to do. The mode is not in `initialize`'s result: a server outlives
+many sessions, and a value read once at launch would ignore a later `engmem mode set`. The same
+read decides how every prompt is rendered: the start prompt leaves out step 0's other ways to
+find the mode, and each prompt leaves out the other mode's branch, the save prompts included
+(`contracts/prompt-templates.md`, "Each target gets the branches it can take"). A research save
+still copies the mode from the draft; a daily save writes `mode: daily` into the draft it
+creates.
 
 ### `engmem_complete_draft`: Reuse Log rows — refuse, then warn
 
@@ -469,7 +472,9 @@ equal it): a daily draft gets no `_reuse_log_rejections`, and `complete_draft` r
 from an older template that still carries a Reuse Log is published as it is. What protects the
 data stays in every mode: the parse, the id, `status`, the kept mode and `baseline_unavailable`,
 the version read, and the change-since-read check. `engmem_create_draft`'s result for a daily
-draft also leaves out `drafts.REUSE_LOG_SHAPE`, which only teaches the shape these tiers refuse.
+draft also leaves out `drafts.REUSE_LOG_SHAPE`, which only teaches the shape these tiers refuse,
+and the directive to pass the id on every search: a daily save creates the draft just before it
+completes it, after the last search, and a daily start passes no id.
 A legacy draft with no `mode` keeps both tiers: it is counted as before (`contracts/gate1.md`,
 "Modes").
 

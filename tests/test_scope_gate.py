@@ -18,9 +18,8 @@ SKIP_LINE = "`engmem: skipped — not an engineering task`"
 GATE_HEADING = "## Scope\n"
 GATE_MAX_BYTES = 450
 RENDERS_BEFORE_THE_GATE = {
-    "files": ({"mcp": False}, 12333, "df2712fc405dd281"),
+    "files-research": ({"mcp": False, "mode": Mode.RESEARCH}, 12333, "df2712fc405dd281"),
     "mcp-research": ({"mcp": True, "mode": Mode.RESEARCH}, 12127, "31560930080ce0f2"),
-    "mcp-daily": ({"mcp": True, "mode": Mode.DAILY}, 9561, "d3c3fb4e22c35a37"),
 }
 
 
@@ -75,6 +74,15 @@ def test_every_start_render_is_its_render_before_the_gate_plus_the_gate(target):
     without = body.replace(_gate(body), "", 1).replace("\r\n", "\n").encode("utf-8")
 
     assert (len(without), hashlib.sha256(without).hexdigest()[:16]) == (size, digest)
+
+
+@pytest.mark.parametrize("mcp", [False, True], ids=["files", "mcp"])
+@pytest.mark.parametrize("mode", [Mode.DAILY, Mode.RESEARCH, None])
+def test_every_start_render_opens_with_the_gate_before_any_step(mcp, mode):
+    body = _body(render(_source(), mcp=mcp, mode=mode))
+
+    assert body.index(GATE_HEADING) < body.index("## 0. Mode") < body.index("engmem search")
+    assert _gate(body) == _gate(_source())
 
 
 def test_the_start_description_names_engineering_work_on_a_codebase():

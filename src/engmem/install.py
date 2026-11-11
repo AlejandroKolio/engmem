@@ -35,6 +35,7 @@ from engmem.runtime import (
     locate_store,
     resolve_store,
 )
+from engmem.settings import Mode, ModeSettingError, effective_mode
 from engmem.staging import newline_of, read_document
 from engmem.template_render import render
 from engmem.template_stamps import digest, read_stamp, stamp_line, written_by_engmem
@@ -96,13 +97,17 @@ _AGENT_TEMPLATE_MAPS = {
 
 TRIGGER_RULE = (
     "Before proposing a plan for engineering work in a repository (not study, writing or "
-    'personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the '
-    "draft `/engmem` just created; without it the search is unattributed)"
+    'personal tasks), run `engmem search "<key terms for the task>"`, adding '
+    "`--session <draft-id>` only when `/engmem` created a draft for this task (research mode; "
+    "without it that search is unattributed)"
 )
 LEGACY_TRIGGER_RULES = (
     'Before proposing a plan, run `engmem search "<key terms for the task>"`',
     'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
     "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)",
+    "Before proposing a plan for engineering work in a repository (not study, writing or "
+    'personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the '
+    "draft `/engmem` just created; without it the search is unattributed)",
 )
 _EVERY_TRIGGER_RULE = frozenset((TRIGGER_RULE, *LEGACY_TRIGGER_RULES))
 
@@ -226,10 +231,14 @@ class Conflict:
     merging: bool
 
 
-def _place_template(path: Path, content: str, source_name: str) -> Conflict | None:
+def _place_template(
+    path: Path, content: str, source_name: str, mode: Mode | None
+) -> Conflict | None:
     """Writes the stamped template over `path`, or, when the user edited `path`, beside it,
     never over a `.engmem-new` the user is editing."""
-    text = _stamp_after_front_matter(content, stamp_line(source_name, __version__, content))
+    text = _stamp_after_front_matter(
+        content, stamp_line(source_name, __version__, content, mode)
+    )
     pending = pending_path(path)
     unedited = pending_is_engmems(pending)
     if not _is_replaceable(path, content):
@@ -253,15 +262,30 @@ def _template_source(source_name: str) -> str:
     return (resources.files("engmem") / "templates" / source_name).read_text(encoding="utf-8")
 
 
-def _file_copy(source_name: str) -> str:
-    """The template as a file copy: never the MCP prompt, and blind to a mode set later."""
-    return render(_template_source(source_name), mcp=False)
+def _file_copy(source_name: str, mode: Mode | None) -> str:
+    """The template as a file copy, never the MCP prompt; `mode` None keeps both modes."""
+    return render(_template_source(source_name), mcp=False, mode=mode)
 
 
-def _install_templates(dest_dir: Path, install_map: dict[str, str]) -> list[Conflict]:
+def copy_mode(agent: str, local: bool) -> Mode | None:
+    """The mode a copy is rendered for: the saved one for a copy under the user's home, None for
+    a project copy other people read, or when the saved mode cannot be read."""
+    if _repo_scoped(agent, local):
+        return None
+    try:
+        return effective_mode()
+    except ModeSettingError:
+        return None
+
+
+def _install_templates(
+    dest_dir: Path, install_map: dict[str, str], mode: Mode | None
+) -> list[Conflict]:
     ensure_directory(dest_dir, "templates directory")
     placed = (
-        _place_template(dest_dir / installed_name, _file_copy(source_name), source_name)
+        _place_template(
+            dest_dir / installed_name, _file_copy(source_name, mode), source_name, mode
+        )
         for source_name, installed_name in install_map.items()
     )
     return [pending for pending in placed if pending is not None]
@@ -301,14 +325,14 @@ _SKILL_BODY_REWRITES = {
 }
 
 
-def _install_skill_templates(skills_root: Path, agent: str) -> list[Conflict]:
+def _install_skill_templates(skills_root: Path, agent: str, mode: Mode | None) -> list[Conflict]:
     conflicts = []
     for source_name, skill_name in COPILOT_CLI_SKILL_MAP.items():
-        content = _SKILL_BODY_REWRITES[agent](_file_copy(source_name))
+        content = _SKILL_BODY_REWRITES[agent](_file_copy(source_name, mode))
         content = _to_skill_front_matter(content, skill_name)
         skill_dir = skills_root / skill_name
         ensure_directory(skill_dir, "skill directory")
-        pending = _place_template(skill_dir / "SKILL.md", content, source_name)
+        pending = _place_template(skill_dir / "SKILL.md", content, source_name, mode)
         if pending is not None:
             conflicts.append(pending)
     return conflicts
@@ -453,8 +477,12 @@ def _remove_trigger_rule_reporting_failure(instructions_file: Path | None) -> tu
         return 0, True
 
 
+def _repo_scoped(agent: str, local: bool) -> bool:
+    return agent == "copilot-ide" or local
+
+
 def _cwd_is_repo_scoped(args: argparse.Namespace) -> bool:
-    return args.agent == "copilot-ide" or args.local
+    return _repo_scoped(args.agent, args.local)
 
 
 def _reject_non_repo_cwd(command: str) -> int:
@@ -533,6 +561,23 @@ def _template_paths_for_agent(agent: str, local: bool) -> list[Path]:
         return [dest_dir / name / "SKILL.md" for name in COPILOT_CLI_SKILL_MAP.values()]
     install_map = _AGENT_TEMPLATE_MAPS.get(agent, {})
     return [dest_dir / name for name in install_map.values()]
+
+
+def agents_installed_for_another_mode(mode: Mode) -> list[str]:
+    """The agents whose copies under the user's home were rendered for a mode other than `mode`;
+    a copy keeping both modes, or one engmem cannot read, names none."""
+    found = []
+    for agent in ("claude", *_SKILL_AGENTS):
+        for path in _template_paths_for_agent(agent, local=False):
+            try:
+                text, _bom = read_document(path)
+            except (OSError, UnicodeDecodeError):
+                continue
+            stamp, _body = read_stamp(text)
+            if stamp is not None and stamp.mode is not None and stamp.mode != mode:
+                found.append(agent)
+                break
+    return found
 
 
 def _other_agents_with_files_present(args: argparse.Namespace) -> list[str]:
@@ -650,9 +695,10 @@ def _run_install(args: argparse.Namespace) -> int:
     conflicts: list[Conflict] = []
     # the one step that can refuse goes first, so a refusal leaves nothing (as Codex's config)
     hook_lines = install_hook(args.local) if args.hooks else []
+    mode = copy_mode(args.agent, args.local)
     if args.agent in ("claude", "copilot-ide"):
         conflicts = _install_templates(
-            _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent]
+            _agent_command_dir(args.agent, args.local), _AGENT_TEMPLATE_MAPS[args.agent], mode
         )
         trigger_outcome = _append_trigger_rule(
             _agent_instructions_file(args.agent, args.local)
@@ -663,13 +709,15 @@ def _run_install(args: argparse.Namespace) -> int:
     elif args.agent == "copilot-cli":
         # skills are self-invoked, no global-instructions file to append to
         conflicts = _install_skill_templates(
-            _agent_command_dir("copilot-cli", args.local), "copilot-cli"
+            _agent_command_dir("copilot-cli", args.local), "copilot-cli", mode
         )
     elif args.agent == "codex":
         # Codex runs a shell and an MCP client both; the templates pick whichever is there. The
         # config goes first: it is the step that can refuse, and a refusal must leave nothing
         codex_outcome = install_codex_mcp(store)
-        conflicts = _install_skill_templates(_agent_command_dir("codex", args.local), "codex")
+        conflicts = _install_skill_templates(
+            _agent_command_dir("codex", args.local), "codex", mode
+        )
         trigger_outcome = _append_trigger_rule(_agent_instructions_file("codex", args.local))
 
     trigger_note = _TRIGGER_RULE_NOTES.get(trigger_outcome, "")

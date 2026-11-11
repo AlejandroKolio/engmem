@@ -69,6 +69,9 @@ SAMPLE = (
     "<!-- engmem-branch: mcp -->\n"
     "mcp only\n"
     "<!-- engmem-branch: end -->\n"
+    "<!-- engmem-branch: daily -->\n"
+    "daily only\n"
+    "<!-- engmem-branch: end -->\n"
     "<!-- engmem-branch: research -->\n"
     "research only\n"
     "<!-- engmem-branch: end -->\n"
@@ -79,10 +82,15 @@ SAMPLE = (
 @pytest.mark.parametrize(
     "mcp, mode, kept",
     [
-        pytest.param(False, None, "common\nfiles only\nresearch only\ntail\n", id="file-copy"),
-        pytest.param(True, None, "common\nmcp only\nresearch only\ntail\n", id="mcp-mode-unknown"),
+        pytest.param(False, None, "common\nfiles only\ndaily only\nresearch only\ntail\n",
+                     id="file-copy-mode-blind"),
+        pytest.param(False, Mode.DAILY, "common\nfiles only\ndaily only\ntail\n", id="file-daily"),
+        pytest.param(False, Mode.RESEARCH, "common\nfiles only\nresearch only\ntail\n",
+                     id="file-research"),
+        pytest.param(True, None, "common\nmcp only\ndaily only\nresearch only\ntail\n",
+                     id="mcp-mode-unknown"),
         pytest.param(True, Mode.RESEARCH, "common\nmcp only\nresearch only\ntail\n", id="mcp-research"),
-        pytest.param(True, Mode.DAILY, "common\nmcp only\ntail\n", id="mcp-daily"),
+        pytest.param(True, Mode.DAILY, "common\nmcp only\ndaily only\ntail\n", id="mcp-daily"),
     ],
 )
 def test_a_target_keeps_the_common_text_and_only_its_own_branches(mcp, mode, kept):
@@ -118,17 +126,20 @@ def test_a_marker_lookalike_inside_a_line_is_text():
 
 
 @pytest.mark.parametrize("name", SOURCES)
-@pytest.mark.parametrize("mcp, mode", [(False, None), (True, None), (True, Mode.DAILY)])
+@pytest.mark.parametrize("mode", [None, Mode.DAILY, Mode.RESEARCH])
+@pytest.mark.parametrize("mcp", [False, True])
 def test_every_shipped_template_renders_without_a_marker_left(name, mcp, mode):
     rendered = render(templates.source(name), mcp=mcp, mode=mode)
 
     assert [line for line in rendered.splitlines() if MARKER.match(line)] == []
 
 
-@pytest.mark.parametrize("name", [n for n in SOURCES if n != START])
-def test_only_the_start_template_marks_a_research_branch(name):
-    """A save prompt is served after the mode may have changed; the draft's mode decides there."""
-    assert "research" not in _regions(templates.source(name))
+@pytest.mark.parametrize("name", SOURCES)
+def test_every_template_marks_a_daily_and_a_research_branch(name):
+    """Each mode's copy carries only its own steps (contracts/prompt-templates.md)."""
+    regions = _regions(templates.source(name))
+
+    assert regions.get("daily") and regions.get("research")
 
 
 # --- every copy, end to end -------------------------------------------------------------------
@@ -150,21 +161,35 @@ def _installed(agent: str, home: Path, project: Path) -> dict[str, str]:
     return copies
 
 
+OTHER_MODE = {Mode.DAILY: "research", Mode.RESEARCH: "daily"}
+
+
+@pytest.mark.parametrize("mode", list(Mode))
 @pytest.mark.parametrize("agent", FILE_AGENTS)
-def test_a_file_copy_drops_only_the_mcp_prompt_branch(agent, env):
+def test_a_file_copy_drops_the_mcp_branch_and_a_home_copy_the_other_modes(agent, mode, env):
+    """A copy under the user's home is rendered for the saved mode; a project copy, read by
+    people whose modes differ, keeps both."""
     home, project = env
     (project / ".git").mkdir()
+    assert main(["mode", "set", mode]) == 0
 
     copies = _installed(agent, home, project)
 
+    project_copy = agent == "copilot-ide"
     for source_name, text in copies.items():
+        regions = _regions(templates.source(source_name))
+        expected = regions.get("mcp", []) + ([] if project_copy else regions[OTHER_MODE[mode]])
+        rewrite = install._SKILL_BODY_REWRITES.get(agent)
+        if rewrite is not None:
+            expected = rewrite("\n".join(expected)).split("\n")
         deleted, added = _deleted_and_added(before_rendering(agent, source_name), text)
-        assert deleted == Counter(_regions(templates.source(source_name)).get("mcp", [])), source_name
+        assert deleted == Counter(expected), source_name
         assert [line for line in added if not line.startswith("<!-- engmem-template:")] == []
     start = _flat(copies[START])
     assert MCP_PROMPT_SENTENCE not in start
     assert "engmem mode show" in start and "engmem/mode" in start
-    assert "## 1. Pre-reg" in start, "a file copy cannot know the mode, so it keeps step 1"
+    assert ("## 1. Pre-reg —" in start) is (project_copy or mode is Mode.RESEARCH)
+    assert ("## Daily mode" in start) is (project_copy or mode is Mode.DAILY)
 
 
 def _prompt(store: Path, name: str) -> str:
@@ -188,35 +213,45 @@ def test_the_mcp_start_prompt_drops_what_its_mode_line_answers(mode, store, monk
     first, _, body = text.partition("\n\n")
     assert first.startswith(f"engmem mode for this session: {mode}")
     regions = _regions(templates.source(START))
-    expected = regions["files"] + (regions["research"] if mode == "daily" else [])
+    expected = regions["files"] + regions[OTHER_MODE[Mode(mode)]]
     deleted, added = _deleted_and_added(_body(without_markers(templates.source(START))), body)
     assert deleted == Counter(expected)
     assert added == Counter()
     body = _flat(body)
     assert MCP_PROMPT_SENTENCE in body
     assert "engmem mode show" not in body and "engmem/mode" not in body
-    assert ("## 1. Pre-reg" in body) is (mode == "research")
-    for kept in ("## 2. Create the draft", "engmem_create_draft", "engmem draft create <id> <<'EOF'",
-                 "$OutputEncoding", "If you can run shell commands", "If you can do neither",
-                 "**daily** — skip step 1", "baseline_unavailable: <reason>"):
+    assert ("## 1. Pre-reg —" in body) is (mode == "research")
+    kept_for = {
+        "research": ("## 2. Create the draft", "engmem_create_draft",
+                     "engmem draft create <id> <<'EOF'", "$OutputEncoding",
+                     "If you can run shell commands", "If you can do neither",
+                     "**daily** — skip step 1", "baseline_unavailable: <reason>"),
+        "daily": ("## Daily mode", "engmem_search", "engmem search \"<key terms from the task>\"",
+                  "paste the output back", "engmem_read", "prior context: none found"),
+    }
+    for kept in kept_for[mode]:
         assert kept in body, kept
 
 
+@pytest.mark.parametrize("mode", ["daily", "research"])
 @pytest.mark.parametrize("name", ["engmem-save", "engmem-save-quick"])
-def test_an_mcp_save_prompt_drops_only_its_file_branches(name, store, monkeypatch, tmp_path):
-    """The save copies the draft's mode, so a daily saved mode drops nothing more there."""
+def test_an_mcp_save_prompt_is_rendered_for_the_saved_mode(name, mode, store, monkeypatch, tmp_path):
+    """A daily save writes its own document, so it never meets a research draft's steps."""
     config = tmp_path / "config"
     (config / "engmem").mkdir(parents=True)
-    (config / "engmem" / "mode").write_text("daily\n", encoding="utf-8")
+    (config / "engmem" / "mode").write_text(f"{mode}\n", encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     from engmem.mcp_server import PROMPT_TEMPLATES
 
     source = templates.source(PROMPT_TEMPLATES[name])
-    deleted, added = _deleted_and_added(_body(without_markers(source)), _prompt(store, name))
+    prompt = _prompt(store, name)
+    deleted, added = _deleted_and_added(_body(without_markers(source)), prompt)
 
-    assert deleted == Counter(_regions(source).get("files", []))
+    regions = _regions(source)
+    assert deleted == Counter(regions.get("files", []) + regions[OTHER_MODE[Mode(mode)]])
     assert added == Counter()
-    assert "## Pre-reg" in _prompt(store, name)
+    assert ("## Pre-reg" in prompt) is (mode == "research")
+    assert not prompt.startswith("engmem mode for this session")
 
 
 def test_a_task_description_that_looks_like_a_marker_reaches_the_agent_unchanged(store):

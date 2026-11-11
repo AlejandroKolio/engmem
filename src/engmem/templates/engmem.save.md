@@ -4,6 +4,7 @@ description: Finish an engmem task — save what was learned as a complete sessi
 
 # /engmem.save — finish a task
 
+<!-- engmem-branch: research -->
 Close out the session `/engmem` started. Its draft is `sessions/<id>.md`, `status: draft`,
 holding exactly the text you passed to `engmem draft create` or `engmem_create_draft`. Reuse
 that text and the `version` the call returned, and complete the draft in the passes below.
@@ -13,6 +14,14 @@ This is the full shape; for a low-effort close-out, use `/engmem.save.quick`.
 `date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
 in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `capture_minutes` blank.
 
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+In daily mode, close out the session `/engmem` started in the passes below; this is the full
+shape, and `/engmem.save.quick` the low-effort one. `/engmem` wrote no draft, so step 4 writes the
+document. Write no Pre-reg, no Reuse Log (section 16), no Search Trace, no `capture_minutes`, no
+navigation misses and no cost fields, and ask no usefulness question.
+
+<!-- engmem-branch: end -->
 ## 1. Front-matter draft (one interactive round, not field-by-field)
 
 Draft **every** front-matter field from the diff and this conversation:
@@ -21,10 +30,21 @@ Draft **every** front-matter field from the diff and this conversation:
 `entities`, `related`, `covers_files`, `verified_at`, `capture_minutes`, `author`,
 `repos`, `branch`, `pr`, `mode`
 
+<!-- engmem-branch: research -->
 Copy `mode`, and `baseline_unavailable` when the draft has it, from the draft unchanged. Never
 add, edit or drop them, even if the user has switched mode since: they record how this session
 started. A draft without `mode` stays without one.
 
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+Daily mode: leave out `capture_minutes`; `mode: daily`; `id` is `<YYYYMMDD>-<slug>` in lowercase
+letters, digits and hyphens; `date` and `task_date` are today; `related` lists the ids (the part
+before `@`) of the prior documents this work used.
+With a shell, run `git rev-parse --show-toplevel HEAD --abbrev-ref HEAD; git config user.name`
+once: it prints the checkout, whose directory name is `repos`, the sha for `verified_at`, the
+branch and the author.
+
+<!-- engmem-branch: end -->
 Derive these fields; never guess them:
 
 - `related` — document ids, never filenames: a `.md` suffix does not resolve.
@@ -44,6 +64,7 @@ Derive these fields; never guess them:
 Show the full YAML block and ask for `y` or edits. Apply the edits, then stop asking: one
 interactive round only.
 
+<!-- engmem-branch: research -->
 ## 2. Body sections — the numbered seventeen, plus engmem's own two
 
 Write every section below, in this order, with the numbered heading exactly as shown
@@ -52,6 +73,17 @@ nothing to report keeps its heading and says so in one line; never delete the he
 it with invented content. A **hub or census document** (one that surveys other documents, such
 as a glossary or a status board) often has nothing for Decision Log or Lessons Learned.
 
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+## 2. Body sections — the numbered sixteen in daily mode
+
+Write every section below but 16, which is research mode's, in this order, with the numbered
+heading exactly as shown (`## 8. Decision Log`, not `## Decision Log`). None of them is optional.
+A section with nothing to report keeps its heading and says so in one line; never delete the
+heading or pad it with invented content. A **hub or census document** (one that surveys other documents, such as a
+glossary or a status board) often has nothing for Decision Log or Lessons Learned.
+
+<!-- engmem-branch: end -->
 **Gather ground truth before writing.** Read the actual diff, git history and ticket, and ask
 the user where something is unclear; never infer what "probably" happened. Name a source you
 could not reach; never invent its contents.
@@ -116,10 +148,17 @@ filler and no marketing tone.**
 14. **`## 14. Search Keywords`** — terms and synonyms a future search might use that `tags` and
     `entities` do not already cover verbatim.
 15. **`## 15. One-Page Cheat Sheet`** — the densest paragraph, for a reader who opens one section.
+<!-- engmem-branch: research -->
 16. **`## 16. Reuse Log`** — see the rules below.
+<!-- engmem-branch: end -->
 17. **`## 17. Status at a Glance`** — short table or bullets: what is done, deployed, open, and
     blocked on whom. It records the work's *state*, which is what most likely changed since.
 
+<!-- engmem-branch: daily -->
+In daily mode, step 2 ends here; go on at step 3.
+
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 Plus engmem's own two sections, in every save:
 
 - **`## Pre-reg`** — first, before the numbered sections. Carry it over **unedited** from the
@@ -189,6 +228,7 @@ One row per prior document that **actually influenced** this work:
   cell. Such a row is a finding, not invalid. Classify it `harmful` if the stale content led
   somewhere the successor would not have.
 
+<!-- engmem-branch: end -->
 ## 3. Supersede check
 
 Ask the user: "does this work supersede a decision recorded in an earlier document?" If
@@ -197,7 +237,12 @@ yes:
 - If your runtime exposes the `engmem_mark_superseded` MCP tool: prefer it to editing the file
   when you have both. Call it with `id` set to the earlier document's id, `superseded_by` set
   to this document's id, and `expected_version` set to the version of the earlier document
+<!-- engmem-branch: research -->
   this document was built on: the `<version>` of its `<id>@<version>` row in your Reuse Log.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+  this document was built on: in daily mode, the `<version>` the `cite as` line you kept gives.
+<!-- engmem-branch: end -->
   Do not read the earlier document again to get a newer version: the check catches changes
   made since you built this document. Only if you have no such version, read it now with
   `engmem_read`, check that this document really replaces it, and pass that read's version.
@@ -211,6 +256,32 @@ yes:
 
 ## 4. Close out
 
+<!-- engmem-branch: daily -->
+Daily mode: set `status: active`, and `verified_at: {<repository>: <sha>}` from step 1's git
+call, blank without a shell; never guess a sha. Then write the document through engmem in two
+calls, never as a plain file write:
+
+1. The front matter alone, with `status: draft`: call `engmem_create_draft` with `id` and that
+   text as `content` (preferred), or pipe it to `engmem draft create <id>`. A refusal because
+   the id is taken needs another id.
+2. The whole document: call `engmem_complete_draft` with `id`, `content` and the version create
+   named as `expected_version`, or pipe it to
+   `engmem draft complete <id> --expected-version <version>`.
+
+Pipe with a quoted delimiter, so nothing in the text is expanded or run: `<<'EOF'` … `EOF` in a
+POSIX shell, with a delimiter no line of the text is; in PowerShell, first
+`$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, since Windows PowerShell 5.1
+otherwise sends every non-ASCII character as `?`, then `@'` … `'@ |` the command. If a call
+refuses, fix what it names and call again. If complete fails after create succeeded, the draft
+`<id>` stays: `engmem draft complete <id> --expected-version <version>` (MCP:
+`engmem_complete_draft` with that `expected_version`) finishes it later. If you can do neither,
+or a call fails for a reason the document cannot fix, publish nothing: tell the user why and keep
+the text in your reply. Write `sessions/<id>.md` by hand only if the user then asks, in the store
+the first line of `engmem store show` names, and say it was saved outside engmem's checks. In
+daily mode the save ends here.
+
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 - Set `status: active` (from `draft`).
 - Set `capture_minutes`. Just before you publish, read the UTC time again with the same command.
   Write the whole minutes between the two readings. Without both readings, leave it blank: blank
@@ -298,3 +369,4 @@ answer_tokens:     # only if the runtime really reports it
 Never present the gap between the Pre-reg and the final plan as proof that memory helped: the
 Reuse Log is the evidence. Never present the cost of this task *without* memory as measured:
 nobody ran it.
+<!-- engmem-branch: end -->

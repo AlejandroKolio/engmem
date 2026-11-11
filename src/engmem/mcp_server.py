@@ -465,8 +465,8 @@ def _handle_prompts_list(params: dict, store: Path) -> dict:
 
 
 def _mode_line() -> tuple[str, Mode]:
-    """The answer to the start template's step 0 and the mode it names, read on every call so a
-    server that outlives a `engmem mode set` hands the next session the new mode."""
+    """The answer to the start template's step 0 and the mode every prompt is rendered for, read on
+    every call so a server that outlives a `engmem mode set` hands the next prompt the new mode."""
     setting = mode_setting_file()
     try:
         mode = saved_mode()
@@ -495,7 +495,7 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
     source_name = PROMPT_TEMPLATES[name]
 
     description, argument_hint, body = _load_template(source_name)
-    mode_line, mode = _mode_line() if name == START_PROMPT_NAME else (None, None)
+    mode_line, mode = _mode_line()
     body = render(body, mcp=True, mode=mode)
 
     if argument_hint:
@@ -511,7 +511,7 @@ def _handle_prompts_get(params: dict, store: Path) -> dict:
             )
         body = body.replace(_ARGUMENTS_PLACEHOLDER, value if value is not None else "")
 
-    if mode_line is not None:
+    if name == START_PROMPT_NAME:
         body = f"{mode_line}\n\n{body}"
 
     return {

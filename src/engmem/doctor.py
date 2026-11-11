@@ -17,6 +17,7 @@ from pathlib import Path
 from engmem import __version__, confined
 from engmem.install import (
     _agent_instructions_file,
+    copy_mode,
     _HOME_SCOPED_AGENTS,
     LEGACY_TRIGGER_RULES,
     pending_path,
@@ -52,6 +53,7 @@ from engmem.runtime import (
     saved_store,
     source_description,
 )
+from engmem.settings import Mode
 from engmem.staging import discard, read_document, stage
 from engmem.template_stamps import WORKFLOW, read_stamp, written_by_engmem
 
@@ -287,13 +289,16 @@ def _shell_engmem_finding(agent: str, local: bool) -> Finding:
 def _template_findings(agent: str, local: bool) -> list[Finding]:
     subject = "skill" if agent in _SKILL_AGENTS else "template"
     install = _install_command(agent, local)
+    mode = copy_mode(agent, local)
     return [
-        _template_finding(subject, path, install, _CLIENT_NAMES.get(agent, agent))
+        _template_finding(subject, path, install, _CLIENT_NAMES.get(agent, agent), mode)
         for path in _template_paths_for_agent(agent, local)
     ]
 
 
-def _template_finding(subject: str, path: Path, install: str, client: str) -> Finding:
+def _template_finding(
+    subject: str, path: Path, install: str, client: str, mode: Mode | None
+) -> Finding:
     try:
         text, _bom = read_document(path)
     except FileNotFoundError as exc:
@@ -346,6 +351,12 @@ def _template_finding(subject: str, path: Path, install: str, client: str) -> Fi
             Status.WARNING, subject,
             f"{path} was edited after engmem {stamp.version} installed it — compatible by its "
             f"stamp, but engmem cannot vouch for the edited steps",
+        )
+    if stamp.mode is not None and mode is not None and stamp.mode != mode:
+        return Finding(
+            Status.WARNING, subject,
+            f"{path} was installed for {stamp.mode} mode, and the saved mode is {mode}, so "
+            f"{client} runs the {stamp.mode} steps — run `{install}`, {restart}",
         )
     if stamp.version != __version__:
         return Finding(

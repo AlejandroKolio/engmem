@@ -375,10 +375,14 @@ def test_a_prohibition_added_after_the_read_stays_active_and_found(store):
 
 
 def _save_template() -> str:
+    """The research save, the copy that completes a draft it read the version of."""
     from importlib import resources
 
+    from engmem.settings import Mode
+    from engmem.template_render import render
+
     text = (resources.files("engmem") / "templates" / "engmem.save.md").read_text(encoding="utf-8")
-    return " ".join(text.split())
+    return " ".join(render(text, mcp=False, mode=Mode.RESEARCH).split())
 
 
 def test_the_save_workflow_supersedes_the_version_it_read():
