@@ -44,7 +44,7 @@ def test_the_schema_part_is_byte_for_byte_the_snapshot_taken_before_the_cut():
 
 _INSTRUCTIONS = {
     mcp_tools.TOOL_NAME: [
-        "before you plan",
+        "before you plan a change to a codebase or system",
         "key terms as `query`",
         "prior context: none found",
         "pass its id as `session_id`",
@@ -56,6 +56,7 @@ _INSTRUCTIONS = {
         "pass its id as `session_id`",
     ],
     mcp_tools.CREATE_DRAFT_TOOL_NAME: [
+        "Only for engineering work",
         "`status: draft`",
         "`mode`",
         "`## Pre-reg`",
@@ -67,6 +68,7 @@ _INSTRUCTIONS = {
         "column order",
     ],
     mcp_tools.COMPLETE_DRAFT_TOOL_NAME: [
+        "For a draft not in `daily` mode, also refused",
         "`status: draft`",
         "`status: active`",
         "`engmem_mark_superseded`",

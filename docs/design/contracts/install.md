@@ -138,6 +138,14 @@ was never migrated still removes exactly engmem's lines.
 
 `LEGACY_TRIGGER_RULES` grows by one entry each time the wording changes and never shrinks: an
 entry dropped is a file somewhere that install will skip and uninstall will leave behind.
+
+The second entry is the `--session` wording, moved there when the owner narrowed the rule to
+"engineering work in a repository (not study, writing or personal tasks)". 27 of the owner's 30
+unsaved drafts came from non-engineering tasks, mostly over MCP, so the rule names what it is
+not for. The start template's scope gate (`contracts/prompt-templates.md`,
+"Engineering work only") and the two MCP descriptions that say when to start
+(`contracts/mcp-server.md`, "Tool descriptions") carry the same limit, since the rule reaches
+only the clients install writes it for.
 `tests/support/home.py` carries its own copy of both the current and the legacy text, so a change
 to either constant fails a test rather than silently moving the goalposts.
 
@@ -265,7 +273,11 @@ and the hook only names unsaved drafts.
   checkout's name is that directory's, so reminders miss there too.
 - **What it prints.** JSON with `systemMessage` (shown to the user) and
   `hookSpecificOutput.additionalContext` (given to the agent, which can offer to finish a
-  draft), or nothing. Every failure once the arguments parse — an unreadable store, a broken
+  draft), or nothing. Both name only the drafts dated within the last 14 days
+  (`unsaved_drafts.RECENT_DAYS`), and add ``(+K older; `engmem draft status`)`` when older
+  ones exist. 27 of the owner's 30 unsaved drafts came from non-engineering tasks, and
+  naming old ones at every start repeats a reminder about work that will not be saved. With no recent draft the hook prints nothing,
+  older drafts or not; `engmem draft status` without `--hook` still lists them all. Every failure once the arguments parse — an unreadable store, a broken
   saved store choice, no git, a bug — prints nothing and exits 0: a hook's stdout reaches the
   agent, and a reminder must never break a session. An import failure or a usage error happens
   before the command runs and is outside that promise. Without `--hook` the same command is

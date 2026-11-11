@@ -29,6 +29,7 @@ from engmem.scoring import (
     search,
     search_with_role_sections,
 )
+from engmem.settings import Mode, ModeSettingError, effective_mode
 from engmem.spine import Doc, LoadResult
 from engmem.telemetry import (
     UNATTRIBUTED_CLI_NOTE,
@@ -42,6 +43,20 @@ from engmem.versions import VERSION_SEPARATOR, RetentionError, retain
 Channel = Literal["cli", "mcp"]
 
 _UNATTRIBUTED_NOTES = {"cli": UNATTRIBUTED_CLI_NOTE, "mcp": UNATTRIBUTED_MCP_NOTE}
+
+
+def unattributed_trailer(
+    notes: dict[str, str], channel: Channel, session_id: str | None
+) -> list[str]:
+    """The channel's unattributed note, left out when a session id was passed or the saved mode is
+    daily; an unreadable mode keeps it (contracts/output.md, "One composed result")."""
+    if session_id is not None:
+        return []
+    try:
+        daily = effective_mode() == Mode.DAILY
+    except ModeSettingError:
+        daily = False
+    return [] if daily else [notes[channel]]
 
 
 @dataclass(frozen=True)
@@ -277,7 +292,7 @@ def compose(
         gaps.append(_Gap(
             "telemetry", telemetry_error, f"note: telemetry not recorded ({telemetry_error})"
         ))
-    trailer = [_UNATTRIBUTED_NOTES[channel]] if session_id is None else []
+    trailer = unattributed_trailer(_UNATTRIBUTED_NOTES, channel, session_id)
     if record_cost:
         # the delivery is the whole text sent, so it is measured last, without only this note
         cost_error = record_delivery(

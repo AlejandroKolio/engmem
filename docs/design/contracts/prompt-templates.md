@@ -66,6 +66,52 @@ on the shell. Both save templates carry the Pre-reg over only when
 the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
 short save is the daily path the story is about.
 
+The save templates still state the Reuse Log rules and the refusals for every mode, although a
+daily completion is no longer refused over its Reuse Log (`contracts/mcp-server.md`, "Daily
+sessions skip both tiers"). A daily agent follows a rule stricter than the runtime, which costs
+it nothing it did not pay before; splitting the templates by mode is left for later.
+
+## Engineering work only
+
+`engmem.start.md` opens with an unnumbered `## Scope` section, before step 0: from the task
+description alone, if the task is not engineering work on a codebase or system (changing,
+debugging or investigating code, configuration or infrastructure, or choosing an approach), the
+agent replies `engmem: skipped — not an engineering task` on one line and answers, with no draft
+and no search. Study or practice (algorithms, interviews), writing, marketing or product reviews
+and personal tasks are named as out of scope. When unsure, the agent continues. The owner
+narrowed the triggers this way: 27 of the owner's 30 abandoned drafts came from non-engineering
+tasks, mostly over MCP, where no Claude Code hook reaches, and each paid for a draft,
+a search and a reminder.
+
+- **The description decides, before any search.** A gate that looked at the search result
+  would start engmem only where memory already holds something, and skip it where it holds
+  nothing. The tasks recorded would then be chosen by what the store contains, which biases
+  every later look at what memory gives back. Read from the task description alone, the choice
+  cannot depend on the store.
+- **Unsure continues.** A skipped engineering task loses a record, and nothing reports the
+  loss (`contracts/gate1.md`, "Modes"); an extra start costs only what a start always cost.
+  Debugging and investigating code are named as engineering work because a task that only
+  reads code is the likeliest to be taken for study.
+- **It runs in research mode too.** The gate comes before step 0, so research sessions are
+  engineering tasks only (`contracts/gate1.md`, "Modes").
+- **Unnumbered, so nothing moves.** Steps 0–6 keep the numbers other documents cite, and the
+  opening's "steps 0–5" still counts the ritual. Step 0 still says to find the mode "before
+  anything else"; the gate says it runs before step 0, and leaving step 0's text alone keeps
+  every other part of each render as it was.
+- **Outside every branch, at most 450 bytes.** Every copy and every MCP start prompt carries it,
+  daily or research. `tests/test_scope_gate.py` pins each start render's body, with the gate
+  taken out, to its bytes before the gate: the file copy, the research MCP prompt and the daily
+  one.
+- **No `disable-model-invocation`.** A client that invokes `/engmem` by itself meets the gate
+  first, so the command stays available to the model. The front-matter `description`, which
+  `prompts/list` and a client's command list show, says "an engineering task on a codebase".
+- **`template_stamps.WORKFLOW` stays 1.** The runtime refuses no step an older template takes:
+  an older copy without the gate only starts engmem for more tasks, as before.
+
+The same limit is in the installed trigger rule (`contracts/install.md`, "An earlier wording of
+the rule is updated in place") and in the `engmem_search` and `engmem_create_draft` descriptions
+(`contracts/mcp-server.md`, "Tool descriptions: instructions, not reasons").
+
 ## Each target gets the branches it can take
 
 A template is written once and delivered two ways. `engmem install` writes it as a file for
@@ -231,7 +277,10 @@ help (`cli.py`), so on that path the template is the one place that asks before 
 which is why its wording is a constraint and not a nicety. Both channels also end an
 unattributed search with a trailing `note: unattributed search — pass ...` line
 (`telemetry.UNATTRIBUTED_CLI_NOTE` / `UNATTRIBUTED_MCP_NOTE`; the recorded reversal in that
-same section), a reminder at the point of use that the template's wording cannot give.
+same section), a reminder at the point of use that the template's wording cannot give. While the
+saved mode is daily the note is left out (`contracts/output.md`, "One composed result for both
+channels"); the template still asks for the id in every mode, since the templates are not yet
+split by mode.
 
 ## The start's budget: two searches, five documents
 

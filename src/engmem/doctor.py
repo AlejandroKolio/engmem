@@ -473,8 +473,7 @@ def _trigger_rule_finding(path: Path, install: str) -> Finding:
     if lines.intersection(LEGACY_TRIGGER_RULES):
         return Finding(
             Status.WARNING, "trigger rule",
-            f"{path} has an earlier wording, without --session, so searches go unattributed — "
-            f"run `{install}` to update it",
+            f"{path} has an earlier engmem wording of the rule — run `{install}` to update it",
         )
     if TRIGGER_MARKER in text:
         return Finding(Status.OK, "trigger rule", f"{path} — a rule in your own wording")

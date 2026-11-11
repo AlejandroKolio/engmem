@@ -96,6 +96,9 @@ Prior docs used: none.
 shell
 """
 
+RESEARCH_DRAFT_CONTENT = DRAFT_CONTENT.replace("mode: daily", "mode: research")
+RESEARCH_ACTIVE_CONTENT = ACTIVE_CONTENT.replace("mode: daily", "mode: research")
+
 
 def piped_stdin(text: str) -> io.TextIOWrapper:
     """A non-terminal `sys.stdin` carrying `text` as UTF-8 bytes, as a shell pipe would."""

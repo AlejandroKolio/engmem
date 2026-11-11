@@ -46,7 +46,7 @@ def test_engmem_loads_every_generated_document_without_a_complaint(generated, ki
 
 def test_every_scenario_class_exists_once_and_declares_its_winner(generated):
     plain = sorted(t.scenario_class for t in generated.tasks if not t.variant)
-    assert plain == list(range(1, 9))
+    assert plain == list(range(1, 10))
     variants = [t for t in generated.tasks if t.variant]
     assert [(t.scenario_class, t.always_second_search) for t in variants] == [(2, True)]
     for task in generated.tasks:

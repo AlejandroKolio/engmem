@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from agentsim.corpus import Task
-from agentsim.policy import NONE_FOUND
+from agentsim.policy import NONE_FOUND, OUT_OF_SCOPE_CLASS
 from agentsim.profiles import LOAD, SAVE, SEARCH, START, Profile, RunState
 from agentsim.trace import TEMPLATE, TOOL, PASTE, Transcript, tokens
 
@@ -23,6 +23,7 @@ class Outcome:
     pitfall_avoided: bool | None
     stale_avoided: bool | None
     none_found_said: bool | None
+    skipped: bool | None
     correct: bool
     saved: bool | None
     citation_valid: bool | None
@@ -45,16 +46,21 @@ def _stale_avoided(task: Task, context: str) -> bool | None:
     return any(marker in context for marker in markers)
 
 
-def outcome(task: Task, profile: Profile, transcript: Transcript, state: RunState | None) -> Outcome:
+def outcome(
+    task: Task, profile: Profile, transcript: Transcript, state: RunState | None, store_written: bool | None = None
+) -> Outcome:
     context = transcript.context()
     has_answer = bool(task.quote)
     quoted = task.quote in context if has_answer else None
     reached = (quoted and any(doc in context for doc in task.answer_docs)) if has_answer else None
     stale = _stale_avoided(task, context)
     correct = bool(quoted) and stale is not False if has_answer else True
+    skipped = state.skipped if state is not None else None
+    if task.scenario_class == OUT_OF_SCOPE_CLASS and state is not None:
+        correct = bool(skipped) and not store_written
     pitfall = (correct or task.pitfall in context) if task.pitfall else None
     none_found = (NONE_FOUND in context) if task.scenario_class == 5 and profile.condition == "engmem" else None
-    saved = state.saved if state is not None and profile.saves else None
+    saved = state.saved if state is not None and profile.saves and not skipped else None
     row = state.reuse_row if state is not None else ""
     citation_valid = None
     reuse_correct = None
@@ -75,6 +81,7 @@ def outcome(task: Task, profile: Profile, transcript: Transcript, state: RunStat
         pitfall_avoided=pitfall,
         stale_avoided=stale,
         none_found_said=none_found,
+        skipped=skipped,
         correct=correct,
         saved=saved,
         citation_valid=citation_valid,

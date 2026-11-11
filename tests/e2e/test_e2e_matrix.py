@@ -54,7 +54,7 @@ def test_every_profile_runs_class_1_and_every_class_runs_under_an_engmem_profile
 def test_no_history_makes_no_call_and_is_right_only_where_nothing_was_known(results):
     for run in _runs(results, profile="no-history"):
         assert run["cost"]["calls"] == 0
-        assert run["outcome"]["correct"] is (run["scenario_class"] == 5)
+        assert run["outcome"]["correct"] is (run["scenario_class"] in (5, 9))
 
 
 @pytest.mark.parametrize("profile", [p.name for p in PROFILES if p.condition != "none"])
@@ -65,6 +65,8 @@ def test_a_keyword_findable_answer_is_reached_by_every_profile_that_searches(res
 
 def test_every_saving_profile_publishes_with_a_valid_citation(results):
     for run in _runs(results, condition="engmem"):
+        if run["outcome"]["skipped"]:
+            continue
         if not BY_NAME[run["profile"]].saves:
             assert run["outcome"]["saved"] is None and run["save_note"]
             continue
@@ -116,7 +118,7 @@ def test_the_report_names_its_token_method_and_both_sides(results, tmp_path):
     text = report.render(results)
     assert TOKEN_METHOD in text
     assert "## Strong sides" in text and "## Weak sides" in text
-    for cls in range(1, 9):
+    for cls in harness.ALL_CLASSES:
         assert f"## Class {cls}:" in text
     strong, weak, _ = report.sides(results["runs"])
     assert strong and weak
@@ -143,3 +145,20 @@ def test_shell_profiles_read_the_mode_before_anything_else_as_step_0_says(result
     run = _one(results, 1, "shell-claude")
     calls = [s["action"] for s in run["steps"] if s["kind"] != "template"]
     assert calls[:3] == ["engmem mode show", "engmem store show", "engmem draft create"]
+
+
+def test_a_non_engineering_task_leaves_no_draft_no_search_row_and_no_store_write(results):
+    """The declared expectation of class 9: every engmem profile stops at the scope gate."""
+    runs = _runs(results, cls=9, condition="engmem")
+    assert runs
+    for run in runs:
+        assert run["outcome"]["skipped"] and run["outcome"]["correct"], run["profile"]
+        assert run["store_written"] is False, run["profile"]
+        assert not [s for s in run["steps"] if s["phase"] in ("search", "load", "save")], run["profile"]
+        assert not [s for s in run["steps"] if s["kind"] != "template"], run["profile"]
+    assert _one(results, 9, "grep")["cost"]["calls"] == 0
+
+
+def test_an_engineering_task_is_not_skipped_and_writes_its_draft(results):
+    run = _one(results, 1, "shell-claude")
+    assert run["outcome"]["skipped"] is False and run["store_written"] is True

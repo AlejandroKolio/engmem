@@ -12,6 +12,7 @@ from support.home import (
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
     LEGACY_TRIGGER_RULE,
+    SESSION_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
 )
@@ -388,6 +389,8 @@ TRIGGER_RULE_REMOVAL_CASES = [
     # otherwise be orphaned forever — for the legacy wording and the current one alike
     pytest.param(LEGACY_TRIGGER_RULE, False, id="legacy-rule-bare"),
     pytest.param(TRIGGER_RULE, False, id="current-rule-bare"),
+    pytest.param(SESSION_TRIGGER_RULE, True, id="any-task-rule-with-sentinel"),
+    pytest.param(SESSION_TRIGGER_RULE, False, id="any-task-rule-bare"),
 ]
 
 

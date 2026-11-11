@@ -49,7 +49,8 @@ a run whose stores, with their sandbox copies, would leave less than 2 GB free o
 | `grep` | the same agent without engmem | `rg`-style search over the same documents as plain files, whole-file reads | none |
 | `no-history` | the same agent with nothing | nothing | none |
 
-Shell profiles run the start template in its order: `engmem mode show` (step 0), then
+Every engmem profile first reads the start template and applies its scope gate (below,
+"Policies"). Shell profiles then run it in its order: `engmem mode show` (step 0), then
 `engmem store show` and `engmem draft create` (step 2). Stdin stands in for the template's quoted
 heredoc, so no profile needs a POSIX shell and every profile runs on Windows. The three shell
 variants differ only in the installed copy. By default `shell-codex` and `shell-copilot-cli` run
@@ -63,6 +64,12 @@ Declared once, applied to every profile and condition, and never read from the a
 scored on. A policy that is wrong for engmem stays wrong in the report.
 
 - **Mode.** Daily, the default; no Pre-reg and no baseline sub-agent.
+- **Scope gate.** A task whose description holds a word from a fixed list (`interview`,
+  `practise`, `practice`, `study`, `homework`, `essay`, `blog`, `newsletter`, `marketing`,
+  `holiday`, `vacation`, `recipe`, `birthday`) is not engineering work. An engmem profile then
+  stops after reading the start template: no call, no draft, no search, no save. grep makes no
+  call either. Any other task continues, as the template says to when unsure. The list stands in
+  for the agent's reading of the task and decides classes 1–8 as engineering work.
 - **Query.** The task description's words minus a fixed stopword list, in order, at most eight.
 - **Role search.** When the task names a kind of section (`pitfall` → `lessons`, `rejected` →
   `decisions`, `tested` → `testing`, `rollback` → `production`), the search passes that role, as
@@ -112,6 +119,7 @@ One task per class, each with its declared winner written before any run:
 | 6 | cross-repository answer | engmem and grep tie |
 | 7 | larger store (413 documents; 3019 in the large tier) | engmem over grep on cost on a larger store |
 | 8 | one agent saves, another agent kind finds and cites it | engmem; without it nothing was saved |
+| 9 | non-engineering task (study for an interview) | engmem skips at its scope gate: no draft, no search row, no store write |
 
 The class 8 saver is `shell-codex`, or `shell-claude` when the finder is `shell-codex`. It runs
 once per saver kind; its store is copied into each finder's sandbox. Without engmem the saver
@@ -156,7 +164,9 @@ Per scenario × profile:
   answer document's id. `correct`: quoted and the stale trap avoided. `stale avoided`: the stale
   value did not reach the context, or it came with a superseded marker for its document.
   `pitfall avoided`: correct, or the pitfall itself reached the context. `none found said`:
-  class 5 output says `prior context: none found`. `citation valid`: completion accepted the
+  class 5 output says `prior context: none found`. `skipped`: the agent stopped at the scope
+  gate. In class 9 an engmem run is correct only when it skipped and `store_written`, which
+  compares a digest of every file in the store before and after the run, is false. `citation valid`: completion accepted the
   document with its row and reported no citation problem; a refused row scores no. `Reuse Log
   row`: the row cites an answer document and is classified `reuse`.
 - **engmem's ledger.** The bytes `cost.jsonl` recorded for the run's session beside the bytes
@@ -179,8 +189,8 @@ how many files it matched before the cut.
 ## Running it
 
 - Default test suite: `tests/e2e/` is marked `e2e` and runs the smoke plan (every profile on
-  class 1; `mcp-only`, grep and no history on every scenario; `shell-claude` on classes 1, 4, 5
-  and 8). `-m "not e2e"` deselects it. `ENGMEM_E2E_FULL=1` runs the full plan.
+  class 1; `mcp-only`, grep and no history on every scenario; `shell-claude` on classes 1, 4, 5,
+  8 and 9). `-m "not e2e"` deselects it. `ENGMEM_E2E_FULL=1` runs the full plan.
 - Full default-size run with a report: `uv run python tools/e2e.py run`; it writes
   `results.json` and `report.md` under `.tmp/e2e/`.
 - Large tier, opt-in: `uv run python tools/e2e.py run --large`, or

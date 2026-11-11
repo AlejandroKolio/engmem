@@ -55,6 +55,7 @@ def test_composing_logs_one_row_measuring_exactly_the_rendered_result(store, rol
     assert rendered.text in text
 
 
+@pytest.mark.usefixtures("research_mode")
 def test_only_the_unattributed_note_differs_between_channels(store):
     loaded = load_store(store / "sessions")
 

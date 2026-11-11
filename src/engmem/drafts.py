@@ -244,12 +244,13 @@ def create_draft(store: Path, doc_id: object, content: str, surface: Surface) ->
         discard(tmp_path)
         raise
 
+    shape = "" if doc.mode == Mode.DAILY else f" {REUSE_LOG_SHAPE}"
     return (
         f"created sessions/{doc_id}.md (status: draft, version: {version_of(content_bytes)}). "
         f"Now {surface.attribute(doc_id)} for the rest of this task — a search without it is "
         "logged unattributed and drops out of the analysis. Keep the version: pass it as "
         f"{surface.version_argument} to {surface.complete} when you finish this draft. "
-        f"{_mode_note(doc)} {REUSE_LOG_SHAPE}"
+        f"{_mode_note(doc)}{shape}"
     )
 
 
@@ -327,17 +328,20 @@ def complete_draft(
     # held from the first look at the document to the replace: two completions of one
     # draft can no longer both see `status: draft` and both commit
     with locked(target, doc_id, surface):
-        doc = _complete_draft_locked(target, doc_id, content, expected_version, surface)
+        doc, daily = _complete_draft_locked(target, doc_id, content, expected_version, surface)
 
     message = f"completed sessions/{doc_id}.md (status: draft -> active)"
-    for note in [*_snapshot_notes(doc), *_citation_notes(store, doc, surface)]:
+    citation_notes = [] if daily else _citation_notes(store, doc, surface)
+    for note in [*_snapshot_notes(doc), *citation_notes]:
         message += f"\n{note}"
     return message
 
 
 def _complete_draft_locked(
     target: Path, doc_id: str, content: str, expected_version: str | None, surface: Surface
-) -> Doc:
+) -> tuple[Doc, bool]:
+    """The committed document, and whether the draft on disk was daily, which skips the Reuse Log
+    checks only the experiment needs."""
     if not target.exists():
         raise WriteRefused(
             f"no draft found for id {doc_id!r}: sessions/{doc_id}.md does not "
@@ -385,7 +389,8 @@ def _complete_draft_locked(
                 "document is not actually ready to finish yet."
             )
         _refuse_a_changed_observation(existing, doc, doc_id)
-        rejections = _reuse_log_rejections(doc, target.parent)
+        daily = existing.mode == Mode.DAILY
+        rejections = [] if daily else _reuse_log_rejections(doc, target.parent)
         if rejections:
             raise WriteRefused(
                 "\n".join(
@@ -406,7 +411,7 @@ def _complete_draft_locked(
     except BaseException:
         discard(tmp_path)
         raise
-    return doc
+    return doc, daily
 
 
 def _mode_label(mode: str | None) -> str:

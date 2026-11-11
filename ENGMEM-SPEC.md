@@ -29,6 +29,16 @@ field, the scoreboard — these are **the experiment's measuring instrument**, n
 features. They must not be simplified, dropped, or "optimized away" without the author's
 explicit permission.
 
+**Daily sessions have that permission.** The owner allowed daily sessions to drop or relax the
+measurement parts: the Reuse Log checks, the Pre-reg, the Search Trace, session-id attribution,
+and the cost and timing fields. Research sessions keep the protocol exactly as written here. A
+daily session is already outside every Gate 1 figure (`docs/design/contracts/gate1.md`,
+"Modes"), so what it drops removes nothing from the count. So far the runtime uses the permission
+in three places: a daily completion makes no Reuse Log refusal and no citation or unlisted-reads
+note, a daily draft's create result leaves out the Reuse Log shape, and a search or read made
+while the saved mode is daily does not end with the unattributed note. The checks that protect
+the data (the front matter, the id, the mode, the version read) hold in every mode.
+
 **The project's success metric** is knowledge reused, not document count and not the tool's
 feature count.
 
@@ -271,13 +281,15 @@ Idempotent (re-running = upgrade, nothing breaks):
    `docs/design/contracts/install.md`.
 4. Appends the trigger rule to `CLAUDE.md` / `.github/copilot-instructions.md` /
    `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`) if not
-   already present: "Before proposing a plan, run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
+   already present: "Before proposing a plan for engineering work in a repository (not study, writing or personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the draft `/engmem` just created; without it the search is unattributed)". Presence is detected by the substring `` `engmem search ``, so a
    rule the user reworded is recognised and never duplicated; a skip for this reason
    is reported on stdout, not left silent. A line that is exactly an earlier wording engmem
    itself wrote (with or without the sentinel below) is not skipped but updated in place to
    the current wording and reported as updated — otherwise the marker check would freeze
    the first wording ever installed. *(2026-09-18: `--session` joined the rule; every CLI
-   search on the record until then was unattributed.)* The appended line is written after an
+   search on the record until then was unattributed. The owner later narrowed the rule to
+   engineering work in a repository, as the start's scope gate is, §6.)* The appended line is
+   written after an
    `<!-- engmem-trigger-rule -->` sentinel comment so `uninstall` removes precisely
    the line engmem wrote, not any line that merely contains the same substring — an
    earlier version deleted a user's own unrelated sentence that happened to mention
@@ -627,7 +639,8 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    `note: the store refused writing — …` line instead (`contracts/output.md`).
    A search run without `--session` (absent, blank or whitespace-only) ends with one more
    trailing line, `note: unattributed search — pass --session <draft-id>`, after the
-   scoreboard and after any telemetry note; the MCP tools append the same line with
+   scoreboard and after any telemetry note, unless the saved mode is daily (§1; a mode file
+   that cannot be read keeps the line); the MCP tools append the same line with
    `session_id` in place of the flag. Both are outside the rendered result, so
    `context_bytes` (6a) is unchanged by them. *(Added 2026-09-18: two measurements a week
    apart found 0 of 33 and 2 of 44 searches attributed; the template's instruction alone did
@@ -780,7 +793,7 @@ writer as `engmem_create_draft` and `engmem_complete_draft` (`src/engmem/drafts.
 - create never overwrites, and of two creators of one id exactly one wins;
 - complete runs under the document lock, refuses a draft changed since `--expected-version`,
   or a call without one (US-25), and returns its current text and version;
-- the Reuse Log row checks;
+- the Reuse Log row checks, for a draft that is not daily (§1);
 - the `draft -> active` transition.
 
 `create` prints the version to pass back. Messages name the CLI's own commands. A refusal, a
@@ -796,7 +809,8 @@ surface", and `docs/design/contracts/prompt-templates.md`, "Writes go through en
 *(US-29)* Names the unsaved drafts whose `repos` names the repository the working directory is
 in (git's top level, matched as search scope matches), newest first, at most three. With
 `--hook` it prints the JSON a Claude Code `SessionStart` hook reads — a line for the user and
-context for the agent — or nothing, and exits 0 on every failure once its arguments parse; it
+context for the agent, naming only drafts dated within the last 14 days and counting the older
+ones — or nothing, and exits 0 on every failure once its arguments parse; it
 never reads stdin and writes nothing. Rules: `docs/design/contracts/install.md`, "The
 SessionStart hook".
 
@@ -816,7 +830,7 @@ characters other than a line break and a tab are escaped. Like a search it retai
 document's exact bytes under `versions/` (a draft excepted) and ends with `cite as (Reuse Log
 prior-doc): <id>@<version>`, the version of the whole file even for a `--role` read, or a `note: version of
 … not retained` line (§5 search 4b). Without `--session` it ends with `note: unattributed read —
-pass --session <draft-id>`. The MCP tool `engmem_read` does the same; a `--read-only` server
+pass --session <draft-id>`, unless the saved mode is daily, as for a search. The MCP tool `engmem_read` does the same; a `--read-only` server
 does not offer it. There is no size cap (coordinator decision D3); the templates ask for
 `--role`. It exists to make reading observable, and to give an MCP-only client a way to read a
 whole document; it is not a replacement for grep or for opening a file, which stay possible and
@@ -877,6 +891,16 @@ take a document out of the store. Rules: `docs/design/contracts/export.md`.
 ## 6. Prompt templates — behavior specification
 
 ### `/engmem <task description>` (start)
+
+**Scope, before step 0.** The owner narrowed engmem to engineering work. From the task
+description alone, before any search, the agent decides whether the task is engineering work on
+a codebase or system: changing, debugging or investigating code, configuration or
+infrastructure, or choosing an approach. If it is not (study or practice, writing, marketing or product reviews,
+personal tasks), the agent replies `engmem: skipped — not an engineering task` on one line,
+creates no draft, runs no search, and answers. When unsure, it continues. Steps keep their
+numbers. The gate runs in research mode too, before the Pre-reg, so research sessions are
+engineering tasks only, and a task skipped wrongly leaves no draft and no telemetry: no audit
+figure can see it (`docs/design/contracts/gate1.md`, "Modes"). Rules: `docs/design/contracts/prompt-templates.md`, "Engineering work only".
 
 0. **Mode** (US-08): read it first — `engmem mode show`, the first line of the `engmem` MCP
    prompt, or the mode file; `daily` when nothing is saved or the mode cannot be read (said to

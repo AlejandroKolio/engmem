@@ -3,6 +3,7 @@ with `--hook` it prints what a Claude Code SessionStart hook reads, or nothing, 
 
 from __future__ import annotations
 
+import datetime
 import io
 import json
 import os
@@ -20,6 +21,11 @@ from engmem.cli import main
 pytestmark = [requires_git, pytest.mark.usefixtures("hermetic_git")]
 
 REPO = "svc-alpha"
+TODAY = datetime.date.today()
+
+
+def _days_ago(days: int) -> str:
+    return (TODAY - datetime.timedelta(days=days)).isoformat()
 
 
 def _doc(store: Path, doc_id: str, *, repos: str, status: str = "draft", date: str = "2026-09-01") -> None:
@@ -88,7 +94,7 @@ def test_more_than_three_drafts_name_three_and_count_the_rest(checkout, store, c
 
 
 def test_the_hook_prints_a_line_for_the_user_and_context_for_the_agent(checkout, store, capsys):
-    _doc(store, "d1", repos=f"[{REPO}]")
+    _doc(store, "d1", repos=f"[{REPO}]", date=_days_ago(0))
 
     assert _hook(capsys, store) == {
         "systemMessage": "engmem: unsaved draft(s) d1 — finish with /engmem.save.quick or leave them",
@@ -174,10 +180,46 @@ class _Unreadable(io.StringIO):
 
 
 def test_the_hook_never_reads_stdin_and_writes_nothing(checkout, store, monkeypatch, capsys):
-    _doc(store, "d1", repos=f"[{REPO}]")
+    _doc(store, "d1", repos=f"[{REPO}]", date=_days_ago(0))
     monkeypatch.setattr(sys, "stdin", _Unreadable('{"transcript_path": "/x"}'))
     before = {p: p.stat().st_mtime_ns for p in store.rglob("*")}
 
     assert _hook(capsys, store) is not None
 
     assert {p: p.stat().st_mtime_ns for p in store.rglob("*")} == before
+
+
+def test_the_hook_names_only_drafts_of_the_last_two_weeks_and_counts_the_older(
+    checkout, store, capsys
+):
+    _doc(store, "fresh", repos=f"[{REPO}]", date=_days_ago(0))
+    _doc(store, "edge", repos=f"[{REPO}]", date=_days_ago(unsaved_drafts.RECENT_DAYS))
+    _doc(store, "stale", repos=f"[{REPO}]", date=_days_ago(unsaved_drafts.RECENT_DAYS + 1))
+    _doc(store, "ancient", repos=f"[{REPO}]", date="2025-01-01")
+
+    hook = _hook(capsys, store)
+
+    older = "(+2 older; `engmem draft status`)"
+    assert hook["systemMessage"] == (
+        f"engmem: unsaved draft(s) fresh, edge {older} — finish with /engmem.save.quick or leave them"
+    )
+    assert f"for this repository: fresh, edge {older}." in hook["hookSpecificOutput"]["additionalContext"]
+    assert "stale" not in json.dumps(hook)
+
+
+def test_the_hook_without_an_older_draft_adds_no_count(checkout, store, capsys):
+    _doc(store, "fresh", repos=f"[{REPO}]", date=_days_ago(1))
+
+    assert "older" not in json.dumps(_hook(capsys, store))
+
+
+def test_with_only_older_drafts_the_hook_is_silent_and_draft_status_still_lists_them(
+    checkout, store, capsys
+):
+    _doc(store, "stale", repos=f"[{REPO}]", date=_days_ago(unsaved_drafts.RECENT_DAYS + 1))
+    _doc(store, "ancient", repos=f"[{REPO}]", date="2025-01-01")
+
+    assert _hook(capsys, store) is None
+    assert _status(capsys, store)[1] == (
+        "engmem: unsaved draft(s) stale, ancient — finish with /engmem.save.quick or leave them\n"
+    )

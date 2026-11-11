@@ -110,3 +110,20 @@ def test_tokens_round_up_and_zero_stays_zero():
 def test_a_task_without_a_pitfall_scores_none_for_it():
     task = dataclasses.replace(STALE, pitfall="")
     assert metrics.outcome(task, BY_NAME["grep"], Transcript(), None).pitfall_avoided is None
+
+
+OFF_TOPIC = next(t for t in corpus.tasks() if t.scenario_class == 9)
+
+
+@pytest.mark.parametrize(
+    ("skipped", "written", "correct"),
+    [(True, False, True), (True, True, False), (False, False, False)],
+    ids=["skipped-clean", "skipped-but-wrote", "not-skipped"],
+)
+def test_a_non_engineering_task_is_correct_only_when_skipped_without_a_store_write(skipped, written, correct):
+    state = RunState(task=OFF_TOPIC, today="2026-01-01", skipped=skipped)
+
+    outcome = metrics.outcome(OFF_TOPIC, BY_NAME["shell-claude"], Transcript(), state, store_written=written)
+
+    assert outcome.correct is correct and outcome.skipped is skipped
+    assert (outcome.saved is None) is skipped

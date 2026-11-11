@@ -1,5 +1,5 @@
 ---
-description: Start a new engineering task with engmem — recover prior context before planning
+description: Start an engineering task on a codebase with engmem — recover prior context before planning
 argument-hint: <task description>
 ---
 
@@ -11,6 +11,14 @@ Follow these steps in order. **Never make the user wait on the ritual**: they as
 something, and steps 0–5 exist to serve that request, not to gate it. If any step cannot
 be completed, record what happened and keep going — never withhold the answer or the plan
 because a step did not work out.
+
+## Scope
+
+From the task description alone, before step 0: if it is not engineering work on a codebase or
+system (changing, debugging or investigating code, configuration or infrastructure, or choosing
+an approach), reply `engmem: skipped — not an engineering task` on one line and answer; no
+draft, no search. Out of scope: study or practice (algorithms, interviews), writing, marketing
+or product reviews, personal tasks. When unsure, continue.
 
 ## 0. Mode — daily or research
 

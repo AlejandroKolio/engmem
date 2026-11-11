@@ -84,6 +84,15 @@ These were the other two options:
 400 bytes is about four sentences of the size the descriptions use, 4 % of the total. That is
 enough for a real correction and too little for the reasons to come back.
 
+The first corrections spent 103 bytes of it, bringing the result to 9,731 bytes. `engmem_search`
+is called "before you plan a change to a codebase or system", not before "a non-trivial task",
+and `engmem_create_draft` is "only for engineering work on a codebase or system".
+`engmem_complete_draft` states its Reuse Log refusals "for a draft not in `daily` mode", since a
+daily completion makes none ("Daily sessions skip both tiers", below). The owner
+narrowed engmem's triggers to engineering work. Most abandoned drafts came over MCP, from Claude
+Desktop and Codex, where no client hook and no installed trigger rule reach, so the
+descriptions are where an MCP-only client learns the limit. The same test checks all three phrases.
+
 Each description keeps what a model needs to call the tool correctly: what the tool does, when
 to use it, what each argument means, the refusals to expect, and what the result contains. The
 same test keeps a checklist of these phrases for each tool. A reason gets one sentence at most,
@@ -193,7 +202,9 @@ Recorded reversal. Two measurements a week apart (2026-09-11 and 2026-09-18: 0 o
 now ends with `telemetry.UNATTRIBUTED_MCP_NOTE`, appended by `search_report.compose` after
 the telemetry write (`contracts/output.md`, "One composed result for both channels"), never
 `isError`. Blank ids earn the
-note too — they log `null`. The earlier decision never to append to a search result
+note too — they log `null`. While the saved mode is daily there is no note: the owner allowed
+daily sessions to drop session-id attribution, and no figure reads a daily session
+(`contracts/output.md`, "One composed result for both channels"). The earlier decision never to append to a search result
 protected `context_bytes`, which measures exactly the rendered text; the note is added after
 `context_bytes` is computed, and `tests/mcp/test_mcp_server.py` / `tests/test_cli.py` pin that a
 search with and without an id logs the same value.
@@ -392,8 +403,8 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
    none-report and no conflict for it, and `gate1_audit` counted the section as present. A
    live team run lost all four of its reuse events that way, each written in a different
    shape, so the shape is also named before the write: in `engmem_create_draft`'s result,
-   the same text `engmem draft create` prints (`drafts.REUSE_LOG_SHAPE`), and in both tool
-   descriptions. Like the row checks, the neither rule walks every `reuse` section, including
+   the same text `engmem draft create` prints (`drafts.REUSE_LOG_SHAPE`), for a draft that
+   is not daily, and in both tool descriptions. Like the row checks, the neither rule walks every `reuse` section, including
    each `###` piece an oversized section is split into, while the count reads only the first:
    a lead-in with no table above `###` tables is refused, and the message names the heading
    so the piece can be found. That keeps the refusal on the side of the loss — rows below the
@@ -447,6 +458,20 @@ The Reuse Log is the one section the Gate 1 count reads mechanically (`ENGMEM-SP
      `gate1.evaluate` did run. The second store load is not cached outside the MCP server
      (`spine.load_store` caches only with `kept`), so it costs one more parse, once per
      completion, for a none report in a session that read something.
+
+**Daily sessions skip both tiers.** The owner allowed daily sessions to drop or relax the
+measurement parts (`ENGMEM-SPEC.md` §1). The mode is read from the draft on disk
+(`_complete_draft_locked`, after `_refuse_a_changed_observation` has made the content's mode
+equal it): a daily draft gets no `_reuse_log_rejections`, and `complete_draft` runs no
+`_citation_notes`. So a daily completion makes no store-wide `gate1.evaluate` scan, reads no
+`cost.jsonl`, and warns neither about a missing Reuse Log nor about unlisted reads. The
+`verified_at` note stays: it is about the record's anchor, not the experiment. A daily document
+from an older template that still carries a Reuse Log is published as it is. What protects the
+data stays in every mode: the parse, the id, `status`, the kept mode and `baseline_unavailable`,
+the version read, and the change-since-read check. `engmem_create_draft`'s result for a daily
+draft also leaves out `drafts.REUSE_LOG_SHAPE`, which only teaches the shape these tiers refuse.
+A legacy draft with no `mode` keeps both tiers: it is counted as before (`contracts/gate1.md`,
+"Modes").
 
 Why the line falls where it does — a recorded reversal. Before the split every Reuse Log
 defect was a warning, on the argument that a defect in content the author chose to publish is

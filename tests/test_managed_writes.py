@@ -188,11 +188,16 @@ def test_a_draft_changed_since_create_is_refused_with_its_current_text(store, ca
     assert load_store(store / "sessions").docs[0].status == "draft"
 
 
+def _research(text: str) -> str:
+    return text.replace("mode: daily\n", "mode: research\nbaseline_unavailable: no sub-agent\n")
+
+
 @pytest.mark.parametrize(
-    "content, refusal",
+    "mode, content, refusal",
     [
         pytest.param(
-            ACTIVE.replace(
+            "research",
+            _research(ACTIVE).replace(
                 "Prior docs used: none.\n",
                 "| prior-doc | taken | impact | classification |\n|---|---|---|---|\n"
                 "| 20260101-widget-cache | CacheWarmer ordering | kept the warm-up step | reuse |\n",
@@ -201,6 +206,7 @@ def test_a_draft_changed_since_create_is_refused_with_its_current_text(store, ca
             id="unquoted-reuse-log-row",
         ),
         pytest.param(
+            "daily",
             ACTIVE.replace("mode: daily", "mode: research"),
             "content's mode is 'research', but the draft was started with 'daily'",
             id="changed-mode",
@@ -208,16 +214,18 @@ def test_a_draft_changed_since_create_is_refused_with_its_current_text(store, ca
     ],
 )
 def test_a_shell_save_is_refused_as_an_mcp_save_is_and_writes_nothing(
-    store, capsys, monkeypatch, content, refusal
+    store, capsys, monkeypatch, mode, content, refusal
 ):
-    _code, created = _cli(capsys, monkeypatch, store, DRAFT, "draft", "create", DOC_ID)
+    draft = _research(DRAFT) if mode == "research" else DRAFT
+    assert main(["mode", "set", mode]) == 0
+    _code, created = _cli(capsys, monkeypatch, store, draft, "draft", "create", DOC_ID)
 
     code, output = _cli(capsys, monkeypatch, store, content, "draft", "complete", DOC_ID,
                         "--expected-version", _version_in(created))
 
     assert code == 2
     assert f"refusing to complete sessions/{DOC_ID}.md" in output and refusal in output
-    assert (store / "sessions" / f"{DOC_ID}.md").read_bytes() == DRAFT.encode("utf-8")
+    assert (store / "sessions" / f"{DOC_ID}.md").read_bytes() == draft.encode("utf-8")
     assert sorted(p.name for p in (store / "sessions").iterdir()) == [f"{DOC_ID}.md"]
 
 
