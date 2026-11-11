@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import platform
 import shutil
@@ -19,13 +20,13 @@ from agentsim.profiles import BY_NAME, ENGMEM, GREP, PROFILES, Agent, GrepAgent,
 from agentsim.sandbox import Sandbox
 from agentsim.trace import TOKEN_METHOD, Transcript
 
-ALL_CLASSES = tuple(range(1, 9))
+ALL_CLASSES = tuple(range(1, 10))
 ONE_SCENARIO_PROFILES = ("shell-codex", "shell-copilot-cli")
 SMOKE_CLASSES = {
     "mcp-only": ALL_CLASSES,
     "grep": ALL_CLASSES,
     "no-history": ALL_CLASSES,
-    "shell-claude": (1, 4, 5, 8),
+    "shell-claude": (1, 4, 5, 8, 9),
 }
 SAVER = "shell-codex"
 SAVER_FOR_SAVER = "shell-claude"
@@ -155,13 +156,15 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         _restore_logs(machine.sandbox, snapshot)
     transcript = Transcript()
     state = None
+    store_before = _store_state(machine.sandbox.store)
     started = time.perf_counter()
     if profile.condition == ENGMEM:
         state = Agent(profile, machine.sandbox, task, checkout, transcript).run()
     elif profile.condition == GREP:
         GrepAgent(machine.sandbox, task, transcript).run()
     wall = time.perf_counter() - started
-    outcome = metrics.outcome(task, profile, transcript, state)
+    store_written = _store_state(machine.sandbox.store) != store_before if profile.condition == ENGMEM else None
+    outcome = metrics.outcome(task, profile, transcript, state, store_written)
     session = state.draft_id if state else None
     return {
         "task": task.id,
@@ -174,11 +177,23 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         "wall_seconds": round(wall, 4),
         "cost": metrics.cost(transcript),
         "outcome": metrics.as_dict(outcome),
+        "store_written": store_written,
         "engmem_observed_bytes": metrics.observed_bytes(machine.sandbox.store, session),
         "template_checks": state.template_checks if state else {},
         "save_note": state.save_note if state else "",
         "saver": saver_summary,
         "steps": [s.as_dict() for s in transcript.steps],
+    }
+
+
+def _store_state(store: Path) -> dict[str, str]:
+    """Every file under the store with a digest of its bytes: any write the run made changes it."""
+    if not store.is_dir():
+        return {}
+    return {
+        path.relative_to(store).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(store.rglob("*"))
+        if path.is_file()
     }
 
 

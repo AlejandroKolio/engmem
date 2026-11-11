@@ -7,6 +7,7 @@ from support.home import (
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
     LEGACY_TRIGGER_RULE,
+    SESSION_TRIGGER_RULE,
     TRIGGER_RULE,
     claude_desktop_config_path,
 )
@@ -243,7 +244,10 @@ def test_reworded_trigger_rule_is_not_duplicated(env, tmp_path):
     )
 
 
-def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys):
+@pytest.mark.parametrize(
+    "legacy", [LEGACY_TRIGGER_RULE, SESSION_TRIGGER_RULE], ids=["no-session", "any-task"]
+)
+def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys, legacy):
     """Re-running install used to skip on the marker the old rule contains, so the new wording
     never reached a file engmem itself had written."""
     home, project = env
@@ -253,7 +257,7 @@ def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys):
     before = "# My rules\n\n- Prefer small commits.\n"
     after = "- Keep going.\n"
     claude_md.write_text(
-        before + TRIGGER_SENTINEL + "\n" + LEGACY_TRIGGER_RULE + "\n" + after, encoding="utf-8"
+        before + TRIGGER_SENTINEL + "\n" + legacy + "\n" + after, encoding="utf-8"
     )
 
     exit_code = _run_install("--agent", "claude", "--store", str(store))

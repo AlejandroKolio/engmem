@@ -158,8 +158,10 @@ user's.
 
 The trigger rule is `ok` in the current wording or in the user's
 own wording (`TRIGGER_MARKER`, the same rule install uses to leave it alone). It is a warning in
-an earlier engmem wording, because those searches go unattributed, and a warning when it is
-absent. Without the rule the agent is never told to search, but the templates still work. For
+an earlier engmem wording, which install updates in place, and a warning when it is absent. The
+warning names no defect of its own: the earlier wordings differ in more than one way (one has no
+`--session`, the next one is not limited to engineering work), so it says only that an earlier
+wording is there. Without the rule the agent is never told to search, but the templates still work. For
 Codex, an `AGENTS.override.md` is a warning, because Codex then never reads the rule.
 
 ## The MCP runtime is what the server logged (US-26)

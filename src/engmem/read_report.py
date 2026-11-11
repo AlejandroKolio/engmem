@@ -9,7 +9,7 @@ from pathlib import Path
 from engmem import confined
 from engmem.cost import OP_READ, record_delivery
 from engmem.output import _escape_control_char, _escape_controls
-from engmem.search_report import Channel, cite_lines
+from engmem.search_report import Channel, cite_lines, unattributed_trailer
 from engmem.sections import CANONICAL_ROLES, sections_for_role, split_sections
 from engmem.spine import Doc, Problem, load_error_for
 from engmem.staging import version_of
@@ -133,7 +133,7 @@ def compose_read(
     lines += ["", _escape_body(text)]
     if doc.status != "draft":
         lines += _cite(store, doc, version if cited else None)
-    trailer = [UNATTRIBUTED_READ_NOTES[channel]] if session_id is None else []
+    trailer = unattributed_trailer(UNATTRIBUTED_READ_NOTES, channel, session_id)
     # the delivery is the whole text sent, so it is measured last, without only this note
     cost_error = record_delivery(
         store, op=OP_READ, session_id=session_id, channel=channel,

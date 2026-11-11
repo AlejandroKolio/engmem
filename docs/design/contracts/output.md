@@ -187,7 +187,15 @@ trim it can name a document whose block was cut, the same limit noted below. `en
 apply different scope rules (AC-09.4); the row's `scope` field records it (`ENGMEM-SPEC.md` §5,
 search step 6b). `engmem search` prints the string; `engmem_search` and `engmem_search_by_role`
 return it as the tool text. Only the unattributed note differs by channel, and stderr diagnostics
-stay with each caller. There were four copies of this composition, and they had drifted: the MCP
+stay with each caller.
+
+The unattributed note is left out while the saved mode is daily
+(`search_report.unattributed_trailer`, which `read_report.compose_read` shares). The owner
+allowed daily sessions to drop session-id attribution (`ENGMEM-SPEC.md` §1), and a daily
+session is outside every Gate 1 figure, so the note would ask for a join nothing reads. The
+mode is read only when no session id was passed: one read of a one-line file
+(`settings.effective_mode`), nothing a search notices. A mode file that cannot be read keeps the
+note: it may be hiding a research setting, and a note too many costs 55 bytes. There were four copies of this composition, and they had drifted: the MCP
 ones never read `scan_error`, so the MCP-only channel showed an unlistable `sessions/` as `prior
 context: none found / docs: 0`, the phantom empty the spec forbids, while the CLI said "unknown,
 not zero". `render_result` is the pure half — the text `context_bytes` measures, with no I/O; only
@@ -308,7 +316,8 @@ copy. Without it, a document edited between the search and the read was delivere
 search's version does not hold, and the quote failed its check; a document no search showed had
 no reference at all. The line is part of the delivery and counted in its bytes. There is no size
 cap on a read (coordinator decision D3); the templates ask for `--role`. A read without a session ends
-with `note: unattributed read — pass --session <draft-id>` (MCP: `session_id`). A file opened
+with `note: unattributed read — pass --session <draft-id>` (MCP: `session_id`), unless the saved
+mode is daily (above, "One composed result for both channels"). A file opened
 directly is still possible and still unobserved, so every report names that gap.
 
 **Baseline figures are the client's.** engmem cannot see what the baseline sub-agent cost; only

@@ -37,7 +37,7 @@ def _text(doc_id: str, *, status: str = "active", reuse_log: str | None = None) 
         f"---\nid: {doc_id}\ntitle: {doc_id}\ndate: 2026-08-01\ntask_date: 2026-08-01\n"
         f"status: {status}\nsuperseded_by:\nbackfilled: false\ntags: [platform]\n"
         "entities: [WidgetCache]\nrelated: []\ncovers_files: []\nrepos: [platform-core]\n"
-        f"verified_at:\ncapture_minutes:\nmode: daily\n---\n\n{body}"
+        f"verified_at:\ncapture_minutes:\nmode: research\n---\n\n{body}"
     )
 
 

@@ -17,7 +17,7 @@ import pytest
 
 from support import fs
 from support.docs import FIXTURES
-from support.home import LEGACY_TRIGGER_RULE, claude_desktop_config_path
+from support.home import LEGACY_TRIGGER_RULE, SESSION_TRIGGER_RULE, claude_desktop_config_path
 from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
@@ -495,6 +495,7 @@ def test_a_missing_or_unreadable_mcp_entry_is_an_error(home, tmp_path, capsys, c
     ("rule", "status"),
     [
         pytest.param(LEGACY_TRIGGER_RULE, "warning", id="earlier-wording"),
+        pytest.param(SESSION_TRIGGER_RULE, "warning", id="any-task-wording"),
         pytest.param("Always run `engmem search` first.", "ok", id="own-wording"),
     ],
 )
@@ -506,6 +507,8 @@ def test_the_trigger_rule_wording_decides_its_line(home, tmp_path, shell_path, c
 
     [line] = [l for l in lines if ": trigger rule:" in l]
     assert line.startswith(f"{status}: trigger rule:"), line
+    if status == "warning":
+        assert "earlier engmem wording" in line and "--session" not in line, line
 
 
 def test_an_unreadable_instructions_file_is_an_error(home, tmp_path, shell_path, capsys):

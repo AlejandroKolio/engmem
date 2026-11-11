@@ -216,7 +216,10 @@ document's status and before dogfooding:
   (`COUNTED_OBSERVATIONS`).
 - **daily** — `"excluded: outside the experiment (mode: daily)"`. A daily session skipped the
   Pre-reg by design; counting it, as a success or as a failure, would mix two conditions in one
-  figure (AC-08.3).
+  figure (AC-08.3). Since no figure reads it, the owner allowed daily sessions to drop or relax
+  the measurement parts (`ENGMEM-SPEC.md` §1): a daily completion is not refused over its
+  Reuse Log and gets no citation note, so its rows can be malformed. They are still read here
+  and still excluded by this reason; `verify_citations.py` still checks them (below).
 - **incomplete** — `baseline_unavailable` stated on a non-daily document:
   `"excluded: incomplete observation (baseline_unavailable)"`. The session searched and saved
   normally but has no uncontaminated baseline, so it is kept apart from the valid group and
@@ -234,6 +237,15 @@ document's status and before dogfooding:
   count's favour. The loader warns, and the document is still searched. The start template's
   draft placeholder, `mode: <daily|research from step 0>`, reads as this value when copied
   literally, so a careless copy counts nowhere instead of as research.
+
+**The scope gate narrows the research population too.** The start template's scope gate
+(`contracts/prompt-templates.md`, "Engineering work only") runs before step 0, so before the
+mode is read and before the Pre-reg. A research session therefore exists only for a task the
+agent took for engineering work, and the research population is engineering tasks only. A task
+the gate skipped wrongly leaves no draft, no telemetry row and no cost row, so no figure here or
+in `gate1_audit` can see it: a false skip is invisible to every audit figure. The gate decides
+from the task description alone, so it cannot select tasks by what the store holds. Whether this
+changes how §11 is read is not settled here.
 
 **Transition rule, stated rather than versioned.** No new protocol version is introduced:
 research mode is the current Gate 1 protocol plus one recorded fact, `baseline_unavailable`.

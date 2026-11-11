@@ -134,3 +134,13 @@ def test_grep_follows_a_successor_only_from_a_file_that_passes_the_relevance_gat
     assert "Read a-irrelevant.md" in reads and "Read b-successor.md" not in reads
     assert "Read c-relevant.md" in reads and "Read d-successor.md" in reads
     assert policy.worth_following(["pool", "size"], "pool size") and not policy.worth_following(["pool", "size"], "pool")
+
+
+@pytest.mark.parametrize("task", corpus.tasks(), ids=lambda t: t.id)
+def test_the_scope_gate_skips_only_the_non_engineering_task(task):
+    assert policy.engineering_task(task.description) is (task.scenario_class != policy.OUT_OF_SCOPE_CLASS)
+
+
+def test_the_scope_gate_continues_when_no_word_says_otherwise():
+    assert policy.engineering_task("Tidy the export module")
+    assert not policy.engineering_task("Draft a blog post about our release")

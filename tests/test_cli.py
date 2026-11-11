@@ -471,6 +471,7 @@ UNATTRIBUTED_NOTE_CASES = [
 ]
 
 
+@pytest.mark.usefixtures("research_mode")
 @pytest.mark.parametrize(("search_args", "expect_note"), UNATTRIBUTED_NOTE_CASES)
 def test_the_unattributed_note_appears_exactly_when_no_usable_session_was_passed(
     fixture_store, capsys, search_args, expect_note
@@ -488,6 +489,7 @@ def test_the_unattributed_note_appears_exactly_when_no_usable_session_was_passed
         assert UNATTRIBUTED_NOTE not in out
 
 
+@pytest.mark.usefixtures("research_mode")
 def test_the_unattributed_note_comes_after_the_telemetry_failure_note(fixture_store, capsys):
     (fixture_store / "telemetry.jsonl").mkdir()
 
@@ -499,6 +501,7 @@ def test_the_unattributed_note_comes_after_the_telemetry_failure_note(fixture_st
     assert tail[2] == UNATTRIBUTED_NOTE
 
 
+@pytest.mark.usefixtures("research_mode")
 def test_the_unattributed_note_does_not_inflate_context_bytes(fixture_store, capsys):
     run_search(fixture_store, "1000001", capsys=capsys)
     without = _last_telemetry(fixture_store)["context_bytes"]

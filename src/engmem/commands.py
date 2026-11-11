@@ -4,6 +4,7 @@ that dispatches to these and owns the entry point."""
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import sys
 from pathlib import Path
@@ -288,7 +289,7 @@ def _draft_status_hook(store: Path) -> str:
     if checkout.name is None:
         return ""
     found = unsaved_drafts.unsaved_drafts(store, checkout.name)
-    return unsaved_drafts.hook_json(found) if found else ""
+    return unsaved_drafts.hook_json(found, datetime.date.today())
 
 
 def cmd_draft_complete(args: argparse.Namespace) -> int:

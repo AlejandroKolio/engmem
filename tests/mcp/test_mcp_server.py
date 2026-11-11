@@ -1140,6 +1140,7 @@ def test_the_session_id_argument_is_logged_the_same_way_the_cli_logs_it(store, s
 UNATTRIBUTED_NOTE = "note: unattributed search — pass session_id <draft-id>"
 
 
+@pytest.mark.usefixtures("research_mode")
 @pytest.mark.parametrize("store_fixture, build_call", _BOTH_READ_TOOLS)
 @pytest.mark.parametrize(
     "session_id, note_expected",
@@ -1165,6 +1166,7 @@ def test_the_unattributed_note_ends_exactly_the_searches_with_no_session_id(
     assert "isError" not in responses[0]["result"]
 
 
+@pytest.mark.usefixtures("research_mode")
 def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store):
     (store / "telemetry.jsonl").mkdir()
 
@@ -1177,6 +1179,7 @@ def test_the_unattributed_note_comes_after_the_telemetry_failure_note(store):
     assert "isError" not in responses[0]["result"]
 
 
+@pytest.mark.usefixtures("research_mode")
 def test_the_unattributed_note_does_not_inflate_context_bytes(store):
     rpc.run(store, rpc.tools_call_msg(3, arguments={"query": "WidgetCache"}))
     rpc.run(

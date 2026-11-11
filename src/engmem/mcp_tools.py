@@ -10,9 +10,9 @@ from engmem.sections import CANONICAL_ROLES
 TOOL_NAME = "engmem_search"
 TOOL_DESCRIPTION = (
     "Search prior engmem session documents: decisions, pitfalls and context from past work. "
-    "Call it before you plan a non-trivial task, with its key terms as `query`. Returns the "
-    "best matches, or 'prior context: none found', and a one-line store count. Once a draft "
-    "exists, pass its id as `session_id`."
+    "Call it before you plan a change to a codebase or system, with its key terms as `query`. "
+    "Returns the best matches, or 'prior context: none found', and a one-line store count. "
+    "Once a draft exists, pass its id as `session_id`."
 )
 
 ROLE_TOOL_NAME = "engmem_search_by_role"
@@ -26,8 +26,9 @@ ROLE_TOOL_DESCRIPTION = (
 
 CREATE_DRAFT_TOOL_NAME = "engmem_create_draft"
 CREATE_DRAFT_TOOL_DESCRIPTION = (
-    "Create a session document as a draft: the first step of `/engmem` without a shell. Writes "
-    "`content` as `sessions/<id>.md`. The front matter needs `status: draft`, `id` equal to the "
+    "Create a session document as a draft: the first step of `/engmem` without a shell. Only "
+    "for engineering work on a codebase or system. Writes `content` as `sessions/<id>.md`. The "
+    "front matter needs `status: draft`, `id` equal to the "
     "`id` argument, and `mode` equal to the configured mode (`daily` or `research`); the "
     "`engmem` prompt and a refusal name it. A `research` draft also needs a `## Pre-reg` "
     "section or `baseline_unavailable: <reason>`. It never overwrites: if `sessions/<id>.md` "
@@ -41,12 +42,13 @@ COMPLETE_DRAFT_TOOL_DESCRIPTION = (
     "Finish a draft from `engmem_create_draft`: the last step of `/engmem.save` or "
     "`/engmem.save.quick` without a shell. Replaces `sessions/<id>.md` with `content`. Refused "
     "unless the file has `status: draft` and `content` has `status: active` and the same `id`. "
-    "Also refused, with each defect named: a Reuse Log row without a quoted span or with a "
-    f"classification other than {drafts.CLASSIFICATION_CHOICES}, columns not in the order "
+    "For a draft not in `daily` mode, also refused, with each defect named: a Reuse Log row "
+    f"without a quoted span or with a classification other than {drafts.CLASSIFICATION_CHOICES}, "
+    "columns not in the order "
     f"`{drafts.REUSE_LOG_TABLE_HEADER}`, or neither a row nor `Prior docs used: none.`. That "
-    "line in a session that read documents is published with a warning naming them: tell the "
-    "user, do not rewrite. To supersede another document, use `engmem_mark_superseded`; never "
-    "pass its id here. Always pass `expected_version` from `engmem_create_draft`. If the draft "
+    "line in such a session that read documents is published with a warning naming them: tell "
+    "the user, do not rewrite. To supersede another document, use `engmem_mark_superseded`; "
+    "never pass its id here. Always pass `expected_version` from `engmem_create_draft`. If the draft "
     "changed, or the version is missing, nothing is written and the result gives the current "
     "draft and version: carry its changes into `content` and call again with that version."
 )

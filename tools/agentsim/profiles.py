@@ -68,6 +68,7 @@ MCP_PROMPT_PHRASES = ("engmem_create_draft", "engmem_search", "session_id", "eng
 SAVE_SHELL_PHRASES = ("engmem draft complete", "--expected-version", "engmem feedback summary")
 SAVE_MCP_PHRASES = ("engmem_complete_draft", "expected_version")
 NO_WRITE_FALLBACK = "If you can do neither"
+SCOPE_SKIP_LINE = "engmem: skipped — not an engineering task"
 
 
 @dataclass
@@ -79,6 +80,7 @@ class RunState:
     draft_id: str | None = None
     version: str | None = None
     mode: str = "daily"
+    skipped: bool = False
     searched: bool = False
     write_tools: bool = False
     template_checks: dict[str, bool] = field(default_factory=dict)
@@ -165,7 +167,13 @@ class Agent:
 
     def _ritual(self, saver: dict | None) -> None:
         description = self._description(saver)
-        self._start_template(description)
+        text = self._start_template(description)
+        self.state.template_checks["start template has the scope gate"] = f"`{SCOPE_SKIP_LINE}`" in text
+        if not policy.engineering_task(description):
+            self.state.skipped = True
+            self.state.save_note = "skipped at the scope gate: no draft, no search"
+            return
+        self._start_calls()
         self._create_draft(description, saver)
         views = self._search(description)
         self._load(views, description)
@@ -174,7 +182,8 @@ class Agent:
         else:
             self._save_unavailable()
 
-    def _start_template(self, description: str) -> None:
+    def _start_template(self, description: str) -> str:
+        """The start template the host injects, read before any call: the scope gate comes first."""
         if self.mcp is not None:
             text, seconds = self.mcp.prompt("engmem", description)
             self.t.add(Step(START, TEMPLATE, "prompts/get engmem", seconds, text))
@@ -187,9 +196,7 @@ class Agent:
                 self.state.template_checks["start prompt says what to do without a write tool"] = NO_WRITE_FALLBACK in text
             match = re.search(r"engmem mode for this session: (\w+)", text)
             self.state.mode = match.group(1) if match else "daily"
-            if self.profile.shell:
-                self._cli(START, "engmem store show", "store", "show")
-            return
+            return text
         started = time.perf_counter()
         text = _copy(self.sandbox, self.profile, self.checkout, 0).read_text(encoding="utf-8")
         text = text.replace("$ARGUMENTS", description)
@@ -197,6 +204,15 @@ class Agent:
         self.state.template_checks["installed copy names the shell steps"] = _contains_all(text, FILES_COPY_PHRASES)
         if self.profile.paste:
             self.state.template_checks["copy describes the paste bridge"] = "paste the output back" in text
+        return text
+
+    def _start_calls(self) -> None:
+        """Step 0's mode read and step 2's store check, the calls an engineering task makes first."""
+        if self.mcp is not None:
+            if self.profile.shell:
+                self._cli(START, "engmem store show", "store", "show")
+            return
+        if self.profile.paste:
             return
         shown = self._cli(START, "engmem mode show", "mode", "show")
         match = re.search(r"^mode: (\w+)", shown.text, re.MULTILINE)
@@ -509,6 +525,8 @@ class GrepAgent:
         self.t = transcript
 
     def run(self) -> None:
+        if not policy.engineering_task(self.task.description):
+            return
         terms = policy.key_terms(self.task.description)
         opened = self._round(terms, [], policy.RELEVANT_TERMS)
         found = any(policy.relevant(terms, self.t.steps[i].text) for i in opened)

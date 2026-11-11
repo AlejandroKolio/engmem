@@ -175,6 +175,7 @@ def test_a_read_through_mcp_delivers_the_text_the_cli_prints(store, capsys):
     assert cli_row == mcp_row
 
 
+@pytest.mark.usefixtures("research_mode")
 @pytest.mark.parametrize(
     ("command", "note"),
     [

@@ -95,11 +95,14 @@ _AGENT_TEMPLATE_MAPS = {
 
 
 TRIGGER_RULE = (
-    'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
-    "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)"
+    "Before proposing a plan for engineering work in a repository (not study, writing or "
+    'personal tasks), run `engmem search "<key terms for the task>" --session <draft-id>` (the '
+    "draft `/engmem` just created; without it the search is unattributed)"
 )
 LEGACY_TRIGGER_RULES = (
     'Before proposing a plan, run `engmem search "<key terms for the task>"`',
+    'Before proposing a plan, run `engmem search "<key terms for the task>" --session '
+    "<draft-id>` (the draft `/engmem` just created; without it the search is unattributed)",
 )
 _EVERY_TRIGGER_RULE = frozenset((TRIGGER_RULE, *LEGACY_TRIGGER_RULES))
 

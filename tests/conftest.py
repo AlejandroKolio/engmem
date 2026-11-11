@@ -155,6 +155,14 @@ def hermetic_git(tmp_path_factory, monkeypatch) -> None:
 
 
 @pytest.fixture
+def research_mode() -> None:
+    """The saved mode set to research, inside the per-test config directory."""
+    from engmem import settings
+
+    settings.save_mode(settings.Mode.RESEARCH)
+
+
+@pytest.fixture
 def store(tmp_path):
     """An empty store; a module whose layout differs defines its own `store`, which wins."""
     (tmp_path / "store" / "sessions").mkdir(parents=True)

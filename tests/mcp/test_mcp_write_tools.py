@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 
 from support import fs, rpc
-from support.docs import ACTIVE_CONTENT, DRAFT_CONTENT, replaced
+from support.docs import (
+    ACTIVE_CONTENT,
+    DRAFT_CONTENT,
+    RESEARCH_ACTIVE_CONTENT,
+    RESEARCH_DRAFT_CONTENT,
+    replaced,
+)
 from support.fs import entry_names
 from support.platform import (
     requires_libyaml,
@@ -362,7 +368,7 @@ _QUOTE = '"Chose CacheWarmer over a lazy cache fill"'
 
 def _with_reuse_rows(*rows: str) -> str:
     return replaced(
-        ACTIVE_CONTENT,
+        RESEARCH_ACTIVE_CONTENT,
         "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
         "## Reuse Log\n\n"
         "| prior-doc | taken | impact | classification |\n"
@@ -375,7 +381,7 @@ def _write_cited_doc(store: Path) -> None:
     _write_raw(
         store,
         "20260101-other-doc",
-        replaced(ACTIVE_CONTENT, "id: 20260101-widget-cache", "id: 20260101-other-doc"),
+        replaced(RESEARCH_ACTIVE_CONTENT, "id: 20260101-widget-cache", "id: 20260101-other-doc"),
     )
 
 
@@ -396,7 +402,7 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
     """A document's id is its front-matter `id`, else the filename stem — never the filename, so
     a `.md` suffix never resolves and the warning must still name the row."""
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     content = _with_reuse_rows(f'| {cited} | "{quote}" | helped | reuse |')
 
     result, is_error = rpc.call(
@@ -421,7 +427,7 @@ def test_complete_draft_warns_but_still_succeeds_on_a_cited_id_not_in_the_store(
 
 def test_complete_draft_has_no_warning_when_the_citation_verifies(store):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     content = _with_reuse_rows(f"| 20260101-other-doc | {_QUOTE} | helped | reuse |")
 
     result, is_error = rpc.call(
@@ -479,7 +485,7 @@ def _refused(store: Path, content: str) -> str:
 )
 def test_complete_draft_refuses_a_bad_reuse_log_row_and_echoes_it(store, row, expected_rejection):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
 
     text = _refused(store, _with_reuse_rows(row))
 
@@ -488,7 +494,7 @@ def test_complete_draft_refuses_a_bad_reuse_log_row_and_echoes_it(store, row, ex
 
 def test_complete_draft_reports_every_defect_of_every_bad_row(store):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     good = f"| 20260101-other-doc | {_QUOTE} | helped | reuse |"
     unquoted = "| 20260101-other-doc | paraphrased from memory | helped | Reused |"
     misspelt = '| 20260101-other-doc | "CacheWarmer must run before WidgetCache" | hurt | harmfull |'
@@ -504,7 +510,7 @@ def test_complete_draft_reports_every_defect_of_every_bad_row(store):
 
 def _with_reuse_section(body: str) -> str:
     return replaced(
-        ACTIVE_CONTENT,
+        RESEARCH_ACTIVE_CONTENT,
         "## Reuse Log\n\nPrior docs used: none.\n\n## Search Trace",
         f"## Reuse Log\n\n{body}\n\n## Search Trace",
     )
@@ -528,7 +534,7 @@ def test_complete_draft_refuses_a_table_whose_header_moves_the_cells(store, head
     """Cells are read by position, so a table headed otherwise is read wrongly or not at all; the
     refusal names the header to write, and the header line is not echoed as a bad row."""
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     columns = header.count("|") - 1
     body = f"{header}\n|{'---|' * columns}\n| 20260101-other-doc | {_QUOTE} | reuse |"
 
@@ -543,7 +549,7 @@ def test_complete_draft_refuses_a_reuse_log_written_as_a_list(store):
     """A list names the prior document and quotes it, yet the count reads no row from it: the gap
     the contract recorded as known, closed at write time."""
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     body = f"- 20260101-other-doc | reuse | {_QUOTE}"
 
     text = _refused(store, _with_reuse_section(body))
@@ -555,7 +561,7 @@ def test_complete_draft_refuses_a_reuse_log_written_as_a_list(store):
 def test_complete_draft_accepts_a_column_after_classification(store):
     """A fifth column moves no cell the count reads, so it is not refused."""
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     body = (
         "| prior-doc | taken | impact | classification | note |\n|---|---|---|---|---|\n"
         f"| 20260101-other-doc | {_QUOTE} | helped | reuse | kept the warmer |"
@@ -574,7 +580,7 @@ def test_complete_draft_accepts_a_column_after_classification(store):
 def test_complete_draft_accepts_the_header_as_the_spec_words_it(store):
     """The spec names the columns at length; only their order decides what the count reads."""
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     body = (
         "| prior-doc | what was taken (artifact + QUOTE from the doc) | how it influenced the work "
         "| reuse/anti-reuse/harmful |\n|---|---|---|---|\n"
@@ -590,11 +596,11 @@ def test_complete_draft_accepts_the_header_as_the_spec_words_it(store):
     assert not is_error, rpc.text(result)
 
 
-def test_the_reuse_log_shape_is_shown_before_it_can_be_refused(store):
+def test_the_reuse_log_shape_is_shown_before_it_can_be_refused(store, research_mode):
     """The refusal arrives only at complete time; the draft's creation result and both tool
     descriptions name the table, so the shape is known before the document is written."""
     result, is_error = rpc.call(
-        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": DRAFT_CONTENT}
+        store, name=CREATE_TOOL, arguments={"id": "20260101-widget-cache", "content": RESEARCH_DRAFT_CONTENT}
     )
 
     assert not is_error
@@ -609,7 +615,7 @@ def test_the_reuse_log_shape_is_shown_before_it_can_be_refused(store):
 def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypatch):
     """The row check is decidable from the content alone, so it must not depend on a store the
     citation check may not even be able to read."""
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
 
     def _boom(_store):
         raise OSError("sessions/ unreadable")
@@ -633,7 +639,7 @@ def test_complete_draft_refuses_a_bad_row_before_any_store_scan(store, monkeypat
 )
 def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     row = f"| 20260101-other-doc | {quoted} | helped | anti-reuse |"
 
     result, is_error = rpc.call(
@@ -652,7 +658,7 @@ def test_complete_draft_accepts_each_quote_style_the_count_accepts(store, quoted
 
 def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     content = _with_reuse_rows(
         '| 20260101-other-doc | "this exact sentence is not in the cited document" '
         "| helped | reuse |"
@@ -674,7 +680,7 @@ def test_complete_draft_warns_on_a_quote_absent_from_the_cited_document(store):
 
 def test_the_citation_warning_lists_each_problem_and_sends_no_one_to_a_source_checkout(store):
     _write_cited_doc(store)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
     content = _with_reuse_rows(
         '| some-prior-doc.md | "a quote that cannot be checked" | helped | reuse |',
         '| 20260101-other-doc | "this exact sentence is not in the cited document" '
@@ -703,12 +709,12 @@ def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
         '| leaked-sentinel-doc.md | "a quote that cannot be checked" | helped | reuse |'
     ).replace("id: 20260101-widget-cache", "id: 20260101-other-doc")
     _write_raw(store, "20260101-other-doc", other_content)
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
 
     result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": RESEARCH_ACTIVE_CONTENT}),
     )
 
     assert not is_error
@@ -720,7 +726,7 @@ def test_complete_draft_only_reports_its_own_documents_citation_problems(store):
 def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises(
     store, monkeypatch
 ):
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
 
     def _boom(_store):
         raise OSError("disk gremlin")
@@ -730,7 +736,7 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
     result, is_error = rpc.call(
         store,
         name=COMPLETE_TOOL,
-        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": ACTIVE_CONTENT}),
+        arguments=rpc.versioned(store, {"id": "20260101-widget-cache", "content": RESEARCH_ACTIVE_CONTENT}),
     )
 
     assert not is_error
@@ -738,7 +744,7 @@ def test_complete_draft_degrades_to_a_note_when_the_citation_check_itself_raises
     assert "draft" in text and "active" in text
     assert "note: citation check did not run" in text
     written = (store / "sessions" / "20260101-widget-cache.md").read_text(encoding="utf-8")
-    assert written == ACTIVE_CONTENT
+    assert written == RESEARCH_ACTIVE_CONTENT
 
 
 def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_check(
@@ -746,13 +752,13 @@ def test_complete_draft_warns_about_a_missing_reuse_log_and_skips_the_citation_c
 ):
     """Nothing to check means nothing to scan the store for, so the warning stands alone — the
     patched `evaluate` would report itself if it ran."""
-    _write_raw(store, "20260101-widget-cache", DRAFT_CONTENT)
+    _write_raw(store, "20260101-widget-cache", RESEARCH_DRAFT_CONTENT)
 
     def _boom(_store):
         raise OSError("sessions/ unreadable")
 
     monkeypatch.setattr(drafts.gate1, "evaluate", _boom)
-    content = replaced(ACTIVE_CONTENT, "## Reuse Log\n\nPrior docs used: none.\n\n", "")
+    content = replaced(RESEARCH_ACTIVE_CONTENT, "## Reuse Log\n\nPrior docs used: none.\n\n", "")
 
     result, is_error = rpc.call(
         store,

@@ -22,6 +22,13 @@ ROLE_WORDS = {
     "tested": "testing",
     "rollback": "production",
 }
+OUT_OF_SCOPE_CLASS = 9
+OUT_OF_SCOPE_WORDS = frozenset(
+    """
+    interview practise practice study homework essay blog newsletter marketing holiday vacation
+    recipe birthday
+    """.split()
+)
 MAX_DOCS_LOADED = 5
 READ_ROLES = ("primer", "decisions")
 GREP_TOP_LINES = 20
@@ -46,6 +53,11 @@ def key_terms(description: str) -> list[str]:
         if word.lower() not in (s.lower() for s in seen):
             seen.append(word)
     return seen[:MAX_KEY_TERMS]
+
+
+def engineering_task(description: str) -> bool:
+    """False when the description names study, writing, marketing or a personal errand."""
+    return not any(word.lower() in OUT_OF_SCOPE_WORDS for word in _WORD.findall(description))
 
 
 def component_terms(files: tuple[str, ...]) -> list[str]:

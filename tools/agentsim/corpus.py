@@ -640,6 +640,18 @@ def _base_tasks() -> list[Task]:
                 ),
             },
         ),
+        Task(
+            id="off-topic",
+            scenario_class=9,
+            class_name="non-engineering task (scope gate)",
+            description="Explain how a binary heap works so I can practise for a coding interview",
+            repo="report-hub",
+            files=(),
+            expected_winner="engmem skips at its scope gate: no draft, no search row, no store write",
+            without_history="answers from general knowledge; nothing is lost",
+            decision_found="Explain the heap from general knowledge.",
+            decision_naive="Explain the heap from general knowledge.",
+        ),
     ]
 
 
