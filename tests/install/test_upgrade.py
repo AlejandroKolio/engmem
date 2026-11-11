@@ -188,9 +188,11 @@ def test_reinstalling_over_a_released_skill_restores_a_daily_managed_workflow(
     text = skill.read_text(encoding="utf-8")
     stamp, body = read_stamp(text)
     assert (stamp.version, stamp.workflow) == (__version__, WORKFLOW)
-    assert "mode: daily" in text or "mode: <" in text, "the draft records its mode"
-    assert "engmem draft create" in text, "the draft goes through engmem's writer"
-    assert "baseline_unavailable" in text, "a daily draft no longer has to carry a baseline"
+    assert stamp.mode == "daily", "a home copy is rendered for the saved mode"
+    assert "no draft, no Pre-reg" in text, "a daily start writes nothing"
+    save = (skill.parent.parent / "engmem-save-quick" / "SKILL.md").read_text(encoding="utf-8")
+    assert "mode: daily" in save, "the save records the mode"
+    assert "engmem draft create" in save, "the draft goes through engmem's writer"
 
     # the workflow it now describes works against this runtime: a daily draft is created
     draft = (

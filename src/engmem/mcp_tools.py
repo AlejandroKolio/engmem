@@ -26,7 +26,8 @@ ROLE_TOOL_DESCRIPTION = (
 
 CREATE_DRAFT_TOOL_NAME = "engmem_create_draft"
 CREATE_DRAFT_TOOL_DESCRIPTION = (
-    "Create a session document as a draft: the first step of `/engmem` without a shell. Only "
+    "Create a session document as a draft without a shell: the first write of a research "
+    "`/engmem`, or of a daily save. Only "
     "for engineering work on a codebase or system. Writes `content` as `sessions/<id>.md`. The "
     "front matter needs `status: draft`, `id` equal to the "
     "`id` argument, and `mode` equal to the configured mode (`daily` or `research`); the "

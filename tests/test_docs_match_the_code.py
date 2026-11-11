@@ -20,6 +20,8 @@ from engmem.install import (
     TEMPLATE_INSTALL_MAP,
 )
 from engmem.mcp_server import PROMPT_TEMPLATES
+from engmem.settings import Mode
+from engmem.template_render import render
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "src" / "engmem"
@@ -469,11 +471,13 @@ _UNSHIPPED_REFERENCES = {
 }
 
 
-@pytest.fixture
-def installed_copies(env, tmp_path) -> dict[str, str]:
-    """Every installed copy of every template, keyed `<agent>/<source>` or `mcp/<prompt>`."""
+@pytest.fixture(params=["daily", "research"])
+def installed_copies(env, tmp_path, request) -> dict[str, str]:
+    """Every installed copy of every template in each saved mode, keyed `<agent>/<source>` or
+    `mcp/<prompt>`."""
     home, project = env
     (project / ".git").mkdir()
+    assert main(["mode", "set", request.param]) == 0
     store = tmp_path / "store"
     (store / "sessions").mkdir(parents=True)
     for agent in ("claude", "copilot-ide", "copilot-cli", "codex"):
@@ -531,7 +535,7 @@ def test_no_template_or_installed_copy_carries_the_owners_register(installed_cop
 
 _SAVE_TEMPLATES = {
     "engmem.save.md": ("## 1. Front-matter draft", "## 4. Close out", None),
-    "engmem.save.quick.md": ("1. From the", None, "**The preview.**"),
+    "engmem.save.quick.md": ("1. From the", None, "7. **The preview.**"),
 }
 _CLOCK_READINGS = ("`date -u +%Y-%m-%dT%H:%M:%SZ`", "`(Get-Date).ToUniversalTime().ToString('o')`")
 _SECOND_READING = "read the UTC time again with the same command"
@@ -564,14 +568,25 @@ def test_a_save_template_measures_capture_minutes_with_the_shell_clock(template)
     _assert_the_save_reads_the_clock(template, text, template)
 
 
-def test_every_installed_save_copy_measures_capture_minutes(installed_copies):
+def _holds_the_research_steps(name: str, copies: dict[str, str]) -> bool:
+    """A project copy keeps both modes; every other copy holds the saved mode's steps only."""
+    return name.startswith("copilot-ide/") or "\n## 1. Pre-reg" in copies["claude/engmem.start.md"]
+
+
+def test_every_installed_save_copy_with_the_research_steps_measures_capture_minutes(
+    installed_copies,
+):
     prompts = {f"mcp/{name}": source for name, source in PROMPT_TEMPLATES.items()}
     sources = {name: prompts.get(name, name.split("/", 1)[1]) for name in installed_copies}
     saves = [name for name, source in sources.items() if source in _SAVE_TEMPLATES]
 
     assert len(saves) == 10
     for name in saves:
-        _assert_the_save_reads_the_clock(name, installed_copies[name], sources[name])
+        if _holds_the_research_steps(name, installed_copies):
+            _assert_the_save_reads_the_clock(name, installed_copies[name], sources[name])
+        else:
+            text = _flat(installed_copies[name])
+            assert [c for c in _CLOCK_READINGS if c in text] == [], f"{name}: daily reads no clock"
 
 
 def test_the_spec_does_not_claim_the_templates_cite_its_section_list():
@@ -636,9 +651,23 @@ def test_the_full_save_says_a_supersede_refusal_carries_the_current_version():
     assert "the refusal carries its current text and version" in step
 
 
-def test_the_full_save_template_stays_at_least_thirty_percent_below_its_old_size():
-    """The template is loaded on every `/engmem.save`; its rationale lives in the contracts."""
-    size = len((TEMPLATES / "engmem.save.md").read_text(encoding="utf-8").encode("utf-8"))
+_MODE_BLIND_FULL_SAVE_MAX_BYTES = 21644
+
+
+def test_the_mode_blind_full_save_does_not_grow_past_its_size_at_the_daily_split():
+    """An interim ceiling for project copies until the owner sets one (contracts/prompt-templates.md)."""
+    source = (TEMPLATES / "engmem.save.md").read_text(encoding="utf-8")
+    size = len(render(source, mcp=False).replace("\r\n", "\n").encode("utf-8"))
+
+    assert size <= _MODE_BLIND_FULL_SAVE_MAX_BYTES, f"{size} bytes, limit {_MODE_BLIND_FULL_SAVE_MAX_BYTES}"
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+@pytest.mark.parametrize("mcp", [False, True], ids=["files", "mcp"])
+def test_the_full_save_template_stays_at_least_thirty_percent_below_its_old_size(mode, mcp):
+    """The copy for one mode is loaded on every `/engmem.save`; its rationale lives in the contracts."""
+    source = (TEMPLATES / "engmem.save.md").read_text(encoding="utf-8")
+    size = len(render(source, mcp=mcp, mode=mode).replace("\r\n", "\n").encode("utf-8"))
 
     assert size <= _FULL_SAVE_MAX_BYTES, f"{size} bytes, limit {_FULL_SAVE_MAX_BYTES}"
 
@@ -1080,7 +1109,7 @@ def test_the_start_template_records_the_baseline_one_way():
 
 def test_the_self_written_baseline_says_what_was_already_in_context():
     """S8: instruction files, memory and the conversation can already be in context."""
-    step1 = _flat(_start_step("## 1. Pre-reg", "## 2."))
+    step1 = _flat(_start_step("\n## 1. Pre-reg", "## 2."))
 
     assert "Write them from the task description only" in step1
     assert "whether project instructions or memory files were already in your context" in step1
@@ -1092,7 +1121,7 @@ def test_the_audit_counts_a_self_baseline_that_names_its_context(tmp_path):
     """S8: the source line keeps its prefix, so the Pre-reg still counts as one."""
     from engmem import gate1, gate1_audit
 
-    step1 = _flat(_start_step("## 1. Pre-reg", "## 2."))
+    step1 = _flat(_start_step("\n## 1. Pre-reg", "## 2."))
     example = re.search(r"`(pre-reg source: self \(no sub-agent available\)[^`]+)`", step1).group(1)
     plain = ACTIVE_CONTENT.replace("mode: daily", "mode: research")
     named = plain.replace(_SESSION, "20260102-widget-cache").replace(

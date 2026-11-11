@@ -18,8 +18,10 @@ from engmem import gate1, gate1_audit, mcp_tools
 from engmem.cli import main
 from engmem.install import CODEX_COMMAND_REFERENCE
 from engmem.output import PRIMER_MAX_CHARS
+from engmem.settings import Mode
 from engmem.sections import split_sections
 from engmem.spine import load_store, split_front_matter
+from engmem.template_render import render
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "src" / "engmem" / "templates" / "engmem.save.quick.md"
@@ -28,6 +30,7 @@ TRANSCRIPT = ROOT / "docs" / "design" / "acceptance" / "us-07-short-capture.md"
 LABELS = ("Decision", "Reason", "Rejected alternative", "Source")
 ABSENT = "not stated in the available material."
 SHORT_RECORD_ROLES = {"decisions", "primer", "reuse", "trace"}
+DAILY_RECORD_ROLES = {"decisions", "primer"}
 EXAMPLE_ID = "20260101-export-retry"
 
 UNRELATED = (
@@ -39,14 +42,24 @@ UNRELATED = (
 )
 
 
+def _examples(text: str) -> list[str]:
+    """Every four-backtick `markdown` block: the records the template prescribes."""
+    return re.findall(r"^````markdown\n(.*?)^````$", text, re.MULTILINE | re.DOTALL)
+
+
 def _example(text: str) -> str:
-    """The one four-backtick `markdown` block: the record the template prescribes."""
-    match = re.search(r"^````markdown\n(.*?)^````$", text, re.MULTILINE | re.DOTALL)
-    assert match, "the template no longer shows an example short record"
-    return match.group(1)
+    """The one example a copy for a single mode shows."""
+    examples = _examples(text)
+    assert len(examples) == 1, "a copy for one mode shows one example short record"
+    return examples[0]
 
 
-EXAMPLE = _example(TEMPLATE.read_text(encoding="utf-8"))
+def _rendered(mode: Mode) -> str:
+    return render(TEMPLATE.read_text(encoding="utf-8"), mcp=False, mode=mode)
+
+
+EXAMPLE = _example(_rendered(Mode.RESEARCH))
+DAILY_EXAMPLE = _example(_rendered(Mode.DAILY))
 
 OTHER_ID = "20260102-ledger-batch"
 OTHER_RECORD = (
@@ -93,11 +106,11 @@ def _components(record: str) -> list[dict[str, str]]:
     return blocks
 
 
-def _assert_is_a_short_record(record: str) -> None:
+def _assert_is_a_short_record(record: str, required: set[str] = SHORT_RECORD_ROLES) -> None:
     _, body = split_front_matter(record)
     roles = {s.canonical for s in split_sections(body)}
-    assert SHORT_RECORD_ROLES <= roles, f"missing sections: {SHORT_RECORD_ROLES - roles}"
-    assert roles <= SHORT_RECORD_ROLES | {"lessons", "prereg"}, (
+    assert required <= roles, f"missing sections: {required - roles}"
+    assert roles <= required | {"lessons", "prereg"}, (
         f"sections beyond the short record: {roles}"
     )
     blocks = _components(record)
@@ -203,12 +216,15 @@ def _installed_texts(agent: str, home: Path, project: Path, store: Path) -> str:
     return paths[agent].read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("mode", list(Mode))
 @pytest.mark.parametrize("agent", ["claude", "copilot-ide", "copilot-cli", "codex", "mcp"])
-def test_every_agent_receives_the_short_capture_as_written(agent, env, tmp_path):
-    """The install rewrites command names; none of them may reach the record or its rules."""
+def test_every_agent_receives_the_short_capture_as_written(agent, mode, env, tmp_path):
+    """The install rewrites command names; none of them may reach the record or its rules. A
+    project copy keeps both modes' examples; every other copy shows its mode's."""
     home, project = env
     (project / ".git").mkdir()
     store = tmp_path / "store"
+    assert main(["mode", "set", mode]) == 0
     if agent == "mcp":
         (store / "sessions").mkdir(parents=True)
         _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem-save-quick"))
@@ -216,10 +232,51 @@ def test_every_agent_receives_the_short_capture_as_written(agent, env, tmp_path)
     else:
         text = _installed_texts(agent, home, project, store)
 
-    assert _example(text) == EXAMPLE
+    expected = {Mode.DAILY: [DAILY_EXAMPLE], Mode.RESEARCH: [EXAMPLE]}[mode]
+    if agent == "copilot-ide":
+        expected = [EXAMPLE, DAILY_EXAMPLE]
+    assert _examples(text) == expected
     assert f"- Source: {ABSENT}" in text
     assert "publish nothing" in text
-    assert not CODEX_COMMAND_REFERENCE.search(_example(text))
+    assert not [e for e in _examples(text) if CODEX_COMMAND_REFERENCE.search(e)]
+
+
+def test_the_daily_example_is_the_research_one_without_what_only_the_experiment_reads():
+    """Owner's permission (phase 2): a daily record writes no Reuse Log, Search Trace or
+    `capture_minutes`; everything else of the example stays as it was."""
+    dropped = (
+        EXAMPLE.replace("capture_minutes:\n", "")
+        .replace("\n## Reuse Log\n\nPrior docs used: none.\n", "")
+        .replace("\n## Search Trace\n\nshell\n", "")
+    )
+
+    assert DAILY_EXAMPLE == dropped
+    _assert_is_a_short_record(DAILY_EXAMPLE, DAILY_RECORD_ROLES)
+
+
+def test_the_daily_example_completes_through_create_and_complete_and_stays_outside_the_audit(
+    tmp_path,
+):
+    store = _store(tmp_path)
+    version = _create(store, DAILY_EXAMPLE)
+
+    message = _complete(store, DAILY_EXAMPLE, version)
+
+    assert message == f"completed sessions/{EXAMPLE_ID}.md (status: draft -> active)"
+    loaded = load_store(store / "sessions")
+    assert not loaded.errors and not [w for w in loaded.warnings if EXAMPLE_ID in w.message]
+    verdicts = gate1.evaluate(store)
+    audit = gate1_audit.evaluate(store, verdicts)
+    assert audit.daily_docs == [EXAMPLE_ID] and not verdicts.conflicts
+    assert EXAMPLE_ID not in audit.active_missing_reuse + audit.active_missing_trace
+
+
+@pytest.mark.parametrize("run", CHANNELS)
+def test_the_daily_example_is_found_on_its_decision(tmp_path, run, capsys):
+    store = _store(tmp_path)
+    _complete(store, DAILY_EXAMPLE, _create(store, DAILY_EXAMPLE))
+
+    assert run(store, "fixed backoff", capsys).splitlines()[0].startswith(f"### {EXAMPLE_ID} ")
 
 
 # --- AC-07.3: the record is valid to every validator and found on its decision ---------
@@ -432,7 +489,7 @@ def _fresh_store(tmp_path: Path) -> Path:
     return store
 
 
-def test_the_acceptance_transcript_replays_against_a_fresh_store(tmp_path):
+def test_the_acceptance_transcript_replays_against_a_fresh_store(tmp_path, research_mode):
     store = _fresh_store(tmp_path)
 
     published = _replay(_transcript_blocks(), store)
@@ -449,7 +506,7 @@ def test_the_acceptance_transcript_replays_against_a_fresh_store(tmp_path):
     assert {row.get("session_id") for row in rpc.telemetry_lines(store)} >= set(statuses)
 
 
-def test_a_source_only_the_agent_has_said_is_an_invention(tmp_path):
+def test_a_source_only_the_agent_has_said_is_an_invention(tmp_path, research_mode):
     """The agent's own earlier turn is not evidence: the Source must come from the user or a
     tool."""
     blocks = _transcript_blocks()

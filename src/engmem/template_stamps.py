@@ -24,8 +24,8 @@ RELEASED_DIGESTS = frozenset({
 })
 
 _STAMP_LINE = re.compile(
-    r"^<!-- engmem-template: (\S+) v(\S+?)(?: workflow (\d+))?(?: sha256:([0-9a-f]{16}))? -->"
-    r"(?:\r\n|\n|$)",
+    r"^<!-- engmem-template: (\S+) v(\S+?)(?: workflow (\d+))?(?: mode (\S+))?"
+    r"(?: sha256:([0-9a-f]{16}))? -->(?:\r\n|\n|$)",
     re.MULTILINE,
 )
 
@@ -37,6 +37,7 @@ class Stamp:
     # 0 for a stamp written before the field existed
     workflow: int
     digest: str | None
+    mode: str | None = None
 
 
 def digest(body: str) -> str:
@@ -44,10 +45,11 @@ def digest(body: str) -> str:
     return hashlib.sha256(body.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:16]
 
 
-def stamp_line(source_name: str, version: str, body: str) -> str:
+def stamp_line(source_name: str, version: str, body: str, mode: str | None = None) -> str:
+    mode_token = "" if mode is None else f" mode {mode}"
     return (
         f"<!-- engmem-template: {source_name.removesuffix('.md')} v{version} "
-        f"workflow {WORKFLOW} sha256:{digest(body)} -->"
+        f"workflow {WORKFLOW}{mode_token} sha256:{digest(body)} -->"
     )
 
 
@@ -60,7 +62,8 @@ def read_stamp(text: str) -> tuple[Stamp | None, str]:
         name=match.group(1),
         version=match.group(2),
         workflow=int(match.group(3) or 0),
-        digest=match.group(4),
+        digest=match.group(5),
+        mode=match.group(4),
     )
     return stamp, text[: match.start()] + text[match.end():]
 

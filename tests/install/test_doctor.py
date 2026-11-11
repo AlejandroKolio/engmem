@@ -17,7 +17,12 @@ import pytest
 
 from support import fs
 from support.docs import FIXTURES
-from support.home import LEGACY_TRIGGER_RULE, SESSION_TRIGGER_RULE, claude_desktop_config_path
+from support.home import (
+    ENGINEERING_TRIGGER_RULE,
+    LEGACY_TRIGGER_RULE,
+    SESSION_TRIGGER_RULE,
+    claude_desktop_config_path,
+)
 from support.platform import (
     requires_permission_enforcement,
     requires_posix_modes,
@@ -496,6 +501,7 @@ def test_a_missing_or_unreadable_mcp_entry_is_an_error(home, tmp_path, capsys, c
     [
         pytest.param(LEGACY_TRIGGER_RULE, "warning", id="earlier-wording"),
         pytest.param(SESSION_TRIGGER_RULE, "warning", id="any-task-wording"),
+        pytest.param(ENGINEERING_TRIGGER_RULE, "warning", id="draft-in-every-mode-wording"),
         pytest.param("Always run `engmem search` first.", "ok", id="own-wording"),
     ],
 )

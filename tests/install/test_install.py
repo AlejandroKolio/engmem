@@ -6,6 +6,7 @@ from support.home import (
     INSTALLED_NAMES,
     INSTALLED_NAMES_COPILOT_IDE,
     INSTRUCTIONS_BYTE_CASES,
+    ENGINEERING_TRIGGER_RULE,
     LEGACY_TRIGGER_RULE,
     SESSION_TRIGGER_RULE,
     TRIGGER_RULE,
@@ -23,9 +24,10 @@ from engmem.install import TRIGGER_SENTINEL
 from engmem.template_stamps import WORKFLOW, read_stamp, written_by_engmem
 
 SOURCE_TEMPLATE_NAMES = ("engmem.start.md", "engmem.save.md", "engmem.save.quick.md")
-def _stamp(template: str) -> str:
+def _stamp(template: str, mode: str | None = None) -> str:
     """The stamp's fixed part; the digest after it is checked against the body."""
-    return f"<!-- engmem-template: {template} v{__version__} workflow {WORKFLOW} sha256:"
+    mode_token = "" if mode is None else f"mode {mode} "
+    return f"<!-- engmem-template: {template} v{__version__} workflow {WORKFLOW} {mode_token}sha256:"
 
 
 def _assert_stamped(path: Path, line: str, expected: str) -> None:
@@ -37,17 +39,17 @@ def _assert_stamped(path: Path, line: str, expected: str) -> None:
 
 
 COPILOT_CLI_SKILLS = {
-    "engmem": _stamp("engmem.start"),
-    "engmem-save": _stamp("engmem.save"),
-    "engmem-save-quick": _stamp("engmem.save.quick"),
+    "engmem": _stamp("engmem.start", "daily"),
+    "engmem-save": _stamp("engmem.save", "daily"),
+    "engmem-save-quick": _stamp("engmem.save.quick", "daily"),
 }
-STAMPS = {
-    "engmem.md": _stamp("engmem.start"),
-    "engmem.save.md": _stamp("engmem.save"),
-    "engmem.save.quick.md": _stamp("engmem.save.quick"),
-    "engmem.prompt.md": _stamp("engmem.start"),
-    "engmem.save.prompt.md": _stamp("engmem.save"),
-    "engmem.save.quick.prompt.md": _stamp("engmem.save.quick"),
+STAMPED_NAMES = {
+    "engmem.md": "engmem.start",
+    "engmem.save.md": "engmem.save",
+    "engmem.save.quick.md": "engmem.save.quick",
+    "engmem.prompt.md": "engmem.start",
+    "engmem.save.prompt.md": "engmem.save",
+    "engmem.save.quick.prompt.md": "engmem.save.quick",
 }
 
 
@@ -63,7 +65,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
-def _assert_installed_template(path: Path, installed_name: str) -> None:
+def _assert_installed_template(path: Path, installed_name: str, mode: str | None) -> None:
     assert path.is_file(), f"{installed_name} not installed"
     lines = path.read_text(encoding="utf-8").splitlines()
     assert lines[0] == "---", (
@@ -71,7 +73,7 @@ def _assert_installed_template(path: Path, installed_name: str) -> None:
         f"(Claude Code ignores it otherwise); got {lines[0]!r}"
     )
     closing = lines.index("---", 1)
-    _assert_stamped(path, lines[closing + 1], STAMPS[installed_name])
+    _assert_stamped(path, lines[closing + 1], _stamp(STAMPED_NAMES[installed_name], mode))
 
 
 def _assert_installed_skill(skills_root: Path, skill_name: str) -> None:
@@ -111,6 +113,7 @@ FRONT_END_INSTALL_CASES = [
         "engmem.start.md",
         _SOURCE_FILENAME_REASON,
         None,
+        "daily",
         id="claude-global",
     ),
     pytest.param(
@@ -122,6 +125,7 @@ FRONT_END_INSTALL_CASES = [
         "engmem.start.md",
         _SOURCE_FILENAME_REASON,
         lambda home, project: home / ".claude" / "commands",
+        None,
         id="claude-local",
     ),
     pytest.param(
@@ -132,6 +136,7 @@ FRONT_END_INSTALL_CASES = [
         INSTALLED_NAMES_COPILOT_IDE,
         "engmem.md",
         _COPILOT_IDE_DOUBLE_EXTENSION_REASON,
+        None,
         None,
         id="copilot-ide",
     ),
@@ -148,6 +153,7 @@ FRONT_END_INSTALL_CASES = [
         "unwanted_old_name",
         "unwanted_old_name_reason",
         "unwanted_commands_dir_fn",
+        "copy_mode",
     ),
     FRONT_END_INSTALL_CASES,
 )
@@ -162,6 +168,7 @@ def test_fresh_install_creates_templates_stamp_and_trigger(
     unwanted_old_name,
     unwanted_old_name_reason,
     unwanted_commands_dir_fn,
+    copy_mode,
 ):
     home, project = env
     if needs_git_repo:
@@ -176,7 +183,7 @@ def test_fresh_install_creates_templates_stamp_and_trigger(
 
     commands_dir = commands_dir_fn(home, project)
     for name in installed_names:
-        _assert_installed_template(commands_dir / name, name)
+        _assert_installed_template(commands_dir / name, name, copy_mode)
 
     assert not (commands_dir / unwanted_old_name).exists(), unwanted_old_name_reason
 
@@ -245,7 +252,9 @@ def test_reworded_trigger_rule_is_not_duplicated(env, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "legacy", [LEGACY_TRIGGER_RULE, SESSION_TRIGGER_RULE], ids=["no-session", "any-task"]
+    "legacy",
+    [LEGACY_TRIGGER_RULE, SESSION_TRIGGER_RULE, ENGINEERING_TRIGGER_RULE],
+    ids=["no-session", "any-task", "draft-in-every-mode"],
 )
 def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys, legacy):
     """Re-running install used to skip on the marker the old rule contains, so the new wording
@@ -268,6 +277,7 @@ def test_install_updates_a_legacy_trigger_rule_in_place(env, tmp_path, capsys, l
         before + TRIGGER_SENTINEL + "\n" + TRIGGER_RULE + "\n" + after
     )
     assert "updated" in out.lower()
+    assert claude_md.read_text(encoding="utf-8").count("`engmem search") == 1
 
     snapshot = _snapshot(home)
     assert _run_install("--agent", "claude", "--store", str(store)) == 0

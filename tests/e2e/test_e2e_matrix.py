@@ -73,7 +73,7 @@ def test_every_saving_profile_publishes_with_a_valid_citation(results):
         assert run["outcome"]["saved"], (run["task"], run["profile"])
         assert run["outcome"]["save_refusals"] == 0
         if run["outcome"]["quoted"]:
-            assert run["outcome"]["citation_valid"] and run["outcome"]["reuse_row_correct"]
+            assert run["outcome"]["related_names_answer"], (run["task"], run["profile"])
 
 
 def test_the_stale_trap_is_avoided_through_the_successor(results):
@@ -92,7 +92,7 @@ def test_a_saved_decision_is_found_and_cited_by_another_agent_kind(results):
     for name in ("shell-claude", "mcp-only"):
         run = _one(results, 8, name)
         assert run["saver"]["saved"] and run["saver"]["profile"] != name
-        assert run["outcome"]["citation_valid"] and run["outcome"]["reuse_row_correct"]
+        assert run["outcome"]["related_names_answer"]
     assert not _one(results, 8, "grep")["outcome"]["correct"]
 
 
@@ -144,7 +144,19 @@ def test_the_second_search_variant_runs_both_searches_for_engmem_and_grep(result
 def test_shell_profiles_read_the_mode_before_anything_else_as_step_0_says(results):
     run = _one(results, 1, "shell-claude")
     calls = [s["action"] for s in run["steps"] if s["kind"] != "template"]
-    assert calls[:3] == ["engmem mode show", "engmem store show", "engmem draft create"]
+    assert calls[:2] == ["engmem mode show", "engmem search"]
+
+
+def test_a_daily_start_writes_nothing_and_its_save_takes_three_calls(results):
+    """The daily contract: no draft before the save; one git call, create and complete."""
+    for run in _runs(results, condition="engmem"):
+        if run["outcome"]["skipped"]:
+            continue
+        before_save = [s["action"] for s in run["steps"] if s["phase"] != "save"]
+        assert not [a for a in before_save if "draft" in a or a == "engmem store show"], run["profile"]
+        assert run["drafts_left"] == 0, (run["task"], run["profile"])
+        if BY_NAME[run["profile"]].saves:
+            assert run["cost"]["save_calls"] <= 3, (run["task"], run["profile"])
 
 
 def test_a_non_engineering_task_leaves_no_draft_no_search_row_and_no_store_write(results):

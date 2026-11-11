@@ -16,12 +16,20 @@ published document. Ask the user nothing else.
 4. **Source** — where the decision can be checked: a PR, commit, ticket, file path or link.
 5. **Context for the next task** — 2–4 lines a cold-starting agent can act on.
 
+<!-- engmem-branch: research -->
 The first four go in `## Decision Log`, one labelled line each. The fifth is
 `## Future LLM Context (cold-start primer)`: `engmem search` shows its first two lines as the
 result preview, cut at about 240 characters, so make those two lines short and able to stand
 alone. Besides Reuse Log and Search Trace (steps 3–4), which every save carries, and the draft's
 Pre-reg (step 5) when it has one, no other section needs filling.
 
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+In daily mode the first four go in `## Decision Log`, one labelled line each, and the fifth is
+`## Future LLM Context (cold-start primer)`; no other section is needed, but Lessons Learned
+for a pitfall hit.
+
+<!-- engmem-branch: end -->
 ## Rules
 
 - **Never invent.** Take every component from what this session can see: the conversation,
@@ -36,21 +44,36 @@ Pre-reg (step 5) when it has one, no other section needs filling.
   - Rejected alternative: not stated in the available material.
   ```
 
+<!-- engmem-branch: research -->
 - **No decision, no short record.** If the session reached no decision, say so, save
   nothing, and leave the draft as it is.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+- **No decision, no short record.** In daily mode, say so and save nothing.
+<!-- engmem-branch: end -->
 - **One confirmation, no questions.** No field-by-field prompting, no YAML review round, no
   supersede question.
+<!-- engmem-branch: research -->
 - The record may be less *complete*, never less *valid*: it must parse cleanly, with valid
   YAML front matter and every required field present.
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 - **What it skips:** the supersede question and a Reuse Log review with the user. Use
   `/engmem.save` when either matters.
+<!-- engmem-branch: end -->
 
 ## Steps
 
+<!-- engmem-branch: daily -->
+Daily mode reads no clock.
+
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 **Read the clock first.** With a shell, read the current UTC time before anything else:
 `date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
 in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `capture_minutes` blank.
 
+<!-- engmem-branch: end -->
 1. From the conversation and the diff, take the decision and its reason. If more than one
    decision is worth keeping, repeat the four lines for each, at most three. Write them in
    `## Decision Log`:
@@ -76,6 +99,37 @@ in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `cap
    is always filled.
 2. Write `## Future LLM Context (cold-start primer)`: 2–4 lines. The first two are the
    search preview: short, about 240 characters together, and readable on their own.
+<!-- engmem-branch: daily -->
+3. *Daily mode only (research: the next step 3).* Generate the front matter:
+   the example's fields, `status: active`, `mode: daily`, `id` as `<YYYYMMDD>-<slug>`
+   (lowercase letters, digits, hyphens), `date` and `task_date` today. With a shell, run
+   `git rev-parse --show-toplevel HEAD --abbrev-ref HEAD; git config user.name` once: the
+   checkout's directory name is `repos`, the sha `verified_at` (`{platform-core: <sha>}`), the
+   branch `branch` (blank for `HEAD`), the name `author`; without a shell they stay blank, never
+   guessed. `covers_files` as `git ls-files` prints them. Name the decision in `title` and the
+   classes, services or components it is about in `entities`: search weighs both above the
+   body. `related` lists the ids (before `@`) of prior documents this work used. Headings carry
+   no numbers.
+4. **The preview.** Show the finished document in one message and ask one thing: save it?
+   Confirmed: publish it as shown. Edits: apply them and publish without showing it again.
+   Declined, or a reply you cannot read as either: publish nothing.
+5. **Publish** in two calls, never by writing `sessions/<id>.md` yourself. First the front
+   matter alone with `status: draft`: `engmem_create_draft` with `id` and it as `content`
+   (preferred), or pipe it to `engmem draft create <id>`. Then the whole document:
+   `engmem_complete_draft` with `id`, `content` and the version create named as
+   `expected_version`, or pipe it to `engmem draft complete <id> --expected-version <version>`.
+   Pipe with a quoted delimiter, so nothing is expanded or run: `<<'EOF'` … `EOF` in a POSIX
+   shell; in PowerShell, first `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, then
+   `@'` … `'@ |` the command. A taken id needs another id. If a fix to a refusal changes the
+   document, show it again and publish only after a new confirmation. If complete fails after
+   create, the draft `<id>` stays; `engmem draft complete <id> --expected-version <version>`
+   (MCP: `engmem_complete_draft`) finishes it later. If you can do neither, or a call fails for a
+   reason no change fixes, publish nothing, say why and keep the document in your reply. Write
+   the file by hand only if the user asks, in the store `engmem store show` names, saying it
+   bypassed engmem's checks. The daily save ends here.
+
+<!-- engmem-branch: end -->
+<!-- engmem-branch: research -->
 3. Write `## Reuse Log` from what this session found: with a shell, run
    `engmem feedback summary --session <id>` first; through MCP only, the `cite as` lines you
    kept are the list. Write it as exactly `Prior docs used: none.` unless prior docs obviously
@@ -147,7 +201,9 @@ in PowerShell. Keep the value for `capture_minutes`. Without a shell, leave `cap
    `sessions/<id>.md` in the store `engmem store show` names (without a shell, the order
    `/engmem.save` gives), and tell them it was saved outside engmem's checks.
 
+<!-- engmem-branch: end -->
 ## Example
+<!-- engmem-branch: research -->
 
 The shape, not content to copy. This record, from a daily session, had a rejected alternative
 and no source:
@@ -194,3 +250,42 @@ Prior docs used: none.
 
 shell
 ````
+<!-- engmem-branch: end -->
+<!-- engmem-branch: daily -->
+
+The daily shape, not content to copy: a rejected alternative and no source.
+
+````markdown
+---
+id: 20260101-export-retry
+title: Export job retries with a fixed backoff
+date: 2026-01-01
+task_date: 2026-01-01
+status: active
+superseded_by:
+backfilled: false
+tags: [export]
+entities: [ExportJob, RetryPolicy]
+related: []
+covers_files: [src/export/ExportJob.java]
+verified_at:
+author:
+repos: [platform-core]
+branch:
+pr:
+mode: daily
+---
+
+## Decision Log
+
+- Decision: ExportJob retries a failed batch three times with a fixed 30-second backoff.
+- Reason: the downstream store rejects bursts, and exponential backoff overran the nightly window.
+- Rejected alternative: exponential backoff, because its last retry landed after the window closed.
+- Source: not stated in the available material.
+
+## Future LLM Context (cold-start primer)
+
+ExportJob retries a failed batch three times, 30 seconds apart, because the store rejects bursts.
+Change the retry count only together with the nightly window it has to fit.
+````
+<!-- engmem-branch: end -->

@@ -52,7 +52,7 @@ def test_no_history_is_correct_only_when_there_is_nothing_to_know():
 
 
 def test_a_citation_problem_in_the_completion_makes_the_citation_invalid():
-    state = RunState(task=STALE, today="2026-01-01", saved=True)
+    state = RunState(task=STALE, today="2026-01-01", saved=True, mode="research")
     state.reuse_row = f'| {STALE.answer_docs[0]}@0123456789abcdef | x: "{STALE.quote}" | y | reuse |'
     context = _transcript(f"{STALE.answer_docs[0]}\n{STALE.quote}")
     state.save_text = "completed sessions/x.md"
@@ -63,17 +63,35 @@ def test_a_citation_problem_in_the_completion_makes_the_citation_invalid():
 
 
 def test_a_refused_row_is_kept_and_scores_an_invalid_citation():
-    state = RunState(task=STALE, today="2026-01-01", saved=True, save_text="completed", row_refused=True)
+    state = RunState(
+        task=STALE, today="2026-01-01", saved=True, save_text="completed", row_refused=True,
+        mode="research",
+    )
     state.reuse_row = f'| {STALE.answer_docs[0]}@0123456789abcdef | x: "{STALE.quote}" | y | reuse |'
     outcome = metrics.outcome(STALE, BY_NAME["shell-claude"], _transcript(STALE.quote), state)
     assert outcome.citation_valid is False and outcome.reuse_row_correct
 
 
 def test_a_row_citing_the_stale_document_is_not_a_correct_row():
-    state = RunState(task=STALE, today="2026-01-01", saved=True, save_text="completed")
+    state = RunState(task=STALE, today="2026-01-01", saved=True, save_text="completed", mode="research")
     state.reuse_row = f'| {STALE.stale_doc}@0123456789abcdef | x: "{STALE.stale_quote}" | y | reuse |'
     outcome = metrics.outcome(STALE, BY_NAME["shell-claude"], _transcript(STALE.stale_quote), state)
     assert outcome.reuse_row_correct is False
+
+
+@pytest.mark.parametrize(
+    "related, names_answer",
+    [(STALE.answer_docs[0], True), (STALE.stale_doc, False), ("", False)],
+    ids=["successor", "stale", "none"],
+)
+def test_a_daily_save_is_scored_by_the_document_its_related_names(related, names_answer):
+    """A daily document has no Reuse Log: the prior document it used is in `related`."""
+    state = RunState(task=STALE, today="2026-01-01", saved=True, save_text="completed", related=related)
+
+    outcome = metrics.outcome(STALE, BY_NAME["shell-claude"], _transcript(STALE.quote), state)
+
+    assert outcome.related_names_answer is names_answer
+    assert outcome.citation_valid is None and outcome.reuse_row_correct is None
 
 
 def test_to_answer_is_the_start_template_plus_the_retrieval_output_and_save_is_apart():

@@ -178,8 +178,15 @@ engmem mode set research   # sessions started from now on run the Gate 1 protoco
 engmem mode show           # mode: daily|research, and where it came from
 ```
 
-Each session records its mode in its draft (`mode: daily` or `mode: research`) and keeps it;
-switching applies to the next session. The `engmem` MCP prompt opens with the mode it read,
+Each session records its mode (`mode: daily` or `mode: research`) and keeps it: a research
+session in the draft its start writes, a daily one in the document its save writes. Switching
+applies to the next session. The copies `engmem install` puts in your home directory carry only
+the saved mode's steps, so after `engmem mode set` re-run `engmem install --agent <agent>`: `mode
+set` names each agent that needs it, and `engmem doctor` warns until then. Project copies
+(`.github/prompts`, `--local`) carry both modes. Finish a task before you switch: a session
+started in one mode and saved after the switch gets the other mode's save, so a daily session
+saved in research mode has no draft to finish, and a research draft saved in daily mode is left
+behind while the save writes a new daily document. The `engmem` MCP prompt opens with the mode it read,
 as its first line: `engmem mode for this session: research (saved choice in …)`.
 `tools/gate1_report.py` lists daily sessions as outside the experiment; it keeps two kinds of
 research session apart as well: one that recorded `baseline_unavailable` (an incomplete
@@ -220,19 +227,20 @@ visible to apps launched outside the terminal too.
 
 The daily loop runs through three agent slash commands, installed by `engmem install`:
 
-- `/engmem <task>` — start a task: in research mode, records a naive baseline (pre-reg)
-  **before** searching; then creates a draft session document, searches the store for
-  relevant prior work, and reports what it found before proposing any plan.
+- `/engmem <task>` — start a task: searches the store for relevant prior work and reports what
+  it found before proposing any plan. In daily mode it writes nothing. In research mode it first
+  records a naive baseline (pre-reg) **before** searching and creates a draft session document.
 - `/engmem.save` — finish a task: drafts the full document metadata from the diff and
-  conversation for one-round approval, fills in decisions, rejected alternatives,
-  lessons learned, and a Reuse Log of which prior documents actually influenced the work.
+  conversation for one-round approval, fills in decisions, rejected alternatives and lessons
+  learned, and lists the prior documents it used in `related`; in research mode, a Reuse Log of
+  which prior documents actually influenced the work.
 - `/engmem.save.quick` — save the useful core of a decision: one preview with the decision, its
   reason, the rejected alternative, the source and a short context for the next task. Anything
   the session did not contain is marked as absent, never invented. A single `ok` publishes one
-  valid, searchable document; declining publishes nothing and leaves the draft out of search
-  results (a search still names a draft with a Decision Log that matches it). No YAML check, no
-  supersede question, no quote review with the user (the MCP path still refuses a Reuse Log row
-  without a quote).
+  valid, searchable document; declining publishes nothing (in research mode the draft stays,
+  out of search results; a search still names a draft with a Decision Log that matches it). No
+  YAML check, no supersede question, no quote review with the user (in research mode the MCP
+  path still refuses a Reuse Log row without a quote).
 
 ### With another skill
 

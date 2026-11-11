@@ -14,6 +14,7 @@ import yaml
 from engmem import cost, drafts, feedback, unsaved_drafts
 from engmem.backfill import BackfillWriteError, apply_backfill, propose_backfill
 from engmem.export import ExportError, prepare_export, render_preview, write_export
+from engmem.install import agents_installed_for_another_mode
 from engmem.mcp_clients import (
     installed_mcp_wirings,
     McpWiring,
@@ -629,8 +630,8 @@ def cmd_store_set(args: argparse.Namespace) -> int:
 
 _MODE_MEANING = {
     Mode.DAILY: (
-        "daily: /engmem writes no Pre-reg and launches no baseline sub-agent; sessions are "
-        "recorded `mode: daily` and stay outside the Gate 1 experiment"
+        "daily: /engmem writes nothing when it starts — no draft, no Pre-reg, no baseline "
+        "sub-agent; a save records `mode: daily`, outside the Gate 1 experiment"
     ),
     Mode.RESEARCH: (
         "research: /engmem runs the Gate 1 protocol — a Pre-reg baseline before the first "
@@ -668,6 +669,12 @@ def cmd_mode_set(args: argparse.Namespace) -> int:
     print(_MODE_MEANING[mode])
     print(
         "note: the next session started with /engmem records this mode; sessions already "
-        "started keep the mode they recorded"
+        "started keep the mode they recorded, but their save now gets this mode's steps: finish "
+        "them before switching"
     )
+    for agent in agents_installed_for_another_mode(mode):
+        print(
+            f"note: engmem's {agent} copies were installed for the other mode — run "
+            f"`engmem install --agent {agent}` to install them for {mode}"
+        )
     return 0

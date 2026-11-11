@@ -6,6 +6,7 @@ import dataclasses
 import hashlib
 import json
 import platform
+import re
 import shutil
 import sys
 import time
@@ -16,7 +17,7 @@ from pathlib import Path
 from agentsim import corpus as corpus_module
 from agentsim import metrics, policy
 from agentsim.corpus import Corpus, Task
-from agentsim.profiles import BY_NAME, ENGMEM, GREP, PROFILES, Agent, GrepAgent, Profile, install
+from agentsim.profiles import BY_NAME, DAILY, ENGMEM, GREP, PROFILES, Agent, GrepAgent, Profile, install
 from agentsim.sandbox import Sandbox
 from agentsim.trace import TOKEN_METHOD, Transcript
 
@@ -164,8 +165,12 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         GrepAgent(machine.sandbox, task, transcript).run()
     wall = time.perf_counter() - started
     store_written = _store_state(machine.sandbox.store) != store_before if profile.condition == ENGMEM else None
+    drafts_left = _drafts_left(machine.sandbox.store, store_before) if profile.condition == ENGMEM else None
     outcome = metrics.outcome(task, profile, transcript, state, store_written)
-    session = state.draft_id if state else None
+    session = state.draft_id if state and state.mode != DAILY else None
+    observed = None
+    if state is not None and (session is not None or snapshot is None):
+        observed = metrics.observed_bytes(machine.sandbox.store, session)
     return {
         "task": task.id,
         "scenario_class": task.scenario_class,
@@ -178,7 +183,8 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         "cost": metrics.cost(transcript),
         "outcome": metrics.as_dict(outcome),
         "store_written": store_written,
-        "engmem_observed_bytes": metrics.observed_bytes(machine.sandbox.store, session),
+        "drafts_left": drafts_left,
+        "engmem_observed_bytes": observed,
         "template_checks": state.template_checks if state else {},
         "save_note": state.save_note if state else "",
         "saver": saver_summary,
@@ -195,6 +201,15 @@ def _store_state(store: Path) -> dict[str, str]:
         for path in sorted(store.rglob("*"))
         if path.is_file()
     }
+
+
+def _drafts_left(store: Path, before: dict[str, str]) -> int:
+    """Session documents the run wrote that are still drafts: what a start that never saves leaves."""
+    return sum(
+        1 for path in (store / "sessions").glob("*.md")
+        if f"sessions/{path.name}" not in before
+        and re.search(r"^status: draft$", path.read_text(encoding="utf-8"), re.MULTILINE)
+    )
 
 
 def _mean_doc_bytes(sessions: Path) -> int:

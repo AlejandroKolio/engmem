@@ -1,6 +1,6 @@
 """A daily session skips what only the experiment needs: the Reuse Log refusals and citation notes
-at completion, the Reuse Log shape at create, and the unattributed note on a search or a read
-(contracts/mcp-server.md, "Daily sessions skip both tiers")."""
+at completion, the Reuse Log shape and the session-id directive at create, and the unattributed
+note on a search or a read (contracts/mcp-server.md, "Daily sessions skip both tiers")."""
 
 from __future__ import annotations
 
@@ -53,6 +53,14 @@ def test_only_a_research_create_result_names_the_reuse_log_shape(store, mode):
 
     assert (drafts.REUSE_LOG_SHAPE in message) is (mode == "research")
     assert message.endswith(drafts.REUSE_LOG_SHAPE if mode == "research" else "experiment.")
+
+
+def test_only_a_research_create_result_asks_for_the_session_id_on_every_search(store, mode):
+    """A daily draft is created at save, just before it is completed: no search follows it."""
+    message, _ = _create(store, mode)
+
+    assert ("--session" in message) is (mode == "research")
+    assert "--expected-version" in message
 
 
 def test_a_daily_completion_publishes_a_reuse_log_research_refuses(store, mode):

@@ -12,6 +12,7 @@ from engmem.settings import Mode
 class Branch(enum.StrEnum):
     FILES = "files"
     MCP = "mcp"
+    DAILY = "daily"
     RESEARCH = "research"
 
 
@@ -19,16 +20,19 @@ _MARKER = re.compile(r"<!-- engmem-branch: (\S+) -->")
 _END = "end"
 
 
+_OTHER_MODE = {Mode.DAILY: Branch.RESEARCH, Mode.RESEARCH: Branch.DAILY}
+
+
 def _dropped(mcp: bool, mode: Mode | None) -> frozenset[Branch]:
     own_channel = Branch.FILES if mcp else Branch.MCP
-    if mode is Mode.DAILY:
-        return frozenset({own_channel, Branch.RESEARCH})
-    return frozenset({own_channel})
+    if mode is None:
+        return frozenset({own_channel})
+    return frozenset({own_channel, _OTHER_MODE[mode]})
 
 
 def render(source: str, *, mcp: bool, mode: Mode | None = None) -> str:
     """`source` without its marker lines and the branches this target never takes; `mode` is
-    None where the copy cannot know it, which keeps the research branch."""
+    None where the copy cannot know it, which keeps both the daily and the research branch."""
     dropped = _dropped(mcp, mode)
     kept: list[str] = []
     open_branch: Branch | None = None

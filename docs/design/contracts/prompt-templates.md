@@ -40,9 +40,10 @@ line of `engmem mode show`, from the first line of the `engmem` MCP prompt, or, 
 the one word in the mode file, `daily` when there is none. Numbered 0 so steps 1–6 keep the
 numbers other documents cite.
 
-- **daily** skips step 1 entirely: no Pre-reg, no baseline sub-agent, and the draft is the front
-  matter alone, `mode: daily`. AC-08.1 asks that ordinary work neither waits on nor pays for the
-  experiment, and a daily session is outside the count anyway (`contracts/gate1.md`, "Modes").
+- **daily** skips steps 1–6 and follows the start's `## Daily mode` section: no Pre-reg, no
+  baseline sub-agent, no draft and no session id (below, "Daily mode pays only for the product").
+  AC-08.1 asks that ordinary work neither waits on nor pays for the experiment, and a daily
+  session is outside the count anyway (`contracts/gate1.md`, "Modes").
 - **research** runs step 1 exactly as before. When no uncontaminated baseline can be had before
   the search, the agent writes none and records `baseline_unavailable: <reason>` instead. Search
   and save continue; the report keeps the session apart (AC-08.5). A baseline written after a
@@ -57,19 +58,17 @@ says so. An earlier comment said a copied placeholder "counts nowhere"; that is 
 of a document written by hand. That reaches no such check; there it is an unrecognized mode and
 counts nowhere (`contracts/mcp-server.md`, "A hand-written document is unguarded").
 
-The mode is written once, into the draft, and the save templates copy `mode` and
-`baseline_unavailable` unchanged — never added, edited or dropped, whatever the saved mode is by
-then. `engmem draft complete` and `engmem_complete_draft` both enforce that, as they enforce the
-Reuse Log rules: one writer serves both surfaces (`contracts/mcp-server.md`, "One writer for
+In research mode the mode is written once, into the draft, and the save templates copy `mode`
+and `baseline_unavailable` unchanged — never added, edited or dropped, whatever the saved mode is
+by then. `engmem draft complete` and `engmem_complete_draft` both enforce that, as they enforce
+the Reuse Log rules: one writer serves both surfaces (`contracts/mcp-server.md`, "One writer for
 every surface"). So the full save states the refusals once, for both, and asks no self-check
-on the shell. Both save templates carry the Pre-reg over only when
-the draft has one. The short capture's example record is a daily one, with no Pre-reg, since a
-short save is the daily path the story is about.
+on the shell. Both save templates carry the Pre-reg over only when the draft has one. A daily
+session has no draft until its save, which writes `mode: daily` itself.
 
-The save templates still state the Reuse Log rules and the refusals for every mode, although a
-daily completion is no longer refused over its Reuse Log (`contracts/mcp-server.md`, "Daily
-sessions skip both tiers"). A daily agent follows a rule stricter than the runtime, which costs
-it nothing it did not pay before; splitting the templates by mode is left for later.
+The Reuse Log rules and the refusals are in the research branches only. A daily completion is not
+refused over its Reuse Log (`contracts/mcp-server.md`, "Daily sessions skip both tiers"), and a
+daily document has none.
 
 ## Engineering work only
 
@@ -99,9 +98,9 @@ a search and a reminder.
   anything else"; the gate says it runs before step 0, and leaving step 0's text alone keeps
   every other part of each render as it was.
 - **Outside every branch, at most 450 bytes.** Every copy and every MCP start prompt carries it,
-  daily or research. `tests/test_scope_gate.py` pins each start render's body, with the gate
-  taken out, to its bytes before the gate: the file copy, the research MCP prompt and the daily
-  one.
+  daily or research, before step 0. `tests/test_scope_gate.py` pins each research start render's
+  body, with the gate taken out, to its bytes before the gate: the file copy and the MCP prompt.
+  The daily render's pin went with the daily split (below): that render was rewritten on purpose.
 - **No `disable-model-invocation`.** A client that invokes `/engmem` by itself meets the gate
   first, so the command stays available to the model. The front-matter `description`, which
   `prompts/list` and a client's command list show, says "an engineering task on a codebase".
@@ -130,11 +129,23 @@ an agent that has no instruction for the situation it is in.
 | paste bridge, no-shell fallbacks | kept | kept |
 | step 0, "the line above this template" (`mcp`) | dropped | kept |
 | step 0, `engmem mode show` and the mode file (`files`) | kept | dropped |
-| step 1, the Pre-reg (`research`) | kept | dropped from a daily start prompt |
+| the research protocol (`research`) | dropped from a home copy installed in daily mode | dropped from a daily prompt |
+| the daily steps (`daily`) | dropped from a home copy installed in research mode | dropped from a research prompt |
 
 - **A file copy is never the MCP prompt**, so the sentence about the line above it is never
-  true there. It cannot know the mode either: `engmem mode set` changes the mode after install,
-  and nothing rewrites the copy then. So it keeps step 0's ways to find the mode, and step 1.
+  true there. It keeps step 0's ways to find the mode: `engmem mode set` changes the mode after
+  install, and nothing rewrites the copy then.
+- **A copy under the user's home is rendered for the saved mode.** `~/.claude/commands`,
+  `~/.copilot/skills` and `~/.agents/skills` (Codex) belong to one user, so a daily user stops
+  loading the research protocol on every start and save. The stamp names the mode
+  (`contracts/install.md`), `engmem doctor` reports a copy whose mode differs from the saved one
+  with the command that reinstalls it, and `engmem mode set` prints that command for each such
+  agent. Until then the copy runs its own mode's steps: a daily copy in research mode records no
+  observation, which loses one and corrupts none, and the start's step 0 tells the user. A
+  project copy (`.github/prompts`, `--local`) is read by people whose modes differ, so it keeps
+  both modes, and so does a home copy installed while the saved mode cannot be read. The owner
+  accepted what this costs: a mode-blind copy reads about 490 more tokens to the answer than a
+  daily one.
 - **A file copy keeps the MCP branch.** Claude Code, VS Code and Codex can all have engmem's MCP
   server as well as a shell. The templates prefer the MCP tool for writes when both are there.
 - **No copy drops a shell branch by the install-time OS.** One `.github/prompts/` is committed and
@@ -147,16 +158,22 @@ an agent that has no instruction for the situation it is in.
   searches, so its client has no MCP tool to create or complete a draft. Some clients also let
   the user turn single tools off. So engmem's MCP tools may be missing, and the no-draft and
   paste branches stay.
-- **The MCP start prompt knows the mode.** `_mode_line` reads it on every `prompts/get` and
-  writes it as the first line. Step 0's other ways to find the mode are then never taken. A
-  daily start prompt also leaves out step 1, which a daily session skips. The read that names
-  the mode on the first line also decides the rendering, so the two cannot disagree. An
-  unreadable mode is daily in both. The save prompts are rendered without a mode: a save
-  follows the draft's mode, and the saved mode may have changed since the draft was created.
-  For that reason a `research` branch is allowed only in the start template.
+- **Every MCP prompt knows the mode.** `_mode_line` reads it on every `prompts/get`, and the
+  start prompt carries it as the first line. Step 0's other ways to find the mode are then never
+  taken. Each prompt leaves out the other mode's branch. The read that names the mode on the
+  first line also decides the rendering, so the two cannot disagree. An unreadable mode is daily
+  in both. The save prompts follow the saved mode too: a daily start writes no draft, so its save
+  writes the document itself, and a research save completes the research draft. A mode switched
+  between the start and the save meets a save for the other mode. A daily session saved after a
+  switch to research finds no draft to complete, and a research session saved after a switch to
+  daily is created again under another id, its draft left behind. Both are recorded limits; the
+  start's rule still holds that a switch applies to the next session.
 
 **The mechanism.** A branch is a run of whole lines between two marker lines,
-`<!-- engmem-branch: files -->`, `mcp` or `research`, and `<!-- engmem-branch: end -->`. Markers
+`<!-- engmem-branch: files -->`, `mcp`, `daily` or `research`, and
+`<!-- engmem-branch: end -->`. `daily` and `research` mirror each other: a render for one mode
+drops the other's branch, and a mode-blind render keeps both, so each daily paragraph says it is
+daily mode's where a mode-blind copy shows it beside the research text. Markers
 are matched only as a whole line. They do not nest, and an unknown name, an unclosed branch or a
 stray end raises a `ValueError` that names the line. A broken marker otherwise drops or keeps a
 branch in every copy without a word. A rendered copy never holds a marker line. The source stays
@@ -170,17 +187,78 @@ it"). An unedited copy from an earlier release still matches its own stamp's dig
 install replaces it with the rendered one. A user edit still breaks that match and is kept as a
 conflict. `RELEASED_DIGESTS` lists the bodies v0.1.1–v0.1.4 wrote. They stay frozen: rendering
 changes only what this version writes. `template_stamps.WORKFLOW` stays 1. Rendering drops no
-step a target can take, and it adds no step the runtime refuses.
+step a target can take, and it adds no step the runtime refuses. A copy rendered for one mode has
+its own digest, so switching the mode and reinstalling replaces an unedited copy like any upgrade.
 
-**What every copy must still hold.** The guards on the save templates hold on every copy,
-since the save templates carry no marker: the short capture's example record, the lesson block,
-the clock readings. The session id inside each search bullet, the no-draft branch first, and the
-other step 3–6 guards are outside any branch, so they hold on every start copy too. The guards on
-step 1, such as the Pre-reg source line and the single baseline path, read the source. Every
-copy that keeps step 1 is rendered from that source, and a daily MCP prompt has no step 1 to
-guard. `tests/test_template_render.py` checks each target's diff from the full source: a file
-copy loses only the `mcp` lines, and an MCP prompt only the `files` lines and, when daily, the
-`research` lines.
+**What every copy must still hold.** Every research render is byte for byte what `main` rendered
+before the daily split: `tests/fixtures/research-renders/` holds the file copy and the MCP prompt
+of each template, and `tests/test_daily_templates.py` compares them. So every guard on research
+text holds on every research copy and on every mode-blind one. The lesson block is outside any
+branch and holds on every copy. The daily guards read the daily renders (same file).
+`tests/test_template_render.py` checks each target's diff from the full source: a file copy loses
+the `mcp` lines, a home copy also the other mode's lines, and an MCP prompt the `files` lines and
+the other mode's lines.
+
+## Daily mode pays only for the product
+
+The owner allowed daily sessions to depart from the protocol (`ENGMEM-SPEC.md` §1). A daily
+session keeps what helps a person find and trust knowledge, and drops what only the experiment
+reads. Each template has a `daily` branch and a `research` branch; the research render is the
+protocol, byte for byte as before.
+
+- **The start writes nothing.** Scope gate, step 0, then `## Daily mode`: at most two searches
+  and five reads by role, with no session id, then `prior context: …` and the answer in the same
+  message. No draft, no `store show`, no Search Trace, no cost notes. A draft created at the start
+  of a task that never saved was left behind as a draft; the daily start leaves nothing. Its
+  searches log rows with no `session_id`, which no `gate1_audit` figure reads (`read_session_rows`
+  keeps only rows naming one), so a daily start adds no orphan and no unreconstructable row.
+- **The save creates and completes.** It composes the document, then `engmem draft create` with
+  the front matter and `engmem draft complete` with the whole document (MCP:
+  `engmem_create_draft`, `engmem_complete_draft`). One shell call,
+  `git rev-parse --show-toplevel HEAD --abbrev-ref HEAD; git config user.name`, gives the
+  repository, the sha for `verified_at`, the branch and the author. `store show` is only where
+  the save needs it, naming the store for a file the user asks to write by hand. The quick save
+  makes those three calls after the one confirmation, so a decline writes nothing. The two writes
+  keep every check that protects the data: the id, the mode, the version read.
+- **A daily document holds the product.** The front matter as before, without `capture_minutes`;
+  the Decision Log, the cold-start primer, Lessons Learned only for a pitfall hit, and in the full
+  save its other numbered sections but 16. Not written: Pre-reg, Reuse Log, Search Trace,
+  `capture_minutes`, the cost fields, `navigation_miss`, the usefulness question. The section
+  numbers stay as they are, so a daily document's 17 is a research document's 17.
+- **Documents used go into `related`.** No new field. `related` already means the documents this
+  one rests on, and search shows it as the `related:` line that the next start follows at depth 1.
+  Its readers were checked. `gate1._distance` reads an edge either way, but a daily document is
+  outside the count as a citing document. As a cited one, its `related` could make a research
+  document that cites it adjacent only by naming that document, and then each of the two was
+  published before the other's search, which cannot happen to documents that are never
+  rewritten. `search_report._shown_docs` counts related ids as shown, which they are, and
+  `export` names them as referenced documents. No reader changes meaning.
+- **Supersede stays.** The full save's supersede step takes the version from the `cite as` line
+  the start kept, as the research save takes it from the Reuse Log row.
+- **`template_stamps.WORKFLOW` stays 1.** The runtime refuses no step an older template takes: an
+  older copy still creates its draft at the start and completes it at the save.
+
+- **A daily path in a mode-blind copy ends where it ends.** A project copy shows both modes, so a
+  daily agent would read straight on into research steps. Every daily block that research steps
+  follow says the daily path ends there or that what follows is research mode's (the start's
+  pointer, the quick save's "Daily mode reads no clock" and "The daily save ends here", the full
+  save's "step 2 ends here", "16, which is research mode's" and "the save ends here"), or the
+  research text comes first and the daily text that replaces it right after. Only daily text was
+  added for this; `tests/test_daily_templates.py` checks every research step of every source.
+- **A completion that fails after the create** leaves the draft; the daily saves name the
+  `engmem draft complete <id> --expected-version <version>` call (MCP: `engmem_complete_draft`)
+  that finishes it later. `related` takes the id, the part before `@` of a `cite as` line.
+
+Sizes, as the e2e harness measures them (`contracts/e2e.md`): the daily start copy is about
+3.4 KB and the daily MCP start prompt about 3.1 KB; the daily quick save about 6.5 KB with three
+calls; the daily full save about 10.6 KB. The owner decided that an MCP client's "none found"
+cost is measured without `tools/list`, which a host loads once per session: about 0.9k tokens,
+against about 1.1k for a shell copy.
+
+**The one research-visible change** is outside the templates: the `engmem_create_draft`
+description no longer calls the create "the first step of `/engmem`", since a daily save makes it
+too, and `tools/list` grew by 32 bytes for every client, research ones included, within its cap
+(`contracts/mcp-server.md`, "Tool descriptions"). Every research render is unchanged.
 
 ## Templates may not grow the tool
 
@@ -250,6 +328,7 @@ edit.
 
 ## The session id belongs inside the search instruction
 
+This is the research start's rule; the daily start has no draft and passes no id.
 `engmem.start.md` step 3 states the session id in the CLI bullet and in the MCP bullet
 themselves, not as a paragraph after them: an agent acts on the one bullet that matches its
 runtime and stops reading, so a requirement placed after the bullets is one it has already
@@ -279,8 +358,7 @@ unattributed search with a trailing `note: unattributed search — pass ...` lin
 (`telemetry.UNATTRIBUTED_CLI_NOTE` / `UNATTRIBUTED_MCP_NOTE`; the recorded reversal in that
 same section), a reminder at the point of use that the template's wording cannot give. While the
 saved mode is daily the note is left out (`contracts/output.md`, "One composed result for both
-channels"); the template still asks for the id in every mode, since the templates are not yet
-split by mode.
+channels"), and the daily start asks for no id: it has no draft to name.
 
 ## The start's budget: two searches, five documents
 
@@ -289,6 +367,8 @@ result of the first is relevant: a document that says the same thing in other wo
 wording gap that lexical search cannot close, and synonyms or the component and file names can.
 It stops at two searches before step 4, so the retry cannot turn into a search loop whose output
 is paid for in context.
+
+The daily start's steps 1 and 2 keep the same two limits in fewer words.
 
 Step 4 loads at most 5 documents in all, `related` documents included: the found ones first,
 then their related ones in the order the found documents list them. A `related` list has no
@@ -335,9 +415,18 @@ The record is a valid `active` document for every existing check, with no new co
 `spine.load_store` reads it without a warning when `entities` is filled, which the template
 asks for; `engmem_complete_draft` completes it under `expected_version`; `gate1.evaluate`
 counts its `Prior docs used: none.` as a clean none report; and `gate1_audit` finds its
-Pre-reg, Reuse Log and Search Trace. `tests/test_short_capture.py` runs the template's own
-example record through all of them, and checks that every installed copy (claude, copilot-ide,
-copilot-cli, codex) and the `engmem-save-quick` MCP prompt carry that example unchanged.
+Pre-reg, Reuse Log and Search Trace.
+
+**Two examples, one per mode (owner's permission, the daily split).** The research render keeps
+the example it always had, byte for byte. The daily render shows its own: the same record without
+`capture_minutes`, the Reuse Log and the Search Trace, which a daily document does not write. A
+mode-blind copy shows both, the daily one first and named as daily. `tests/test_short_capture.py`
+runs each example through the checks above (the daily one completes through create and complete,
+is found on its decision and is listed by `gate1_audit` as outside the experiment), checks that
+the daily example is the research one minus exactly those parts, and checks that every installed
+copy (claude, copilot-ide, copilot-cli, codex) and the `engmem-save-quick` MCP prompt carry their
+mode's example unchanged. The owner allowed the daily example to change this way when the daily
+split was decided; nothing else in the example did.
 
 ### Absence is written, in one fixed wording
 
@@ -364,16 +453,16 @@ this path removes. The one second showing is a refused `expected_version`: the d
 changed under the agent, and what gets published is no longer what the user saw.
 
 A decline, or a reply the agent cannot read as confirmation or edits, publishes nothing: an
-unconfirmed document is harder to undo than a draft left in place. The draft is kept, not
-removed. It is outside search already (US-01, `contracts/scoring.md`), and it is the document
+unconfirmed document is harder to undo than a draft left in place. In daily mode nothing was
+written yet, so nothing is left. In research mode the draft is kept, not removed. It is outside search already (US-01, `contracts/scoring.md`), and it is the document
 this session's search rows are attributed to: removing it would turn them into
 `gate1_audit` orphans (`orphan_session_ids`). `/engmem.save` or `/engmem.save.quick` can
 finish it later.
 
 ### What the acceptance transcript proves
 
-`docs/design/acceptance/us-07-short-capture.md` is a scripted session, a confirmed and a
-declined preview, that `tests/test_short_capture.py` replays against a fresh store through the
+`docs/design/acceptance/us-07-short-capture.md` is a scripted research session, a confirmed and
+a declined preview, that `tests/test_short_capture.py` replays against a fresh store through the
 MCP server. It proves the tool side: the calls the template prescribes succeed in that order,
 the published content is the confirmed preview, nothing is published after a decline, and the
 declined record is not found. The agent's turns are written by hand, so it does not prove that
@@ -453,6 +542,7 @@ as missing data.
 
 ## What the save takes from engmem
 
+This is the research save's; a daily save writes none of these values (below).
 `/engmem` used to ask the agent to remember numbers and the Search Trace path until
 `/engmem.save`. Nothing wrote them down, so context compaction, a crash or a save in another
 conversation lost them, or the agent invented them. The save now takes from engmem what engmem
@@ -495,7 +585,7 @@ takes.
 
 ## `capture_minutes` is two readings of the shell clock
 
-Both save templates fill `capture_minutes` from two readings of the UTC clock in the agent's
+In research mode, both save templates fill `capture_minutes` from two readings of the UTC clock in the agent's
 shell: `date -u +%Y-%m-%dT%H:%M:%SZ` in a POSIX shell, `(Get-Date).ToUniversalTime().ToString('o')`
 in PowerShell. The first reading is the save's first action, an unnumbered line before step 1,
 so no step number other documents cite moves. The field had asked for "a time you recorded",
@@ -522,7 +612,22 @@ An agent loads the whole template on every run, so each sentence costs context. 
 every instruction. It keeps at most one sentence of reason, and only where the reason stops an
 agent from optimising the rule away. The longer reasons live here, or in the contract named.
 `tests/test_docs_match_the_code.py` holds `engmem.save.md` at or below 70 % of its size in
-release v0.1.10, 26,511 bytes. `template_stamps.WORKFLOW` stays 1: the cut changes no step.
+release v0.1.10, 26,511 bytes, for every copy rendered for one mode: the research one (18,533
+bytes, as before the split) and the daily one. A mode-blind copy carries both modes and is above
+that limit: the guard measured the source file before the split, and a source with both modes
+cannot fit it without cutting research text the byte-for-byte pin holds. The owner decided that
+each shipped render has its own ceiling, line endings read as `\n`:
+
+| render | ceiling | pinned by |
+|---|---|---|
+| full save, research (files and MCP) | 18,557 bytes (70 % of 26,511) | `tests/test_docs_match_the_code.py` |
+| full save, daily (files and MCP) | 18,557 bytes, and 11,000 bytes as the daily target | `tests/test_docs_match_the_code.py`, `tests/test_daily_templates.py` |
+| full save, mode-blind (project copies) | 21,644 bytes, its size at the daily split | `tests/test_docs_match_the_code.py` |
+| start, daily (files / MCP) | 4,500 / 4,000 bytes, less a 125-byte stamp allowance | `tests/test_daily_templates.py` |
+| quick save, daily | 6,500 bytes, less a 125-byte stamp allowance | `tests/test_daily_templates.py` |
+
+The mode-blind ceiling fails any growth; it is a stop, not a target. `template_stamps.WORKFLOW`
+stays 1: the cut changes no step.
 
 Reasons the templates no longer spell out:
 

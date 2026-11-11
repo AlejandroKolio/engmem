@@ -216,8 +216,8 @@ def test_every_agent_reads_the_mode_before_any_baseline(agent, env, tmp_path, mo
     home, project = env
     (project / ".git").mkdir()
     store = tmp_path / "store"
+    _save_mode(mode_file, b"research\n")
     if agent == "mcp":
-        _save_mode(mode_file, b"research\n")
         (store / "sessions").mkdir(parents=True)
         _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem"))
         text = responses[0]["result"]["messages"][0]["content"]["text"]
@@ -228,10 +228,30 @@ def test_every_agent_reads_the_mode_before_any_baseline(agent, env, tmp_path, mo
         assert "engmem/mode" in text
 
     mode_step = text.index("## 0. Mode")
-    assert mode_step < text.index("## 1. Pre-reg") < text.index("## 3. Search")
+    assert mode_step < text.index("\n## 1. Pre-reg") < text.index("## 3. Search")
     assert "mode: daily" in text and "mode: research" in text
     assert "no baseline sub-agent" in text
     assert "baseline_unavailable:" in text
+
+
+@pytest.mark.parametrize("agent", ["claude", "copilot-cli", "codex", "mcp"])
+def test_a_daily_copy_reads_the_mode_and_then_writes_nothing(agent, env, tmp_path):
+    """A copy rendered for daily mode has no Pre-reg; the mode is still read, so a copy
+    installed before a switch to research says so (contracts/prompt-templates.md)."""
+    home, project = env
+    store = tmp_path / "store"
+    if agent == "mcp":
+        (store / "sessions").mkdir(parents=True)
+        _, responses, _ = rpc.run(store, rpc.prompts_get_msg(5, name="engmem"))
+        text = responses[0]["result"]["messages"][0]["content"]["text"]
+        assert text.startswith("engmem mode for this session: daily")
+    else:
+        text = _installed_start(agent, home, project, store)
+        assert text.index("engmem mode show") < text.index("## Daily mode")
+
+    assert "\n## 1. Pre-reg" not in text and "baseline_unavailable" not in text
+    assert "no draft, no Pre-reg" in text
+    assert text.index("## 0. Mode") < text.index("## Daily mode") < text.index("engmem search")
 
 
 @pytest.mark.parametrize("name", ["engmem.save.md", "engmem.save.quick.md"])
@@ -302,7 +322,7 @@ def test_ac_08_1_a_daily_draft_completes_as_a_short_record_without_prereg(mode_f
 
 def test_ac_08_1_the_start_template_skips_the_baseline_in_daily_mode():
     text = (ROOT / "src" / "engmem" / "templates" / "engmem.start.md").read_text(encoding="utf-8")
-    mode_step = text[text.index("## 0. Mode"):text.index("## 1. Pre-reg")]
+    mode_step = text[text.index("## 0. Mode"):text.index("\n## 1. Pre-reg")]
 
     assert "**daily**" in mode_step and "skip step 1" in mode_step
     assert "no Pre-reg, no baseline sub-agent" in mode_step

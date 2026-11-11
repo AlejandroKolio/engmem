@@ -148,6 +148,14 @@ without the version US-25 requires, and before 0.1.3 its drafts lacked `mode`. A
 an `error` too, because this runtime cannot vouch for steps from a newer engmem. A stamp of the
 current level from an older version is `ok` with a note, since nothing in it fails.
 
+A home copy whose stamp names a mode other than the saved one is a `warning` that names both
+modes and the install command (`contracts/install.md`, "A home copy carries the saved mode"). The
+copy still works, for its own mode: a daily copy in research mode records no observation, and a
+research copy in daily mode makes a daily user pay for the protocol. A copy with no mode token
+keeps both modes and is never reported this way, and neither is any copy while the saved mode
+cannot be read. An edit or a pending `.engmem-new` is reported first, since the user's file is
+what needs attention.
+
 A file whose body no longer matches its digest, or, without a digest, none of the released
 bodies, was edited after install. At the current level that is a `warning`: the stamp is
 compatible, but engmem cannot vouch for steps someone changed. At another level the `error` says

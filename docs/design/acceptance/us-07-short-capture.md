@@ -2,8 +2,10 @@
 
 A scripted session of an agent that has the engmem MCP tools and no shell, following
 `/engmem.save.quick` (`src/engmem/templates/engmem.save.quick.md`) twice against one empty
-store: once the engineer confirms the preview, once the engineer declines it. No mode is saved,
-so both sessions run in daily mode (US-08): the drafts record `mode: daily` and carry no Pre-reg.
+store: once the engineer confirms the preview, once the engineer declines it. The saved mode is
+research, so both sessions run the research protocol (US-08): each draft records `mode: research`
+and its Pre-reg, and the preview carries the Pre-reg over. A daily start writes nothing, so a daily
+session has no draft to keep; its short capture is checked by `tests/test_daily_templates.py`.
 
 `tests/test_short_capture.py` replays it. Every `json call` block is sent to the MCP server in
 order, against a temporary store. The `text result` block after it lists lines that must
@@ -43,8 +45,14 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
-mode: daily
+mode: research
 ---
+
+## Pre-reg
+
+Compress archived reports with the strongest zstd level.
+
+pre-reg source: self (no sub-agent available)
 ```
 
 ```json call
@@ -52,7 +60,7 @@ mode: daily
 ```
 
 ```text result
-created sessions/20260101-report-archive-compression.md (status: draft, version: 665f0fcdf99ed1d9). …
+created sessions/20260101-report-archive-compression.md (status: draft, version: ef92045cb64f066c). …
 ```
 
 ```json call
@@ -119,8 +127,14 @@ author:
 repos: []
 branch:
 pr: "#41"
-mode: daily
+mode: research
 ---
+
+## Pre-reg
+
+Compress archived reports with the strongest zstd level.
+
+pre-reg source: self (no sub-agent available)
 
 ## Decision Log
 
@@ -152,7 +166,7 @@ ok
 ```
 
 ```json call
-{"method": "tools/call", "params": {"name": "engmem_complete_draft", "arguments": {"id": "20260101-report-archive-compression", "content": "@preview", "expected_version": "665f0fcdf99ed1d9"}}}
+{"method": "tools/call", "params": {"name": "engmem_complete_draft", "arguments": {"id": "20260101-report-archive-compression", "content": "@preview", "expected_version": "ef92045cb64f066c"}}}
 ```
 
 ```text result
@@ -197,8 +211,14 @@ related: []
 covers_files: []
 verified_at_commit:
 capture_minutes:
-mode: daily
+mode: research
 ---
+
+## Pre-reg
+
+Run BillingCutoff at midnight in the company's local time.
+
+pre-reg source: self (no sub-agent available)
 ```
 
 ```json call
@@ -206,7 +226,7 @@ mode: daily
 ```
 
 ```text result
-created sessions/20260102-billing-cutoff-timezone.md (status: draft, version: 4d091d730a7b9561). …
+created sessions/20260102-billing-cutoff-timezone.md (status: draft, version: d63382445a787ac1). …
 ```
 
 ```json call
@@ -256,8 +276,14 @@ author:
 repos: []
 branch:
 pr:
-mode: daily
+mode: research
 ---
+
+## Pre-reg
+
+Run BillingCutoff at midnight in the company's local time.
+
+pre-reg source: self (no sub-agent available)
 
 ## Decision Log
 

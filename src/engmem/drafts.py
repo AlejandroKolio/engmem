@@ -244,11 +244,15 @@ def create_draft(store: Path, doc_id: object, content: str, surface: Surface) ->
         discard(tmp_path)
         raise
 
-    shape = "" if doc.mode == Mode.DAILY else f" {REUSE_LOG_SHAPE}"
+    daily = doc.mode == Mode.DAILY
+    attribute = "" if daily else (
+        f"Now {surface.attribute(doc_id)} for the rest of this task — a search without it is "
+        "logged unattributed and drops out of the analysis. "
+    )
+    shape = "" if daily else f" {REUSE_LOG_SHAPE}"
     return (
         f"created sessions/{doc_id}.md (status: draft, version: {version_of(content_bytes)}). "
-        f"Now {surface.attribute(doc_id)} for the rest of this task — a search without it is "
-        "logged unattributed and drops out of the analysis. Keep the version: pass it as "
+        f"{attribute}Keep the version: pass it as "
         f"{surface.version_argument} to {surface.complete} when you finish this draft. "
         f"{_mode_note(doc)}{shape}"
     )

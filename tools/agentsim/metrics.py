@@ -8,7 +8,7 @@ from pathlib import Path
 
 from agentsim.corpus import Task
 from agentsim.policy import NONE_FOUND, OUT_OF_SCOPE_CLASS
-from agentsim.profiles import LOAD, SAVE, SEARCH, START, Profile, RunState
+from agentsim.profiles import DAILY, LOAD, SAVE, SEARCH, START, Profile, RunState
 from agentsim.trace import TEMPLATE, TOOL, PASTE, Transcript, tokens
 
 CITATION_PROBLEM = "Reuse Log citation problem"
@@ -28,6 +28,7 @@ class Outcome:
     saved: bool | None
     citation_valid: bool | None
     reuse_row_correct: bool | None
+    related_names_answer: bool | None
     save_refusals: int
     save_warnings: int
 
@@ -64,7 +65,10 @@ def outcome(
     row = state.reuse_row if state is not None else ""
     citation_valid = None
     reuse_correct = None
-    if saved is not None:
+    related_correct = None
+    if saved is not None and state.mode == DAILY:
+        related_correct = (state.related in task.answer_docs) if has_answer else (saved and not state.related)
+    if saved is not None and state.mode != DAILY:
         problems = CITATION_PROBLEM in state.save_text or "quote not found" in state.save_text
         if state.row_refused:
             citation_valid = False
@@ -86,15 +90,17 @@ def outcome(
         saved=saved,
         citation_valid=citation_valid,
         reuse_row_correct=reuse_correct,
+        related_names_answer=related_correct,
         save_refusals=state.save_refusals if state is not None else 0,
         save_warnings=warnings,
     )
 
 
 def observed_bytes(store: Path, session_id: str | None) -> int | None:
-    """What engmem itself recorded as delivered to the session in `cost.jsonl`."""
+    """What engmem itself recorded as delivered to the session in `cost.jsonl`; with no session
+    id, what it recorded unattributed, which in a fresh store is the daily run's own."""
     path = store / "cost.jsonl"
-    if session_id is None or not path.is_file():
+    if not path.is_file():
         return None
     total = 0
     for line in path.read_text(encoding="utf-8").splitlines():

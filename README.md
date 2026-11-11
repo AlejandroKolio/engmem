@@ -75,9 +75,9 @@ engmem doctor --agent claude    # check the setup; changes nothing
 In Claude Code:
 
 ```text
-/engmem fix the widget cache warm-up     start: open a draft, search before planning
+/engmem fix the widget cache warm-up     start: search before planning
   ... work as usual ...
-/engmem.save                             finish: decisions, rejected options, Reuse Log
+/engmem.save                             finish: decisions, rejected options, lessons
 ```
 
 `/engmem.save.quick` keeps the decision, its reason, the rejected alternative, its source and a
@@ -107,14 +107,16 @@ engmem. No database, no daemon, no open port, no hosted service. Two dependencie
 
 ## How it works
 
-1. **Start.** `/engmem <task>` opens a draft for the session.
+1. **Start.** `/engmem <task>` starts the session. In daily mode it writes nothing yet; in research
+   mode it opens a draft.
 2. **Search.** Before the agent proposes a plan, it searches the store. Output is capped at 4 KB, so
    one search never costs the agent more context than that; the agent then reads only the sections
    it needs, with `engmem read <id> --role decisions`.
 3. **Work.** The agent does the task as usual, with the earlier decisions in view.
-4. **Save.** `/engmem.save` completes the draft: decisions, rejected alternatives, what the next
-   session needs, and a Reuse Log row for each prior document that changed a decision. Saving is an
-   explicit step; nothing is captured in the background.
+4. **Save.** `/engmem.save` writes the session document: decisions, rejected alternatives, what the
+   next session needs, and the prior documents it used. In research mode it completes the draft and
+   adds a Reuse Log row for each prior document that changed a decision. Saving is an explicit step;
+   nothing is captured in the background.
 5. **Reuse.** The next related task finds this document. A replaced document points to its
    successor with `superseded_by`, and search sends the agent to the current one.
 
