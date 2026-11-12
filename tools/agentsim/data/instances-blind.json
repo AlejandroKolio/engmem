@@ -1,0 +1,1388 @@
+{
+ "format": "engmem-e2e-instances/1",
+ "provisional": false,
+ "author": "blind author (separate model)",
+ "note": "Written from facts.json only: one question or change request per instance in an engineer's voice, wording kind rotated per fact, regexes keyed to current and stale values.",
+ "instances": [
+  {
+   "id": "c01-sweeper-1",
+   "class": 1,
+   "wording": "identifier",
+   "task": "How does LedgerSweeper retry a failed export to ArchiveStore, and what is the pause between attempts?",
+   "required": [
+    "three times.*40.second"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-keyword"
+   ]
+  },
+  {
+   "id": "c01-sweeper-2",
+   "class": 1,
+   "wording": "paraphrase",
+   "task": "The nightly job that sweeps ledger entries keeps failing to push its export to the archive. How many times is it supposed to retry and how long does it wait in between?",
+   "required": [
+    "three times.*40.second"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-keyword"
+   ]
+  },
+  {
+   "id": "c01-compactor-3",
+   "class": 1,
+   "wording": "identifier",
+   "task": "What time window is NightlyCompactor allowed to run in?",
+   "required": [
+    "02:30\\s*UTC.*04:00"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-nightlycompactor-compaction-window"
+   ]
+  },
+  {
+   "id": "c01-compactor-4",
+   "class": 1,
+   "wording": "symptom",
+   "task": "Our compaction job collided with the morning ingest spike on ledger-core. When is NightlyCompactor meant to start and finish?",
+   "required": [
+    "02:30\\s*UTC.*04:00"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-nightlycompactor-compaction-window"
+   ]
+  },
+  {
+   "id": "c01-signer-5",
+   "class": 1,
+   "wording": "paraphrase",
+   "task": "A partner asks how to verify the signature on the callbacks we send them. Which algorithm do we use and what does it cover?",
+   "required": [
+    "HMAC-SHA256"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-webhooksigner-signature-algorithm"
+   ]
+  },
+  {
+   "id": "c01-signer-6",
+   "class": 1,
+   "wording": "symptom",
+   "task": "A customer says the signature check on our webhooks always fails on their side. What algorithm does WebhookSigner use, and over what input?",
+   "required": [
+    "HMAC-SHA256"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-webhooksigner-signature-algorithm"
+   ]
+  },
+  {
+   "id": "c01-sharder-7",
+   "class": 1,
+   "wording": "identifier",
+   "task": "What does TileSharder use as its shard key?",
+   "required": [
+    "zoom level.*quadkey"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-tilesharder-shard-key"
+   ]
+  },
+  {
+   "id": "c01-sharder-8",
+   "class": 1,
+   "wording": "paraphrase",
+   "task": "I need to add a new tile storage node. How are tiles split across shards, i.e. by what attributes?",
+   "required": [
+    "zoom level.*quadkey"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-tilesharder-shard-key"
+   ]
+  },
+  {
+   "id": "c01-scheduler-9",
+   "class": 1,
+   "wording": "identifier",
+   "task": "What is the run concurrency limit in ReportScheduler?",
+   "required": [
+    "\\b4\\b.*report jobs"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-reportscheduler-run-concurrency"
+   ]
+  },
+  {
+   "id": "c01-scheduler-10",
+   "class": 1,
+   "wording": "symptom",
+   "task": "One tenant queued a pile of reports and they are all sitting pending while only a few run. What is the ReportScheduler concurrency cap per tenant?",
+   "required": [
+    "\\b4\\b.*report jobs"
+   ],
+   "stale": [],
+   "keys": [
+    "f01-reportscheduler-run-concurrency"
+   ]
+  },
+  {
+   "id": "c02-prewarm-1",
+   "class": 2,
+   "wording": "identifier",
+   "task": "What does TilePrewarmer have to do before the readiness probe is allowed to pass?",
+   "required": [
+    "top 500 tiles"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-wording-gap"
+   ]
+  },
+  {
+   "id": "c02-prewarm-2",
+   "class": 2,
+   "wording": "symptom",
+   "task": "Tile pods get traffic before their cache is hot and the first requests are slow. What should the pod load before it reports ready?",
+   "required": [
+    "top 500 tiles"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-wording-gap"
+   ]
+  },
+  {
+   "id": "c02-reaper-3",
+   "class": 2,
+   "wording": "paraphrase",
+   "task": "After how long of inactivity do we drop user sessions on the gateway?",
+   "required": [
+    "\\b45 minutes"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-sessionreaper-idle-eviction"
+   ]
+  },
+  {
+   "id": "c02-reaper-4",
+   "class": 2,
+   "wording": "symptom",
+   "task": "Users complain they get logged out after stepping away from their desk. How long can a session sit idle before SessionReaper removes it?",
+   "required": [
+    "\\b45 minutes"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-sessionreaper-idle-eviction"
+   ]
+  },
+  {
+   "id": "c02-atlas-5",
+   "class": 2,
+   "wording": "identifier",
+   "task": "How often does GlyphAtlas get rebuilt, and is it shared between render workers?",
+   "required": [
+    "once per style version"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-glyphatlas-font-atlas-reuse"
+   ]
+  },
+  {
+   "id": "c02-atlas-6",
+   "class": 2,
+   "wording": "paraphrase",
+   "task": "Render workers seem to spend a lot of memory on font bitmaps. What is our policy on building the font texture sheet and who shares it?",
+   "required": [
+    "once per style version"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-glyphatlas-font-atlas-reuse"
+   ]
+  },
+  {
+   "id": "c02-fsync-7",
+   "class": 2,
+   "wording": "paraphrase",
+   "task": "How often do we force posting records to disk? I want to know the durability guarantee after a power cut.",
+   "required": [
+    "\\b32 entries"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-postingjournal-journal-fsync"
+   ]
+  },
+  {
+   "id": "c02-fsync-8",
+   "class": 2,
+   "wording": "symptom",
+   "task": "After a host crash we lost the last few posted entries from the journal. How often does PostingJournal flush to disk?",
+   "required": [
+    "\\b32 entries"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-postingjournal-journal-fsync"
+   ]
+  },
+  {
+   "id": "c02-packer-9",
+   "class": 2,
+   "wording": "identifier",
+   "task": "Which compression format and level does ExportPacker use for the archives it builds?",
+   "required": [
+    "zstd.*level 6"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-exportpacker-archive-compression"
+   ]
+  },
+  {
+   "id": "c02-packer-10",
+   "class": 2,
+   "wording": "symptom",
+   "task": "Customers say the export downloads are bigger than expected. What compression do we actually pack them with?",
+   "required": [
+    "zstd.*level 6"
+   ],
+   "stale": [],
+   "keys": [
+    "f02-exportpacker-archive-compression"
+   ]
+  },
+  {
+   "id": "c03-ack-1",
+   "class": 3,
+   "wording": "identifier",
+   "task": "What went wrong in IntakeQueue when the consumer crashed around acknowledgement, and what was the effect on OrderHandler?",
+   "required": [
+    "between ack and commit"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-role"
+   ]
+  },
+  {
+   "id": "c03-ack-2",
+   "class": 3,
+   "wording": "paraphrase",
+   "task": "We lost an order after a consumer process died. Has something like this happened before with the intake message queue, and what was the cause?",
+   "required": [
+    "between ack and commit"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-role"
+   ]
+  },
+  {
+   "id": "c03-rounding-3",
+   "class": 3,
+   "wording": "identifier",
+   "task": "Why did FeeCalculator invoice totals sometimes differ from the sum of the lines by a tiny amount?",
+   "required": [
+    "line item"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-feecalculator-line-rounding"
+   ]
+  },
+  {
+   "id": "c03-rounding-4",
+   "class": 3,
+   "wording": "symptom",
+   "task": "Finance reports invoices that are off by one cent against their own line items. What was the known pitfall in the fee computation?",
+   "required": [
+    "separately"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-feecalculator-line-rounding"
+   ]
+  },
+  {
+   "id": "c03-consent-5",
+   "class": 3,
+   "wording": "paraphrase",
+   "task": "Audit found duplicate consent entries for the same user with differing times. What caused this earlier?",
+   "required": [
+    "consent record twice"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-consentrecorder-consent-writes"
+   ]
+  },
+  {
+   "id": "c03-consent-6",
+   "class": 3,
+   "wording": "symptom",
+   "task": "Two rows for the same consent showed up after a transient failure. What did we learn about ConsentRecorder and retries?",
+   "required": [
+    "consent record twice"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-consentrecorder-consent-writes"
+   ]
+  },
+  {
+   "id": "c03-hotreload-7",
+   "class": 3,
+   "wording": "identifier",
+   "task": "What lesson do we have about StyleCompiler hot reload?",
+   "required": [
+    "(swapped styles mid-render|mixed two palettes)"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-stylecompiler-style-hot-reload"
+   ]
+  },
+  {
+   "id": "c03-hotreload-8",
+   "class": 3,
+   "wording": "symptom",
+   "task": "We saw a rendered tile with colours from two different themes after a style push. What caused it previously?",
+   "required": [
+    "(swapped styles mid-render|mixed two palettes)"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-stylecompiler-style-hot-reload"
+   ]
+  },
+  {
+   "id": "c03-digest-9",
+   "class": 3,
+   "wording": "paraphrase",
+   "task": "Subscribers got the whole daily summary email again after the mail worker restarted. Do we know why?",
+   "required": [
+    "cursor was saved last"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-digestmailer-digest-batching"
+   ]
+  },
+  {
+   "id": "c03-digest-10",
+   "class": 3,
+   "wording": "identifier",
+   "task": "What is the known failure in DigestMailer batching when the process crashes mid-run?",
+   "required": [
+    "cursor was saved last"
+   ],
+   "stale": [],
+   "keys": [
+    "f03-digestmailer-digest-batching"
+   ]
+  },
+  {
+   "id": "c04-reportstore-1",
+   "class": 4,
+   "wording": "identifier",
+   "task": "What is the connection pool cap for ReportStore per instance that we should configure?",
+   "required": [
+    "\\b64 connections"
+   ],
+   "stale": [
+    "\\b200 connections"
+   ],
+   "keys": [
+    "f04-stale"
+   ]
+  },
+  {
+   "id": "c04-reportstore-2",
+   "class": 4,
+   "wording": "paraphrase",
+   "task": "How many database connections should each report-hub instance hold open to the report store?",
+   "required": [
+    "\\b64 connections"
+   ],
+   "stale": [
+    "\\b200 connections"
+   ],
+   "keys": [
+    "f04-stale"
+   ]
+  },
+  {
+   "id": "c04-walletlocker-3",
+   "class": 4,
+   "wording": "identifier",
+   "task": "What lock timeout should WalletLocker use now?",
+   "required": [
+    "\\b8 seconds"
+   ],
+   "stale": [
+    "\\b30 seconds"
+   ],
+   "keys": [
+    "f04-walletlocker-lock-timeout"
+   ]
+  },
+  {
+   "id": "c04-walletlocker-4",
+   "class": 4,
+   "wording": "symptom",
+   "task": "Wallet operations hang for a long time when another request holds the lock. How long should WalletLocker wait before giving up?",
+   "required": [
+    "\\b8 seconds"
+   ],
+   "stale": [
+    "\\b30 seconds"
+   ],
+   "keys": [
+    "f04-walletlocker-lock-timeout"
+   ]
+  },
+  {
+   "id": "c04-formvalidator-5",
+   "class": 4,
+   "wording": "paraphrase",
+   "task": "What is the largest file a user may upload through the intake forms at the moment?",
+   "required": [
+    "\\b10 megabytes"
+   ],
+   "stale": [
+    "\\b25 megabytes"
+   ],
+   "keys": [
+    "f04-formvalidator-upload-limit"
+   ]
+  },
+  {
+   "id": "c04-formvalidator-6",
+   "class": 4,
+   "wording": "symptom",
+   "task": "Users get rejected when uploading scans through the intake form. What is the FormValidator size limit currently?",
+   "required": [
+    "\\b10 megabytes"
+   ],
+   "stale": [
+    "\\b25 megabytes"
+   ],
+   "keys": [
+    "f04-formvalidator-upload-limit"
+   ]
+  },
+  {
+   "id": "c04-rasterpool-7",
+   "class": 4,
+   "wording": "identifier",
+   "task": "How many workers should RasterPool run per node?",
+   "required": [
+    "\\b6 workers"
+   ],
+   "stale": [
+    "\\b16 workers"
+   ],
+   "keys": [
+    "f04-rasterpool-worker-count"
+   ]
+  },
+  {
+   "id": "c04-rasterpool-8",
+   "class": 4,
+   "wording": "paraphrase",
+   "task": "How many rasterization threads do we run on each tile rendering node?",
+   "required": [
+    "\\b6 workers"
+   ],
+   "stale": [
+    "\\b16 workers"
+   ],
+   "keys": [
+    "f04-rasterpool-worker-count"
+   ]
+  },
+  {
+   "id": "c04-chartrenderer-9",
+   "class": 4,
+   "wording": "symptom",
+   "task": "Charts in big reports time out or hang. What is the current ChartRenderer timeout supposed to be?",
+   "required": [
+    "\\b50 seconds"
+   ],
+   "stale": [
+    "\\b120 seconds"
+   ],
+   "keys": [
+    "f04-chartrenderer-render-timeout"
+   ]
+  },
+  {
+   "id": "c04-chartrenderer-10",
+   "class": 4,
+   "wording": "identifier",
+   "task": "What is the ChartRenderer render timeout?",
+   "required": [
+    "\\b50 seconds"
+   ],
+   "stale": [
+    "\\b120 seconds"
+   ],
+   "keys": [
+    "f04-chartrenderer-render-timeout"
+   ]
+  },
+  {
+   "id": "c06-audit-1",
+   "class": 6,
+   "wording": "identifier",
+   "task": "I am working in report-hub and need to read audit events emitted by AuditEmitter. What timestamp format and precision do AuditEvent records use?",
+   "required": [
+    "RFC 3339.*millisecond"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-cross-repo"
+   ],
+   "repo": "report-hub"
+  },
+  {
+   "id": "c06-audit-2",
+   "class": 6,
+   "wording": "symptom",
+   "task": "In tile-render we parse audit event times from the ledger and get ordering glitches within the same second. What format and precision does the ledger emit?",
+   "required": [
+    "RFC 3339.*millisecond"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-cross-repo"
+   ],
+   "repo": "tile-render"
+  },
+  {
+   "id": "c06-currency-3",
+   "class": 6,
+   "wording": "identifier",
+   "task": "In report-hub I am summing amounts from the ledger. How does CurrencyTable say monetary amounts are stored?",
+   "required": [
+    "integer minor units"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-currencytable-currency-precision"
+   ],
+   "repo": "report-hub"
+  },
+  {
+   "id": "c06-currency-4",
+   "class": 6,
+   "wording": "paraphrase",
+   "task": "Our intake-gateway has to accept money values and forward them to the ledger. In what form does the ledger keep amounts, in particular for currencies with unusual decimals?",
+   "required": [
+    "integer minor units"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-currencytable-currency-precision"
+   ],
+   "repo": "intake-gateway"
+  },
+  {
+   "id": "c06-trace-5",
+   "class": 6,
+   "wording": "identifier",
+   "task": "In report-hub, how should we propagate the trace id according to TraceHeader conventions?",
+   "required": [
+    "traceparent"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-traceheader-trace-propagation"
+   ],
+   "repo": "report-hub"
+  },
+  {
+   "id": "c06-trace-6",
+   "class": 6,
+   "wording": "symptom",
+   "task": "Traces from tile-render break at the gateway boundary and spans show up orphaned. How does the gateway carry the trace id?",
+   "required": [
+    "traceparent"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-traceheader-trace-propagation"
+   ],
+   "repo": "tile-render"
+  },
+  {
+   "id": "c06-tenant-7",
+   "class": 6,
+   "wording": "paraphrase",
+   "task": "In ledger-core I need to figure out which tenant a request belongs to, the way report-hub does it. Where does the tenant id come from?",
+   "required": [
+    "audience claim"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-tenantresolver-tenant-lookup"
+   ],
+   "repo": "ledger-core"
+  },
+  {
+   "id": "c06-tenant-8",
+   "class": 6,
+   "wording": "symptom",
+   "task": "A caller can read another tenant's data in ledger-core by changing the URL. How does report-hub's TenantResolver determine the tenant so we copy the safe approach?",
+   "required": [
+    "audience claim"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-tenantresolver-tenant-lookup"
+   ],
+   "repo": "ledger-core"
+  },
+  {
+   "id": "c06-envelope-9",
+   "class": 6,
+   "wording": "identifier",
+   "task": "In ledger-core, what response body format should errors follow per the tile-render ErrorEnvelope?",
+   "required": [
+    "problem\\+json"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-errorenvelope-error-format"
+   ],
+   "repo": "ledger-core"
+  },
+  {
+   "id": "c06-envelope-10",
+   "class": 6,
+   "wording": "paraphrase",
+   "task": "Our report-hub client cannot parse failures coming back from the tile service. What shape do its error responses have?",
+   "required": [
+    "problem\\+json"
+   ],
+   "stale": [],
+   "keys": [
+    "f06-errorenvelope-error-format"
+   ],
+   "repo": "report-hub"
+  },
+  {
+   "id": "c07-exporter-1",
+   "class": 7,
+   "wording": "identifier",
+   "task": "What page size does ArchiveExporter use, and why?",
+   "required": [
+    "\\b2,?000\\s*rows"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-scale"
+   ]
+  },
+  {
+   "id": "c07-exporter-2",
+   "class": 7,
+   "wording": "symptom",
+   "task": "Archive exports from report-hub die with gateway timeouts. How many rows per page should ArchiveExporter fetch?",
+   "required": [
+    "\\b2,?000\\s*rows"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-scale"
+   ]
+  },
+  {
+   "id": "c07-snapshot-3",
+   "class": 7,
+   "wording": "identifier",
+   "task": "How often does LedgerSnapshotter take snapshots and how long are they retained?",
+   "required": [
+    "every 6 hours.*14 days"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-ledgersnapshotter-snapshot-cadence"
+   ]
+  },
+  {
+   "id": "c07-snapshot-4",
+   "class": 7,
+   "wording": "paraphrase",
+   "task": "How frequently do we capture ledger state images, and for how long do we keep them?",
+   "required": [
+    "every 6 hours.*14 days"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-ledgersnapshotter-snapshot-cadence"
+   ]
+  },
+  {
+   "id": "c07-deduper-5",
+   "class": 7,
+   "wording": "identifier",
+   "task": "What is the dedup key in IntakeDeduper?",
+   "required": [
+    "client id.*request token"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-intakededuper-dedup-key"
+   ]
+  },
+  {
+   "id": "c07-deduper-6",
+   "class": 7,
+   "wording": "symptom",
+   "task": "Retried client requests are being processed twice at intake. What identifies a duplicate there?",
+   "required": [
+    "client id.*request token"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-intakededuper-dedup-key"
+   ]
+  },
+  {
+   "id": "c07-purger-7",
+   "class": 7,
+   "wording": "paraphrase",
+   "task": "When we clear out old tiles from the store, how many entries are removed per delete round?",
+   "required": [
+    "\\b5,?000 keys"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-tilepurger-purge-batch"
+   ]
+  },
+  {
+   "id": "c07-purger-8",
+   "class": 7,
+   "wording": "symptom",
+   "task": "The tile store is under heavy load every time the cleanup runs. What batch size does TilePurger use for deletes?",
+   "required": [
+    "\\b5,?000 keys"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-tilepurger-purge-batch"
+   ]
+  },
+  {
+   "id": "c07-coldmove-9",
+   "class": 7,
+   "wording": "identifier",
+   "task": "When does ReportArchiver move reports to cold storage?",
+   "required": [
+    "\\b90 days"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-reportarchiver-cold-storage-move"
+   ]
+  },
+  {
+   "id": "c07-coldmove-10",
+   "class": 7,
+   "wording": "paraphrase",
+   "task": "After how long without anyone opening a report do we relocate it to the cheap storage tier?",
+   "required": [
+    "\\b90 days"
+   ],
+   "stale": [],
+   "keys": [
+    "f07-reportarchiver-cold-storage-move"
+   ]
+  },
+  {
+   "id": "c10-sealer-1",
+   "class": 10,
+   "wording": "identifier",
+   "task": "What is the current seal batch size for LedgerSealer?",
+   "required": [
+    "\\b400 entries"
+   ],
+   "stale": [
+    "\\b900 entries"
+   ],
+   "keys": [
+    "f10-ledgersealer-seal-batch-size"
+   ]
+  },
+  {
+   "id": "c10-sealer-2",
+   "class": 10,
+   "wording": "paraphrase",
+   "task": "How many ledger entries do we group into one seal operation right now?",
+   "required": [
+    "\\b400 entries"
+   ],
+   "stale": [
+    "\\b900 entries"
+   ],
+   "keys": [
+    "f10-ledgersealer-seal-batch-size"
+   ]
+  },
+  {
+   "id": "c10-payout-3",
+   "class": 10,
+   "wording": "identifier",
+   "task": "What is the current fallback window for PayoutRouter?",
+   "required": [
+    "\\b4 minutes"
+   ],
+   "stale": [
+    "\\b25 minutes"
+   ],
+   "keys": [
+    "f10-payoutrouter-fallback-window"
+   ]
+  },
+  {
+   "id": "c10-payout-4",
+   "class": 10,
+   "wording": "symptom",
+   "task": "Payouts are stuck waiting before they switch to the backup rail. How long does the router wait before falling back at the moment?",
+   "required": [
+    "\\b4 minutes"
+   ],
+   "stale": [
+    "\\b25 minutes"
+   ],
+   "keys": [
+    "f10-payoutrouter-fallback-window"
+   ]
+  },
+  {
+   "id": "c10-quote-5",
+   "class": 10,
+   "wording": "paraphrase",
+   "task": "How often does the price quote cache refresh itself now?",
+   "required": [
+    "\\b95 seconds"
+   ],
+   "stale": [
+    "\\b(10|20|45) seconds"
+   ],
+   "keys": [
+    "f10-quotecache-refresh-period"
+   ]
+  },
+  {
+   "id": "c10-quote-6",
+   "class": 10,
+   "wording": "symptom",
+   "task": "Customers see outdated quotes on the tile-render side. What is the QuoteCache refresh period currently set to?",
+   "required": [
+    "\\b95 seconds"
+   ],
+   "stale": [
+    "\\b(10|20|45) seconds"
+   ],
+   "keys": [
+    "f10-quotecache-refresh-period"
+   ]
+  },
+  {
+   "id": "c10-tariff-7",
+   "class": 10,
+   "wording": "identifier",
+   "task": "What is the current TariffLoader reload interval?",
+   "required": [
+    "\\b140 minutes"
+   ],
+   "stale": [
+    "\\b(30|50|70) minutes"
+   ],
+   "keys": [
+    "f10-tariffloader-reload-interval"
+   ]
+  },
+  {
+   "id": "c10-tariff-8",
+   "class": 10,
+   "wording": "paraphrase",
+   "task": "How often are the tariff price sheets reloaded these days?",
+   "required": [
+    "\\b140 minutes"
+   ],
+   "stale": [
+    "\\b(30|50|70) minutes"
+   ],
+   "keys": [
+    "f10-tariffloader-reload-interval"
+   ]
+  },
+  {
+   "id": "c10-fraud-9",
+   "class": 10,
+   "wording": "symptom",
+   "task": "Too many legit payments get blocked by the fraud check. What score threshold does FraudScreen use now?",
+   "required": [
+    "\\b81 points"
+   ],
+   "stale": [
+    "\\b(55|60|65|70|72|75) points"
+   ],
+   "keys": [
+    "f10-fraudscreen-score-threshold"
+   ]
+  },
+  {
+   "id": "c10-mailer-10",
+   "class": 10,
+   "wording": "identifier",
+   "task": "What is the current send window for StatementMailer?",
+   "required": [
+    "\\b13 hours"
+   ],
+   "stale": [
+    "\\b(2|3|5|7|9|11) hours"
+   ],
+   "keys": [
+    "f10-statementmailer-send-window"
+   ]
+  },
+  {
+   "id": "c11-flusher-1",
+   "class": 11,
+   "wording": "identifier",
+   "task": "What flush lag limit does MeterFlusher use in the code today?",
+   "required": [
+    "\\b300 milliseconds"
+   ],
+   "stale": [
+    "\\b750 milliseconds"
+   ],
+   "keys": [
+    "f11-meterflusher-flush-lag-limit"
+   ]
+  },
+  {
+   "id": "c11-flusher-2",
+   "class": 11,
+   "wording": "paraphrase",
+   "task": "How far behind can the meter buffer get before it is forced out, as the system works now?",
+   "required": [
+    "\\b300 milliseconds"
+   ],
+   "stale": [
+    "\\b750 milliseconds"
+   ],
+   "keys": [
+    "f11-meterflusher-flush-lag-limit"
+   ]
+  },
+  {
+   "id": "c11-collector-3",
+   "class": 11,
+   "wording": "symptom",
+   "task": "Readings seem to be grouped over a different span than I remember. What reading window does ReadingCollector use currently?",
+   "required": [
+    "\\b5 minutes"
+   ],
+   "stale": [
+    "\\b15 minutes"
+   ],
+   "keys": [
+    "f11-readingcollector-reading-window"
+   ]
+  },
+  {
+   "id": "c11-collector-4",
+   "class": 11,
+   "wording": "identifier",
+   "task": "Which reading window should ReadingCollector use, according to what the code does today?",
+   "required": [
+    "\\b5 minutes"
+   ],
+   "stale": [
+    "\\b15 minutes"
+   ],
+   "keys": [
+    "f11-readingcollector-reading-window"
+   ]
+  },
+  {
+   "id": "c11-dedup-5",
+   "class": 11,
+   "wording": "identifier",
+   "task": "What dedup horizon does DedupFilter apply?",
+   "required": [
+    "\\b6 hours"
+   ],
+   "stale": [],
+   "keys": [
+    "f11-dedupfilter-dedup-horizon"
+   ]
+  },
+  {
+   "id": "c11-dedup-6",
+   "class": 11,
+   "wording": "symptom",
+   "task": "Duplicate meter events slip through when they arrive late. How far back does DedupFilter look for duplicates?",
+   "required": [
+    "\\b6 hours"
+   ],
+   "stale": [],
+   "keys": [
+    "f11-dedupfilter-dedup-horizon"
+   ]
+  },
+  {
+   "id": "c11-retrier-7",
+   "class": 11,
+   "wording": "paraphrase",
+   "task": "What share of upload attempts may be retries before we stop retrying?",
+   "required": [
+    "\\b12\\s*(percent|%)"
+   ],
+   "stale": [],
+   "keys": [
+    "f11-uploadretrier-retry-budget"
+   ]
+  },
+  {
+   "id": "c11-retrier-8",
+   "class": 11,
+   "wording": "symptom",
+   "task": "Uploads from the meter service are hammering the backend with retries. What retry budget does UploadRetrier have?",
+   "required": [
+    "\\b12\\s*(percent|%)"
+   ],
+   "stale": [],
+   "keys": [
+    "f11-uploadretrier-retry-budget"
+   ]
+  },
+  {
+   "id": "c11-batchsealer-9",
+   "class": 11,
+   "wording": "paraphrase",
+   "task": "How often does the meter batch get closed off at the moment?",
+   "required": [
+    "\\b25 seconds"
+   ],
+   "stale": [
+    "seal interval\\D{0,15}\\b40 seconds"
+   ],
+   "keys": [
+    "f11-batchsealer-seal-interval"
+   ]
+  },
+  {
+   "id": "c11-skew-10",
+   "class": 11,
+   "wording": "identifier",
+   "task": "What skew tolerance is configured in SkewGuard?",
+   "required": [
+    "\\b200 milliseconds"
+   ],
+   "stale": [],
+   "keys": [
+    "f11-skewguard-skew-tolerance"
+   ]
+  },
+  {
+   "id": "c12-cutoff-1",
+   "class": 12,
+   "wording": "identifier",
+   "task": "What is the current SettlementClock cutoff time?",
+   "required": [
+    "14:59"
+   ],
+   "stale": [
+    "\\b(13:00|13:49|14:38|15:27|13:28|14:17|15:06|13:07|13:56|14:45|15:34|13:35|14:24|15:13|13:14|14:03|14:52|15:41|13:42|14:31|15:20|13:21|14:10)\\s*UTC"
+   ],
+   "keys": [
+    "f12-settlementclock-cutoff-time"
+   ]
+  },
+  {
+   "id": "c12-cutoff-2",
+   "class": 12,
+   "wording": "symptom",
+   "task": "A batch of payments missed today's settlement. When exactly is the SettlementClock cutoff right now?",
+   "required": [
+    "14:59"
+   ],
+   "stale": [
+    "\\b(13:00|13:49|14:38|15:27|13:28|14:17|15:06|13:07|13:56|14:45|15:34|13:35|14:24|15:13|13:14|14:03|14:52|15:41|13:42|14:31|15:20|13:21|14:10)\\s*UTC"
+   ],
+   "keys": [
+    "f12-settlementclock-cutoff-time"
+   ]
+  },
+  {
+   "id": "c12-burst-3",
+   "class": 12,
+   "wording": "paraphrase",
+   "task": "What is the maximum burst of export requests we allow at present?",
+   "required": [
+    "\\b540 requests"
+   ],
+   "stale": [
+    "\\b(?!540\\b)\\d+\\s*requests"
+   ],
+   "keys": [
+    "f12-exportthrottle-burst-ceiling"
+   ]
+  },
+  {
+   "id": "c12-burst-4",
+   "class": 12,
+   "wording": "identifier",
+   "task": "What burst ceiling is set for ExportThrottle?",
+   "required": [
+    "\\b540 requests"
+   ],
+   "stale": [
+    "\\b(?!540\\b)\\d+\\s*requests"
+   ],
+   "keys": [
+    "f12-exportthrottle-burst-ceiling"
+   ]
+  },
+  {
+   "id": "c12-retention-5",
+   "class": 12,
+   "wording": "symptom",
+   "task": "Ops wants to know how long old ledger data is kept before archiving removes it. What is the LedgerArchiver retention window now?",
+   "required": [
+    "\\b87 days"
+   ],
+   "stale": [
+    "\\b(36|45|54|63|72|81|30|39|48|57|66|75|84|33|42|51|60|69|78)\\s*days"
+   ],
+   "keys": [
+    "f12-ledgerarchiver-retention-window"
+   ]
+  },
+  {
+   "id": "c12-retention-6",
+   "class": 12,
+   "wording": "paraphrase",
+   "task": "For how many days do we hold on to archived ledger records at the moment?",
+   "required": [
+    "\\b87 days"
+   ],
+   "stale": [
+    "\\b(36|45|54|63|72|81|30|39|48|57|66|75|84|33|42|51|60|69|78)\\s*days"
+   ],
+   "keys": [
+    "f12-ledgerarchiver-retention-window"
+   ]
+  },
+  {
+   "id": "c12-warmset-7",
+   "class": 12,
+   "wording": "identifier",
+   "task": "What warm set size is TileWarmer configured with?",
+   "required": [
+    "\\b610 tiles"
+   ],
+   "stale": [
+    "\\b(270|530|790|450|710|370|630|290|550|210|470|730|390|650|310|570|230|490|750|410|670|330|590|250|510|770|430|690|350)\\s*tiles"
+   ],
+   "keys": [
+    "f12-tilewarmer-warm-set-size"
+   ]
+  },
+  {
+   "id": "c12-warmset-8",
+   "class": 12,
+   "wording": "symptom",
+   "task": "Cold start latency on tile-render is high. How many tiles does TileWarmer keep warm currently?",
+   "required": [
+    "\\b610 tiles"
+   ],
+   "stale": [
+    "\\b(270|530|790|450|710|370|630|290|550|210|470|730|390|650|310|570|230|490|750|410|670|330|590|250|510|770|430|690|350)\\s*tiles"
+   ],
+   "keys": [
+    "f12-tilewarmer-warm-set-size"
+   ]
+  },
+  {
+   "id": "c12-breaker-9",
+   "class": 12,
+   "wording": "paraphrase",
+   "task": "After how many errors does the gateway circuit breaker open at this time?",
+   "required": [
+    "\\b53 failures"
+   ],
+   "stale": [
+    "\\b(?!53\\b)\\d+\\s*failures"
+   ],
+   "keys": [
+    "f12-gatewaybreaker-trip-threshold"
+   ]
+  },
+  {
+   "id": "c12-breaker-10",
+   "class": 12,
+   "wording": "identifier",
+   "task": "What is the GatewayBreaker trip threshold?",
+   "required": [
+    "\\b53 failures"
+   ],
+   "stale": [
+    "\\b(?!53\\b)\\d+\\s*failures"
+   ],
+   "keys": [
+    "f12-gatewaybreaker-trip-threshold"
+   ]
+  },
+  {
+   "id": "c13-watermark-1",
+   "class": 13,
+   "wording": "identifier",
+   "task": "What does `ingest.backpressure.high_watermark` mean for IngestGate and what value is it set to?",
+   "required": [
+    "\\b1,?800 messages"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-ingest-backpressure-high-watermark"
+   ]
+  },
+  {
+   "id": "c13-watermark-2",
+   "class": 13,
+   "wording": "paraphrase",
+   "task": "Intake starts rejecting senders when its queue is too deep. At what queue depth does it start pushing back?",
+   "required": [
+    "\\b1,?800 messages"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-ingest-backpressure-high-watermark"
+   ]
+  },
+  {
+   "id": "c13-digestmismatch-3",
+   "class": 13,
+   "wording": "identifier",
+   "task": "We see `ERR_SEAL_DIGEST_MISMATCH` from SealVerifier. What should we do?",
+   "required": [
+    "rebuild the seal digest index"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-err-seal-digest-mismatch"
+   ]
+  },
+  {
+   "id": "c13-digestmismatch-4",
+   "class": 13,
+   "wording": "symptom",
+   "task": "Seal verification keeps failing on the ledger after a journal replay with a digest mismatch. What is the remedy?",
+   "required": [
+    "rebuild the seal digest index"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-err-seal-digest-mismatch"
+   ]
+  },
+  {
+   "id": "c13-parallelpages-5",
+   "class": 13,
+   "wording": "identifier",
+   "task": "What does `report.render.max_parallel_pages` control for PageComposer and what is its value?",
+   "required": [
+    "\\b6 pages"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-report-render-max-parallel-pages"
+   ]
+  },
+  {
+   "id": "c13-parallelpages-6",
+   "class": 13,
+   "wording": "paraphrase",
+   "task": "How many pages of a report may be composed simultaneously?",
+   "required": [
+    "\\b6 pages"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-report-render-max-parallel-pages"
+   ]
+  },
+  {
+   "id": "c13-e4417-7",
+   "class": 13,
+   "wording": "identifier",
+   "task": "CursorExporter fails with `E4417 cursor token expired`. How do we recover?",
+   "required": [
+    "last committed cursor"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-e4417-cursor-token-expired"
+   ]
+  },
+  {
+   "id": "c13-e4417-8",
+   "class": 13,
+   "wording": "symptom",
+   "task": "A long running export died halfway because its paging cursor timed out. How should we resume it?",
+   "required": [
+    "last committed cursor"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-e4417-cursor-token-expired"
+   ]
+  },
+  {
+   "id": "c13-overdraft-9",
+   "class": 13,
+   "wording": "symptom",
+   "task": "Accounts that go slightly over quota get blocked instantly instead of getting some leeway. What does `quota.overdraft.grace_seconds` allow in QuotaLedger?",
+   "required": [
+    "\\b90 seconds"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-quota-overdraft-grace-seconds"
+   ]
+  },
+  {
+   "id": "c13-chain-10",
+   "class": 13,
+   "wording": "paraphrase",
+   "task": "Signing a tile bundle is refused because the certificate chain has too few links. What do we need to do?",
+   "required": [
+    "intermediate certificate"
+   ],
+   "stale": [],
+   "keys": [
+    "f13-sig-chain-too-short"
+   ]
+  }
+ ]
+}

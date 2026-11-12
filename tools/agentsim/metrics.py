@@ -6,6 +6,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from agentsim import grading
+from agentsim.accounting import turn_overhead
 from agentsim.corpus import Task
 from agentsim.policy import NONE_FOUND, OUT_OF_SCOPE_CLASS
 from agentsim.profiles import DAILY, LOAD, SAVE, SEARCH, START, Profile, RunState
@@ -31,6 +33,12 @@ class Outcome:
     related_names_answer: bool | None
     save_refusals: int
     save_warnings: int
+    stale_seen: bool | None = None
+    answer_sources: tuple[str, ...] = ()
+    answered: bool | None = None
+    opened_answer: bool | None = None
+    correct_newest_rule: bool | None = None
+    required_ok: bool | None = None
 
 
 def _stale_avoided(task: Task, context: str) -> bool | None:
@@ -48,8 +56,15 @@ def _stale_avoided(task: Task, context: str) -> bool | None:
 
 
 def outcome(
-    task: Task, profile: Profile, transcript: Transcript, state: RunState | None, store_written: bool | None = None
+    task: Task,
+    profile: Profile,
+    transcript: Transcript,
+    state: RunState | None,
+    store_written: bool | None = None,
+    subjects: dict[str, str] | None = None,
 ) -> Outcome:
+    if task.required:
+        return _graded(task, profile, transcript, state, subjects or {})
     context = transcript.context()
     has_answer = bool(task.quote)
     quoted = task.quote in context if has_answer else None
@@ -96,6 +111,43 @@ def outcome(
     )
 
 
+NEWEST_RULE = frozenset({"grep-guided"})
+
+
+def _graded(task: Task, profile: Profile, transcript: Transcript, state: RunState | None, subjects) -> Outcome:
+    """An authored instance, graded literally by its regexes; only G+, told to prefer the newest note,
+    is graded newest-first. E's newest-first grade is a sensitivity figure, never its score."""
+    required = grading.compile_all(task.required)
+    stale = grading.compile_all(task.stale_patterns)
+    result = grading.grade(transcript, required, stale, newest_only=profile.name in NEWEST_RULE, subjects=subjects)
+    sensitivity = None
+    if profile.condition == "engmem":
+        sensitivity = grading.grade(transcript, required, stale, newest_only=True, subjects=subjects).correct
+    answered = bool(result.answer_sources)
+    saved = state.saved if state is not None and profile.saves and not state.skipped else None
+    return Outcome(
+        reached=None,
+        quoted=None,
+        pitfall_avoided=None,
+        stale_avoided=result.stale_avoided if task.stale_patterns and answered else None,
+        none_found_said=None,
+        skipped=state.skipped if state is not None else None,
+        correct=result.correct,
+        saved=saved,
+        citation_valid=None,
+        reuse_row_correct=None,
+        related_names_answer=None,
+        save_refusals=state.save_refusals if state is not None else 0,
+        save_warnings=state.save_text.count("warning:") if state is not None else 0,
+        stale_seen=result.stale_seen if task.stale_patterns else None,
+        answer_sources=result.answer_sources,
+        answered=answered,
+        opened_answer=any(doc in result.opened for doc in task.answer_docs),
+        correct_newest_rule=sensitivity,
+        required_ok=result.required_ok,
+    )
+
+
 def observed_bytes(store: Path, session_id: str | None) -> int | None:
     """What engmem itself recorded as delivered to the session in `cost.jsonl`; with no session
     id, what it recorded unattributed, which in a fresh store is the daily run's own."""
@@ -122,7 +174,14 @@ def cost(transcript: Transcript) -> dict:
     save_template = transcript.bytes_of(TEMPLATE, SAVE)
     to_answer_bytes = retrieval_bytes + transcript.bytes_of(TEMPLATE, START)
     save_bytes = save_template + transcript.bytes_of(TOOL, SAVE)
+    answer_turns = turn_overhead(transcript.steps, (START, SEARCH, LOAD))
+    session_turns = turn_overhead(transcript.steps, (START, SEARCH, LOAD, SAVE))
     return {
+        "turns": answer_turns["turns"],
+        "turn_tokens": answer_turns["plain"],
+        "turn_tokens_cached": answer_turns["cached"],
+        "save_turn_tokens": session_turns["plain"] - answer_turns["plain"],
+        "save_turn_tokens_cached": session_turns["cached"] - answer_turns["cached"],
         "to_answer_bytes": to_answer_bytes,
         "to_answer_tokens": tokens(to_answer_bytes),
         "to_answer_calls": transcript.calls(START) + transcript.calls(SEARCH) + transcript.calls(LOAD),

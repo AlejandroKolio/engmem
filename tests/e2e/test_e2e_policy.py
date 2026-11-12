@@ -34,7 +34,7 @@ docs: 71 | drafts: 0 | last doc: 16d ago
 
 def test_key_terms_drop_stopwords_and_repeats_and_keep_identifiers():
     terms = policy.key_terms("Set the connection pool size for the ReportStore client and the pool")
-    assert terms == ["connection", "pool", "size", "ReportStore", "client"]
+    assert terms == ["ReportStore", "connection", "pool", "size", "client"]
 
 
 def test_key_terms_are_capped():
@@ -45,21 +45,29 @@ def test_component_terms_are_the_touched_file_names():
     assert policy.component_terms(("src/map/MapWidget.ts", "TileCache.ts")) == ["MapWidget", "TileCache"]
 
 
+def test_e_reads_primer_and_decisions_only_as_the_daily_template_says():
+    assert policy.READ_ROLES == ("primer", "decisions")
+    assert not hasattr(policy, "role_for") and not hasattr(policy, "ROLE_WORDS")
+
+
 @pytest.mark.parametrize(
-    ("description", "role"),
+    ("description", "first"),
     [
-        ("list the pitfalls we hit before", "lessons"),
-        ("what was rejected last time", "decisions"),
-        ("Set the connection pool size", None),
+        ("What is ingest.backpressure.high_watermark set to?", "ingest.backpressure.high_watermark"),
+        ("Replay stops with ERR_SEAL_DIGEST_MISMATCH again", "ERR_SEAL_DIGEST_MISMATCH"),
+        ("What does `E4417 cursor token expired` mean here?", "E4417 cursor token expired"),
+        ("tune the ReadingCollector window", "ReadingCollector"),
     ],
+    ids=["dotted", "snake", "backticked", "camel"],
 )
-def test_a_role_search_only_when_the_task_names_a_kind_of_section(description, role):
-    assert policy.role_for(description) == role
+def test_an_identifier_goes_first_and_verbatim_into_the_query(description, first):
+    assert policy.key_terms(description)[0] == first
 
 
-def test_the_asked_role_is_read_beside_the_template_minimum():
-    assert policy.read_roles("list the pitfalls we hit") == ("primer", "decisions", "lessons")
-    assert policy.read_roles("Set the pool size") == ("primer", "decisions")
+def test_identifiers_do_not_count_toward_the_word_cap():
+    description = "ReportStore " + " ".join(f"word{i}x" for i in range(20))
+    terms = policy.key_terms(description)
+    assert terms[0] == "ReportStore" and len(terms) == policy.MAX_KEY_TERMS + 1
 
 
 @pytest.mark.parametrize(
@@ -144,3 +152,23 @@ def test_the_scope_gate_skips_only_the_non_engineering_task(task):
 def test_the_scope_gate_continues_when_no_word_says_otherwise():
     assert policy.engineering_task("Tidy the export module")
     assert not policy.engineering_task("Draft a blog post about our release")
+
+
+CHAIN_OUTPUT = """### 20260103-other (score: 5.1)
+matched: id=window
+
+20250210-old-r1  [weak candidate]: superseded by 20250211-old-r2 → 20260520-renamed-hold
+
+### 20260520-renamed-hold (successor)
+snapshot: x: unknown, no anchor recorded
+The renamed hold is 4 minutes.
+"""
+
+
+def test_a_successor_block_is_read_with_the_redirect_that_leads_to_it_and_the_chain_end():
+    view = policy.read_search(CHAIN_OUTPUT)
+    assert view.order == ["20260103-other", "20260520-renamed-hold"]
+    assert view.redirects == {"20250210-old-r1": "20260520-renamed-hold"}
+    assert "20250210-old-r1" in view.blocks["20260520-renamed-hold"]
+    assert "20250210-old-r1" not in view.blocks["20260103-other"]
+    assert policy.documents_to_load(view, ["old", "hold"]) == ["20260520-renamed-hold"]

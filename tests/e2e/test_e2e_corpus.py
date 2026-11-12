@@ -7,12 +7,14 @@ import random
 
 import pytest
 
-from agentsim import corpus
+from agentsim import corpus, factset
 from engmem.spine import load_store
 
 pytestmark = pytest.mark.e2e
 
-CORE_IDS = {doc.id for doc in corpus.core_docs(random.Random(corpus.SEED))}
+CORE_IDS = {doc.id for doc in corpus.core_docs(random.Random(corpus.SEED))} | {
+    doc.id for doc in factset.class_docs(random.Random(corpus.CLASS_SEED))[0]
+}
 
 
 @pytest.fixture(scope="module")

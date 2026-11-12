@@ -15,13 +15,6 @@ STOPWORDS = frozenset(
     """.split()
 )
 MAX_KEY_TERMS = 8
-ROLE_WORDS = {
-    "pitfall": "lessons",
-    "pitfalls": "lessons",
-    "rejected": "decisions",
-    "tested": "testing",
-    "rollback": "production",
-}
 OUT_OF_SCOPE_CLASS = 9
 OUT_OF_SCOPE_WORDS = frozenset(
     """
@@ -36,23 +29,41 @@ RESULTS_SHOWN = 3
 RELEVANT_TERMS = 2
 RELEVANT_COMPONENTS = 1
 NONE_FOUND = "prior context: none found"
-SUPERSEDED_LINE = re.compile(r"^(\S+): superseded by (\S+)", re.MULTILINE)
-HEADING = re.compile(r"^### (\S+) \(score", re.MULTILINE)
+SUPERSEDED_LINE = re.compile(r"^(\S+)(?:\s+\[weak candidate\])?: superseded by (.+)$", re.MULTILINE)
+HEADING = re.compile(r"^### (\S+) \((?:score|successor)", re.MULTILINE)
 CITE_AS = re.compile(r"^cite as \(Reuse Log prior-doc\): (.+)$", re.MULTILINE)
 RELATED = re.compile(r"^related: (.+)$", re.MULTILINE)
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+_IDENTIFIER = re.compile(
+    r"`([^`]+)`"
+    r"|\b[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\b"
+    r"|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b"
+    r"|\b[A-Za-z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b"
+)
 _CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
 
+def identifiers(description: str) -> list[str]:
+    """Backticked text, dotted names, SCREAMING_SNAKE and CamelCase tokens, verbatim, in order."""
+    found: list[str] = []
+    for match in _IDENTIFIER.finditer(description):
+        token = match.group(1) or match.group(0)
+        if token.lower() not in (f.lower() for f in found):
+            found.append(token)
+    return found
+
+
 def key_terms(description: str) -> list[str]:
-    """The task's words minus stopwords, in order, without repeats; at most `MAX_KEY_TERMS`."""
-    seen: list[str] = []
+    """The task's identifiers first and verbatim, then its words minus stopwords, in order, without
+    repeats; the words are capped at `MAX_KEY_TERMS`, the identifiers are not."""
+    named = identifiers(description)
+    words: list[str] = []
     for word in _WORD.findall(description):
         if word.lower() in STOPWORDS or len(word) < 3:
             continue
-        if word.lower() not in (s.lower() for s in seen):
-            seen.append(word)
-    return seen[:MAX_KEY_TERMS]
+        if word.lower() not in (s.lower() for s in [*named, *words]):
+            words.append(word)
+    return named + words[:MAX_KEY_TERMS]
 
 
 def engineering_task(description: str) -> bool:
@@ -63,22 +74,6 @@ def engineering_task(description: str) -> bool:
 def component_terms(files: tuple[str, ...]) -> list[str]:
     """The second query: the names of the files the task touches, as the agent sees them."""
     return [path.rsplit("/", 1)[-1].split(".", 1)[0] for path in files]
-
-
-def role_for(description: str) -> str | None:
-    """A role search when the task names a kind of section, as the role tool's description says."""
-    for word in _WORD.findall(description.lower()):
-        if word in ROLE_WORDS:
-            return ROLE_WORDS[word]
-    return None
-
-
-def read_roles(description: str) -> tuple[str, ...]:
-    """Primer and decisions, as the template's minimum, plus the role the task asked about."""
-    role = role_for(description)
-    if role is None or role in READ_ROLES:
-        return READ_ROLES
-    return (*READ_ROLES, role)
 
 
 def term_visible(term: str, text: str) -> bool:
@@ -132,27 +127,36 @@ def _related_targets(line: str) -> list[str]:
     return targets
 
 
+def _chain_end(chain: str) -> str:
+    """The last id of a redirect's chain `b → c → d`, without a trailing note in brackets."""
+    return chain.split(" → ")[-1].split(" ", 1)[0]
+
+
 def read_search(text: str) -> SearchView:
-    """Result blocks in rank order, their `cite as` references, redirects and related ids."""
+    """Result blocks in rank order, their `cite as` references, redirects to the end of each chain,
+    and related ids. A successor block is read together with the redirect lines that lead to it."""
+    redirect_lines = {m.group(1): (_chain_end(m.group(2)), m.group(0)) for m in SUPERSEDED_LINE.finditer(text)}
     starts = [(m.start(), m.group(1)) for m in HEADING.finditer(text)]
     blocks: dict[str, str] = {}
     related: dict[str, list[str]] = {}
     for index, (start, doc_id) in enumerate(starts):
         end = starts[index + 1][0] if index + 1 < len(starts) else len(text)
         block = text[start:end]
-        blocks[doc_id] = block
+        cut = SUPERSEDED_LINE.search(block)
+        block = block[: cut.start()] if cut else block
+        leading = [line for target, line in redirect_lines.values() if target == doc_id]
+        blocks[doc_id] = "\n".join([*leading, block])
         match = RELATED.search(block)
         if match:
             related[doc_id] = _related_targets(match.group(1))
     citations: dict[str, str] = {}
     for match in CITE_AS.finditer(text):
         citations.update(_split_cite(match.group(1)))
-    redirects = {m.group(1): m.group(2) for m in SUPERSEDED_LINE.finditer(text)}
     return SearchView(
         blocks=blocks,
         order=[doc_id for _, doc_id in starts],
         citations=citations,
-        redirects=redirects,
+        redirects={doc_id: target for doc_id, (target, _) in redirect_lines.items()},
         related=related,
     )
 

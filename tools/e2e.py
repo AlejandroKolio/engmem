@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from agentsim import corpus, harness, live, report
+import json
+
+from agentsim import corpus, decision, harness, instances, live, phase4, report
+from agentsim.padding import DEFAULT_DOC_SIZE, DOC_SIZES
 from agentsim.sandbox import ForbiddenPath, allow, check_allowed
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -76,32 +80,101 @@ def cmd_generate(args: argparse.Namespace) -> int:
     _allow(args)
     out = check_allowed(Path(args.out))
     check_disk(out, args.scale_filler, 1)
-    generated = corpus.generate(out, filler=args.filler, scale_filler=args.scale_filler)
+    generated = corpus.generate(out, filler=args.filler, scale_filler=args.scale_filler, doc_size=args.doc_size)
     print(f"stores: {', '.join(str(p) for p in generated.stores.values())}")
     print(f"tasks: {out / 'tasks.json'}")
+    print(f"facts: {out / 'facts.json'}")
     return 0
+
+
+def cmd_facts(args: argparse.Namespace) -> int:
+    """Only the facts file a blind author works from, beside nothing else of the corpus."""
+    _allow(args)
+    out = check_allowed(Path(args.out))
+    from agentsim import factset
+
+    factset.write_facts(out / "facts.json", corpus.all_facts(), args.doc_size)
+    print(f"facts: {out / 'facts.json'}")
+    return 0
+
+
+def cmd_phase4(args: argparse.Namespace) -> int:
+    _allow(args)
+    out = check_allowed(Path(args.out) if args.out else _default_out("phase4"))
+    sizes = tuple(args.doc_size or (DEFAULT_DOC_SIZE,))
+    check_disk(out, corpus.SCALE_FILLER * len(sizes), len(phase4.PROFILES) + 2)
+    try:
+        document = phase4.run(out, Path(args.instances), sizes, smoke=args.smoke, progress=lambda r: print(
+            f"{r['task']:>16} {r['profile']:<14} correct={r['outcome']['correct']!s:<5} "
+            f"tokens={r['cost']['to_answer_tokens']}", flush=True))
+    except phase4.InstancesRefused as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    (out / "phase4-results.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (out / "phase4-report.md").write_text(phase4.render(document), encoding="utf-8", newline="\n")
+    if not args.keep_sandboxes:
+        shutil.rmtree(out / "check", ignore_errors=True)
+        for size in sizes:
+            for name in ("sandboxes", "corpus"):
+                shutil.rmtree(out / size / name, ignore_errors=True)
+    print(f"report: {out / 'phase4-report.md'}")
+    return 0
+
+
+def _live_tasks(path: Path) -> tuple[list, bool]:
+    instance_set, facts = phase4.load(path)
+    with tempfile.TemporaryDirectory(prefix="engmem-e2e-check-") as root:
+        phase4.check_against_stores(instance_set, facts, Path(root))
+    handoff = [t for t in corpus.tasks() if t.saver]
+    return instances.tasks_of(instance_set, facts) + handoff, instance_set.provisional
 
 
 def cmd_live(args: argparse.Namespace) -> int:
     _allow(args)
-    out = check_allowed(Path(args.out) if args.out else _default_out("live"))
-    tasks = [t for t in corpus.tasks() if t.id in (_csv(args.tasks) or [t.id for t in corpus.tasks()]) and not t.saver]
-    runs = live.plan(tasks, list(_csv(args.agents) or live.AGENTS), list(_csv(args.conditions) or live.CONDITIONS))
-    est = live.estimate(
-        runs, seconds_per_run=args.seconds_per_run, tokens_per_run=args.tokens_per_run, usd_per_mtok=args.usd_per_mtok
-    )
-    print(live.dry_run(runs, est, out), end="")
+    out = check_allowed(Path(args.out) if args.out else live.default_out(f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"))
+    try:
+        tasks, provisional = _live_tasks(Path(args.instances))
+    except phase4.InstancesRefused as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    agents = list(_csv(args.agents) or ("claude",))
+    stage = "pilot" if args.pilot else args.stage
+    print(live.dry_run(tasks, agents, args.model, out, stage=stage, provisional=provisional), end="")
     if not args.execute:
-        print("dry run only: pass --execute --i-accept-the-cost --pilot to start the one-scenario pilot")
+        print("dry run only: pass --execute --i-accept-the-cost --pilot to start the pilot")
         return 0
+    chosen, repeats = live.stage_tasks(tasks, stage)
+    runs = live.plan(chosen, agents, repeats=repeats, model=args.model)
     try:
         results = live.execute(
-            runs, out, confirmed=args.accept_cost, pilot=args.pilot, pass_env=list(_csv(args.pass_env) or ())
+            runs, out, confirmed=args.accept_cost, pilot=stage == "pilot",
+            pass_env=list(_csv(args.pass_env) or ()), doc_size=args.doc_size, provisional=provisional,
         )
     except live.LiveRunRefused as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"{len(results)} live run(s) written under {out}")
+    return 0
+
+
+def cmd_analyse(args: argparse.Namespace) -> int:
+    results = json.loads(Path(args.results).read_text(encoding="utf-8"))
+    by_agent: dict[str, list] = {}
+    for record in results:
+        by_agent.setdefault(record["agent"], []).append(record)
+    verdicts = {}
+    for agent, records in by_agent.items():
+        rows, left_out = live.analysis_records(records)
+        for scope, label in (("analysis", "never started, left out"), ("cost", "unpriced, left out of the cost ratio only")):
+            counts = live.excluded_per_arm(left_out, scope)
+            print(f"runs {label}, per arm: " + (", ".join(f"{arm}: {n}" for arm, n in sorted(counts.items())) or "none"))
+        e_vs_plus = decision.analyse(rows, "E", "G+")
+        plus_vs_g = decision.analyse(rows, "G+", "G")
+        verdicts[agent] = e_vs_plus
+        print(f"## {agent}\n")
+        print(decision.render(e_vs_plus, plus_vs_g))
+    claims = decision.general_claims(verdicts)
+    print("General claims (same direction in every agent): " + (", ".join(f"{k}: {v}" for k, v in claims.items()) or "none"))
     return 0
 
 
@@ -126,25 +199,43 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--keep-sandboxes", action="store_true", help="keep the stores and sandboxes after the run")
     run.set_defaults(func=cmd_run)
 
-    generate = commands.add_parser(parents=[allow_out], name="generate", help="write the synthetic stores and tasks.json only")
+    generate = commands.add_parser(parents=[allow_out], name="generate", help="write the synthetic stores, tasks.json and facts.json")
     generate.add_argument("--out", required=True)
     generate.add_argument("--filler", type=int, default=corpus.DEFAULT_FILLER)
     generate.add_argument("--scale-filler", type=int, default=corpus.SCALE_FILLER)
+    generate.add_argument("--doc-size", choices=tuple(DOC_SIZES), default=DEFAULT_DOC_SIZE)
     generate.set_defaults(func=cmd_generate)
+
+    facts = commands.add_parser(parents=[allow_out], name="facts", help="write facts.json, the blind author's only input")
+    facts.add_argument("--out", required=True)
+    facts.add_argument("--doc-size", choices=tuple(DOC_SIZES), default=DEFAULT_DOC_SIZE)
+    facts.set_defaults(func=cmd_facts)
+
+    p4 = commands.add_parser(parents=[allow_out], name="phase4", help="Layer 1 on authored instances, every arm")
+    p4.add_argument("--out", help="results directory (default: .tmp/e2e/phase4-<time>)")
+    p4.add_argument("--instances", default=str(instances.default_file()), help="the task-instance file (default: the blind set)")
+    p4.add_argument("--doc-size", action="append", choices=tuple(DOC_SIZES),
+                    help=f"repeatable; default {DEFAULT_DOC_SIZE}; two or more report the crossover")
+    p4.add_argument("--smoke", action="store_true", help="the reduced plan the default test suite runs")
+    p4.add_argument("--keep-sandboxes", action="store_true")
+    p4.set_defaults(func=cmd_phase4)
 
     live_parser = commands.add_parser(parents=[allow_out], name="live", help="Layer 2: real agents; prints the plan unless --execute")
     live_parser.add_argument("--out")
-    live_parser.add_argument("--tasks")
-    live_parser.add_argument("--agents", help=f"comma-separated, from {', '.join(live.AGENTS)}")
-    live_parser.add_argument("--conditions", help=f"comma-separated, from {', '.join(live.CONDITIONS)}")
-    live_parser.add_argument("--seconds-per-run", type=int, default=live.DEFAULT_SECONDS_PER_RUN)
-    live_parser.add_argument("--tokens-per-run", type=int, default=live.DEFAULT_TOKENS_PER_RUN)
-    live_parser.add_argument("--usd-per-mtok", type=float, default=None)
+    live_parser.add_argument("--instances", default=str(instances.default_file()), help="default: the blind set")
+    live_parser.add_argument("--agents", help=f"comma-separated, from {', '.join(live.AGENTS)} (default claude)")
+    live_parser.add_argument("--model", default=live.DEFAULT_MODEL, help="pinned for every session and recorded")
+    live_parser.add_argument("--stage", choices=live.STAGES, default="pilot")
+    live_parser.add_argument("--doc-size", choices=tuple(DOC_SIZES), default=DEFAULT_DOC_SIZE)
     live_parser.add_argument("--execute", action="store_true", help="start agents (never the default)")
     live_parser.add_argument("--i-accept-the-cost", dest="accept_cost", action="store_true")
-    live_parser.add_argument("--pilot", action="store_true", help="run the first planned run only")
+    live_parser.add_argument("--pilot", action="store_true", help="the pilot stage: the first task, once per arm")
     live_parser.add_argument("--pass-env", help="comma-separated variables passed into the sandbox, e.g. an API key")
     live_parser.set_defaults(func=cmd_live)
+
+    analyse = commands.add_parser(name="analyse", help="the pre-registered decision rules over live results")
+    analyse.add_argument("--results", required=True)
+    analyse.set_defaults(func=cmd_analyse)
     return parser
 
 

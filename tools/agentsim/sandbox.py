@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agentsim.gitfixture import Commit, commit_ids
 from engmem import runtime
 
 PROTECT_ENV = "ENGMEM_E2E_PROTECT"
@@ -51,6 +52,14 @@ _GIT_IDENTITY = {
 }
 ENGMEM_BIN = Path(sys.executable).parent / ("engmem.exe" if sys.platform == "win32" else "engmem")
 SUBPROCESS_TIMEOUT = 120
+TIMED_OUT = 124
+
+
+def _text(value) -> str:
+    """Output a timed-out process left, whether the runtime hands it over as bytes or text."""
+    if value is None:
+        return ""
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
 def protected_roots(environ: Mapping[str, str] | None = None) -> tuple[Path, ...]:
@@ -220,7 +229,13 @@ class Sandbox:
         return env
 
     def run(
-        self, argv: list[str], *, stdin: str | None = None, cwd: Path | None = None, timeout: float = SUBPROCESS_TIMEOUT
+        self,
+        argv: list[str],
+        *,
+        stdin: str | None = None,
+        cwd: Path | None = None,
+        timeout: float = SUBPROCESS_TIMEOUT,
+        extra_env: Mapping[str, str] | None = None,
     ) -> Completed:
         """Runs `argv` inside the sandbox; a failure to start or a timeout is reported, never raised."""
         started = time.perf_counter()
@@ -229,15 +244,17 @@ class Sandbox:
                 argv,
                 input=stdin,
                 cwd=cwd or self.root,
-                env=self.env,
+                env={**self.env, **(extra_env or {})},
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
             )
-        except subprocess.TimeoutExpired:
-            return Completed("", f"timed out after {timeout} s", 124, time.perf_counter() - started)
+        except subprocess.TimeoutExpired as exc:
+            partial = _text(exc.stdout)
+            note = f"timed out after {timeout} s"
+            return Completed(partial, _text(exc.stderr) + note, TIMED_OUT, time.perf_counter() - started)
         except OSError as exc:
             return Completed("", str(exc), 127, time.perf_counter() - started)
         return Completed(proc.stdout, proc.stderr, proc.returncode, time.perf_counter() - started)
@@ -252,12 +269,16 @@ class Sandbox:
             raise RuntimeError(f"setup `engmem {' '.join(args)}` failed: {done.stdout}{done.stderr}")
         return done
 
-    def ensure_checkout(self, repo: str) -> Path:
-        """The agent's working repository, a git checkout with one commit when git is present."""
+    def ensure_checkout(self, repo: str, history: tuple[Commit, ...] = ()) -> Path:
+        """The agent's working repository, a git checkout with one commit when git is present, or
+        with `history` replayed commit by commit so its ids match `gitfixture.commit_ids`."""
         path = self.checkout(repo)
         if path.is_dir():
             return path
         path.mkdir(parents=True)
+        if history:
+            self._replay(path, history)
+            return path
         (path / "README.md").write_text(f"# {repo}\n", encoding="utf-8")
         if not self.has_git:
             return path
@@ -270,6 +291,34 @@ class Sandbox:
             if done.returncode != 0:
                 raise RuntimeError(f"setup `{' '.join(argv)}` failed: {done.stderr}")
         return path
+
+    def _replay(self, path: Path, history: tuple[Commit, ...]) -> None:
+        if not self.has_git:
+            raise RuntimeError(f"the checkout {path.name} needs git for its history")
+        self._git(path, ["git", "init", "-q"])
+        for commit in history:
+            wanted = dict(commit.files)
+            for existing in [p for p in path.rglob("*") if p.is_file() and ".git" not in p.parts]:
+                if existing.relative_to(path).as_posix() not in wanted:
+                    existing.unlink()
+            for relative, text in commit.files:
+                target = path / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8", newline="\n")
+            stamp = f"{commit.timestamp} +0000"
+            dates = {"GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
+            self._git(path, ["git", "add", "-A"])
+            self._git(path, ["git", "commit", "-q", "-m", commit.message], dates)
+        expected = commit_ids(history)[-1]
+        head = self._git(path, ["git", "rev-parse", "HEAD"]).stdout.strip()
+        if head != expected:
+            raise RuntimeError(f"the checkout {path.name} is at {head}, not the expected {expected}")
+
+    def _git(self, path: Path, argv: list[str], extra_env: Mapping[str, str] | None = None) -> Completed:
+        done = self.run(argv, cwd=path, extra_env=extra_env)
+        if done.returncode != 0:
+            raise RuntimeError(f"setup `{' '.join(argv)}` failed: {done.stderr}")
+        return done
 
     def reset_store(self, sessions: Path) -> None:
         """The store as the corpus left it: every earlier run's documents and logs removed."""

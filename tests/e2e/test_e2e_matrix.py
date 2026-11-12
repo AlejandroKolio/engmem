@@ -45,7 +45,7 @@ def _one(results, cls, profile):
 
 
 def test_every_profile_runs_class_1_and_every_class_runs_under_an_engmem_profile_and_grep(results):
-    assert {r["profile"] for r in _runs(results, cls=1)} == {p.name for p in PROFILES}
+    assert {r["profile"] for r in _runs(results, cls=1)} == {p.name for p in PROFILES} - set(harness.HANDOFF_ONLY)
     for name in ("mcp-only", "grep", "no-history"):
         assert {r["scenario_class"] for r in _runs(results, profile=name)} == set(harness.ALL_CLASSES)
         assert any(r["variant"] for r in _runs(results, cls=2, profile=name))
@@ -57,10 +57,25 @@ def test_no_history_makes_no_call_and_is_right_only_where_nothing_was_known(resu
         assert run["outcome"]["correct"] is (run["scenario_class"] in (5, 9))
 
 
-@pytest.mark.parametrize("profile", [p.name for p in PROFILES if p.condition != "none"])
+NEWEST_FIRST = ("grep-guided",)
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [p.name for p in PROFILES if p.condition != "none" and p.name not in (*harness.HANDOFF_ONLY, *NEWEST_FIRST)],
+)
 def test_a_keyword_findable_answer_is_reached_by_every_profile_that_searches(results, profile):
     run = _one(results, 1, profile)
     assert run["outcome"]["correct"], run["steps"]
+
+
+def test_g_plus_opens_the_newest_relevant_notes_first_even_when_an_older_one_holds_the_answer(results):
+    """Class 1's answer is older than three other notes the content search shows as relevant; G+'s
+    instruction to prefer the newest note opens those three and misses it."""
+    run = _one(results, 1, "grep-guided")
+    opened = [s["source"] for s in run["steps"] if s["action"].startswith("Read ")]
+    assert opened == sorted(opened, reverse=True) and len(opened) == 3
+    assert "20260312-ledger-sweeper-retry" not in opened and not run["outcome"]["correct"]
 
 
 def test_every_saving_profile_publishes_with_a_valid_citation(results):
@@ -94,6 +109,8 @@ def test_a_saved_decision_is_found_and_cited_by_another_agent_kind(results):
         assert run["saver"]["saved"] and run["saver"]["profile"] != name
         assert run["outcome"]["related_names_answer"]
     assert not _one(results, 8, "grep")["outcome"]["correct"]
+    own_notes = _one(results, 8, "grep-notes")
+    assert own_notes["outcome"]["correct"] and own_notes["saver"]["profile"] == "grep-notes"
 
 
 def test_every_rendered_copy_names_the_steps_its_profile_ran(results):
