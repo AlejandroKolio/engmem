@@ -4,6 +4,7 @@ refuses without its confirmations and without a pilot first."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -131,6 +132,17 @@ def test_a_full_run_without_a_pilot_is_refused(no_process, runs, tmp_path):
     with pytest.raises(live.LiveRunRefused, match="pilot"):
         live.execute(runs, tmp_path, confirmed=True, pilot=False, pass_env=[])
     assert list(tmp_path.iterdir()) == []
+
+
+def test_the_command_line_writes_utf8_whatever_the_console_encoding(tmp_path):
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    done = subprocess.run(
+        [sys.executable, str(TOOL), "live", "--agents", "claude", "--out", str(tmp_path / "live"),
+         "--instances", str(instances.PROVISIONAL_FILE)],
+        capture_output=True, env=env, timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "`ANSWER: …`" in done.stdout.decode("utf-8")
 
 
 def test_the_command_line_defaults_to_a_dry_run(tmp_path):

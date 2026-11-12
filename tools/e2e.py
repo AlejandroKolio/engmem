@@ -17,6 +17,7 @@ import json
 from agentsim import corpus, decision, harness, instances, live, phase4, report
 from agentsim.padding import DEFAULT_DOC_SIZE, DOC_SIZES
 from agentsim.sandbox import ForbiddenPath, allow, check_allowed
+from engmem.runtime import force_utf8_streams
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BYTES_PER_LARGE_DOC = 8_000
@@ -240,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_streams()
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
