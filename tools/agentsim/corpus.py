@@ -8,11 +8,14 @@ import random
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from agentsim.padding import DEFAULT_DOC_SIZE, pad, size_bytes
+
 REPOS = ("ledger-core", "intake-gateway", "tile-render", "report-hub")
 DEFAULT_FILLER = 60
 SCALE_FILLER = 400
 LARGE_FILLER = 3000
 SEED = 20261107
+CLASS_SEED = SEED + 2
 SENTENCE_FACTOR = 3
 
 FULL_HEADINGS = (
@@ -109,6 +112,7 @@ class Doc:
     status: str = "active"
     superseded_by: str = ""
     full: bool = True
+    verified_at: str = ""
 
     def render(self) -> str:
         front = [
@@ -125,7 +129,7 @@ class Doc:
             f"related: [{', '.join(self.related)}]",
             f"covers_files: [{', '.join(self.covers_files)}]",
             f"repos: [{', '.join(self.repos)}]",
-            "verified_at:",
+            f"verified_at:{' ' + self.verified_at if self.verified_at else ''}",
             "capture_minutes: 20",
             "author: Sim Author",
             "branch:",
@@ -172,6 +176,10 @@ class Task:
     saver: dict = field(default_factory=dict)
     variant: str = ""
     always_second_search: bool = False
+    required: tuple[str, ...] = ()
+    stale_patterns: tuple[str, ...] = ()
+    keys: tuple[str, ...] = ()
+    wording: str = ""
 
 
 def _prose(rng: random.Random, component: str, repo: str, topic: str, count: int) -> str:
@@ -748,31 +756,61 @@ def filler_docs(count: int) -> list[Doc]:
 
 @dataclass(frozen=True)
 class Corpus:
-    """A generated store directory per size, and the tasks that run against it."""
+    """A generated store directory per size, the tasks that run against it, and its facts."""
 
     root: Path
     stores: dict[str, Path]
     tasks: list[Task]
+    facts: list = field(default_factory=list)
+    histories: dict = field(default_factory=dict)
+    subjects: dict[str, str] = field(default_factory=dict)
+    doc_size: str = DEFAULT_DOC_SIZE
 
     def store_for(self, task: Task) -> Path:
         return self.stores[task.store]
 
 
-def _write_store(directory: Path, docs: list[Doc]) -> Path:
+def _write_store(directory: Path, docs: list[Doc], target: int) -> Path:
     sessions = directory / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
     for doc in docs:
-        (sessions / f"{doc.id}.md").write_text(doc.render(), encoding="utf-8", newline="\n")
+        (sessions / f"{doc.id}.md").write_text(pad(doc, target).render(), encoding="utf-8", newline="\n")
     return sessions
 
 
-def generate(root: Path, *, filler: int = DEFAULT_FILLER, scale_filler: int = SCALE_FILLER) -> Corpus:
-    """Writes the base store, the scale store and `tasks.json` under `root`; the same bytes on every run."""
+def all_facts() -> list:
+    """Every fact of the stores `generate` writes, in the order of `facts.json`, without writing."""
+    from agentsim import factset
+
+    return factset.core_facts(core_docs(random.Random(SEED))) + factset.class_docs(random.Random(CLASS_SEED))[1]
+
+
+def generate(
+    root: Path, *, filler: int = DEFAULT_FILLER, scale_filler: int = SCALE_FILLER, doc_size: str = DEFAULT_DOC_SIZE
+) -> Corpus:
+    """Writes the base and scale stores, `tasks.json` and `facts.json` under `root`; the same bytes on
+    every run for one size setting."""
+    from agentsim import factset
+
+    target = size_bytes(doc_size)
     core = core_docs(random.Random(SEED))
-    base = _write_store(root / "base", core + filler_docs(filler))
-    scale = _write_store(root / "scale", core + filler_docs(scale_filler))
+    extra, class_facts = factset.class_docs(random.Random(CLASS_SEED))
+    base_docs = core + extra + filler_docs(filler)
+    scale_docs = core + extra + filler_docs(scale_filler)
+    base = _write_store(root / "base", base_docs, target)
+    scale = _write_store(root / "scale", scale_docs, target)
     all_tasks = tasks()
     (root / "tasks.json").write_text(
         json.dumps([asdict(t) for t in all_tasks], indent=2) + "\n", encoding="utf-8", newline="\n"
     )
-    return Corpus(root=root, stores={"base": base, "scale": scale}, tasks=all_tasks)
+    facts = factset.core_facts(core) + class_facts
+    factset.write_facts(root / "facts.json", facts, doc_size)
+    return Corpus(
+        root=root,
+        stores={"base": base, "scale": scale},
+        tasks=all_tasks,
+        facts=facts,
+        histories={factset.METER_REPO: factset.meter_history()},
+        subjects=factset.subjects(scale_docs),
+        doc_size=doc_size,
+    )

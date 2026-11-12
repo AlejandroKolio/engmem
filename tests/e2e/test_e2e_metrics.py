@@ -145,3 +145,32 @@ def test_a_non_engineering_task_is_correct_only_when_skipped_without_a_store_wri
 
     assert outcome.correct is correct and outcome.skipped is skipped
     assert (outcome.saved is None) is skipped
+
+
+def _instance_task():
+    return dataclasses.replace(
+        STALE, required=(r"\b64 connections",), stale_patterns=(r"\b200 connections",),
+        answer_docs=("20260101-pool-9",), keys=("f04-stale",),
+    )
+
+
+def _two_notes() -> Transcript:
+    transcript = Transcript()
+    transcript.add(Step(LOAD, TOOL, "engmem read", 0.0, "pool of 200 connections", source="20240101-pool-1"))
+    transcript.add(Step(LOAD, TOOL, "engmem read", 0.0, "cap at 64 connections", source="20260101-pool-9"))
+    return transcript
+
+
+def test_e_is_graded_literally_and_its_newest_first_grade_is_only_a_sensitivity_figure():
+    subjects = {"20240101-pool-1": "pool", "20260101-pool-9": "pool"}
+    state = RunState(task=STALE, today="2026-01-01")
+    e = metrics.outcome(_instance_task(), BY_NAME["shell-claude"], _two_notes(), state, None, subjects)
+    assert e.correct is False and e.correct_newest_rule is True and e.opened_answer is True
+    plus = metrics.outcome(_instance_task(), BY_NAME["grep-guided"], _two_notes(), None, None, subjects)
+    assert plus.correct is True and plus.correct_newest_rule is None
+
+
+def test_stale_avoided_counts_only_runs_that_answered():
+    task = _instance_task()
+    nothing = metrics.outcome(task, BY_NAME["no-history"], Transcript(), None, None, {})
+    assert nothing.answered is False and nothing.stale_avoided is None and nothing.opened_answer is False

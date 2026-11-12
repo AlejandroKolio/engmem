@@ -48,9 +48,21 @@ PROFILES = (
     Profile("mcp-read-only", ENGMEM, "claude-desktop", mcp=True, read_only=True),
     Profile("paste", ENGMEM, "copilot-ide", paste=True),
     Profile("grep", GREP, "none"),
+    Profile("grep-content", GREP, "none"),
+    Profile("grep-guided", GREP, "none"),
+    Profile("grep-notes", GREP, "none"),
     Profile("no-history", NONE, "none"),
 )
 BY_NAME = {p.name: p for p in PROFILES}
+ARMS = {
+    "shell-claude": "E",
+    "grep": "blind G",
+    "grep-content": "G",
+    "grep-guided": "G+",
+    "grep-notes": "GN",
+    "no-history": "N",
+}
+COVERED_CHANGED = re.compile(r"covered files? changed: (.+?), re-check")
 
 COPY_PATHS = {
     "claude": Path(".claude") / "commands",
@@ -311,8 +323,7 @@ class Agent:
 
     def _search(self, description: str) -> list[tuple[policy.SearchView, list[str], int]]:
         terms = policy.key_terms(description)
-        role = policy.role_for(description)
-        step = self._search_once(" ".join(terms), role)
+        step = self._search_once(" ".join(terms), None)
         self.state.searched = True
         view = policy.read_search(step.text)
         step.cite = view.citations
@@ -322,7 +333,7 @@ class Agent:
         if not self.task.always_second_search and policy.any_relevant(view, terms):
             return views
         components = policy.component_terms(self.task.files)
-        second = self._search_once(" ".join(components), role)
+        second = self._search_once(" ".join(components), None)
         second_view = policy.read_search(second.text)
         second.cite = second_view.citations
         views.append((second_view, components, policy.RELEVANT_COMPONENTS))
@@ -338,7 +349,7 @@ class Agent:
                     chosen.append(doc_id)
         if not chosen:
             return
-        roles = policy.read_roles(description)
+        roles = policy.READ_ROLES
         if self.profile.read_only:
             for role in roles[1:]:
                 arguments = {"query": " ".join(views[-1][1]), "role": role}
@@ -347,6 +358,24 @@ class Agent:
         for doc_id in chosen:
             for role in roles:
                 self._read(doc_id, role)
+        self._recheck(views, chosen)
+
+    def _recheck(self, views: list[tuple[policy.SearchView, list[str], int]], chosen: list[str]) -> None:
+        """A loaded document whose snapshot line says a covered file changed: that file is re-read
+        from the checkout, as the line asks."""
+        for doc_id in chosen:
+            block = next((view.blocks[doc_id] for view, _, _ in views if doc_id in view.blocks), "")
+            match = COVERED_CHANGED.search(block)
+            if not match:
+                continue
+            for relative in (part.strip() for part in match.group(1).split(",")):
+                target = self.checkout / relative
+                if " " in relative or not target.is_file():
+                    continue
+                started = time.perf_counter()
+                text = target.read_text(encoding="utf-8", errors="replace")
+                self.t.add(Step(LOAD, TOOL, f"Read {relative}", time.perf_counter() - started, text,
+                                source=f"code:{relative}"))
 
     def _read(self, doc_id: str, role: str) -> Step:
         session = self.state.draft_id
@@ -360,6 +389,7 @@ class Agent:
             if session:
                 args += ["--session", session]
             step = self._cli(LOAD, "engmem read", *args)
+        step.source = doc_id
         match = policy.CITE_AS.search(step.text)
         if match:
             step.cite = {doc_id: match.group(1).strip()}
@@ -511,11 +541,16 @@ def quoting_reference(transcript: Transcript, quote: str) -> str | None:
     return None
 
 
+def _entities(task: Task) -> list[str]:
+    """The touched file's name, else the task's first key term: a save needs one entity."""
+    return (policy.component_terms(task.files) or policy.key_terms(task.description) or ["task"])[:1]
+
+
 def compose_save(agent: Agent, saver: dict | None, row: str, *, sha: str, author: str, branch: str, minutes: str) -> str:
     """The document the save template asks for: quick shape, or the full seventeen for a saver."""
     task, state = agent.task, agent.state
     verified = f"{{{task.repo}: {sha}}}" if sha else ""
-    entities = saver["entities"] if saver else [policy.component_terms(task.files)[0]]
+    entities = saver["entities"] if saver else _entities(task)
     title = saver["title"] if saver else task.description[:80]
     front = "\n".join([
         "---",
@@ -574,7 +609,7 @@ def compose_daily_save(
 ) -> str:
     """The daily document: the example's front matter, and the product sections only."""
     task, state = agent.task, agent.state
-    entities = saver["entities"] if saver else [policy.component_terms(task.files)[0]]
+    entities = saver["entities"] if saver else _entities(task)
     title = saver["title"] if saver else task.description[:80]
     front = "\n".join([
         "---",
@@ -691,7 +726,7 @@ class GrepAgent:
             return
         started = time.perf_counter()
         text = path.read_text(encoding="utf-8", errors="replace")
-        step = Step(LOAD, TOOL, f"Read {path.name}", time.perf_counter() - started, text)
+        step = Step(LOAD, TOOL, f"Read {path.name}", time.perf_counter() - started, text, source=path.stem)
         successor = re.search(r"^status: superseded\s*\nsuperseded_by: (\S+)", text, re.MULTILINE)
         if followed or successor:
             step.detail = {"superseded_chain": 1}

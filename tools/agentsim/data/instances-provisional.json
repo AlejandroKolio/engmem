@@ -1,0 +1,307 @@
+{
+  "format": "engmem-e2e-instances/1",
+  "provisional": true,
+  "author": "the harness implementer: provisional, not blind; a blind author replaces it from facts.json alone",
+  "note": "Two per class so the tests and the smoke plan run; never a basis for a claim.",
+  "instances": [
+    {
+      "id": "c01-identifier",
+      "class": 1,
+      "wording": "identifier",
+      "task": "Add retries to the LedgerSweeper nightly export batch when the archive store times out",
+      "required": [
+        "three times",
+        "40-second"
+      ],
+      "stale": [],
+      "keys": [
+        "f01-keyword"
+      ]
+    },
+    {
+      "id": "c01-paraphrase",
+      "class": 1,
+      "wording": "paraphrase",
+      "task": "When does the nightly ledger compaction run?",
+      "required": [
+        "02:30 UTC",
+        "04:00 UTC"
+      ],
+      "stale": [],
+      "keys": [
+        "f01-nightlycompactor-compaction-window"
+      ]
+    },
+    {
+      "id": "c02-symptom",
+      "class": 2,
+      "wording": "symptom",
+      "task": "The first page view after a rollout is slow for the map widget; make it faster",
+      "required": [
+        "top 500 tiles",
+        "readiness probe"
+      ],
+      "stale": [],
+      "keys": [
+        "f02-wording-gap"
+      ],
+      "files": [
+        "src/map/MapWidget.ts",
+        "src/tiles/TileCache.ts"
+      ]
+    },
+    {
+      "id": "c02-paraphrase",
+      "class": 2,
+      "wording": "paraphrase",
+      "task": "How long can a gateway session sit unused before it is thrown away?",
+      "required": [
+        "\\b45 minutes"
+      ],
+      "stale": [],
+      "keys": [
+        "f02-sessionreaper-idle-eviction"
+      ]
+    },
+    {
+      "id": "c03-identifier",
+      "class": 3,
+      "wording": "identifier",
+      "task": "Change the IntakeQueue consumer acknowledgement; list the pitfalls we hit before",
+      "required": [
+        "crash between ack and commit"
+      ],
+      "stale": [],
+      "keys": [
+        "f03-role"
+      ],
+      "files": [
+        "src/intake/IntakeConsumer.go"
+      ]
+    },
+    {
+      "id": "c03-symptom",
+      "class": 3,
+      "wording": "symptom",
+      "task": "Invoice totals are off by a cent against the sum of their lines; what pitfall did we hit before?",
+      "required": [
+        "drifted the invoice total by a cent"
+      ],
+      "stale": [],
+      "keys": [
+        "f03-feecalculator-line-rounding"
+      ]
+    },
+    {
+      "id": "c04-identifier",
+      "class": 4,
+      "wording": "identifier",
+      "task": "Set the connection pool size for the ReportStore client",
+      "required": [
+        "\\b64 connections"
+      ],
+      "stale": [
+        "\\b200 connections"
+      ],
+      "keys": [
+        "f04-stale"
+      ],
+      "files": [
+        "src/report/ReportStoreClient.java"
+      ]
+    },
+    {
+      "id": "c04-paraphrase",
+      "class": 4,
+      "wording": "paraphrase",
+      "task": "How long may a wallet lock be held before it times out?",
+      "required": [
+        "\\b8 seconds"
+      ],
+      "stale": [
+        "\\b30 seconds"
+      ],
+      "keys": [
+        "f04-walletlocker-lock-timeout"
+      ]
+    },
+    {
+      "id": "c06-identifier",
+      "class": 6,
+      "wording": "identifier",
+      "task": "Choose the timestamp format for audit events emitted by the intake gateway",
+      "required": [
+        "UTC",
+        "RFC 3339",
+        "millisecond"
+      ],
+      "stale": [],
+      "keys": [
+        "f06-cross-repo"
+      ],
+      "repo": "intake-gateway",
+      "files": [
+        "src/intake/AuditHook.go"
+      ]
+    },
+    {
+      "id": "c06-paraphrase",
+      "class": 6,
+      "wording": "paraphrase",
+      "task": "Which header should the tile service use to pass the trace id along?",
+      "required": [
+        "traceparent"
+      ],
+      "stale": [],
+      "keys": [
+        "f06-traceheader-trace-propagation"
+      ],
+      "repo": "tile-render"
+    },
+    {
+      "id": "c07-identifier",
+      "class": 7,
+      "wording": "identifier",
+      "task": "Raise the ArchiveExporter page size so exports finish sooner",
+      "required": [
+        "\\b2000 rows"
+      ],
+      "stale": [],
+      "keys": [
+        "f07-scale"
+      ],
+      "files": [
+        "src/export/ArchiveExporter.java"
+      ]
+    },
+    {
+      "id": "c07-symptom",
+      "class": 7,
+      "wording": "symptom",
+      "task": "The tile purge job overloads the key store when it deletes stale tiles; how many keys does it delete at a time?",
+      "required": [
+        "\\b5000 keys"
+      ],
+      "stale": [],
+      "keys": [
+        "f07-tilepurger-purge-batch"
+      ]
+    },
+    {
+      "id": "c10-identifier",
+      "class": 10,
+      "wording": "identifier",
+      "task": "What is the StatementMailer send window?",
+      "required": [
+        "\\b13 hours"
+      ],
+      "stale": [
+        "\\b(?:2\\ hours|3\\ hours|5\\ hours|7\\ hours|9\\ hours|11\\ hours)"
+      ],
+      "keys": [
+        "f10-statementmailer-send-window"
+      ]
+    },
+    {
+      "id": "c10-paraphrase",
+      "class": 10,
+      "wording": "paraphrase",
+      "task": "How often does the quote cache refresh its entries?",
+      "required": [
+        "\\b95 seconds"
+      ],
+      "stale": [
+        "\\b(?:10\\ seconds|20\\ seconds|45\\ seconds)"
+      ],
+      "keys": [
+        "f10-quotecache-refresh-period"
+      ]
+    },
+    {
+      "id": "c11-identifier",
+      "class": 11,
+      "wording": "identifier",
+      "task": "What flush lag limit does the MeterFlusher use?",
+      "required": [
+        "\\b300 milliseconds"
+      ],
+      "stale": [
+        "\\b750 milliseconds"
+      ],
+      "keys": [
+        "f11-meterflusher-flush-lag-limit"
+      ]
+    },
+    {
+      "id": "c11-paraphrase",
+      "class": 11,
+      "wording": "paraphrase",
+      "task": "How often does the meter service seal a batch of readings?",
+      "required": [
+        "\\b25 seconds"
+      ],
+      "stale": [
+        "seal interval of 40 seconds"
+      ],
+      "keys": [
+        "f11-batchsealer-seal-interval"
+      ]
+    },
+    {
+      "id": "c12-identifier",
+      "class": 12,
+      "wording": "identifier",
+      "task": "What is the SettlementClock cutoff time?",
+      "required": [
+        "14:59"
+      ],
+      "stale": [
+        "\\b(?:13:00\\ UTC|13:49\\ UTC|14:38\\ UTC|15:27\\ UTC|13:28\\ UTC|14:17\\ UTC|15:06\\ UTC|13:07\\ UTC|13:56\\ UTC|14:45\\ UTC|15:34\\ UTC|13:35\\ UTC|14:24\\ UTC|15:13\\ UTC|13:14\\ UTC|14:03\\ UTC|14:52\\ UTC|15:41\\ UTC|13:42\\ UTC|14:31\\ UTC|15:20\\ UTC|13:21\\ UTC|14:10\\ UTC)"
+      ],
+      "keys": [
+        "f12-settlementclock-cutoff-time"
+      ]
+    },
+    {
+      "id": "c12-paraphrase",
+      "class": 12,
+      "wording": "paraphrase",
+      "task": "How many days do we keep ledger archives before they expire?",
+      "required": [
+        "87\\ days"
+      ],
+      "stale": [
+        "\\b(?:36\\ days|45\\ days|54\\ days|63\\ days|72\\ days|81\\ days|30\\ days|39\\ days|48\\ days|57\\ days|66\\ days|75\\ days|84\\ days|33\\ days|42\\ days|51\\ days|60\\ days|69\\ days|78\\ days)"
+      ],
+      "keys": [
+        "f12-ledgerarchiver-retention-window"
+      ]
+    },
+    {
+      "id": "c13-identifier",
+      "class": 13,
+      "wording": "identifier",
+      "task": "What is ingest.backpressure.high_watermark set to?",
+      "required": [
+        "1800 messages"
+      ],
+      "stale": [],
+      "keys": [
+        "f13-ingest-backpressure-high-watermark"
+      ]
+    },
+    {
+      "id": "c13-symptom",
+      "class": 13,
+      "wording": "symptom",
+      "task": "Bundle signing keeps failing with SIG_CHAIN_TOO_SHORT; how do we get past it?",
+      "required": [
+        "re-issue the intermediate certificate"
+      ],
+      "stale": [],
+      "keys": [
+        "f13-sig-chain-too-short"
+      ]
+    }
+  ]
+}

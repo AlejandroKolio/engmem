@@ -17,12 +17,14 @@ from pathlib import Path
 from agentsim import corpus as corpus_module
 from agentsim import metrics, policy
 from agentsim.corpus import Corpus, Task
-from agentsim.profiles import BY_NAME, DAILY, ENGMEM, GREP, PROFILES, Agent, GrepAgent, Profile, install
+from agentsim.greparms import ContentGrepAgent, notes_save_cost, write_own_notes
+from agentsim.profiles import BY_NAME, DAILY, ENGMEM, GREP, PROFILES, Agent, GrepAgent, Profile, install, today
 from agentsim.sandbox import Sandbox
 from agentsim.trace import TOKEN_METHOD, Transcript
 
 ALL_CLASSES = tuple(range(1, 10))
 ONE_SCENARIO_PROFILES = ("shell-codex", "shell-copilot-cli")
+HANDOFF_ONLY = {"grep-notes": (8,)}
 SMOKE_CLASSES = {
     "mcp-only": ALL_CLASSES,
     "grep": ALL_CLASSES,
@@ -43,9 +45,14 @@ class Plan:
     tasks: tuple[str, ...] = tuple(t.id for t in corpus_module.tasks())
     every_profile_everywhere: bool = False
     smoke: bool = False
+    instances: tuple[Task, ...] = ()
+    doc_size: str = corpus_module.DEFAULT_DOC_SIZE
 
     def classes_for(self, name: str) -> tuple[int, ...]:
-        """Every class, except class 1 only for the extra shell variants and, in `smoke`, as listed."""
+        """Every class, except class 1 only for the extra shell variants, class 8 only for GN, and, in
+        `smoke`, as listed."""
+        if name in HANDOFF_ONLY:
+            return HANDOFF_ONLY[name]
         if self.smoke:
             return SMOKE_CLASSES.get(name, (1,))
         if name in ONE_SCENARIO_PROFILES and not self.every_profile_everywhere:
@@ -55,12 +62,19 @@ class Plan:
     def pairs(self, all_tasks: list[Task]) -> list[tuple[Profile, Task]]:
         """Profile-major order, so each profile's sandbox is set up once."""
         chosen = [t for t in all_tasks if t.id in self.tasks]
-        return [
+        built_in = [
             (BY_NAME[name], task)
             for name in self.profiles
             for task in chosen
             if task.scenario_class in self.classes_for(name)
         ]
+        authored = [
+            (BY_NAME[name], task)
+            for name in self.profiles
+            if name not in HANDOFF_ONLY
+            for task in self.instances
+        ]
+        return built_in + authored
 
 
 @dataclass
@@ -86,9 +100,9 @@ class _Context:
         return self.machines[profile.name]
 
 
-def _prepare(machine: _Machine, profile: Profile, task: Task, store: Path, kind: str) -> Path:
+def _prepare(machine: _Machine, profile: Profile, task: Task, store: Path, kind: str, histories: dict) -> Path:
     sandbox = machine.sandbox
-    checkout = sandbox.ensure_checkout(task.repo)
+    checkout = sandbox.ensure_checkout(task.repo, histories.get(task.repo, ()))
     key = f"{profile.agent}:{checkout if profile.agent == 'copilot-ide' else ''}"
     if profile.condition == ENGMEM and key not in machine.installed:
         install(sandbox, profile, checkout)
@@ -107,7 +121,7 @@ def _saved_store(ctx: _Context, saver_name: str, task: Task) -> tuple[Path, dict
         return ctx.saved_stores[saver_name]
     saver = BY_NAME[saver_name]
     machine = ctx.machine(saver)
-    checkout = _prepare(machine, saver, task, ctx.corpus.store_for(task), task.store)
+    checkout = _prepare(machine, saver, task, ctx.corpus.store_for(task), task.store, ctx.corpus.histories)
     transcript = Transcript()
     state = Agent(saver, machine.sandbox, task, checkout, transcript).run(saver=task.saver)
     snapshot = ctx.out / "corpus" / f"saved-by-{saver_name}"
@@ -122,6 +136,21 @@ def _saved_store(ctx: _Context, saver_name: str, task: Task) -> tuple[Path, dict
         **metrics.cost(transcript),
     }
     ctx.saved_stores[saver_name] = (snapshot, summary)
+    return snapshot, summary
+
+
+def _own_notes_store(ctx: _Context, task: Task) -> tuple[Path, dict]:
+    """Class 8 for GN: the earlier agent wrote its own free-form note beside the others."""
+    if "grep-notes" in ctx.saved_stores:
+        return ctx.saved_stores["grep-notes"]
+    snapshot = ctx.out / "corpus" / "saved-by-grep-notes"
+    if snapshot.exists():
+        shutil.rmtree(snapshot)
+    shutil.copytree(ctx.corpus.store_for(task), snapshot / "sessions")
+    doc_id, text = write_own_notes(snapshot / "sessions", task, today())
+    summary = {"profile": "grep-notes", "doc_id": doc_id, "saved": True, "refusals": 0,
+               **metrics.cost(notes_save_cost(text))}
+    ctx.saved_stores["grep-notes"] = (snapshot, summary)
     return snapshot, summary
 
 
@@ -148,11 +177,15 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         snapshot, saver_summary = _saved_store(ctx, saver_name, task)
         store = snapshot / "sessions"
         task = dataclasses.replace(task, answer_docs=(saver_summary["doc_id"] or "",))
+    elif task.saver and profile.name == "grep-notes":
+        notes, saver_summary = _own_notes_store(ctx, task)
+        store = notes / "sessions"
+        task = dataclasses.replace(task, answer_docs=(saver_summary["doc_id"],))
     elif task.saver:
         task = dataclasses.replace(
             task, answer_docs=(f"{datetime.now(timezone.utc):%Y%m%d}-{task.saver['doc_slug']}",)
         )
-    checkout = _prepare(machine, profile, task, store, kind)
+    checkout = _prepare(machine, profile, task, store, kind, ctx.corpus.histories)
     if snapshot is not None:
         _restore_logs(machine.sandbox, snapshot)
     transcript = Transcript()
@@ -161,12 +194,14 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
     started = time.perf_counter()
     if profile.condition == ENGMEM:
         state = Agent(profile, machine.sandbox, task, checkout, transcript).run()
-    elif profile.condition == GREP:
+    elif profile.name == "grep":
         GrepAgent(machine.sandbox, task, transcript).run()
+    elif profile.condition == GREP:
+        ContentGrepAgent(machine.sandbox, task, transcript, checkout, guided=profile.name == "grep-guided").run()
     wall = time.perf_counter() - started
     store_written = _store_state(machine.sandbox.store) != store_before if profile.condition == ENGMEM else None
     drafts_left = _drafts_left(machine.sandbox.store, store_before) if profile.condition == ENGMEM else None
-    outcome = metrics.outcome(task, profile, transcript, state, store_written)
+    outcome = metrics.outcome(task, profile, transcript, state, store_written, ctx.corpus.subjects)
     session = state.draft_id if state and state.mode != DAILY else None
     observed = None
     if state is not None and (session is not None or snapshot is None):
@@ -176,6 +211,7 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         "scenario_class": task.scenario_class,
         "class_name": task.class_name,
         "variant": task.variant,
+        "wording": task.wording,
         "profile": profile.name,
         "condition": profile.condition,
         "store_docs": sum(1 for _ in store.glob("*.md")),
@@ -220,7 +256,9 @@ def _mean_doc_bytes(sessions: Path) -> int:
 def run(out: Path, plan: Plan, progress=None) -> dict:
     """Generates the corpus under `out`, runs the plan, and returns the results document."""
     out.mkdir(parents=True, exist_ok=True)
-    corpus = corpus_module.generate(out / "corpus", filler=plan.filler, scale_filler=plan.scale_filler)
+    corpus = corpus_module.generate(
+        out / "corpus", filler=plan.filler, scale_filler=plan.scale_filler, doc_size=plan.doc_size
+    )
     ctx = _Context(out=out, corpus=corpus)
     runs = []
     started = time.perf_counter()
@@ -237,12 +275,14 @@ def run(out: Path, plan: Plan, progress=None) -> dict:
             "scale_store_docs": sum(1 for _ in corpus.stores["scale"].glob("*.md")),
             "mean_doc_bytes": _mean_doc_bytes(corpus.stores["base"]),
             "smoke": plan.smoke,
+            "doc_size": plan.doc_size,
             "grep_top_lines": policy.GREP_TOP_LINES,
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "harness_seconds": round(time.perf_counter() - started, 2),
         },
-        "tasks": [dataclasses.asdict(t) for t in corpus.tasks if t.id in plan.tasks],
+        "tasks": [dataclasses.asdict(t) for t in corpus.tasks if t.id in plan.tasks]
+        + [dataclasses.asdict(t) for t in plan.instances],
         "runs": runs,
     }
 

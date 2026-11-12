@@ -30,6 +30,7 @@ class Step:
     ok: bool = True
     cite: dict[str, str] = field(default_factory=dict)
     detail: dict[str, int] = field(default_factory=dict)
+    source: str = ""
 
     @property
     def bytes(self) -> int:
@@ -45,6 +46,7 @@ class Step:
             "tokens": tokens(self.bytes),
             "ok": self.ok,
             **({"detail": self.detail} if self.detail else {}),
+            **({"source": self.source} if self.source else {}),
         }
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -159,3 +160,11 @@ def test_allow_out_opens_a_directory_but_never_a_protected_root(tmp_path):
         with pytest.raises(ForbiddenPath, match="protected"):
             check_allowed(protected / "inner")
     assert not outside.exists()
+
+
+def test_a_timed_out_process_keeps_the_output_it_printed_before_the_timeout(tmp_path):
+    box = Sandbox.create(tmp_path / "box")
+    script = "import sys, time; print('partial', flush=True); time.sleep(30)"
+    done = box.run([sys.executable, "-c", script], timeout=2)
+    assert done.returncode == sandbox_module.TIMED_OUT
+    assert "partial" in done.stdout and "timed out after 2 s" in done.stderr
