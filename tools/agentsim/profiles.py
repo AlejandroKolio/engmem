@@ -356,7 +356,8 @@ class Agent:
                 self._tool(LOAD, "engmem_search_by_role", arguments)
             return
         for doc_id in chosen:
-            for role in roles:
+            primer = self._read(doc_id, roles[0])
+            for role in [*roles[1:], *policy.asked_roles(description, primer.text)]:
                 self._read(doc_id, role)
         self._recheck(views, chosen)
 

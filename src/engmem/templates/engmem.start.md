@@ -254,7 +254,10 @@ a read.
    says nothing about the rest of the store.
 2. **Read.** Load at most 5 documents in all: the found ones first, then their `related`
    documents at depth 1. Read sections, not whole files: `engmem read <id> --role primer`, then
-   `--role decisions` (MCP: `engmem_read` with `id` and `role`). Keep the `cite as` line of each
+   `--role decisions` (MCP: `engmem_read` with `id` and `role`). Then read, by role, the section
+   the primer points to or the task asks about: Lessons Learned (`lessons`) for pitfalls,
+   failures, causes and lessons; Production Considerations (`production`) for production
+   settings, limits and config keys. Keep the `cite as` line of each
    search and read: a save (`/engmem.save.quick`, `/engmem.save`) lists the ids (the part before
    `@`) of the documents you used, and supersedes by the version it gives.
 3. **Report, then answer in the same message.** Open with `prior context:` and the documents you

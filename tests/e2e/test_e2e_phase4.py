@@ -4,10 +4,11 @@ shows every arm (contracts/e2e.md). The smoke plan runs by default."""
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 
 import pytest
 
-from agentsim import corpus, instances, phase4
+from agentsim import corpus, instances, phase4, policy
 from agentsim.greparms import GUIDANCE, ContentGrepAgent
 from agentsim.sandbox import Sandbox
 from agentsim.trace import Transcript
@@ -65,10 +66,15 @@ def test_only_the_guided_arm_reads_engmems_advice(runs):
             assert templates[0]["bytes"] == len(GUIDANCE.encode("utf-8"))
 
 
-def test_e_reads_each_loaded_document_by_primer_then_decisions_only(runs):
+def _reads(run) -> Counter:
+    return Counter(s["source"] for s in run["steps"] if s["action"] == "engmem read")
+
+
+def test_e_reads_each_loaded_document_by_primer_and_decisions_then_the_asked_sections(runs):
     for run in (r for r in runs if r["profile"] == "shell-claude" and not r["outcome"]["skipped"]):
-        reads = [s["source"] for s in run["steps"] if s["action"] == "engmem read"]
-        assert len(reads) == 2 * len(set(reads)), run["task"]
+        assert all(2 <= n <= 2 + len(policy.POINTED_SECTIONS) for n in _reads(run).values()), run["task"]
+    pointed = _one(runs, "c13-identifier", "shell-claude")
+    assert max(_reads(pointed).values()) > 2 and pointed["outcome"]["correct"]
 
 
 def test_no_history_makes_no_call(runs):
@@ -107,7 +113,7 @@ def test_the_report_shows_every_arm_and_says_the_instances_are_provisional(docum
     assert "### Save cost and break-even" in text
     assert "### Opened the document holding the answer" in text
     assert "### Sensitivity: E graded newest-first" in text
-    assert "Daily template reads primer and decisions only; G+'s guidance names Lessons." in text
+    assert "Daily template reads primer, decisions and the section the primer points to or the task asks about; G+'s guidance names Lessons." in text
     assert "mean over every run" in text
     assert "Layer 1 is scripted" in text
     assert "### Families (Layer 1, descriptive)" in text and "| stale | E − G+ |" in text

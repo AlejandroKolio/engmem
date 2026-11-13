@@ -72,6 +72,17 @@ def test_the_daily_start_keeps_the_search_budget_the_reads_by_role_and_the_answe
     assert "`prior context: none found`" in text and "in the same message" in text
 
 
+@pytest.mark.parametrize("channel", sorted(CHANNELS))
+def test_the_daily_start_reads_the_section_the_primer_points_to_or_the_task_asks_about(channel):
+    text = _flat(_daily(START, channel))
+    read = text[text.index("2. **Read.**"):text.index("3. **Report")]
+
+    assert read.index("`--role decisions`") < read.index("the section the primer points to or the task asks about")
+    assert "Lessons Learned (`lessons`) for pitfalls, failures, causes and lessons" in read
+    assert "Production Considerations (`production`) for production settings, limits and config keys" in read
+    assert "at most 5 documents in all" in read
+
+
 @pytest.mark.parametrize("name", [SAVE, QUICK])
 @pytest.mark.parametrize("channel", sorted(CHANNELS))
 def test_a_daily_save_writes_none_of_what_only_the_experiment_reads(name, channel):

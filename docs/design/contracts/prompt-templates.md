@@ -206,10 +206,10 @@ session keeps what helps a person find and trust knowledge, and drops what only 
 reads. Each template has a `daily` branch and a `research` branch; the research render is the
 protocol, byte for byte as before.
 
-- **The start writes nothing.** Scope gate, step 0, then `## Daily mode`: at most two searches
-  and five reads by role, with no session id, then `prior context: …` and the answer in the same
-  message. No draft, no `store show`, no Search Trace, no cost notes. A draft created at the start
-  of a task that never saved was left behind as a draft; the daily start leaves nothing. Its
+- **The start writes nothing.** Scope gate, step 0, then `## Daily mode`: at most two searches and
+  five documents read by role, with no session id, then `prior context: …` and the answer in the
+  same message. No draft, no `store show`, no Search Trace, no cost notes. A draft created at the
+  start of a task that never saved was left behind as a draft; the daily start leaves nothing. Its
   searches log rows with no `session_id`, which no `gate1_audit` figure reads (`read_session_rows`
   keeps only rows naming one), so a daily start adds no orphan and no unreconstructable row.
 - **The save creates and completes.** It composes the document, then `engmem draft create` with
@@ -233,6 +233,22 @@ protocol, byte for byte as before.
   published before the other's search, which cannot happen to documents that are never
   rewritten. `search_report._shown_docs` counts related ids as shown, which they are, and
   `export` names them as referenced documents. No reader changes meaning.
+- **The read follows the primer and the task.** After the primer and the Decision Log, the start
+  reads by role the section the primer points to or the task asks about: Lessons Learned
+  (`lessons`) for pitfalls, failures, causes and lessons, Production Considerations
+  (`production`) for production settings, limits and config keys. A primer that holds no answer
+  often says where it is ("the pitfalls are in Lessons Learned"), and a read of primer and
+  decisions alone never reached that section: on the blind set of the e2e harness
+  (`contracts/e2e.md`) the daily start opened the right document in 9 runs of 10 for a value in
+  Lessons Learned or Production Considerations and read past it. The rule adds a call per
+  document only when the primer or the task names the section, and keeps the cap of five
+  documents. The research start is unchanged: whether it gets the same rule is open.
+  Measured on that blind set, every arm, at 4, 12 and 30 KB documents: E answered 4 of 20
+  section-family tasks before and 17, 18 and 18 after, and no task of any class or arm lost
+  its answer. The extra reads cost tokens: E's mean cached tokens to the answer in the
+  section family rose from 4,517 to 5,831 at 4 KB and from 4,619 to 10,258 at 30 KB, and in
+  the retrieval family, where `limit` or `setting` in a task asks for Production
+  Considerations, from 4,587 to 5,895 at 30 KB.
 - **Supersede stays.** The full save's supersede step takes the version from the `cite as` line
   the start kept, as the research save takes it from the Reuse Log row.
 - **`template_stamps.WORKFLOW` stays 1.** The runtime refuses no step an older template takes: an
@@ -250,7 +266,7 @@ protocol, byte for byte as before.
   that finishes it later. `related` takes the id, the part before `@` of a `cite as` line.
 
 Sizes, as the e2e harness measures them (`contracts/e2e.md`): the daily start copy is about
-3.4 KB and the daily MCP start prompt about 3.1 KB; the daily quick save about 6.5 KB with three
+3.6 KB and the daily MCP start prompt about 3.4 KB; the daily quick save about 6.5 KB with three
 calls; the daily full save about 10.6 KB. The owner decided that an MCP client's "none found"
 cost is measured without `tools/list`, which a host loads once per session: about 0.9k tokens,
 against about 1.1k for a shell copy.

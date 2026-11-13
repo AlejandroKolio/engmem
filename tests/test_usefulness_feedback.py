@@ -317,7 +317,7 @@ def test_a_document_the_session_never_found_is_refused(store, capsys):
     code, out, err = _record(capsys, store, "never-shown", "helped")
 
     assert code == 2
-    assert "was not shown by any search attributed to" in out + err
+    assert "is not a result or redirect of any search attributed to" in out + err
     assert _feedback_rows(store) == []
 
 

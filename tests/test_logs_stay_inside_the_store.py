@@ -426,7 +426,7 @@ def test_feedback_names_a_dangling_telemetry_link_instead_of_finding_no_finds(st
     code, output = _feedback(capsys, store)
 
     assert code == 2 and "passes through a link" in output
-    assert "was not shown by any search" not in output
+    assert "is not a result or redirect of any search" not in output
 
 
 def test_a_windows_lock_released_between_the_mkdir_and_the_check_is_taken(tmp_path, monkeypatch):

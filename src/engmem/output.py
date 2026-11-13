@@ -16,7 +16,15 @@ from engmem.provenance import (
     SnapshotState,
     snapshots,
 )
-from engmem.scoring import SHORT_WORD_MAX_CHARS, Hit, Scope, SearchOutcome, SectionHit, Strength
+from engmem.scoring import (
+    SHORT_WORD_MAX_CHARS,
+    Hit,
+    Scope,
+    SearchOutcome,
+    SectionHit,
+    Strength,
+    repo_key,
+)
 from engmem.sections import Section, split_sections
 from engmem.spine import Doc, is_commit_id, linked_repos
 
@@ -34,6 +42,7 @@ ROLE_TOP_N = TOP_N  # role-filtered search shows the same "top matches" cap
 PRIMER_MAX_LINES = 2
 PRIMER_MAX_CHARS = 240
 RELATED_MAX = 3
+OLDER_NAMED_MAX = 3
 SCOREBOARD_RESERVE = 128
 TRIM_MARKER = "[output trimmed to fit 4 KB]"
 WEAK_TAG = "  [weak candidate]"
@@ -377,21 +386,79 @@ def _rank(hit_or_note) -> tuple[bool, float]:
     return hit_or_note.weak, -hit_or_note.score
 
 
-def _selected(outcome: SearchOutcome) -> tuple[list, set[str], list]:
-    """Top-N hits plus the superseded redirects outranking them, so the renderers cannot drift."""
-    shown_hits = outcome.hits[:TOP_N]
-    shown_ids = {h.doc.id for h in shown_hits}
+@dataclass(frozen=True)
+class _Shown:
+    """A hit as shown: the newest of its near-duplicates, in the place of the best-ranked one."""
+
+    hit: Hit
+    older: tuple[Doc, ...] = ()
+
+
+def _subject(doc: Doc) -> tuple[str, frozenset[str], frozenset[str]] | None:
+    """What makes active notes near-duplicates: one title, one set of entities, one set of
+    linked repositories."""
+    title = " ".join(doc.title.casefold().split())
+    if not title or not doc.entities:
+        return None
+    entities = frozenset(" ".join(e.casefold().split()) for e in doc.entities)
+    return title, entities, frozenset(repo_key(name) for name in linked_repos(doc))
+
+
+def _near_duplicates(hits: list[Hit]) -> list[list[Hit]]:
+    """Hits in rank order, those of one tier and subject gathered at the first one's place."""
+    groups: dict[tuple, list[Hit]] = {}
+    ordered: list[list[Hit]] = []
+    for hit in hits:
+        subject = _subject(hit.doc)
+        if subject is None:
+            ordered.append([hit])
+            continue
+        key = (hit.weak, subject)
+        if key not in groups:
+            groups[key] = []
+            ordered.append(groups[key])
+        groups[key].append(hit)
+    return ordered
+
+
+def _selected(outcome: SearchOutcome) -> tuple[list[_Shown], list, int]:
+    """Top-N shown hits plus the superseded redirects outranking them, so the renderers cannot
+    drift, and how many hits no shown group holds; a group's members are counted, named or not."""
+    groups = _near_duplicates(outcome.hits)[:TOP_N]
     # a redirect applies only to a doc that would have WON a top-3 place
-    cutoff = _rank(shown_hits[-1]) if len(shown_hits) == TOP_N else None
+    cutoff = _rank(groups[-1][0]) if len(groups) == TOP_N else None
     notes = [n for n in outcome.superseded_notes if cutoff is None or _rank(n) < cutoff]
-    return shown_hits, shown_ids, notes
+    shown = []
+    for group in groups:
+        newest = max(group, key=lambda hit: hit.doc.date)
+        older = sorted(
+            (hit.doc for hit in group if hit is not newest), key=lambda doc: doc.date, reverse=True
+        )
+        shown.append(_Shown(newest, tuple(older)))
+    withheld = len(outcome.hits) - sum(len(group) for group in groups)
+    return shown, notes, withheld
+
+
+def older_ids(outcome: SearchOutcome) -> set[str]:
+    """The notes a shown near-duplicate stands for: named, their text never shown."""
+    shown, _, _ = _selected(outcome)
+    return {doc.id for entry in shown for doc in entry.older}
 
 
 def only_weak_shown(outcome: SearchOutcome) -> bool:
     """Something was shown, and every hit and redirect shown is a weak candidate (US-14)."""
-    shown_hits, _, notes = _selected(outcome)
-    shown = [*shown_hits, *notes]
-    return bool(shown) and all(item.weak for item in shown)
+    shown, notes, _ = _selected(outcome)
+    items = [*(entry.hit for entry in shown), *notes]
+    return bool(items) and all(item.weak for item in items)
+
+
+def _older_line(older: tuple[Doc, ...]) -> str:
+    named = ", ".join(
+        f"{_escape_controls(doc.id)} ({doc.date.isoformat()})" for doc in older[:OLDER_NAMED_MAX]
+    )
+    rest = len(older) - OLDER_NAMED_MAX
+    more = f" and {rest} more" if rest > 0 else ""
+    return f"newest of {len(older) + 1} notes with this title and entities; older: {named}{more}"
 
 
 def _weak_line(strength: Strength) -> str:
@@ -410,8 +477,8 @@ def _weak_line(strength: Strength) -> str:
 
 def surfaced_ids(outcome: SearchOutcome) -> list[str]:
     """Every document id actually shown to the agent, in render order."""
-    shown_hits, _, notes = _selected(outcome)
-    ids: list[str] = [h.doc.id for h in shown_hits]
+    shown, notes, _ = _selected(outcome)
+    ids: list[str] = [entry.hit.doc.id for entry in shown]
     for note in notes:
         ids.append(note.doc.id)
         if note.successor is not None:
@@ -432,16 +499,19 @@ def render_search_results(
     blocks: list[str] = [scope_lead] if scope_lead else []
     show_repos = bool(scope_lead)
 
-    shown_hits, shown_ids, notes = _selected(outcome)
+    shown, notes, withheld = _selected(outcome)
     if only_weak_shown(outcome):
         # right under the scope line, as `render_no_match` puts `none found`
         blocks = [f"{scope_lead}\n{NO_RELIABLE_MATCH}"] if scope_lead else [NO_RELIABLE_MATCH]
 
     hit_at: dict[int, Hit] = {}
-    for hit in shown_hits:
+    for entry in shown:
+        hit = entry.hit
         tag = "  [ambiguous]" if hit.ambiguous else ""
         tag += WEAK_TAG if hit.weak else ""
         header = f"### {_escape_controls(hit.doc.id)} (score: {hit.score:.1f}){tag}"
+        if entry.older:
+            header += "\n" + _older_line(entry.older)
         hit_at[len(blocks)] = hit
         blocks.append(
             _hit_block(
@@ -450,7 +520,8 @@ def render_search_results(
             )
         )
 
-    rendered = set(shown_ids)
+    rendered = {entry.hit.doc.id for entry in shown}
+    newer = {doc.id: entry.hit.doc for entry in shown for doc in entry.older}
     for note in notes:
         # every redirect form below starts with this, so a weak one is marked whichever it is
         safe_id = _escape_controls(note.doc.id) + (WEAK_TAG if note.weak else "")
@@ -484,6 +555,10 @@ def render_search_results(
             # still a search result. Its id is named; the draft's own content is not
             blocks.append(f"{safe_id}: superseded by {chain} (successor is still a draft)")
             continue
+        if current.id in newer:
+            newest = _escape_controls(newer[current.id].id)
+            blocks.append(f"{safe_id}: superseded by {chain} (older than {newest})")
+            continue
         blocks.append(f"{safe_id}: superseded by {chain}")
         # two redirects can end at one document: its block is shown once
         if current.id not in rendered:
@@ -494,7 +569,6 @@ def render_search_results(
             )
 
     # names how many were left out, so a tie cut mid-list doesn't look decisive
-    withheld = len(outcome.hits) - len(shown_hits)
     withheld_line = (
         f"({withheld} more document(s) matched below the top {TOP_N} — "
         f"narrow the query to see them.)"

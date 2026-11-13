@@ -485,6 +485,68 @@ Naming it `first section` keeps them (1.3 % fewer bytes, 11 trimmed). But it put
 where a name was, and a trim that cuts the block after its `matched:` line would leave the
 position pointing at nothing.
 
+## The newest of near-duplicates
+
+Active notes that share a title, a set of entities (case and spacing ignored, entities not
+empty) and a set of linked repositories (compared by `scoring.repo_key`, as a scope compares
+them), and that fall in the same tier, are one subject recorded over time. A search shows only
+the newest of them, by `date`, in the place of the best-ranked one, and names the others with
+their dates on the line under its header, newest first:
+
+`newest of 8 notes with this title and entities; older: a (2025-08-04), b (2025-06-19), c (2024-11-02) and 4 more`
+
+The repositories are part of the subject because an unscoped search, the daily default, shows no
+`repos:` line: a newer note on another repository's component of the same name would otherwise
+replace the best match without the reader seeing why. Notes of one date keep the best-ranked
+one. The shown note keeps its own score, matched words and tier.
+
+The older notes get no block and no `path:` line, and none of their text is shown, so none of
+them gets a `cite as` reference or a retained version (`search_report._shown_docs`, both
+channels); `engmem read <id>` still opens any of them and cites its own version. An id named
+only on the older line is not in `surfaced_ids`, so it is not a find: a session that reads one
+lists it on the summary's `read, not surfaced:` line, which says no search showed it as a result
+or a redirect, never that no search showed it (`contracts/gate1.md`). A redirect whose chain ends
+at one of the older notes keeps its line, with `(older than <newest>)` after the chain, and shows
+no successor block: the newest is already shown above. That line names the older note, so it is
+in `surfaced_ids` like every id a redirect line names (`ENGMEM-SPEC.md` §6), and still has no
+`cite as`. A redirect that leaves the group, or ends at the newest itself, reads as before.
+
+The withheld count leaves out every member of a shown group: the line counts them all, naming
+the first three and counting the rest as "and N more". The cutoff for redirects is the rank of
+the third shown group's best-ranked member, so a superseded note still needs to outrank a place
+it would have won. Only hits are grouped, and a hit is always active: drafts are outside the
+ranking corpus and a superseded note is a redirect. The role search (`--role`) is unchanged.
+
+Why: recency entered the ranking only as the last tie-break, and BM25 favours a short or
+repetitive older note over a newer one. Among the 20 to 40 notes of one subject in class 12 of the
+e2e harness (`contracts/e2e.md`), the top three were older active notes, the canonical newest one
+was missing from the daily start's loads, and an agent that reads every relevant result read stale
+values beside it: E answered 0 of 10. A recency tie-break within a score margin would reorder
+those results but still show three of them. Grouping by title and entities is lexical: two
+different notices that happen to share a title fold too, and only the newest gets a block. The
+older ones stay named, and a narrower query or `engmem read` reaches them.
+
+Measured before it shipped, each set against the build before it:
+
+- The e2e harness's blind set, every arm, at 4, 12 and 30 KB documents: E answered class 12 in
+  10 of 10 at each size, against 0, and the stale family (classes 4, 10, 11, 12) in 38 of 40,
+  against 28. No task of any class or arm lost its answer; E's mean cached tokens to the answer
+  in the stale family fell (5,351 to 4,819 at 30 KB, against the build with the start's asked
+  sections only).
+- The 125 real first queries of the synthetic retrieval round on a copy of the 20,112-document
+  store ("Measured, and kept or cut", above): the target shown in 87 results and its value in
+  all 87, as before, and 11 trimmed, as before. 6 results changed, 374,208 bytes in all became
+  375,555. Those 6 are the only results that held a group, and in 5 of them the store holds
+  three card-processor notices with one title, one set of entities and one repository, and the
+  newest replaced an older one in the third place. The store holds 21 groups in all, none of them
+  across repositories.
+
+What the replay does not cover: no target in it sat inside a group, neither as the newest nor as
+an older note, so it measures no case where the fold hides a distinct note that held the answer.
+Class 12 is built so that the newest is canonical. A store whose same-titled notes record
+different facts loses those facts from the blocks, keeps them on the older line by id and date,
+and needs a narrower query or `engmem read` to reach them.
+
 ## A redirect follows the chain
 
 A superseded document that would have won a place is shown as a redirect line, and the line
@@ -505,6 +567,9 @@ breaks it says how, after the last document it reached:
 - `(successor is still a draft)`: the chain ends in a draft, which is named and not shown;
 - `(the chain loops back to <id>)`: the next id is already on the chain, the hit itself
   included, so a cycle ends the walk instead of the search.
+
+A chain that ends at an older near-duplicate of a shown note ends `(older than <newest>)` and
+shows no block ("The newest of near-duplicates", above).
 
 No document in the middle of a chain is shown as a block: each of them is known to be stale. A
 document whose status is not `superseded` ends the chain whatever its `superseded_by` says. The
@@ -547,10 +612,10 @@ a version and a cost row, and prints a note for each that fails.
 run can log an id the reader never saw. Telemetry reads it as "prior context surfaced", which
 over-counts in exactly the runs where the output was too long.
 
-`_selected` admits a redirect only when it ranks strictly before the last shown hit on
-`(weak, -score)` (`_rank`): a reliable redirect beats a weak hit, a weak one never displaces a
-reliable hit, and between two of a kind the higher score wins. A superseded document tied with
-the third hit would have taken that place on the `(weak, -score, -date, id)` order `scoring`
-actually sorts by, and its redirect is dropped. The
-failure is silence about a stale document, never handing one over, and closing it would mean
-restating `scoring`'s sort key in the renderer.
+`_selected` admits a redirect only when it ranks strictly before the last shown hit, or the
+best-ranked member of the last shown near-duplicate group, on `(weak, -score)` (`_rank`): a
+reliable redirect beats a weak hit, a weak one never displaces a reliable hit, and between two of a
+kind the higher score wins. A superseded document tied with the third hit would have taken that
+place on the `(weak, -score, -date, id)` order `scoring` actually sorts by, and its redirect is
+dropped. The failure is silence about a stale document, never handing one over, and closing it
+would mean restating `scoring`'s sort key in the renderer.

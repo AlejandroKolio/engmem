@@ -89,9 +89,14 @@ scored on. A policy that is wrong for engmem stays wrong in the report.
   verbatim and in order (backticked text, dotted names such as `a.b.c`, SCREAMING_SNAKE and
   CamelCase tokens), then its words minus a fixed stopword list, in order, at most eight words. The
   identifiers do not count toward the eight. Every arm uses this query, engmem and grep alike.
-- **No role words.** The daily template's search and read steps name no section role beyond primer
-  and decisions, so no arm derives a role from the task's words; the harness's earlier list of role
-  words (`pitfall` → `lessons` and so on) was its own addition and is gone.
+- **Asked sections.** The daily template's Read step names a third read: the section the primer
+  points to or the task asks about, Lessons Learned (`lessons`) for pitfalls, failures, causes and
+  lessons, Production Considerations (`production`) for production settings, limits and config
+  keys. The policy reads it literally (`policy.asked_roles`): a role whose heading the document's
+  primer names, or one whose words the task uses, a task word counting when it starts with one of
+  the stems `pitfall`, `fail`, `cause`, `lesson` (→ `lessons`) or `production`, `setting`,
+  `limit`, `config` (→ `production`). The stems are the template's words and nothing else; the
+  search query never carries a role.
 - **Successors.** engmem's search shows a superseded hit as a redirect line,
   `old: superseded by b → c`, followed by the end of the chain as a `### c (successor)` block. The
   policy reads a successor block like any result, together with the redirect lines that lead to it,
@@ -110,11 +115,11 @@ scored on. A policy that is wrong for engmem stays wrong in the report.
   relevant result is taken in rank order (a successor in place of a superseded result), the first
   search's before the second's, then the `related` ids of those at depth 1, until five. Each
   loaded document is read as the daily template's Read step names it: `--role primer`, then
-  `--role decisions`, nothing else. A fact that lives only in Lessons Learned or Production
-  Considerations (classes 3 and 13) therefore reaches E only through the search block's section
-  line. Whether the daily template should also name Lessons is a template question for
-  `src/engmem`, out of scope here. `mcp-read-only` cannot read; it calls `engmem_search_by_role`
-  for decisions. `paste` loads nothing: the template gives a read no paste path.
+  `--role decisions`, then each asked section (above), lessons before production. A fact that
+  lives only in Lessons Learned or Production Considerations (classes 3 and 13) reaches E when the
+  primer points to that section or the task's words ask for it, and otherwise only through the
+  search block's section line. `mcp-read-only` cannot read; it calls `engmem_search_by_role` for
+  decisions. `paste` loads nothing: the template gives a read no paste path.
 - **Re-check.** When a loaded document's search block says `covered file(s) changed: <path>, re-check`
   (contracts/provenance.md), an engmem profile reads that file from its checkout, as the line asks.
 - **Blind grep.** One `rg -i -c -e <term>...` over the documents, sorted by count and cut to the top 20
@@ -324,8 +329,8 @@ answer the arm would give, with the same rule for every arm:
   regex matched anywhere in the context. `opened the answer document`: the arm opened a keyed
   fact's document, reported apart from `correct`, so finding the document is told apart from
   reading the section that holds the answer.
-- Classes 3 and 13 carry the label "Daily template reads primer and decisions only; G+'s guidance
-  names Lessons." in the report.
+- Classes 3 and 13 carry the label "Daily template reads primer, decisions and the section the
+  primer points to or the task asks about; G+'s guidance names Lessons." in the report.
 - The phase 4 report's cost of record is the mean over every run (cached turn tokens to the
   answer); the tasks both arms answered correctly appear only as a labelled secondary figure.
 
@@ -539,7 +544,7 @@ tie of E against G+ in a family where G+ is better than G by the same rules.
 - G ranks files by distinct terms, then matching lines, then newest. `rg` itself has no such order;
   it stands in for the agent's own narrowing. Claude Code's Grep tool orders by modification time,
   which in Layer 2's copied store says nothing.
-- An E run reads primer and decisions only, as the daily template says. A fact in Lessons Learned
-  or Production Considerations is seen only in the search block's section line (classes 3 and 13);
-  G+ reads Lessons by its instruction. This is a candidate change to the daily template in
-  `src/engmem`, outside this harness.
+- An E run reads primer, decisions and the asked sections, as the daily template says. The
+  asked-section rule is lexical: a task that asks about a past failure in other words ("what went
+  wrong") and whose primer points nowhere reads no Lessons; a real agent may. G+ reads Lessons by
+  its instruction on every opened note.

@@ -110,8 +110,8 @@ def test_the_summary_marks_what_the_session_read(store, capsys):
     assert f"  unknown: {SESSION} -> widget-cache [read]" in lines
     assert f"  unknown: {SESSION} -> logo-policy" in lines
     assert [line for line in lines if line.startswith("read, not surfaced:")] == [
-        "read, not surfaced: retry-backoff -- read through engmem but shown by no search; "
-        "not a find, so it cannot be assessed"
+        "read, not surfaced: retry-backoff -- read through engmem; no search of this session "
+        "showed it as a result or a redirect, so it is not a find and cannot be assessed"
     ]
 
 
