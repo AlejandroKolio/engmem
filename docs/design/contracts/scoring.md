@@ -12,7 +12,9 @@ index, so they stay together in `scoring.py` (ENGMEM-SPEC "Large modules").
 
 - The rank order is `(weak, -score, -date, id)`, a full deterministic order: every reliable
   find before every weak candidate (below), then by score. BM25 scores move with corpus size,
-  so golden tests pin order and membership, never an absolute score.
+  so golden tests pin order and membership, never an absolute score. The renderer shows the
+  newest of active near-duplicates in the place of the best-ranked one (`contracts/output.md`,
+  "The newest of near-duplicates"); the rank order itself does not change.
 - A document scores its single best section, not the sum, or it wins by section count.
 - Restricted-ness (`tokens.is_restricted`: three characters or fewer, or purely numeric) is a
   property of the token's text, decided once in `_build_query_tokens` and read from

@@ -21,7 +21,8 @@ SMOKE_BUILT_IN = ("multi-agent",)
 RECORD, CONTENT = "grep-guided", "grep-content"
 STALE_CLASSES = (4, 10, 11, 12)
 SECTION_CLASSES = (3, 13)
-SECTION_NOTE = "Daily template reads primer and decisions only; G+'s guidance names Lessons."
+SECTION_NOTE = ("Daily template reads primer, decisions and the section the primer points to or the task asks "
+                "about; G+'s guidance names Lessons.")
 CROSSOVER_CLASSES = (3, 4, 10)
 TIE_BAND = 0.05
 

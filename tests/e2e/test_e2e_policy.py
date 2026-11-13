@@ -45,9 +45,28 @@ def test_component_terms_are_the_touched_file_names():
     assert policy.component_terms(("src/map/MapWidget.ts", "TileCache.ts")) == ["MapWidget", "TileCache"]
 
 
-def test_e_reads_primer_and_decisions_only_as_the_daily_template_says():
+def test_e_reads_primer_and_decisions_first_as_the_daily_template_says():
     assert policy.READ_ROLES == ("primer", "decisions")
-    assert not hasattr(policy, "role_for") and not hasattr(policy, "ROLE_WORDS")
+
+
+@pytest.mark.parametrize(
+    ("description", "primer", "roles"),
+    [
+        ("Tune the IntakeQueue consumer", "IntakeQueue batching: the pitfalls are in Lessons Learned.", ["lessons"]),
+        ("Tune PageComposer", "PageComposer: see Production Considerations and Lessons Learned for the details.",
+         ["lessons", "production"]),
+        ("What pitfall did we hit with DigestMailer?", "DigestMailer batching: one run a day.", ["lessons"]),
+        ("Why did the export fail last night?", "", ["lessons"]),
+        ("What caused the duplicate rows?", "", ["lessons"]),
+        ("What limit is configured for ExportThrottle?", "", ["production"]),
+        ("Which production setting does TileWarmer use?", "TileWarmer: see Lessons Learned.", ["lessons", "production"]),
+        ("What is the GatewayBreaker trip threshold?", "The GatewayBreaker trip threshold is 11 failures.", []),
+    ],
+    ids=["primer-lessons", "primer-both", "task-pitfall", "task-fail", "task-cause", "task-limit", "both-ways",
+         "neither"],
+)
+def test_e_also_reads_the_section_the_primer_points_to_or_the_task_asks_about(description, primer, roles):
+    assert policy.asked_roles(description, primer) == roles
 
 
 @pytest.mark.parametrize(

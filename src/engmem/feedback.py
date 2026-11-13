@@ -138,8 +138,8 @@ def record(
         raise FeedbackError(f"cannot read {telemetry} to check the session's finds ({exc})") from exc
     if doc_id not in shown:
         raise FeedbackError(
-            f"'{_escape_controls(doc_id)}' was not shown by any search attributed to "
-            f"'{_escape_controls(session_id)}' -- feedback assesses a find; this session's "
+            f"'{_escape_controls(doc_id)}' is not a result or redirect of any search attributed "
+            f"to '{_escape_controls(session_id)}' -- feedback assesses a find; this session's "
             "finds: " + (", ".join(_escape_controls(d) for d in sorted(shown)) or "none")
         )
 
@@ -308,8 +308,8 @@ def render_summary(
     if unfound:
         lines.append(
             "read, not surfaced: " + ", ".join(_escape_controls(d) for d in unfound)
-            + " -- read through engmem but shown by no search; not a find, so it cannot be "
-            "assessed"
+            + " -- read through engmem; no search of this session showed it as a result or a "
+            "redirect, so it is not a find and cannot be assessed"
         )
     if summary.orphan_sessions:
         lines.append(

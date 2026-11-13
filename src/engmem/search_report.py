@@ -12,6 +12,7 @@ from engmem.output import (
     RELATED_MAX,
     RoleHit,
     _escape_controls,
+    older_ids,
     render_no_match,
     render_role_search_results,
     render_scoreboard,
@@ -133,13 +134,16 @@ def _related_paths_shown(doc: Doc, by_id: dict[str, Doc]) -> list[str]:
 
 def _shown_docs(docs: list[Doc], rendered: RenderedResult) -> list[Doc]:
     """The documents whose text this result showed or gave a path for, in render order: never a
-    draft, and never a superseded document a redirect line only names."""
+    draft, a superseded note a redirect line only names, or a near-duplicate it hides."""
     by_id = {doc.id: doc for doc in docs}
     if rendered.role_hits is not None:
         ids = [role_hit.doc.id for role_hit in rendered.role_hits]
     else:
         ids = []
+        older = older_ids(rendered.outcome)
         for doc_id in surfaced_ids(rendered.outcome):
+            if doc_id in older:
+                continue
             ids.append(doc_id)
             doc = by_id.get(doc_id)
             if doc is not None and doc.status == "active":

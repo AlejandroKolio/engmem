@@ -314,6 +314,7 @@ def _tied_docs(n):
     return [
         _bare_doc(
             id=f"doc-{i}-cache-warmup",
+            title=f"Cache Warmup {i}",
             date=datetime.date(2026, 5, 1 + i),
             task_date=datetime.date(2026, 5, 1 + i),
             path=Path(f"/store/sessions/doc-{i}-cache-warmup.md"),
@@ -683,6 +684,7 @@ def _trimmed_between_a_section_line_and_its_primer(middle: int = 261, related=()
     for i, n_words in ((1, 180), (2, middle), (3, 180)):
         doc = _bare_doc(
             id=f"doc-{i}",
+            title=f"Cache Warmup {i}",
             path=Path(f"/store/sessions/doc-{i}.md"),
             verified_at_commit=None,
             related=list(related) if i == 3 else [],
@@ -1218,7 +1220,7 @@ def _store_with(
     sessions.mkdir(exist_ok=True)
     for doc_id, status, superseded_by, related, body in docs:
         (sessions / f"{doc_id}.md").write_text(
-            f"---\nid: {doc_id}\ntitle: Widget cache\ndate: 2026-08-01\n"
+            f"---\nid: {doc_id}\ntitle: Widget cache {doc_id}\ndate: 2026-08-01\n"
             f"task_date: 2026-08-01\nstatus: {status}\nsuperseded_by: {superseded_by}\n"
             f"tags: [platform]\nentities: [WidgetCache]\nrelated: [{related}]\n---\n\n"
             f"{heading}\n\n{body}\n",

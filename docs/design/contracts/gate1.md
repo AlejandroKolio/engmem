@@ -365,9 +365,10 @@ even when the id contains `@`; only a cell that resolves to nothing is split at 
 **Where the version comes from.** The agent cannot be trusted to hash a file, and engmem never
 commits to the store's git repository, so the bytes of an edited version exist nowhere unless
 engmem keeps them. A search does: every document whose text its result shows (`surfaced_ids`, or
-the role hits — but not a superseded document a redirect line only names, since none of its
-text was shown) and every document a hit's `related:` line gives a path for (`/engmem` loads those
-at depth 1; a superseded one is shown as its successor, so the successor is the one kept) is
+the role hits — but not a superseded document a redirect line only names, nor an older
+near-duplicate a newer shown note stands for, since none of their text was shown) and every
+document a hit's `related:` line gives a path for (`/engmem` loads those at depth 1;
+a superseded one is shown as its successor, so the successor is the one kept) is
 copied to `versions/<id>/<version>.md` — bytes untouched, 0600, published with
 `staging.commit_new` so a copy is never half-written — and the result's
 `cite as (Reuse Log prior-doc): <id>@<version>, ...` line offers the reference only once an
@@ -691,6 +692,9 @@ the trim kept off the screen, and a row written before `surfaced` existed contri
 A session is never its own find, even if a row names it. The
 reader is `telemetry.read_session_rows`, the audit block's, widened by `surfaced` and
 `weak_only` with defaults, so the audit, which reads only `session_id` and `ts`, is unchanged.
+Owner decision: an id named only on a shown note's `older:` line (`contracts/output.md`, "The
+newest of near-duplicates") is not in `surfaced`, so it is not a find. A session that reads it
+sees it on the summary's `read, not surfaced:` line, and `record` refuses it.
 A weak candidate is a find too, marked `[weak candidate]` when every row that showed it was
 `weak_only`. A mixed row does not say which of its documents were weak, so a document shown by
 one counts as a reliable find. A row with no `session_id` finds nothing for anyone.
@@ -702,10 +706,10 @@ and `record` refuses an id with no document.
 ### What `record` refuses
 
 Nothing is written when the assessment is not one of the three (case-insensitive), when the
-session names no loaded document, when no search attributed to the session showed the
-document, when `telemetry.jsonl` cannot be read or decoded, or when `decision` or `source`
-exceeds `TEXT_MAX` characters (refused, not cut: the words are the user's). So every recorded
-assessment was a find when it was recorded. The line is appended in one write, like a
+session names no loaded document, when no search attributed to the session showed the document
+as a result or a redirect, when `telemetry.jsonl` cannot be read or decoded, or when `decision`
+or `source` exceeds `TEXT_MAX` characters (refused, not cut: the words are the user's). So every
+recorded assessment was a find when it was recorded. The line is appended in one write, like a
 telemetry row. When the file's last byte is not a newline (a torn append, a hand edit), the
 write starts with one, so the new line is never swallowed into the torn one, which stays one
 unreadable line. A later line for the same pair replaces the earlier one in every figure, so an
@@ -745,7 +749,10 @@ showed from its context, and a refused record lists the session's finds.
 With `--session`, the summary also shows what the session read through `engmem read` /
 `engmem_read`, so the save can start its Reuse Log from a list rather than from memory. A find
 the session read carries `[read]` after any `[weak candidate]`; documents it read that no search
-showed are named on one line, `read, not surfaced: <id>, ...`. Those are not finds: `record`
+of the session surfaced are named on one line, `read, not surfaced: <id>, ...`, which says no
+search showed them as a result or a redirect. An id named only on a shown note's `older:` line
+(`contracts/output.md`, "The newest of near-duplicates") is such a document: shown by name, not
+surfaced. Those are not finds: `record`
 refuses a document no search of the session showed ("What `record` refuses"), and a read of a
 document a search of the session showed is already a find, whichever came first.
 

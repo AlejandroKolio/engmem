@@ -637,7 +637,8 @@ instead of a human pasting `engmem search` output across the paste-bridge.
    not know which ids exist, and a search refused because a draft was named a moment too
    early would be the ritual gating the answer, §6).
    `surfaced` lists the document ids the reader was actually shown, in render order: the
-   top-3 hits plus each superseded redirect and every successor its line names. It is
+   three shown hits (a group of near-duplicates is shown as its newest note,
+   `contracts/output.md`) plus each superseded redirect and every successor its line names. It is
    deliberately wider than `hits` — a redirect target reaches the agent without ever scoring,
    so omitting it would make an honest Reuse Log row look fabricated at review time.
    `related` expansion is not listed: the search never printed it, and it is reconstructible
@@ -790,9 +791,10 @@ assessments live in `feedback.jsonl`, not in a new Reuse Log classification, and
 `/engmem.save` asks the question. `tools/gate1_report.py`
 prints the same summary after its audit block. *(US-27)* With `--session`, a find the session
 read through `engmem read` is marked `[read]`, and citable documents it read that no search
-showed are named on a `read, not surfaced:` line; both save templates read this before the Reuse
-Log, and completing a none Reuse Log in such a session warns, naming them. Rules: `docs/design/contracts/gate1.md`,
-"Usefulness feedback".
+surfaced (an id named only on an `older:` line included) are named on a `read, not surfaced:`
+line; both save templates read this before the Reuse Log, and completing a none Reuse Log in
+such a session warns, naming them. Rules: `docs/design/contracts/gate1.md`, "Usefulness
+feedback".
 
 ### `engmem draft create DOC_ID` / `engmem draft complete DOC_ID --expected-version V` (document on stdin)
 
@@ -1023,8 +1025,9 @@ Rationale and limits: `contracts/scoring.md`, "Tokenisation".
 **Score (additive, not tiered):**
 `score(doc) = Σ over query tokens [ max field weight where the token matched ] × (matched
 tokens / total query tokens)`
-Field weights: id = 5, entities = 3, title = 2, tags = 1. Ties broken by recency (date),
-newer first.
+Field weights: id = 5, entities = 3, title = 2, tags = 1. Ties broken by recency (date), newer
+first. Active hits sharing a title, entities and linked repositories show as one block, the
+newest (`contracts/output.md`, "The newest of near-duplicates").
 
 **Weak candidates** *(US-14)*: a hit that matched fewer than two distinct query words (all of
 a one-word query; a word of three characters or fewer counts only as an identifier) and no

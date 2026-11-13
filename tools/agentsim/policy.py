@@ -24,6 +24,8 @@ OUT_OF_SCOPE_WORDS = frozenset(
 )
 MAX_DOCS_LOADED = 5
 READ_ROLES = ("primer", "decisions")
+POINTED_SECTIONS = {"lessons": "Lessons Learned", "production": "Production Considerations"}
+ASKED_STEMS = {"lessons": ("pitfall", "fail", "cause", "lesson"), "production": ("production", "setting", "limit", "config")}
 GREP_TOP_LINES = 20
 RESULTS_SHOWN = 3
 RELEVANT_TERMS = 2
@@ -69,6 +71,16 @@ def key_terms(description: str) -> list[str]:
 def engineering_task(description: str) -> bool:
     """False when the description names study, writing, marketing or a personal errand."""
     return not any(word.lower() in OUT_OF_SCOPE_WORDS for word in _WORD.findall(description))
+
+
+def asked_roles(description: str, primer: str) -> list[str]:
+    """The daily template's third read: each role whose heading the primer names, or one of whose
+    words the task uses, in the template's order."""
+    words = [word.lower() for word in _WORD.findall(description)]
+    return [
+        role for role, heading in POINTED_SECTIONS.items()
+        if heading.lower() in primer.lower() or any(w.startswith(ASKED_STEMS[role]) for w in words)
+    ]
 
 
 def component_terms(files: tuple[str, ...]) -> list[str]:
