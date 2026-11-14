@@ -99,9 +99,9 @@ def test_gn_finds_the_note_its_earlier_agent_wrote_and_the_other_grep_arms_have_
     assert gn["outcome"]["correct"] and gn["saver"]["profile"] == "grep-notes"
     assert gn["saver"]["save_calls"] == 1 and gn["saver"]["save_tokens"] > 0
     quote = next(t for t in corpus.tasks() if t.saver).quote
-    for name in ("grep-content", "grep-guided"):
+    for name in ("grep-content", "grep-guided", "no-history"):
         run = _one(runs, "multi-agent", name)
-        assert run["saver"] is None and not run["outcome"]["correct"]
+        assert run["saver"] is None and run["outcome"]["correct"] is False
         assert not any(quote in s.get("source", "") for s in run["steps"])
 
 

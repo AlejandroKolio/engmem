@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentsim import grading
 from agentsim.corpus import Task
 from agentsim.factset import CLASS_NAMES, FACT_CLASSES, Fact
 
@@ -60,14 +61,15 @@ def _strings(value, where: str, name: str, *, empty_ok: bool) -> tuple[str, ...]
     return tuple(value)
 
 
-def _patterns(values: tuple[str, ...], where: str, name: str) -> list[re.Pattern]:
-    compiled = []
+def _patterns(values: tuple[str, ...], where: str, name: str) -> list[grading.Rule]:
+    try:
+        rules = grading.compile_all(values)
+    except re.error as exc:
+        raise _fail(where, f"`{name}` regex {exc.pattern!r} does not compile: {exc}") from None
     for value in values:
-        try:
-            compiled.append(re.compile(value, re.IGNORECASE))
-        except re.error as exc:
-            raise _fail(where, f"`{name}` regex {value!r} does not compile: {exc}") from None
-    return compiled
+        if grading.article_in(value):
+            raise _fail(where, f"`{name}` regex {value!r} holds the word a, an or the, which grading removes from answers")
+    return rules
 
 
 def _instance(record, facts: dict[str, Fact], seen: set[str]) -> Instance:
@@ -229,9 +231,9 @@ def answerable_problems(instance_set: InstanceSet, facts: dict[str, Fact], gener
             if not any(fact.value in line for line in source.splitlines()):
                 problems.append(f"{instance.id}: the value of key {key!r} is not on one line of its source")
         sources = "\n".join(_source_text(facts[key], generated) or "" for key in instance.keys)
-        for pattern in instance.required:
-            if not re.search(pattern, sources, re.IGNORECASE):
-                problems.append(f"{instance.id}: required regex {pattern!r} matches nothing in the sources")
+        for rule in grading.compile_all(instance.required):
+            if not rule.search(sources):
+                problems.append(f"{instance.id}: required regex {rule.pattern!r} matches nothing in the sources")
     return problems
 
 
@@ -249,20 +251,30 @@ def default_file() -> Path:
 
 
 def stale_leaks(instance_set: InstanceSet, facts: dict[str, Fact], generated) -> list[tuple[str, str]]:
-    """Every stale regex that matches a line of a document other than its keys' own documents and their
-    `stale_docs`: `(instance id, reason naming the regex, the document and the line)`."""
+    """Every stale regex that matches, as grading matches, a line of a document other than its keys' own
+    documents and their `stale_docs`: `(instance id, reason naming the regex, the document and the line)`."""
     found = []
+    lines: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {}
     for instance in instance_set.instances:
         keyed = [facts[key] for key in instance.keys]
         allowed = {fact.doc for fact in keyed} | {doc for fact in keyed for doc in fact.stale_docs}
         stores = {fact.store for fact in keyed}
-        for pattern in instance.stale:
-            compiled = re.compile(pattern, re.IGNORECASE)
+        for rule in grading.compile_all(instance.stale):
             for store in sorted(stores):
-                for path in sorted(generated.stores[store].glob("*.md")):
-                    if path.stem in allowed:
+                if store not in lines:
+                    lines[store] = _store_lines(generated.stores[store])
+                for stem, doc_lines in lines[store]:
+                    if stem in allowed:
                         continue
-                    line = next((ln for ln in path.read_text(encoding="utf-8").splitlines() if compiled.search(ln)), None)
+                    line = next((ln for ln, normal in doc_lines if rule.matches(ln, normal)), None)
                     if line is not None:
-                        found.append((instance.id, f"stale regex {pattern!r} matches {path.stem}: {line.strip()}"))
+                        found.append((instance.id, f"stale regex {rule.pattern!r} matches {stem}: {line.strip()}"))
     return found
+
+
+def _store_lines(store: Path) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Each document's lines as written and normalised, read once for every stale regex."""
+    return [
+        (path.stem, [(ln, grading.normalise(ln)) for ln in path.read_text(encoding="utf-8").splitlines()])
+        for path in sorted(store.glob("*.md"))
+    ]

@@ -191,3 +191,13 @@ def test_a_successor_block_is_read_with_the_redirect_that_leads_to_it_and_the_ch
     assert "20250210-old-r1" in view.blocks["20260520-renamed-hold"]
     assert "20250210-old-r1" not in view.blocks["20260103-other"]
     assert policy.documents_to_load(view, ["old", "hold"]) == ["20260520-renamed-hold"]
+
+
+def test_the_store_path_of_a_result_is_not_judged_for_relevance():
+    block = (
+        "### 20260314-walletlocker-lock-timeout (score: 9.0)\n"
+        "path: /tmp/a-much-longer-wait/store/sessions/20260314-walletlocker-lock-timeout.md\n"
+        "WalletLocker lock timeout of 8 seconds.\n"
+    )
+    assert not policy.relevant(["long", "wait"], block)
+    assert policy.relevant(["walletlocker", "timeout"], block)

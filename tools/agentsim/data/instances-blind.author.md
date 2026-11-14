@@ -32,3 +32,15 @@ checked that every other instance is unchanged and in the same order. Output sha
 The same author rewrote only the `stale` regexes of the 7 instances listed in `REJECTED.md`, under the
 same isolation; the validator now also checks the generated stores. The orchestrator checked that only
 those 7 instances changed, and only in `stale`. Output sha256 `cc564328944c0a298ea62e9b36b8dbef06d498f2d8f034afb72a84e54f09deff`.
+
+## Round 4 (after grading and the stale-leak check gained number normalisation)
+
+The same author rewrote only the `stale` regexes of `c04-walletlocker-3` and `-4`, under the same
+isolation; the orchestrator checked that only those two changed, and only in `stale`. Output sha256
+`cd4ec39fa4c8627e77ce7e7a3edfd0e853863ebb6f78cb2d86bb0e21b5972334`.
+
+## Round 5 (after grading dropped articles from answers and the loader refused articles in regexes)
+
+The same author rewrote only the `required` regexes of `c13-digestmismatch-3` and `-4`, removing the
+article, under the same isolation; the orchestrator checked that only those two changed, and only in
+`required`. Output sha256 `2f90e4d16d3191922d5a5a55df32df59d06dbecee7979d3b50c7c14646276eac`.

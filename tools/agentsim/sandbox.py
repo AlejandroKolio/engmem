@@ -130,6 +130,30 @@ def allow(path: Path) -> Path:
     return resolved
 
 
+SANDBOX_ROOT_BYTES = 160
+
+
+class PathTooLong(RuntimeError):
+    """A base directory too long to pad a sandbox root to `SANDBOX_ROOT_BYTES`."""
+
+
+def path_bytes(path: Path) -> int:
+    return len(str(path).encode("utf-8"))
+
+
+def padded_root(base: Path, name: str, length: int = SANDBOX_ROOT_BYTES) -> Path:
+    """`base/name-ppp…`, resolved, exactly `length` bytes long: engmem prints absolute paths and trims its
+    output by bytes, so every sandbox gets paths of one length wherever `base` is."""
+    plain = base.resolve() / f"{name}-"
+    missing = length - path_bytes(plain)
+    if missing < 0:
+        raise PathTooLong(
+            f"refusing {base}: a sandbox root under it would be {path_bytes(plain)} bytes, over the fixed "
+            f"{length}; choose a shorter --out"
+        )
+    return plain.parent / f"{plain.name}{'p' * missing}"
+
+
 def check_allowed(path: Path) -> Path:
     """`path` resolved; `ForbiddenPath` unless it is inside an allowed root and outside every protected one."""
     resolved = path.resolve()
