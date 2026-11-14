@@ -4,10 +4,11 @@ about where each answer lives (contracts/e2e.md, "Test data")."""
 from __future__ import annotations
 
 import random
+import re
 
 import pytest
 
-from agentsim import corpus, factset
+from agentsim import corpus, factset, grading
 from engmem.spine import load_store
 
 pytestmark = pytest.mark.e2e
@@ -152,3 +153,56 @@ def test_filler_on_the_scaling_answers_topic_is_one_chain_that_resolves_to_the_a
             current = docs[current.superseded_by]
         assert current.id == task.answer_docs[0], doc.id
         assert task.quote not in (generated.store_for(task) / f"{doc.id}.md").read_text(encoding="utf-8")
+
+
+GENERIC_HANDOFF_ANSWERS = (
+    "Generate one idempotency key per order before the first attempt and send the same key on every retry, "
+    "with exponential backoff and jitter. Make sure the intake server stores the key with a unique constraint "
+    "and returns the original order for a repeated key; keep keys for 24 hours.",
+    "Send an Idempotency-Key header with a UUID per order; the server dedups within 24 hours in an "
+    "idempotency_keys table.",
+    "Use the X-Request-Id header, keep it for sixty minutes in the request_dedup table.",
+)
+
+
+def _handoff():
+    return next(t for t in corpus.tasks() if t.saver)
+
+
+def _matches_all(task, text: str) -> bool:
+    return all(rule.search(text) for rule in grading.compile_all(task.required))
+
+
+def test_the_handoff_specifics_come_from_the_seed():
+    assert corpus.handoff_specifics() == corpus.handoff_specifics(corpus.HANDOFF_SEED)
+    drawn = {corpus.handoff_specifics(seed) for seed in range(20)}
+    assert len(drawn) > 10
+    given = corpus.handoff_specifics()
+    assert _handoff().required == (re.escape(given.header), rf"\b{given.minutes} minutes", re.escape(given.table))
+
+
+def test_the_earlier_task_states_every_specific_and_the_save_records_them():
+    task = _handoff()
+    assert _matches_all(task, task.saver["description"])
+    assert _matches_all(task, task.saver["decision"]) and _matches_all(task, task.quote)
+    assert task.quote in task.saver["decision"]
+
+
+@pytest.mark.parametrize("field", ["description", "decision_naive", "without_history"])
+def test_the_later_task_gives_away_no_specific(field):
+    task = _handoff()
+    assert not any(rule.search(getattr(task, field)) for rule in grading.compile_all(task.required))
+
+
+@pytest.mark.parametrize("answer", GENERIC_HANDOFF_ANSWERS)
+def test_general_practice_cannot_answer_the_handoff(answer):
+    task = _handoff()
+    assert not any(rule.search(answer) for rule in grading.compile_all(task.required))
+
+
+def test_no_document_in_any_store_holds_a_handoff_specific(generated):
+    rules = grading.compile_all(_handoff().required)
+    for kind, store in generated.stores.items():
+        for path in store.glob("*.md"):
+            text = path.read_text(encoding="utf-8")
+            assert not any(rule.search(text) for rule in rules), (kind, path.name)

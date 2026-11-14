@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from agentsim.profiles import LOAD
 from agentsim.trace import TEMPLATE, Transcript
@@ -42,9 +43,207 @@ class Grade:
     opened: frozenset[str] = frozenset()
 
 
-def compile_all(patterns) -> list[re.Pattern]:
-    """Case-insensitive `re` patterns; a pattern that does not compile raises `re.error`."""
-    return [re.compile(p, re.IGNORECASE) for p in patterns]
+UNITS = {
+    "milliseconds": ("milliseconds", "millisecond", "msecs", "msec", "ms"),
+    "seconds": ("seconds", "second", "secs", "sec", "s"),
+    "minutes": ("minutes", "minute", "mins", "min"),
+    "hours": ("hours", "hour", "hrs", "hr", "h"),
+    "days": ("days", "day"),
+    "percent": ("percent", "per cent", "pct", "%"),
+}
+_UNIT_OF = {spelling: unit for unit, spellings in UNITS.items() for spelling in spellings}
+_UNIT = re.compile(
+    r"(\d)[ -]?(" + "|".join(re.escape(s) for s in sorted(_UNIT_OF, key=len, reverse=True)) + r")(?![a-z])"
+)
+_DIGIT_HYPHEN = re.compile(r"(\d)-(?=[a-z])")
+_THOUSANDS = re.compile(r"(?<![{\d.,])\d{1,3}(?:,\d{3})+(?![\d}])")
+_DASHES = str.maketrans({"\u2010": "-", "\u2011": "-", "\u00a0": " ", "\u202f": " "})
+_SMALL = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+          "sixteen seventeen eighteen nineteen").split()
+_TENS = {word: 10 * i for i, word in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split(), start=2)}
+_WORDS = {**{word: i for i, word in enumerate(_SMALL)}, **_TENS, "hundred": 100, "thousand": 1000}
+_ARTICLE = re.compile(r"(?<![^\s(\[{\"'])(?<!\d )(?<!\d\t)[*_`]*(?:a|an|the)[*_`]*[ \t]+")
+_ARTICLE_WORD = re.compile(r"(?<![a-z0-9_])(?:a|an|the)(?![a-z0-9_])", re.IGNORECASE)
+_NUMBER_RUN = re.compile(
+    r"\b(?:" + "|".join(_WORDS) + r")(?:(?:[ -]|(?:(?<=hundred)|(?<=thousand))\s+and\s+)(?:" + "|".join(_WORDS) + r"))*\b"
+)
+
+
+def _numbers(words: list[str]) -> list[int]:
+    """Number words read left to right; a word that cannot extend the number so far starts a new one."""
+    found: list[int] = []
+    total = group = 0
+    last = ""
+    for word in words:
+        value = _WORDS[word]
+        if word == "thousand":
+            fits = last in ("small", "tens", "hundred") and total == 0
+        elif word == "hundred":
+            fits = last in ("small", "tens") and 0 < group < 100
+        elif word in _TENS or value >= 10:
+            fits = last in ("", "hundred", "thousand") and group % 100 == 0
+        else:
+            fits = last in ("", "hundred", "thousand") or (last == "tens" and value > 0)
+        if not fits and last:
+            found.append(total + group)
+            total = group = 0
+        if word == "thousand":
+            total, group = (group or 1) * 1000, 0
+        elif word == "hundred":
+            group = (group or 1) * 100
+        else:
+            group += value
+        last = word if word in ("hundred", "thousand") else "tens" if word in _TENS else "small"
+    return [*found, total + group]
+
+
+def _number_run(match: re.Match) -> str:
+    words = [w for w in re.split(r"[ -]+", match.group(0)) if w not in ("", "and")]
+    return " ".join(str(n) for n in _numbers(words))
+
+
+@lru_cache(maxsize=256)
+def normalise(text: str) -> str:
+    """Lower case, no standalone articles, number words as digits, no thousands commas, and one spelling
+    per unit after a number."""
+    text = _ARTICLE.sub("", text.translate(_DASHES).lower())
+    text = _NUMBER_RUN.sub(_number_run, text)
+    text = _THOUSANDS.sub(lambda m: m.group(0).replace(",", ""), text)
+    text = _UNIT.sub(lambda m: f"{m.group(1)} {_UNIT_OF[m.group(2)]}", text)
+    return _DIGIT_HYPHEN.sub(r"\1 ", text)
+
+
+_HIDDEN = 0xE000
+
+
+def normalise_pattern(pattern: str) -> str:
+    """`normalise` for a regex: escapes stay as written, but an escaped space, or an escaped hyphen outside
+    a character class, is the plain character, as in the text it matches."""
+    kept: list[str] = []
+    out: list[str] = []
+    in_class = False
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\" and index + 1 < len(pattern):
+            escaped = pattern[index + 1]
+            if escaped == " " or (escaped == "-" and not in_class):
+                out.append(escaped)
+            else:
+                kept.append(char + escaped)
+                out.append(chr(_HIDDEN + len(kept) - 1))
+            index += 2
+            continue
+        if char == "[":
+            in_class = True
+        elif char == "]":
+            in_class = False
+        out.append(char)
+        index += 1
+    hidden = re.compile(f"[{chr(_HIDDEN)}-{chr(_HIDDEN + max(len(kept), 1) - 1)}]")
+    return hidden.sub(lambda m: kept[ord(m.group(0)) - _HIDDEN], normalise("".join(out)))
+
+
+_CLASS = re.compile(r"\[(?:\\.|[^\]\\])*\]")
+_ESCAPE = re.compile(r"\\.")
+
+
+def article_in(pattern: str) -> bool:
+    """Whether a regex holds `a`, `an` or `the` as a word outside escapes and character classes; the
+    normalised text never does, so such a regex could not match it."""
+    return _ARTICLE_WORD.search(_ESCAPE.sub(" ", _CLASS.sub(" ", pattern))) is not None
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A key regex: it matches a text as written, or, normalised itself, the normalised text."""
+
+    pattern: str
+    written: re.Pattern
+    normal: re.Pattern
+
+    def search(self, text: str) -> bool:
+        return self.matches(text, normalise(text))
+
+    def matches(self, text: str, normal: str) -> bool:
+        """`search` with the text's normalised form already at hand."""
+        return _whole_match(self.written, text) or _whole_match(self.normal, normal)
+
+    def states(self, text: str) -> bool:
+        """A match, as written or normalised, that the answer does not mark as past (`caveated`)."""
+        return any(
+            not caveated(source, match)
+            for pattern, source in ((self.written, text), (self.normal, normalise(text)))
+            for match in _whole_matches(pattern, source)
+        )
+
+
+_FRACTION = re.compile(r"\d[.,]")
+
+
+def _whole_matches(pattern: re.Pattern, text: str):
+    """Every match that does not start inside a decimal: "1.5 minutes" holds no `\\b5 minutes`."""
+    position = 0
+    while (match := pattern.search(text, position)) is not None:
+        start = match.start()
+        if not (text[start:start + 1].isdigit() and _FRACTION.fullmatch(text, max(start - 2, 0), start)):
+            yield match
+        position = start + 1
+
+
+def _whole_match(pattern: re.Pattern, text: str) -> bool:
+    return next(_whole_matches(pattern, text), None) is not None
+
+
+_CLAUSE_BREAK = re.compile(
+    r"[,;:!?()\[\]\n\u2014\u2013]|\.(?!\d)"
+    r"|\b(?:and|but|so|because|while|whereas|although|though|which|since|as|unless|if)\b",
+    re.IGNORECASE,
+)
+_PAST_BEFORE = re.compile(
+    r"\b(from|replacing|replaces|replaced|instead\s+of|previously|formerly|used\s+to\s+be|old|older|previous|former|"
+    r"outdated|stale|superseded|obsolete)(?:[ \t]+(?:the|its|their|old|previous|former|outdated|stale))*[ \t]+\Z",
+    re.IGNORECASE,
+)
+_NEEDS_CHANGE = ("from", "old", "older", "previous", "former")
+_CHANGE = re.compile(
+    r"\b(?:lowered|raised|changed|reduced|increased|decreased|moved|went|dropped|cut|bumped|shortened|lengthened|"
+    r"updated|down|up|from|replacing|replaces|replaced|instead\s+of)\b",
+    re.IGNORECASE,
+)
+_RESTORE = re.compile(
+    r"\b(?:roll(?:ed|s|ing)?\s+back|restor\w*|revert\w*\s+to|keep\w*|back(?:\s+(?:up|down))?\s+to)\b", re.IGNORECASE
+)
+_TO_BEFORE = re.compile(r"\bto[ \t]+(?:(?:the|its|their)[ \t]+)*\Z", re.IGNORECASE)
+_PAST_AFTER = re.compile(
+    r"\A(?:[ \t]+[^\s,;:!?()\[\]]+){0,4}?[ \t]+(?:"
+    r"no\s+longer\s+(?:used|applies|apply|valid|current|in\s+effect|correct|accurate)|"
+    r"(?:is|are|was|were|has\s+been|had\s+been)[ \t]+"
+    r"(?:out\s+of\s+date|outdated|stale|superseded|obsolete|replaced|"
+    r"no\s+longer\s+(?:used|applies|apply|valid|current|in\s+effect|correct|accurate)|"
+    r"(?:the[ \t]+)?(?:old|older|original|previous|former|earlier)[ \t]+(?:value|setting|figure|default|limit|one)))\b",
+    re.IGNORECASE,
+)
+
+
+def caveated(text: str, match: re.Match) -> bool:
+    """Whether the answer marks this very match as past in its own clause: a marker right before it ("lowered
+    it from 750 ms") or a status said of it ("750 ms in the note is out of date"); never on a way back to it."""
+    before = [b for b in _CLAUSE_BREAK.finditer(text, 0, match.start()) if b.end() <= match.start()]
+    lead = text[before[-1].end() if before else 0:match.start()]
+    if _RESTORE.search(lead):
+        return False
+    marker = _PAST_BEFORE.search(lead)
+    if marker and (marker.group(1).lower() not in _NEEDS_CHANGE or (
+            _CHANGE.search(lead, 0, marker.start()) and not _TO_BEFORE.search(lead[:marker.start()]))):
+        return True
+    after = _CLAUSE_BREAK.search(text, match.end())
+    return _PAST_AFTER.match(text[match.end():after.start() if after else len(text)]) is not None
+
+
+def compile_all(patterns) -> list[Rule]:
+    """Case-insensitive rules; a pattern that does not compile, as written or normalised, raises `re.error`."""
+    return [Rule(p, re.compile(p, re.IGNORECASE), re.compile(normalise_pattern(p), re.IGNORECASE)) for p in patterns]
 
 
 def _search_segments(text: str) -> list[Segment]:
@@ -136,15 +335,20 @@ def evidence(found: list[Segment], *, newest_only: bool, subjects: dict[str, str
     ]
 
 
-def grade_text(answer: str, required: list[re.Pattern], stale: list[re.Pattern]) -> tuple[bool, bool]:
+def grade_text(answer: str, required: list[Rule], stale: list[Rule]) -> tuple[bool, bool]:
     """`(every required regex matches, no stale regex matches)`."""
     return all(p.search(answer) for p in required), not any(p.search(answer) for p in stale)
 
 
+def grade_answer(answer: str, required: list[Rule], stale: list[Rule]) -> tuple[bool, bool]:
+    """`grade_text` for an agent's own words: a stale value it marks as past is no stale answer."""
+    return all(p.search(answer) for p in required), not any(p.states(answer) for p in stale)
+
+
 def grade(
     transcript: Transcript,
-    required: list[re.Pattern],
-    stale: list[re.Pattern],
+    required: list[Rule],
+    stale: list[Rule],
     *,
     newest_only: bool,
     subjects: dict[str, str],

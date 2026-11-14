@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import glob
+import hashlib
+import itertools
 import json
 import math
 import random
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -20,18 +24,22 @@ from agentsim import corpus as corpus_module
 from agentsim import grading
 from agentsim.corpus import Task
 from agentsim.greparms import GUIDANCE, NOTES_INSTRUCTION
-from agentsim.sandbox import TIMED_OUT, Sandbox
+from agentsim.sandbox import TIMED_OUT, PathTooLong, Sandbox, padded_root, path_bytes
 
 ARMS = ("E", "G", "G+", "N")
 HANDOFF_ARMS = ("E", "GN", "G", "N")
 ALL_ARMS = ("E", "G", "G+", "N", "GN")
 NOTES_HINT = "Earlier engineering notes, one Markdown file per past task, are in ./notes."
 ANSWER_SUFFIX = "Do not edit files. End with `ANSWER: …` and `SOURCES: …`."
+SIMULATED_USER_REPLY = "Yes, save it as shown. It supersedes no earlier decision. No usefulness feedback."
+CONFIRM_TURNS = 3
+CONFIRMATIONS_ASSUMED = 1
 MAX_TURNS = 25
 LIVE_TIMEOUT = 900
 PILOT_FILE = "pilot.json"
-RESULTS_FILE = "live-results.json"
+RESULTS_FILES = {"pilot": PILOT_FILE, "mini": "mini-results.json", "confirmatory": "live-results.json"}
 AUDIT_FILE = "audit-sample.jsonl"
+AUDIT_KEY_FILE = "audit-key.jsonl"
 AUDIT_SHARE = 0.10
 DEFAULT_REPEATS = 1
 PLANNED_PER_CLASS = 10
@@ -66,6 +74,7 @@ class Assumption:
 
 ANSWER_SESSION = Assumption(seconds=150, input=15_000, cache_read=300_000, cache_write=40_000, output=5_000)
 SAVE_SESSION = Assumption(seconds=90, input=5_000, cache_read=150_000, cache_write=20_000, output=4_000)
+CONFIRM_SESSION = SAVE_SESSION
 NO_HISTORY_SESSION = Assumption(seconds=90, input=8_000, cache_read=120_000, cache_write=20_000, output=4_000)
 
 
@@ -82,6 +91,7 @@ class LiveAgent:
     install_agent: str
     start: Callable[[str, str, str], list[str]]
     save: Callable[[str, str], list[str]]
+    reply: Callable[[str, str, str], list[str]]
     usage: Callable[[str], dict]
     session: Callable[[str], str | None]
     max_turns_enforced: bool
@@ -233,11 +243,19 @@ def _claude_start(prompt: str, tools: str, model: str) -> list[str]:
     ]
 
 
-def _claude_save(session: str, model: str) -> list[str]:
+def _claude_resume(session: str, prompt: str, model: str) -> list[str]:
     return [
-        "claude", "-p", "/engmem.save.quick", "--resume", session, "--output-format", "stream-json", "--verbose",
+        "claude", "-p", prompt, "--resume", session, "--output-format", "stream-json", "--verbose",
         "--max-turns", str(MAX_TURNS), "--model", model, "--allowedTools", ENGMEM_TOOLS,
     ]
+
+
+def _claude_save(session: str, model: str) -> list[str]:
+    return _claude_resume(session, "/engmem.save.quick", model)
+
+
+def _codex_resume(session: str, prompt: str, model: str) -> list[str]:
+    return ["codex", "exec", "--json", "--full-auto", "-m", model, "resume", session, prompt]
 
 
 AGENTS = {
@@ -247,6 +265,7 @@ AGENTS = {
         install_agent="claude",
         start=_claude_start,
         save=_claude_save,
+        reply=_claude_resume,
         usage=claude_usage,
         session=claude_session,
         max_turns_enforced=True,
@@ -260,9 +279,8 @@ AGENTS = {
         binary="codex",
         install_agent="codex",
         start=lambda prompt, tools, model: ["codex", "exec", "--json", "--full-auto", "-m", model, prompt],
-        save=lambda session, model: [
-            "codex", "exec", "--json", "--full-auto", "-m", model, "resume", session, "$engmem-save-quick",
-        ],
+        save=lambda session, model: _codex_resume(session, "$engmem-save-quick", model),
+        reply=_codex_resume,
         usage=codex_usage,
         session=codex_session,
         max_turns_enforced=False,
@@ -302,9 +320,14 @@ class LiveRun:
     def handoff(self) -> bool:
         return bool(self.task.saver)
 
+    @property
+    def has_earlier(self) -> bool:
+        """An earlier session runs in this run's sandbox first: E and GN in the handoff."""
+        return self.handoff and self.arm in ("E", "GN")
+
     def commands(self) -> list[list[str]]:
         argv: list[list[str]] = []
-        if self.handoff and self.arm in ("E", "GN"):
+        if self.has_earlier:
             saver_prompt = prompt_for(self.agent, self.arm, self.task.saver["description"], saver=True)
             argv.append(self.agent.start(saver_prompt, tools_for(self.arm, saver=True), self.model))
             if self.arm == "E":
@@ -388,12 +411,12 @@ def _sessions(run: LiveRun) -> list[Assumption]:
     """The sessions a run starts, as assumed: answer, plus the earlier agent and saves where they apply."""
     answer = NO_HISTORY_SESSION if run.arm == "N" else ANSWER_SESSION
     sessions = [answer]
-    if run.handoff and run.arm in ("E", "GN"):
+    if run.has_earlier:
         sessions.append(ANSWER_SESSION)
         if run.arm == "E":
-            sessions.append(SAVE_SESSION)
+            sessions += [SAVE_SESSION, *[CONFIRM_SESSION] * CONFIRMATIONS_ASSUMED]
     if run.arm == "E":
-        sessions.append(SAVE_SESSION)
+        sessions += [SAVE_SESSION, *[CONFIRM_SESSION] * CONFIRMATIONS_ASSUMED]
     return sessions
 
 
@@ -437,11 +460,15 @@ def dry_run(tasks: list[Task], agents: list[str], model: str, out: Path, *, stag
         "arms: E (daily /engmem), G (notes + hint), G+ (notes + engmem's advice), N (nothing); handoff adds GN",
         f"order: seeded ({PLAN_SEED}), blocks of task x repeat shuffled, arms shuffled inside each block",
         f"answer suffix: {ANSWER_SUFFIX}",
+        f"simulated user: after a save turn that wrote no document, up to {CONFIRM_TURNS} resumed turns reply "
+        f"{SIMULATED_USER_REPLY!r}",
         f"prices: {PRICES_AS_OF}" + ("" if model in PRICES else f"; no price known for {model}"),
         "assumed per session: answer "
-        + _describe(ANSWER_SESSION) + "; save " + _describe(SAVE_SESSION) + "; no history " + _describe(NO_HISTORY_SESSION),
+        + _describe(ANSWER_SESSION) + "; save " + _describe(SAVE_SESSION) + f", and {CONFIRMATIONS_ASSUMED} confirmation turns per save priced as a save"
+        + "; no history " + _describe(NO_HISTORY_SESSION),
         f"grading: required-fact and stale-value regexes on the ANSWER text; {AUDIT_SHARE:.0%} exported for a human audit",
-        f"results would go to: {out}",
+        f"results would go to: {out / RESULTS_FILES[stage]}; sandboxes, corpus and audit sample to "
+        f"{stage_dir(out, stage)}",
     ]
     if provisional:
         lines.append("instances: PROVISIONAL -- a blind author's file replaces them before any stage beyond the pilot")
@@ -509,14 +536,31 @@ def _call_problem(name: str, call: object) -> str | None:
     return None
 
 
+def _earlier_problem(record: dict) -> str | None:
+    """An E handoff's earlier session must have saved the decision it was given."""
+    earlier = record.get("earlier")
+    if record.get("arm") != "E" or not isinstance(earlier, dict):
+        return None
+    save = earlier.get("save")
+    problem = _call_problem("earlier save", save)
+    if problem is not None:
+        return problem
+    return None if save.get("new_docs") else "the pilot's earlier session saved no new document"
+
+
 def _record_problem(record: dict) -> str | None:
-    """What a pilot run lacks: its calls, the pinned model, a parsed answer, a clean read log, and
-    for E a save that added a document."""
+    """What a pilot run lacks: its calls, the pinned model, a parsed answer, a clean read log, for E a
+    save that ran to a final message, and in the handoff an earlier save that added a document."""
     arm = record.get("arm")
+    if record.get("refused"):
+        return f"the pilot's {record.get('agent')}/{arm} run was refused: {record['refused']}"
     for name in ("start", "save") if arm == "E" else ("start",):
         problem = _call_problem(name, record.get(name))
         if problem is not None:
             return problem
+    problem = _earlier_problem(record)
+    if problem is not None:
+        return problem
     where = f"the pilot's {record.get('agent')}/{arm} run"
     if not record.get("model") or record.get("model_reported") != record.get("model"):
         return f"{where} reported model {record.get('model_reported')!r}, not the pinned {record.get('model')!r}"
@@ -526,8 +570,8 @@ def _record_problem(record: dict) -> str | None:
         return f"{where} logged reads outside its bounds: {record['violations'][0]}"
     if arm == "E" and not record.get("engmem_calls"):
         return f"{where} made no engmem search or read call"
-    if arm == "E" and not (record.get("save") or {}).get("new_docs"):
-        return f"{where} saved no new document"
+    if arm == "E" and not (record.get("save") or {}).get("final_message"):
+        return f"{where}'s save ended with no final message"
     return None
 
 
@@ -559,33 +603,72 @@ def execute(
     out: Path,
     *,
     confirmed: bool,
-    pilot: bool,
+    stage: str,
     pass_env: list[str],
     doc_size: str = corpus_module.DEFAULT_DOC_SIZE,
     provisional: bool = False,
 ) -> list[dict]:
-    """Runs the plan for real; refuses without confirmation, and a stage beyond the pilot refuses on
-    provisional instances or without a pilot that ran every arm it plans."""
+    """Runs the plan for real; refuses without confirmation, in a stage that already ran in `out`, and
+    beyond the pilot on provisional instances or without a pilot that ran every arm it plans."""
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage {stage!r}; known: {', '.join(STAGES)}")
     if not confirmed:
         raise LiveRunRefused("a live run needs --execute and --i-accept-the-cost")
+    pilot = stage == "pilot"
     if not pilot and provisional:
         raise LiveRunRefused("provisional instances run the pilot only; pass the blind author's file")
     if not pilot:
         problem = pilot_problem(out / PILOT_FILE, {(r.agent.name, r.arm) for r in runs})
         if problem is not None:
             raise LiveRunRefused(f"run a successful pilot first (--pilot): {problem}")
+    roots = sandbox_roots(out, len(runs), stage=stage)
+    _refuse_reuse(out, stage)
     _require_binaries(runs)
-    out.mkdir(parents=True, exist_ok=True)
-    generated = prepare_corpus(out / "corpus", doc_size)
+    stage_dir(out, stage).mkdir(parents=True)
+    generated = prepare_corpus(stage_dir(out, stage) / "corpus", doc_size)
     versions = {r.agent.name: _version(r.agent) for r in runs}
     results = [
-        _execute_one(run, out / "sandboxes" / f"{i}", generated, pass_env, versions[run.agent.name])
-        for i, run in enumerate(runs)
+        {"run_id": f"{stage}-{index:0{SANDBOX_INDEX_WIDTH}d}"}
+        | _execute_one(run, root, generated, pass_env, versions[run.agent.name])
+        for index, (run, root) in enumerate(zip(runs, roots))
     ]
-    target = out / (PILOT_FILE if pilot else RESULTS_FILE)
-    target.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
-    write_audit_sample(results, out / AUDIT_FILE)
+    (out / RESULTS_FILES[stage]).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    write_audit_sample(results, {run.task.id: run.task for run in runs}, stage_dir(out, stage))
     return results
+
+
+SANDBOX_INDEX_WIDTH = 4
+
+
+def stage_dir(out: Path, stage: str) -> Path:
+    """Where one stage keeps its corpus, sandboxes and audit sample; no two stages share a directory."""
+    return out / stage
+
+
+def _refuse_reuse(out: Path, stage: str) -> None:
+    """A stage starts only in a fresh directory: an existing sandbox would hand a run another run's notes,
+    store and transcripts, and an existing results file would be overwritten."""
+    if stage_dir(out, stage).exists():
+        raise LiveRunRefused(
+            f"{stage_dir(out, stage)} already exists, so its sandboxes would be reused; after checking it, remove "
+            f"it, or start a new --out (beyond the pilot, holding a copy of the pilot's {PILOT_FILE})"
+        )
+    if (out / RESULTS_FILES[stage]).exists():
+        raise LiveRunRefused(
+            f"{out / RESULTS_FILES[stage]} already exists; after checking it, move it away, or start a new --out "
+            f"(beyond the pilot, holding a copy of the pilot's {PILOT_FILE})"
+        )
+
+
+def sandbox_roots(out: Path, count: int, *, stage: str) -> list[Path]:
+    """One root per run under the stage's own directory, the index zero-padded and the root padded, so
+    every store path has one length."""
+    if count > 10 ** SANDBOX_INDEX_WIDTH:
+        raise LiveRunRefused(f"{count} runs exceed the {SANDBOX_INDEX_WIDTH}-digit sandbox index")
+    try:
+        return [padded_root(stage_dir(out, stage) / "sandboxes", f"{i:0{SANDBOX_INDEX_WIDTH}d}") for i in range(count)]
+    except PathTooLong as exc:
+        raise LiveRunRefused(str(exc)) from None
 
 
 def prepare_corpus(root: Path, doc_size: str):
@@ -626,8 +709,16 @@ def _segments(command: str) -> list[list[str]]:
     return parts
 
 
+_HOME_PREFIX = re.compile(r"^(?:~|\$HOME\b|\$\{HOME\})(?=$|[/\\])")
+
+
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
 def _path_like(word: str) -> str | None:
-    value = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
+    value = word.split("=", 1)[1] if (word.startswith("-") or _ASSIGNMENT.match(word)) and "=" in word else word
+    if _HOME_PREFIX.match(value):
+        return value
     if value.startswith("-") or value.startswith("~"):
         return None
     if "/" in value or "\\" in value or value.startswith("."):
@@ -635,11 +726,106 @@ def _path_like(word: str) -> str | None:
     return None
 
 
-def _resolve(path: str, cwd: Path) -> Path:
+SCRIPT_PROGRAMS = ("sed", "awk", "gawk", "mawk", "nawk", "grep", "egrep", "fgrep", "rg")
+_SCRIPT_OPTIONS = ("-e", "--expression", "--regexp")
+_FILE_OPTIONS = ("-f", "--file")
+_VALUE_OPTIONS = {
+    "awk": ("-F", "-v"), "gawk": ("-F", "-v"), "mawk": ("-F", "-v"), "nawk": ("-F", "-v"),
+    "grep": ("-A", "-B", "-C", "-m"), "egrep": ("-A", "-B", "-C", "-m"), "fgrep": ("-A", "-B", "-C", "-m"),
+    "rg": ("-A", "-B", "-C", "-m", "-g", "--glob", "-t", "--type", "-T", "--type-not"),
+}
+
+
+def _operands(words: list[str]) -> list[str]:
+    """The words that may name a file, leading `NAME=value` assignments included; for sed, awk, grep and rg
+    the script or pattern (the first operand, or an `-e` value) is left out, an `-f` value stays."""
+    lead = next((i for i, word in enumerate(words) if not _ASSIGNMENT.match(word)), len(words))
+    assigned, words = words[:lead], words[lead:]
+    if not words:
+        return assigned
+    program = Path(words[0]).name
+    if program not in SCRIPT_PROGRAMS:
+        return assigned + words[1:]
+    named: list[str] = []
+    operands: list[str] = []
+    script_given = False
+    options_done = False
+    rest = iter(words[1:])
+    for word in rest:
+        if options_done or not word.startswith("-") or word == "-":
+            operands.append(word)
+        elif word == "--":
+            options_done = True
+        elif word in _SCRIPT_OPTIONS:
+            script_given = True
+            next(rest, None)
+        elif program == "rg" and word == "--files":
+            script_given = True
+        elif word.startswith(tuple(f"{o}=" for o in _SCRIPT_OPTIONS if o.startswith("--"))):
+            script_given = True
+        elif word in _FILE_OPTIONS:
+            script_given = True
+            named += [w for w in (next(rest, None),) if w is not None]
+        elif word.startswith("--file="):
+            script_given = True
+            named.append(word)
+        elif word in _VALUE_OPTIONS.get(program, ()):
+            next(rest, None)
+        else:
+            named.append(word)
+    return assigned + named + (operands if script_given else operands[1:])
+
+
+def _resolve(path: str, cwd: Path, home: Path) -> Path:
+    """`path` against `cwd`, with a leading `~`, `$HOME` or `${HOME}` taken as the sandbox's HOME."""
+    match = _HOME_PREFIX.match(path)
+    if match:
+        rest = path[match.end():].lstrip("/\\")
+        return (home / rest).resolve() if rest else home.resolve()
     candidate = Path(path)
     return (candidate if candidate.is_absolute() else cwd / candidate).resolve()
 
 
+_WILDCARD = re.compile(r"[*?\[]")
+GLOB_LIMIT = 1000
+
+
+def _targets(path: str, cwd: Path, home: Path) -> list[Path] | None:
+    """What `path` reaches: itself, or for a glob every existing match, and the literal part before its first
+    wildcard when nothing matches; None when that cannot be bounded (over `GLOB_LIMIT` matches, or `..`
+    after a wildcard with no match)."""
+    if not _WILDCARD.search(path):
+        return [_resolve(path, cwd, home)]
+    match = _HOME_PREFIX.match(path)
+    written = str(home / path[match.end():].lstrip("/\\")) if match else path
+    pattern = written if Path(written).is_absolute() else str(cwd / written)
+    found = [Path(hit).resolve() for hit in itertools.islice(glob.iglob(pattern), GLOB_LIMIT + 1)]
+    if len(found) > GLOB_LIMIT:
+        return None
+    if found:
+        return found
+    parts = Path(pattern).parts
+    literal = next((i for i, part in enumerate(parts) if _WILDCARD.search(part)), len(parts))
+    if ".." in parts[literal:]:
+        return None
+    return [Path(*parts[:literal]).resolve()]
+
+
+INSTALLED_COPIES = ("commands", "skills", "CLAUDE.md")
+
+
+def _reaches_agent_memory(resolved: Path, home: Path) -> bool:
+    """Inside `~/.claude` or a `~/.claude*` file such as `~/.claude.json`, or a folder that holds them; never
+    engmem's installed copies, which `carried_memory` guards instead."""
+    claude = home / ".claude"
+    if any(resolved.is_relative_to(claude / name) for name in INSTALLED_COPIES):
+        return False
+    if claude.is_relative_to(resolved):
+        return True
+    return resolved.is_relative_to(home) and resolved != home and resolved.relative_to(home).parts[0].startswith(".claude")
+
+
+MEMORY_READ = "read Claude Code's agent memory"
 ENGMEM_MCP_TOOLS = ("engmem_search", "engmem_search_by_role", "engmem_read")
 
 
@@ -658,48 +844,124 @@ def engmem_calls(calls: list[dict]) -> int:
 
 
 def read_violations(calls: list[dict], root: Path, cwd: Path, store: Path | None) -> list[str]:
-    """Every path a tool call names, resolved against the session's `cwd`, that lies outside the
-    sandbox `root`; for the E arm (`store` given), every store path a command other than engmem names."""
+    """Every path a tool call names (`~` and `$HOME` are the sandbox HOME) that lies outside the sandbox `root`
+    or reaches Claude Code's `~/.claude*`; for E (`store` given), a store path not read by engmem."""
     found = []
     root, store = root.resolve(), store.resolve() if store is not None else None
+    home = root / "home"
     for call in calls:
         name, given = call.get("name", ""), call.get("input") or {}
-        named = [(v, None) for k, v in given.items() if k in ("file_path", "path", "notebook_path") and isinstance(v, str)]
+        keys = ("file_path", "path", "notebook_path", *(("pattern",) if name == "Glob" else ()))
+        named = [(v, None) for k, v in given.items() if k in keys and isinstance(v, str)]
         command = given.get("command") if isinstance(given.get("command"), str) else ""
         for words in _segments(command):
-            named += [(p, words[0]) for p in map(_path_like, words[1:]) if p]
+            program = next((word for word in words if not _ASSIGNMENT.match(word)), "")
+            named += [(p, program) for p in map(_path_like, _operands(words)) if p]
         for path, program in named:
-            resolved = _resolve(path, cwd)
-            if not resolved.is_relative_to(root):
+            targets = _targets(path, cwd, home)
+            if targets is None:
+                found.append(f"{name} outside the sandbox, as far as the pattern can be bounded: {path}")
+            elif any(not target.is_relative_to(root) for target in targets):
                 found.append(f"{name} outside the sandbox: {path}")
-            elif store is not None and resolved.is_relative_to(store) and program != "engmem":
+            elif any(_reaches_agent_memory(target, home) for target in targets):
+                found.append(f"{name} {MEMORY_READ}: {path}")
+            elif store is not None and any(t.is_relative_to(store) for t in targets) and program != "engmem":
                 found.append(f"{name} read the store directly: {path}")
     return found
 
 
 def grade_record(task: Task, final_text: str) -> dict:
     answer = grading.answer_of(final_text)
-    required_ok, stale_avoided = grading.grade_text(
-        answer, grading.compile_all(task.required), grading.compile_all(task.stale_patterns)
-    )
+    required, stale = grading.compile_all(task.required), grading.compile_all(task.stale_patterns)
+    required_ok, stale_avoided = grading.grade_answer(answer, required, stale)
+    stale_named = any(rule.search(answer) for rule in stale)
+    both = stale_named and any(rule.search(answer) for rule in required)
     return {
         "answer": answer,
         "required_ok": required_ok,
         "stale_avoided": stale_avoided if task.stale_patterns and answer else None,
+        "stale_caveated": stale_avoided and stale_named,
+        "needs_human": bool(answer) and (both or (stale_avoided and stale_named)),
         "correct": bool(answer) and required_ok and stale_avoided,
     }
 
 
-def write_audit_sample(results: list[dict], path: Path, share: float = AUDIT_SHARE, seed: int = PLAN_SEED) -> list[dict]:
-    """A seeded `share` of the graded runs, at least one, for a human to check the regex grading."""
+def write_audit_sample(results: list[dict], tasks: dict[str, Task], directory: Path, share: float = AUDIT_SHARE,
+                       seed: int = PLAN_SEED) -> list[dict]:
+    """A seeded `share` of the runs, at least one, and every run that `needs_human`, in a seeded order, as
+    rows blind to arm, agent and grade; the key from row id to run id goes to its own file."""
     if not results:
         return []
-    count = max(1, math.ceil(len(results) * share))
-    sample = random.Random(seed).sample(results, count)
-    fields = ("task", "scenario_class", "wording", "agent", "arm", "repeat", "answer", "correct", "stale_avoided")
-    rows = [{key: record.get(key) for key in fields} | {"human_verdict": None} for record in sample]
-    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    rng = random.Random(seed)
+    sample = rng.sample(results, max(1, math.ceil(len(results) * share)))
+    sample += [record for record in results if record.get("needs_human") and not any(record is s for s in sample)]
+    rng.shuffle(sample)
+    rows, key = [], []
+    for record in sample:
+        task = tasks[record["task"]]
+        row_id = secrets.token_hex(6)
+        rows.append({"id": row_id, "task": task.id, "question": task.description, "required": list(task.required),
+                     "stale": list(task.stale_patterns), "answer": record.get("answer"), "human_verdict": None})
+        key.append({"id": row_id, "run_id": record.get("run_id")})
+    (directory / AUDIT_FILE).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    (directory / AUDIT_KEY_FILE).write_text("".join(json.dumps(row) + "\n" for row in key), encoding="utf-8")
     return rows
+
+
+def audit_path(results: Path) -> Path:
+    """The audit sample written beside a stage's results file."""
+    stage = next((name for name, file in RESULTS_FILES.items() if file == results.name), None)
+    return results.parent / stage / AUDIT_FILE if stage else results.parent / AUDIT_FILE
+
+
+def _jsonl(path: Path) -> list[tuple[int, dict]]:
+    rows = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.strip():
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"{path.name} line {number}: not a JSON object")
+            rows.append((number, row))
+    return rows
+
+
+def human_verdicts(audit: Path) -> dict[str, bool | None]:
+    """Every row of an audit sample by run id, through the key beside it; a verdict other than true, false or
+    null, or a row the key does not name, raises `ValueError`. No file, no rows."""
+    if not audit.is_file():
+        return {}
+    key_path = audit.parent / AUDIT_KEY_FILE
+    if not key_path.is_file():
+        raise ValueError(f"{audit.name} has no {AUDIT_KEY_FILE} beside it")
+    runs = {row.get("id"): row.get("run_id") for _, row in _jsonl(key_path)}
+    verdicts: dict[str, bool | None] = {}
+    for number, row in _jsonl(audit):
+        verdict = row.get("human_verdict")
+        if verdict is not None and not isinstance(verdict, bool):
+            raise ValueError(f"{audit.name} line {number}: human_verdict must be true, false or null, not {verdict!r}")
+        if runs.get(row.get("id")) is None:
+            raise ValueError(f"{audit.name} line {number}: row {row.get('id')!r} is not in {AUDIT_KEY_FILE}")
+        verdicts[runs[row["id"]]] = verdict
+    return verdicts
+
+
+def apply_verdicts(results: list[dict], verdicts: dict[str, bool | None]) -> tuple[list[dict], list[dict]]:
+    """Every run that `needs_human` takes the human's verdict as `correct`; those still without one are
+    returned as pending, graded by their regexes meanwhile. An audited run not among `results` raises."""
+    known = {record.get("run_id") for record in results}
+    strangers = sorted(str(run) for run in verdicts if run not in known)
+    if strangers:
+        raise ValueError(f"the audit sample names runs these results do not hold: {', '.join(strangers[:5])}")
+    applied, pending = [], []
+    for record in results:
+        if record.get("needs_human"):
+            verdict = verdicts.get(record.get("run_id"))
+            if verdict is None:
+                pending.append(record)
+            else:
+                record = record | {"correct": verdict, "graded_by": "human"}
+        applied.append(record)
+    return applied, pending
 
 
 def _session_record(agent: LiveAgent, done, model: str) -> dict:
@@ -727,14 +989,58 @@ def _prepare(run: LiveRun, sandbox: Sandbox, generated, checkout: Path) -> Path 
     return None
 
 
-def _documents(store: Path) -> int:
-    return sum(1 for _ in (store / "sessions").glob("*.md")) if (store / "sessions").is_dir() else 0
+_FRONT_LINE = r"(?:(?!---[ \t]*$).*\n)*?"
+_ACTIVE = re.compile(rf"\A---[ \t]*\n{_FRONT_LINE}status:[ \t]*active[ \t]*\n{_FRONT_LINE}---[ \t]*$", re.MULTILINE)
+
+
+def _active_documents(store: Path) -> set[str]:
+    """The documents whose front matter says `status: active`; a draft is not yet a saved document."""
+    sessions = store / "sessions"
+    if not sessions.is_dir():
+        return set()
+    return {path.stem for path in sessions.glob("*.md") if _ACTIVE.match(path.read_text(encoding="utf-8", errors="replace"))}
+
+
+_FENCE = re.compile(r"^(`{3,}|~{3,})[^\n]*\n(.*?)^\1", re.MULTILINE | re.DOTALL)
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*$", re.MULTILINE | re.DOTALL)
+
+
+def shows_preview(message: str) -> bool:
+    """A document preview: front matter with `id:` and `status:`, at the top of the message or of a fence."""
+    for text in (message, *(m.group(2) for m in _FENCE.finditer(message))):
+        front = _FRONT_MATTER.match(text.lstrip())
+        if front and re.search(r"^id:\s*\S", front.group(1), re.MULTILINE) \
+                and re.search(r"^status:\s*\S", front.group(1), re.MULTILINE):
+            return True
+    return False
 
 
 def _save(run: LiveRun, sandbox: Sandbox, checkout: Path, session: str) -> dict:
-    before = _documents(sandbox.store)
+    """The save turn, then, while no document is written and the last message shows a preview, the
+    simulated user's reply in the same session, at most `CONFIRM_TURNS` times; each reply is recorded."""
+    before = _active_documents(sandbox.store)
     done = sandbox.run(run.agent.save(session, run.model), cwd=checkout, timeout=LIVE_TIMEOUT)
-    return _session_record(run.agent, done, run.model) | {"new_docs": _documents(sandbox.store) - before}
+    record = _session_record(run.agent, done, run.model)
+    confirmations = []
+    stopped = "bound"
+    for _ in range(CONFIRM_TURNS):
+        if _active_documents(sandbox.store) - before:
+            stopped = "document written"
+            break
+        if not shows_preview(run.agent.final_text(done.stdout)):
+            stopped = "no preview"
+            break
+        session = run.agent.session(done.stdout) or session
+        done = sandbox.run(run.agent.reply(session, SIMULATED_USER_REPLY, run.model), cwd=checkout, timeout=LIVE_TIMEOUT)
+        confirmations.append(_session_record(run.agent, done, run.model))
+    if stopped == "bound" and _active_documents(sandbox.store) - before:
+        stopped = "document written"
+    return record | {
+        "confirmations": confirmations,
+        "replies_stopped": stopped,
+        "final_message": bool(run.agent.final_text(done.stdout)),
+        "new_docs": len(_active_documents(sandbox.store) - before),
+    }
 
 
 def _execute_one(run: LiveRun, root: Path, generated, pass_env: list[str], version: str) -> dict:
@@ -752,9 +1058,19 @@ def _execute_one(run: LiveRun, root: Path, generated, pass_env: list[str], versi
         "model": run.model,
         "cli_version": version,
         "tools_restricted": run.agent.tools_restricted,
+        "store_path_bytes": path_bytes(sandbox.store),
     }
-    if run.handoff and run.arm in ("E", "GN"):
+    if run.has_earlier:
+        before = memory_files(sandbox, checkout)
         record["earlier"] = _earlier_agent(run, sandbox, checkout)
+        carried = carried_memory(sandbox, checkout, before)
+        if carried:
+            record["earlier"]["memory_carried"] = carried
+            record["refused"] = f"the earlier session left agent memory the finder would load: {', '.join(carried)}"
+            record["violations"] = [record["refused"]]
+            record["seconds"] = round(time.perf_counter() - started, 2)
+            return record
+    memory_blocks = run.has_earlier or _projects_hold_files(sandbox)
     first = sandbox.run(run.agent.start(prompt_for(run.agent, run.arm, run.task.description), tools_for(run.arm), run.model),
                         cwd=checkout, timeout=LIVE_TIMEOUT)
     record["start"] = _session_record(run.agent, first, run.model)
@@ -762,7 +1078,12 @@ def _execute_one(run: LiveRun, root: Path, generated, pass_env: list[str], versi
     calls = run.agent.tool_calls(first.stdout)
     record["tool_calls"] = len(calls)
     record["engmem_calls"] = engmem_calls(calls)
-    record["violations"] = read_violations(calls, sandbox.root, checkout, store)
+    found = read_violations(calls, sandbox.root, checkout, store)
+    if memory_blocks:
+        record["violations"] = found
+    else:
+        record["violations"] = [v for v in found if MEMORY_READ not in v]
+        record["memory_reads"] = [v for v in found if MEMORY_READ in v]
     final = run.agent.final_text(first.stdout)
     record["final_message"] = bool(final)
     record |= grade_record(run.task, final)
@@ -771,6 +1092,32 @@ def _execute_one(run: LiveRun, root: Path, generated, pass_env: list[str], versi
         record["save"] = _save(run, sandbox, checkout, session)
     record["seconds"] = round(time.perf_counter() - started, 2)
     return record
+
+
+MEMORY_NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
+
+
+def memory_files(sandbox: Sandbox, checkout: Path) -> dict[str, str]:
+    """What an agent loads on its own at a session's start, by path under the sandbox and digest: Claude
+    Code's project memory, engmem's installed commands and skills, and CLAUDE.md, CLAUDE.local.md or AGENTS.md."""
+    claude = sandbox.home / ".claude"
+    found = [*claude.glob("projects/*/memory/**/*"), *claude.glob("commands/**/*"), *claude.glob("skills/**/*")]
+    for base in (sandbox.home / ".claude", sandbox.home / ".codex", checkout):
+        found += [p for name in MEMORY_NAMES for p in base.rglob(name)]
+    return {
+        p.relative_to(sandbox.root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in found if p.is_file()
+    }
+
+
+def _projects_hold_files(sandbox: Sandbox) -> bool:
+    """Whether Claude Code's `~/.claude/projects` already holds a file an earlier session left."""
+    return any(p.is_file() for p in (sandbox.home / ".claude" / "projects").rglob("*"))
+
+
+def carried_memory(sandbox: Sandbox, checkout: Path, before: dict[str, str]) -> list[str]:
+    """Memory files the earlier session created or changed, which would carry the handoff past engmem."""
+    return sorted(path for path, digest in memory_files(sandbox, checkout).items() if before.get(path) != digest)
 
 
 def _earlier_agent(run: LiveRun, sandbox: Sandbox, checkout: Path) -> dict:
@@ -785,8 +1132,10 @@ def _earlier_agent(run: LiveRun, sandbox: Sandbox, checkout: Path) -> dict:
 
 
 def excluded(record: dict) -> str | None:
-    """Why a run leaves the analysis entirely: only a run that never started. Every started run counts
-    toward correctness, a run with no final message or a timeout as incorrect."""
+    """Why a run leaves the analysis entirely: only a run that never started, refused ones with their
+    reason. Every started run counts toward correctness, one with no final message or a timeout as incorrect."""
+    if record.get("refused"):
+        return record["refused"]
     return None if isinstance(record.get("start"), dict) else "never started"
 
 

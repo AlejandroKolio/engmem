@@ -16,7 +16,7 @@ import json
 
 from agentsim import corpus, decision, harness, instances, live, phase4, report
 from agentsim.padding import DEFAULT_DOC_SIZE, DOC_SIZES
-from agentsim.sandbox import ForbiddenPath, allow, check_allowed
+from agentsim.sandbox import ForbiddenPath, PathTooLong, allow, check_allowed
 from engmem.runtime import force_utf8_streams
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -148,7 +148,7 @@ def cmd_live(args: argparse.Namespace) -> int:
     runs = live.plan(chosen, agents, repeats=repeats, model=args.model)
     try:
         results = live.execute(
-            runs, out, confirmed=args.accept_cost, pilot=stage == "pilot",
+            runs, out, confirmed=args.accept_cost, stage=stage,
             pass_env=list(_csv(args.pass_env) or ()), doc_size=args.doc_size, provisional=provisional,
         )
     except live.LiveRunRefused as exc:
@@ -158,8 +158,23 @@ def cmd_live(args: argparse.Namespace) -> int:
     return 0
 
 
+PENDING_EXIT = 3
+
+
 def cmd_analyse(args: argparse.Namespace) -> int:
-    results = json.loads(Path(args.results).read_text(encoding="utf-8"))
+    path = Path(args.results)
+    audit = Path(args.audit) if args.audit else live.audit_path(path)
+    try:
+        results, pending = live.apply_verdicts(json.loads(path.read_text(encoding="utf-8")), live.human_verdicts(audit))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if pending:
+        print(f"{len(pending)} run(s) naming both the current and the stale value await a human_verdict in {audit}.")
+        if not args.provisional:
+            print("No decision is shown until every one has a verdict; --provisional shows one graded by the regexes.")
+            return PENDING_EXIT
+        print("PROVISIONAL: they count by their regex grade until a verdict is filled in.")
     by_agent: dict[str, list] = {}
     for record in results:
         by_agent.setdefault(record["agent"], []).append(record)
@@ -172,11 +187,15 @@ def cmd_analyse(args: argparse.Namespace) -> int:
         e_vs_plus = decision.analyse(rows, "E", "G+")
         plus_vs_g = decision.analyse(rows, "G+", "G")
         verdicts[agent] = e_vs_plus
-        print(f"## {agent}\n")
+        heading = f"## {agent}"
+        if pending:
+            heading = f"PROVISIONAL: {len(pending)} run(s) in all await a human verdict\n{heading}"
+        print(f"{heading}\n")
         print(decision.render(e_vs_plus, plus_vs_g))
     claims = decision.general_claims(verdicts)
-    print("General claims (same direction in every agent): " + (", ".join(f"{k}: {v}" for k, v in claims.items()) or "none"))
-    return 0
+    print(("PROVISIONAL " if pending else "") + "General claims (same direction in every agent): "
+          + (", ".join(f"{k}: {v}" for k, v in claims.items()) or "none"))
+    return PENDING_EXIT if pending else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -234,8 +253,16 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--pass-env", help="comma-separated variables passed into the sandbox, e.g. an API key")
     live_parser.set_defaults(func=cmd_live)
 
-    analyse = commands.add_parser(name="analyse", help="the pre-registered decision rules over live results")
+    analyse = commands.add_parser(
+        name="analyse",
+        help=f"the pre-registered decision rules over live results; exits {PENDING_EXIT} while a run awaits a human verdict",
+    )
     analyse.add_argument("--results", required=True)
+    analyse.add_argument(
+        "--provisional", action="store_true",
+        help="while runs await a human verdict, still show a decision graded by the regexes (marked PROVISIONAL)",
+    )
+    analyse.add_argument("--audit", help="the audit sample with human verdicts (default: the stage's audit-sample.jsonl)")
     analyse.set_defaults(func=cmd_analyse)
     return parser
 
@@ -245,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except ForbiddenPath as exc:
+    except (ForbiddenPath, PathTooLong) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

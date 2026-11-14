@@ -433,7 +433,7 @@
     "\\b8 seconds"
    ],
    "stale": [
-    "\\b30 seconds"
+    "lock timeout\\D{0,15}\\b30 seconds"
    ],
    "keys": [
     "f04-walletlocker-lock-timeout"
@@ -448,7 +448,7 @@
     "\\b8 seconds"
    ],
    "stale": [
-    "\\b30 seconds"
+    "lock timeout\\D{0,15}\\b30 seconds"
    ],
    "keys": [
     "f04-walletlocker-lock-timeout"
@@ -1286,7 +1286,7 @@
    "wording": "identifier",
    "task": "We see `ERR_SEAL_DIGEST_MISMATCH` from SealVerifier. What should we do?",
    "required": [
-    "rebuild the seal digest index"
+    "rebuild seal digest index"
    ],
    "stale": [],
    "keys": [
@@ -1299,7 +1299,7 @@
    "wording": "symptom",
    "task": "Seal verification keeps failing on the ledger after a journal replay with a digest mismatch. What is the remedy?",
    "required": [
-    "rebuild the seal digest index"
+    "rebuild seal digest index"
    ],
    "stale": [],
    "keys": [

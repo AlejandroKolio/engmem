@@ -35,6 +35,7 @@ SUPERSEDED_LINE = re.compile(r"^(\S+)(?:\s+\[weak candidate\])?: superseded by (
 HEADING = re.compile(r"^### (\S+) \((?:score|successor)", re.MULTILINE)
 CITE_AS = re.compile(r"^cite as \(Reuse Log prior-doc\): (.+)$", re.MULTILINE)
 RELATED = re.compile(r"^related: (.+)$", re.MULTILINE)
+PATH_LINE = re.compile(r"^path: .*$", re.MULTILINE)
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 _IDENTIFIER = re.compile(
     r"`([^`]+)`"
@@ -102,8 +103,9 @@ def visible_terms(terms: list[str], text: str) -> int:
 
 
 def relevant(terms: list[str], text: str, minimum: int = RELEVANT_TERMS) -> bool:
-    """A result counts as relevant when its visible text shows `minimum` distinct terms."""
-    return visible_terms(terms, text) >= minimum
+    """A result counts as relevant when its visible text, less the store path engmem prints, shows
+    `minimum` distinct terms."""
+    return visible_terms(terms, PATH_LINE.sub("", text)) >= minimum
 
 
 @dataclass(frozen=True)

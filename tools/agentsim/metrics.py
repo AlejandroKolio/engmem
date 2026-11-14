@@ -63,7 +63,7 @@ def outcome(
     store_written: bool | None = None,
     subjects: dict[str, str] | None = None,
 ) -> Outcome:
-    if task.required:
+    if task.keys:
         return _graded(task, profile, transcript, state, subjects or {})
     context = transcript.context()
     has_answer = bool(task.quote)
