@@ -165,12 +165,15 @@ def cmd_analyse(args: argparse.Namespace) -> int:
     path = Path(args.results)
     audit = Path(args.audit) if args.audit else live.audit_path(path)
     try:
+        problem = live.adjudication_problem(audit)
+        if problem is not None:
+            raise ValueError(problem)
         results, pending = live.apply_verdicts(json.loads(path.read_text(encoding="utf-8")), live.human_verdicts(audit))
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if pending:
-        print(f"{len(pending)} run(s) naming both the current and the stale value await a human_verdict in {audit}.")
+        print(f"{len(pending)} run(s) naming both the current and the stale value await the adjudicator's verdict (human_verdict) in {audit}.")
         if not args.provisional:
             print("No decision is shown until every one has a verdict; --provisional shows one graded by the regexes.")
             return PENDING_EXIT
@@ -189,7 +192,7 @@ def cmd_analyse(args: argparse.Namespace) -> int:
         verdicts[agent] = e_vs_plus
         heading = f"## {agent}"
         if pending:
-            heading = f"PROVISIONAL: {len(pending)} run(s) in all await a human verdict\n{heading}"
+            heading = f"PROVISIONAL: {len(pending)} run(s) in all await the adjudicator's verdict\n{heading}"
         print(f"{heading}\n")
         print(decision.render(e_vs_plus, plus_vs_g))
     claims = decision.general_claims(verdicts)
@@ -255,14 +258,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyse = commands.add_parser(
         name="analyse",
-        help=f"the pre-registered decision rules over live results; exits {PENDING_EXIT} while a run awaits a human verdict",
+        help=f"the pre-registered decision rules over live results; exits {PENDING_EXIT} while a run awaits the adjudicator's verdict",
     )
     analyse.add_argument("--results", required=True)
     analyse.add_argument(
         "--provisional", action="store_true",
-        help="while runs await a human verdict, still show a decision graded by the regexes (marked PROVISIONAL)",
+        help="while runs await the adjudicator's verdict, still show a decision graded by the regexes (marked PROVISIONAL)",
     )
-    analyse.add_argument("--audit", help="the audit sample with human verdicts (default: the stage's audit-sample.jsonl)")
+    analyse.add_argument("--audit", help="the audit sample with the adjudicator's verdicts in human_verdict (default: the stage's audit-sample.jsonl)")
     analyse.set_defaults(func=cmd_analyse)
     return parser
 

@@ -3,6 +3,7 @@ refuses without its confirmations and without a pilot first."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -630,7 +631,7 @@ def test_a_verdict_on_an_opaque_row_lands_on_its_run_and_only_flagged_runs_take_
     _adjudicate(tmp_path, {"mini-0000": True, "mini-0002": True})
     applied, pending = live.apply_verdicts(results, live.human_verdicts(tmp_path / live.AUDIT_FILE))
     assert [r["correct"] for r in applied] == [True, True, False]
-    assert applied[0]["graded_by"] == "human" and "graded_by" not in applied[2]
+    assert applied[0]["graded_by"] == "adjudicator" and "graded_by" not in applied[2]
     assert [r["task"] for r in pending] == ["b"]
     rows = _rows(tmp_path / live.AUDIT_FILE)
     (tmp_path / live.AUDIT_FILE).write_text(json.dumps(rows[0] | {"human_verdict": "yes"}) + "\n", encoding="utf-8")
@@ -662,20 +663,109 @@ def test_analyse_shows_no_decision_while_a_flagged_run_awaits_a_verdict(tasks, t
     command = [sys.executable, str(TOOL), "analyse", "--results", str(path)]
     pending = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
     assert pending.returncode == 3
-    assert f"1 run(s) naming both the current and the stale value await a human_verdict in {live.audit_path(path)}" \
+    assert f"1 run(s) naming both the current and the stale value await the adjudicator's verdict (human_verdict) in {live.audit_path(path)}" \
         in pending.stdout
     for leak in ("## claude", "E − G+", "E - G+", "engmem better", "grep better", "inconclusive", "Tie", "per arm",
                  "General claims", "E: 1"):
         assert leak not in pending.stdout
     shown = subprocess.run([*command, "--provisional"], capture_output=True, text=True, encoding="utf-8")
     assert shown.returncode == 3
-    assert "PROVISIONAL: 1 run(s) in all await a human verdict\n## claude" in shown.stdout
+    assert "PROVISIONAL: 1 run(s) in all await the adjudicator's verdict\n## claude" in shown.stdout
     assert "PROVISIONAL General claims" in shown.stdout and "E: 1" not in shown.stdout.split("## claude")[0]
     (tmp_path / "mini").mkdir()
     live.write_audit_sample(results, _audit_tasks(tasks, results), tmp_path / "mini")
+    given = hashlib.sha256(live.audit_path(path).read_bytes()).hexdigest()
     _adjudicate(tmp_path / "mini", {"mini-0000": True})
-    done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    _record_adjudication(live.audit_path(path), given)
+    done = _analyse(["--results", str(path)], INSTRUCTIONS)
     assert done.returncode == 0 and "PROVISIONAL" not in done.stdout and "## claude" in done.stdout
+
+
+INSTRUCTIONS = b"judge the answers\n"
+
+
+def _record_adjudication(audit, given, instructions=INSTRUCTIONS, commit="abc1234"):
+    record = {"model": "claude-sonnet-5-5", "instructions_sha256": hashlib.sha256(instructions).hexdigest(),
+              "instructions_commit": commit, "input_sha256": given,
+              "output_sha256": hashlib.sha256(audit.read_bytes()).hexdigest(), "rows": len(_rows(audit))}
+    (audit.parent / live.ADJUDICATION_FILE).write_text(json.dumps(record), encoding="utf-8")
+
+
+def _analyse(argv, committed=None):
+    """`tools/e2e.py analyse` in a fresh interpreter; `committed`, when given, stands in for what git shows of
+    the instructions at any commit."""
+    script = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import e2e; from agentsim import live\n"
+        "if sys.argv[2] != '-': live.committed_instructions = lambda commit: sys.argv[2].encode()\n"
+        "sys.exit(e2e.main(['analyse', *sys.argv[3:]]))"
+    )
+    stand_in = committed.decode() if committed is not None else "-"
+    return subprocess.run([sys.executable, "-c", script, str(TOOL.parent), stand_in, *argv],
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def _adjudicated_mini(tasks, tmp_path):
+    results = [_run("a", "E", correct=False, needs_human=True, index=0), _run("a", "G+", correct=True, index=1)]
+    path = tmp_path / live.RESULTS_FILES["mini"]
+    path.write_text(json.dumps(results), encoding="utf-8")
+    (tmp_path / "mini").mkdir()
+    live.write_audit_sample(results, _audit_tasks(tasks, results), tmp_path / "mini")
+    given = hashlib.sha256(live.audit_path(path).read_bytes()).hexdigest()
+    _adjudicate(tmp_path / "mini", {"mini-0000": True})
+    return path, given
+
+
+def test_an_audit_sample_changed_after_its_adjudication_is_refused(tasks, tmp_path):
+    path, given = _adjudicated_mini(tasks, tmp_path)
+    audit = live.audit_path(path)
+    _record_adjudication(audit, given)
+    assert _analyse(["--results", str(path)], INSTRUCTIONS).returncode == 0
+    _adjudicate(tmp_path / "mini", {"mini-0000": False})
+    edited = _analyse(["--results", str(path)], INSTRUCTIONS)
+    assert edited.returncode == 2 and "not the file the adjudicator returned" in edited.stderr
+    (tmp_path / "mini" / live.ADJUDICATION_FILE).write_text(json.dumps({"model": "x"}), encoding="utf-8")
+    assert "lacks instructions_sha256" in live.adjudication_problem(audit)
+
+
+def test_verdicts_without_an_adjudication_record_are_refused(tasks, tmp_path):
+    path, _ = _adjudicated_mini(tasks, tmp_path)
+    refused = _analyse(["--results", str(path)])
+    assert refused.returncode == 2 and "adjudication.json is missing" in refused.stderr
+    _adjudicate(tmp_path / "mini", {})
+    assert _analyse(["--results", str(path)]).returncode == 3
+
+
+@pytest.mark.parametrize(
+    ("committed", "problem"),
+    [(INSTRUCTIONS, None), (b"other instructions\n", "does not match instructions_sha256"), (None, "cannot be read")],
+    ids=["same", "changed", "unreadable"],
+)
+def test_the_recorded_instructions_must_be_the_committed_ones(tasks, tmp_path, committed, problem):
+    path, given = _adjudicated_mini(tasks, tmp_path)
+    audit = live.audit_path(path)
+    _record_adjudication(audit, given)
+    found = live.adjudication_problem(audit, lambda commit: committed if commit == "abc1234" else None)
+    assert found is None if problem is None else problem in found
+
+
+def test_an_instructions_commit_that_is_no_commit_id_never_reaches_git(no_process):
+    assert live.committed_instructions("--output=x") is None
+    assert live.committed_instructions("HEAD") is None
+
+
+def test_a_malformed_audit_line_is_an_error_not_a_crash(tasks, tmp_path):
+    path, _ = _adjudicated_mini(tasks, tmp_path)
+    with live.audit_path(path).open("a", encoding="utf-8") as handle:
+        handle.write("{not json\n")
+    refused = _analyse(["--results", str(path)])
+    assert refused.returncode == 2 and refused.stderr.startswith("error:") and "Traceback" not in refused.stderr
+
+
+def test_a_commit_git_cannot_show_refuses_the_adjudication(tasks, tmp_path):
+    path, given = _adjudicated_mini(tasks, tmp_path)
+    _record_adjudication(live.audit_path(path), given, commit="0" * 40)
+    refused = _analyse(["--results", str(path)])
+    assert refused.returncode == 2 and "cannot be read at commit" in refused.stderr
 
 
 def test_every_live_result_carries_a_run_id_of_its_stage(fake_runs, runs, tmp_path):

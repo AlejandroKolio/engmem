@@ -571,8 +571,8 @@ message, up to `SOURCES:`. The final message comes from a parser per agent: Clau
 Codex's last `item.completed` agent message. There is no fallback to the transcript: a run with no
 final message is incorrect and flagged (`final_message: false`). The answer is graded by the
 instance's regexes as in Layer 1, normalisation included; `stale avoided` is empty for a run with no answer. A seeded 10 %
-of the runs (at least one) goes to `<out>/<stage>/audit-sample.jsonl` with an empty `human_verdict` for a human to
-check the regexes.
+of the runs (at least one) goes to `<out>/<stage>/audit-sample.jsonl` with an empty `human_verdict` for the adjudicator
+("Answers that name both values go to the adjudicator") to check the regexes.
 
 **A stale value with a caveat.** An agent's answer fails as stale only when it states a stale
 value without marking that very value as past (`grading.grade_answer`, `grading.caveated`). A stale
@@ -617,22 +617,62 @@ text of the documents an arm kept, not a claim in the arm's own words. The loade
 the stale-leak check also run without it: they judge single values and whole document lines, and a
 leak check without the rule refuses at least every instance one with it would.
 
-**Answers that name both values go to a human.** No word list can tell every history note from a
+**Answers that name both values go to the adjudicator.** No word list can tell every history note from a
 stale claim, so the caveat rule is a first guess, not the verdict. Every live run carries a
 `run_id` (its stage and its index in the stage, `mini-0012`) and records `stale_caveated` (the
 caveat turned a stale verdict into an avoided one) and `needs_human`: the answer names a stale value
-and also a required one, or the caveat changed its verdict. Every run that needs a human joins the
+and also a required one, or the caveat changed its verdict. Every run that needs a verdict joins the
 seeded 10 % in `<out>/<stage>/audit-sample.jsonl`, in a seeded order. A row holds only a random
 `id`, the task id, the question, the instance's required and stale patterns, the answer and an
 empty `human_verdict`; no arm, agent, run id or regex grade. The key from row `id` to `run_id` is
 `<out>/<stage>/audit-key.jsonl`, a separate file the adjudicator does not open. The adjudicator
-writes `true` (correct) or `false` (incorrect). `analyse` reads the audit sample of the stage
-beside the results (`--audit` names another) through its key, uses the verdict as `correct` for
-every flagged run that has one. It exits 2 on a verdict other than true, false or null, on a row
+writes `true` (correct) or `false` (incorrect) into `human_verdict` on every row. The field keeps
+that name, and `needs_human` keeps its name, for compatibility, though the adjudicator is a model.
+
+The owner chose that a separate model, not a human, adjudicates. The rest is the harness's choice.
+The adjudicator is `claude-sonnet-5-5`: neither the Opus model under test nor the model that built
+the harness's templates. It runs as an isolated subagent that may read only a folder holding a copy
+of `audit-sample.jsonl` and the instruction file `tools/agentsim/data/adjudicator.md`. That file is
+committed to the repository before the adjudication runs. It tells the adjudicator to judge only
+whether the answer gives each required fact as the current one, and settles each kind of case with
+an example on made-up values that no instance uses:
+- a stale value named as history or outdated is fine;
+- a stale value given as current is false;
+- both values named, neither as current, is false;
+- a hedged answer that picks the current value is true;
+- a conditional answer, or one offering a choice, is false;
+- the current value only in passing (the answer's own recommendation is another value) is false;
+- unrelated content changes nothing;
+- a required instruction (classes 3 and 13) must be given as what to do now;
+- no answer is false;
+- wording that reveals the source is ignored.
+
+Its output is `true` or `false` on every row and no other edit. The adjudicator never sees
+`audit-key.jsonl`, the results, the transcripts or any per-arm figure. The instructions were written
+from the mini runs' answers and the instance format, without the confirmatory answers; before they
+were written, the orchestrator saw one confirmatory audit row (a class 10 row) while checking the
+file's shape.
+
+Each adjudication is recorded next to the audit sample as `<out>/<stage>/adjudication.json`, with
+`model`, `instructions_sha256`, `instructions_commit` (the commit holding `adjudicator.md`),
+`input_sha256` (the audit sample given), `output_sha256` (the one returned) and `rows`. `analyse`
+exits 2 when the audit sample holds any verdict and the record is missing, and, when the record
+exists, unless every field is present, the audit sample's sha256 equals `output_sha256`, and the
+sha256 of `adjudicator.md` as `git show <instructions_commit>:tools/agentsim/data/adjudicator.md`
+prints it equals `instructions_sha256` (a commit or file git cannot show is refused, and so is an
+`instructions_commit` that is not 7 to 40 lowercase hex digits, which never reaches git). A
+malformed audit or key line is an `error:` and exit 2 too. So a verdict
+changed after adjudication, a verdict with no adjudication, and instructions other than the
+committed ones are all refused; an audit sample with no verdict and no record stays pending (exit 3). Two leaks remain: an answer's
+own words can reveal its arm, and the adjudicator may share biases with the model under test.
+
+`analyse` reads the audit sample of the stage beside the results (`--audit` names another) through
+its key and uses the verdict as `correct` for every flagged run that has one. It exits 2 on a verdict other than true, false or null, on a row
 the key does not name, and on a row whose run is not among the given results (an audit sample of
 another stage). While a flagged run has no verdict it prints only how many runs await one, in total,
 and the audit file's path, and exits 3: no decision block, no per-arm figure and no per-arm count of
-pending runs, since even those counts tell the adjudicator which arms named both values. With
+pending runs, since even those counts tell whoever prepares the adjudication which arms named both
+values. With
 `--provisional` it also prints the decision, grading the pending runs by their regexes, with
 `PROVISIONAL` above the whole output, above every agent's block and on the general claims, and
 still exits 3. It exits 0 only when every flagged run has a verdict. Verdicts on runs of the seeded 10 % that were not flagged check the regexes and change
@@ -730,12 +770,16 @@ p < .05), or correctness non-inferior (lower 95 % bound > −5 pts) and USD-to-a
 Fixed readings: E > G+ on stale/freshness → "staleness-aware memory"; E ≈ G+ > G → "the value is the
 discipline of notes, not search"; no family better → say so in the README.
 
-Human adjudication is part of the grading these rules read. Every run that names both the current
-and the stale value is judged by a human from the audit sample, blind to arm and agent: the rows
-carry neither, the key to runs stays unopened, and the order is shuffled. The adjudicator judges
-before any per-arm result of the stage is seen, and the decision rules run only when every such
-run has a verdict (`analyse` exits 3 until then and shows a decision only with `--provisional`). A leak remains: an answer's own words can reveal
-its arm, for example a mention of engmem, of `notes/` or of a saved note.
+Adjudication is part of the grading these rules read. Every run that names both the current and
+the stale value is judged from the audit sample by a separate model, not a human (the owner's
+choice); the harness fixes that model as `claude-sonnet-5-5` and its instructions as the committed
+`tools/agentsim/data/adjudicator.md`. It judges blind to arm and agent: the rows carry neither, the key to runs stays unopened, and the order is
+shuffled. The adjudicator runs before anyone has seen a per-arm result of the confirmatory stage, and the decision rules run only when every such
+run has a verdict (`analyse` exits 3 until then and shows a decision only with `--provisional`). Two leaks remain: an answer's own words can reveal
+its arm, for example a mention of engmem, of `notes/` or of a saved note, and a model adjudicator
+may share biases with the model under test. Each adjudication is recorded in
+`<out>/<stage>/adjudication.json` (model, instructions sha256 and commit, input and output sha256,
+row count), and `analyse` refuses an audit sample that differs from the recorded output.
 
 As implemented: the mirror is G+ − E ≥ +15 pts (Holm p < .05), or the upper bound of E − G+ below
 +5 pts and E/G+ ≥ 1.25 with its lower bound above 1/0.95. Anything that meets no rule is

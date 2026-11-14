@@ -24,7 +24,7 @@ from agentsim import corpus as corpus_module
 from agentsim import grading
 from agentsim.corpus import Task
 from agentsim.greparms import GUIDANCE, NOTES_INSTRUCTION
-from agentsim.sandbox import TIMED_OUT, PathTooLong, Sandbox, padded_root, path_bytes
+from agentsim.sandbox import REPO_ROOT, TIMED_OUT, PathTooLong, Sandbox, padded_root, path_bytes
 
 ARMS = ("E", "G", "G+", "N")
 HANDOFF_ARMS = ("E", "GN", "G", "N")
@@ -40,6 +40,8 @@ PILOT_FILE = "pilot.json"
 RESULTS_FILES = {"pilot": PILOT_FILE, "mini": "mini-results.json", "confirmatory": "live-results.json"}
 AUDIT_FILE = "audit-sample.jsonl"
 AUDIT_KEY_FILE = "audit-key.jsonl"
+ADJUDICATION_FILE = "adjudication.json"
+ADJUDICATION_FIELDS = ("model", "instructions_sha256", "instructions_commit", "input_sha256", "output_sha256", "rows")
 AUDIT_SHARE = 0.10
 DEFAULT_REPEATS = 1
 PLANNED_PER_CLASS = 10
@@ -466,7 +468,7 @@ def dry_run(tasks: list[Task], agents: list[str], model: str, out: Path, *, stag
         "assumed per session: answer "
         + _describe(ANSWER_SESSION) + "; save " + _describe(SAVE_SESSION) + f", and {CONFIRMATIONS_ASSUMED} confirmation turns per save priced as a save"
         + "; no history " + _describe(NO_HISTORY_SESSION),
-        f"grading: required-fact and stale-value regexes on the ANSWER text; {AUDIT_SHARE:.0%} exported for a human audit",
+        f"grading: required-fact and stale-value regexes on the ANSWER text; {AUDIT_SHARE:.0%} exported with every run naming both values for the adjudicator",
         f"results would go to: {out / RESULTS_FILES[stage]}; sandboxes, corpus and audit sample to "
         f"{stage_dir(out, stage)}",
     ]
@@ -945,8 +947,49 @@ def human_verdicts(audit: Path) -> dict[str, bool | None]:
     return verdicts
 
 
+INSTRUCTIONS_PATH = "tools/agentsim/data/adjudicator.md"
+_COMMIT_ID = re.compile(r"[0-9a-f]{7,40}")
+
+
+def committed_instructions(commit: str) -> bytes | None:
+    """`adjudicator.md` as `commit` holds it, or None when `commit` is no commit id or git cannot show it."""
+    if not _COMMIT_ID.fullmatch(commit):
+        return None
+    try:
+        done = subprocess.run(["git", "show", f"{commit}:{INSTRUCTIONS_PATH}"], cwd=REPO_ROOT, capture_output=True,
+                              timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def adjudication_problem(audit: Path, read_instructions: Callable[[str], bytes | None] | None = None) -> str | None:
+    """Why the audit sample's verdicts cannot be trusted: verdicts without an adjudication record, or a record
+    whose output or committed instructions do not match; None when they can, or when no verdict is filled."""
+    record_path = audit.parent / ADJUDICATION_FILE
+    if not record_path.is_file():
+        filled = audit.is_file() and any(row.get("human_verdict") is not None for _, row in _jsonl(audit))
+        return f"{audit.name} holds verdicts but {ADJUDICATION_FILE} is missing" if filled else None
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return f"{ADJUDICATION_FILE} cannot be read: {exc}"
+    missing = [name for name in ADJUDICATION_FIELDS if not isinstance(record, dict) or name not in record]
+    if missing:
+        return f"{ADJUDICATION_FILE} lacks {', '.join(missing)}"
+    actual = hashlib.sha256(audit.read_bytes()).hexdigest() if audit.is_file() else None
+    if actual != record["output_sha256"]:
+        return f"{audit.name} is not the file the adjudicator returned ({ADJUDICATION_FILE} output_sha256)"
+    instructions = (read_instructions or committed_instructions)(str(record["instructions_commit"]))
+    if instructions is None:
+        return f"{INSTRUCTIONS_PATH} cannot be read at commit {record['instructions_commit']!r}"
+    if hashlib.sha256(instructions).hexdigest() != record["instructions_sha256"]:
+        return f"{INSTRUCTIONS_PATH} at commit {record['instructions_commit']!r} does not match instructions_sha256"
+    return None
+
+
 def apply_verdicts(results: list[dict], verdicts: dict[str, bool | None]) -> tuple[list[dict], list[dict]]:
-    """Every run that `needs_human` takes the human's verdict as `correct`; those still without one are
+    """Every run that `needs_human` takes the adjudicator's verdict as `correct`; those still without one are
     returned as pending, graded by their regexes meanwhile. An audited run not among `results` raises."""
     known = {record.get("run_id") for record in results}
     strangers = sorted(str(run) for run in verdicts if run not in known)
@@ -959,7 +1002,7 @@ def apply_verdicts(results: list[dict], verdicts: dict[str, bool | None]) -> tup
             if verdict is None:
                 pending.append(record)
             else:
-                record = record | {"correct": verdict, "graded_by": "human"}
+                record = record | {"correct": verdict, "graded_by": "adjudicator"}
         applied.append(record)
     return applied, pending
 
