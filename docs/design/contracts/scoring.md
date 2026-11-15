@@ -189,6 +189,15 @@ repositories' hits afterwards fails in the same two ways a draft did before US-0
 The cost is that a score is comparable only within one scope; golden tests pin order and
 membership, never an absolute score, and nothing compares scores across searches.
 
+Why scoped statistics, when a full-text engine usually keeps them global. An engine that
+applies an access or tenant filter at query time over one shared index usually keeps document
+frequencies from the whole index: there the filter is a view of one shared corpus, and a score
+does not change with how much of it one reader may see. A repository scope stands for a store
+that holds only those records (the first paragraph of this section), and with
+`DF_CEILING_RATIO` the difference can decide whether a record is found at all, not only how it
+ranks: the `flag` case above. A scope does not limit what a reader may see ("A search filter is
+not an access control", below); if it ever does, this choice is the one to revisit.
+
 The link is the `repos` front-matter field and nothing else (`in_scope`). The repo name also
 sits in `tags` by convention (data-model.md), and a title often names it; neither counts, or a
 record about the repository would be indistinguishable from a record linked to it (AC-09.3).
