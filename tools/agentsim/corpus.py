@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import random
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -611,43 +612,7 @@ def _base_tasks() -> list[Task]:
             decision_found="Keep 2000 rows per page; add a cursor instead of raising it.",
             decision_naive="Raise the page size to 10000 rows.",
         ),
-        Task(
-            id="multi-agent",
-            scenario_class=8,
-            class_name="multi-agent: one saves, another finds and cites",
-            description="Add a retry to the order intake call in the gateway client without creating duplicate orders",
-            repo="intake-gateway",
-            files=("src/intake/GatewayClient.go",),
-            answer_docs=("{date}-intake-retry-idempotency",),
-            answer_role="decisions",
-            quote="reuse the client request token as the idempotency key for 24 hours",
-            artifact="intake retry idempotency key",
-            pitfall="a retried intake call created a second order",
-            expected_winner="engmem (the first agent's save is findable); without engmem nothing was saved",
-            without_history="retries without a key and creates duplicate orders",
-            decision_found="Retry with the client request token as the idempotency key.",
-            decision_naive="Retry the intake call up to three times.",
-            saver={
-                "doc_slug": "intake-retry-idempotency",
-                "description": "Decide how order intake retries detect duplicate orders",
-                "title": "Order intake retries reuse the request token as idempotency key",
-                "entities": ["IntakeRetry", "IdempotencyKey"],
-                "decision": (
-                    "- Decision: intake retries reuse the client request token as the idempotency key for 24 hours.\n"
-                    "- Rejected: a server-generated key per attempt, because a retried intake call created a second order."
-                ),
-                "lesson": [
-                    "a server-generated key on each retry attempt.",
-                    "a retried intake call created a second order.",
-                    "reusing the client request token as the key.",
-                    "src/intake/Retry.go",
-                ],
-                "primer": (
-                    "Order intake retries are safe because the client request token is the idempotency key.\n"
-                    "The key is kept for 24 hours on the intake side."
-                ),
-            },
-        ),
+        handoff_task(handoff_specifics()),
         Task(
             id="off-topic",
             scenario_class=9,
@@ -661,6 +626,84 @@ def _base_tasks() -> list[Task]:
             decision_naive="Explain the heap from general knowledge.",
         ),
     ]
+
+
+@dataclass(frozen=True)
+class Handoff:
+    """The class 8 decision's specifics, drawn from the seed, so no agent can know them without the save."""
+
+    header: str
+    minutes: int
+    table: str
+
+
+HANDOFF_SEED = SEED + 3
+HANDOFF_HEADER_WORDS = (("Kestrel", "Marlin", "Osprey", "Plover", "Tern", "Wren"), ("Echo", "Twin", "Replay", "Tally"))
+HANDOFF_TABLE_WORDS = (("intake", "order"), ("twin", "echo", "replay", "seen"), ("stamps", "marks", "ledger", "tally"))
+HANDOFF_MINUTES = tuple(m for m in range(17, 100) if m % 5 and m not in (24, 48))
+
+
+def handoff_specifics(seed: int = HANDOFF_SEED) -> Handoff:
+    """The header, window and table of class 8's decision; the same seed gives the same three."""
+    rng = random.Random(seed)
+    header = "X-" + "-".join(rng.choice(words) for words in HANDOFF_HEADER_WORDS)
+    minutes = rng.choice(HANDOFF_MINUTES)
+    table = "_".join(rng.choice(words) for words in HANDOFF_TABLE_WORDS)
+    return Handoff(header, minutes, table)
+
+
+def handoff_task(given: Handoff) -> Task:
+    """Class 8: the earlier task states the decision with its specifics; the later one asks for them."""
+    where = (f"the request token in the {given.header} header; the intake side keeps it for {given.minutes} "
+             f"minutes in the {given.table} table")
+    return Task(
+        id="multi-agent",
+        scenario_class=8,
+        class_name="multi-agent: one saves, another finds and cites",
+        description=(
+            "Add a retry to the order intake call in the gateway client without creating duplicate orders, "
+            "as already decided: which request header carries the dedup token, how long the intake side keeps "
+            "it and in which table"
+        ),
+        repo="intake-gateway",
+        files=("src/intake/GatewayClient.go",),
+        answer_docs=("{date}-intake-retry-idempotency",),
+        answer_role="decisions",
+        quote=where,
+        artifact="intake retry dedup header, window and table",
+        pitfall="a retried intake call created a second order",
+        expected_winner="engmem (the first agent's save is findable); without engmem nothing was saved",
+        without_history="guesses a header, a window and a table, and the gateway and intake disagree",
+        decision_found=f"Retry with {where}.",
+        decision_naive="Retry the intake call up to three times.",
+        required=(re.escape(given.header), rf"\b{given.minutes} minutes", re.escape(given.table)),
+        saver={
+            "doc_slug": "intake-retry-idempotency",
+            "description": (
+                f"Record how order intake retries detect duplicate orders. The decision taken: the gateway client "
+                f"sends the per-order request token in the {given.header} header, and the intake side keeps each "
+                f"token for {given.minutes} minutes in the {given.table} table."
+            ),
+            "title": "Order intake retries send the request token in a dedup header",
+            "entities": ["IntakeRetry", "IdempotencyKey"],
+            "decision": (
+                f"- Decision: intake retries send {where}.\n"
+                "- Rejected: a server-generated key per attempt, because a retried intake call created a second order."
+            ),
+            "lesson": [
+                "a server-generated key on each retry attempt.",
+                "a retried intake call created a second order.",
+                f"sending the request token in the {given.header} header.",
+                "src/intake/Retry.go",
+            ],
+            "primer": (
+                f"Order intake retries are safe because the request token travels in the {given.header} header.\n"
+                f"The intake side keeps it for {given.minutes} minutes in the {given.table} table."
+            ),
+            "production": f"Tokens expire after {given.minutes} minutes; the {given.table} table holds them.",
+            "cheatsheet": f"Retries send the request token in the {given.header} header.",
+        },
+    )
 
 
 RESERVED_FOR_CORE = frozenset({("ArchiveExporter", "page size")})

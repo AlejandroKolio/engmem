@@ -85,7 +85,7 @@
       "wording": "symptom",
       "task": "Invoice totals are off by a cent against the sum of their lines; what pitfall did we hit before?",
       "required": [
-        "drifted the invoice total by a cent"
+        "drifted invoice total by cent"
       ],
       "stale": [],
       "keys": [
@@ -119,7 +119,7 @@
         "\\b8 seconds"
       ],
       "stale": [
-        "\\b30 seconds"
+        "lock timeout of 30 seconds"
       ],
       "keys": [
         "f04-walletlocker-lock-timeout"
@@ -296,7 +296,7 @@
       "wording": "symptom",
       "task": "Bundle signing keeps failing with SIG_CHAIN_TOO_SHORT; how do we get past it?",
       "required": [
-        "re-issue the intermediate certificate"
+        "re-issue intermediate certificate"
       ],
       "stale": [],
       "keys": [

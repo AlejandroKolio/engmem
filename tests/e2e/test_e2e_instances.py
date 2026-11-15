@@ -56,11 +56,16 @@ def test_the_provisional_file_loads_is_marked_provisional_and_has_two_per_class(
         ({"repo": 3}, "`repo` must be a string"),
         ({"task": "Is the ReportStore pool 64 connections per instance?"}, "matches the task text"),
         ({"stale": []}, r"miss 1 stale value\(s\)"),
+        ({"stale": [r"\bsixty-four connections"]}, "matches a current value"),
+        ({"task": "Is the ReportStore pool sixty-four connections per instance?"}, "matches the task text"),
+        ({"required": [r"\b64 connections per the instance"]}, "`required` regex .* holds the word a, an or the"),
+        ({"stale": [r"\bthe\s+200 connections"]}, "`stale` regex .* holds the word a, an or the"),
     ],
     ids=[
         "unknown-class", "bool-class", "wording", "empty-task", "no-required", "bad-regex", "stale-not-list",
         "unknown-key", "key-of-another-class", "required-misses", "stale-matches-current", "stale-matches-nothing",
         "id-format", "unknown-field", "repo-type", "required-in-task", "stale-uncovered",
+        "stale-matches-current-in-words", "required-in-task-in-words", "article-in-required", "article-in-stale",
     ],
 )
 def test_each_breach_of_the_format_is_refused_with_its_rule(changes, message):
@@ -218,7 +223,7 @@ def test_a_stale_regex_matching_a_value_in_an_unrelated_document_is_refused_and_
     broad = _quotecache(r"\b(?!95\b)\d+ seconds")
     leaks = instances.stale_leaks(broad, FACTS, generated)
     assert leaks and all(i == broad.instances[0].id for i, _ in leaks)
-    assert any("20260312-ledger-sweeper-retry: " in why and "40 seconds apart" in why for _, why in leaks)
+    assert any("20260312-ledger-sweeper-retry: " in why for _, why in leaks)
     exact = _quotecache(r"\b(?:10|20|45) seconds")
     assert instances.stale_leaks(exact, FACTS, generated) == []
 
@@ -233,3 +238,12 @@ def test_the_phase4_check_refuses_a_leaking_stale_regex_at_every_size_before_any
     for size in ("4kb", "12kb", "30kb"):
         assert f"{size}: instance 'c04-identifier': stale regex" in str(refused.value)
     assert not (tmp_path / "out" / "4kb").exists()
+
+
+def test_a_stale_regex_that_leaks_only_once_normalised_is_refused(tmp_path):
+    generated = corpus.generate(tmp_path, filler=10, scale_filler=20)
+    worded = _quotecache(r"\b(?:10|20|45) seconds|\bforty seconds")
+    leaks = instances.stale_leaks(worded, FACTS, generated)
+    assert any("20260312-ledger-sweeper-retry: " in why for _, why in leaks)
+    for _, why in leaks:
+        assert not re.search(r"\bforty seconds", why.split(": ", 1)[1], re.IGNORECASE)

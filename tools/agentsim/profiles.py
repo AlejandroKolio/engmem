@@ -656,7 +656,7 @@ def compose_daily_save(
 def _full_body(saver: dict, reuse: str | None, trace: str | None) -> str:
     tried, failed, fixed, files = saver["lesson"]
     sections = {
-        "1. Executive Summary": "Order intake retries now carry an idempotency key.",
+        "1. Executive Summary": "Order intake retries now carry a dedup header.",
         "2. Business Context": "- Intake retry: a repeated order intake call after a timeout.",
         "3. End-to-End Business Flow": "```\nclient -> gateway -> intake\n```",
         "4. Functional Requirements": "- [Verified] A retried call creates at most one order.",
@@ -664,7 +664,7 @@ def _full_body(saver: dict, reuse: str | None, trace: str | None) -> str:
         "6. System Architecture": "The gateway client calls the intake service over HTTP.",
         "7. Code Implementation": "- Retry: reads the request token and sends it as the key.",
         "8. Decision Log": saver["decision"],
-        "9. Production Considerations": "Keys expire after 24 hours.",
+        "9. Production Considerations": saver["production"],
         "10. Testing Knowledge": "- [Verified] A unit test repeats one call twice.",
         "11. Lessons Learned": (
             f"- Tried: {tried}\n  Failed because: {failed}\n  Fixed by: {fixed}\n  Files: {files}"
@@ -672,7 +672,7 @@ def _full_body(saver: dict, reuse: str | None, trace: str | None) -> str:
         "12. Knowledge Graph": "IntakeRetry -> IdempotencyKey -> deduplicates orders",
         "13. Future LLM Context (cold-start primer)": saver["primer"],
         "14. Search Keywords": "duplicate orders, retry safety, idempotency",
-        "15. One-Page Cheat Sheet": "Retries reuse the request token as the idempotency key.",
+        "15. One-Page Cheat Sheet": saver["cheatsheet"],
         "16. Reuse Log": reuse,
         "17. Status at a Glance": "- Done.",
         "Search Trace": trace,

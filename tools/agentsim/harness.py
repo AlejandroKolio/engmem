@@ -19,7 +19,7 @@ from agentsim import metrics, policy
 from agentsim.corpus import Corpus, Task
 from agentsim.greparms import ContentGrepAgent, notes_save_cost, write_own_notes
 from agentsim.profiles import BY_NAME, DAILY, ENGMEM, GREP, PROFILES, Agent, GrepAgent, Profile, install, today
-from agentsim.sandbox import Sandbox
+from agentsim.sandbox import Sandbox, padded_root, path_bytes
 from agentsim.trace import TOKEN_METHOD, Transcript
 
 ALL_CLASSES = tuple(range(1, 10))
@@ -93,7 +93,7 @@ class _Context:
 
     def machine(self, profile: Profile) -> _Machine:
         if profile.name not in self.machines:
-            sandbox = Sandbox.create(self.out / "sandboxes" / profile.name)
+            sandbox = Sandbox.create(padded_root(self.out / "sandboxes", profile.name))
             if profile.condition == ENGMEM:
                 sandbox.setup_engmem("store", "set", str(sandbox.store))
             self.machines[profile.name] = _Machine(sandbox)
@@ -215,6 +215,7 @@ def run_one(ctx: _Context, profile: Profile, task: Task) -> dict:
         "profile": profile.name,
         "condition": profile.condition,
         "store_docs": sum(1 for _ in store.glob("*.md")),
+        "store_path_bytes": path_bytes(machine.sandbox.store),
         "wall_seconds": round(wall, 4),
         "cost": metrics.cost(transcript),
         "outcome": metrics.as_dict(outcome),
@@ -254,7 +255,10 @@ def _mean_doc_bytes(sessions: Path) -> int:
 
 
 def run(out: Path, plan: Plan, progress=None) -> dict:
-    """Generates the corpus under `out`, runs the plan, and returns the results document."""
+    """Generates the corpus under `out`, runs the plan, and returns the results document; refuses an
+    `out` too long for every sandbox root to have the same length."""
+    for name in (*plan.profiles, SAVER, SAVER_FOR_SAVER):
+        padded_root(out / "sandboxes", name)
     out.mkdir(parents=True, exist_ok=True)
     corpus = corpus_module.generate(
         out / "corpus", filler=plan.filler, scale_filler=plan.scale_filler, doc_size=plan.doc_size
