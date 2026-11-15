@@ -142,6 +142,48 @@ tell the two apart:
 A Reuse Log row is observed reuse: it shows that a prior decision informed the work, not that the
 work got faster or better. That still takes a human comparing outcomes.
 
+## Does it help?
+
+We ran a pre-registered live evaluation: 404 runs of Claude Code on Claude Opus
+(`claude-opus-5-5`), against a synthetic engineering history. A separate model wrote 100 questions
+from the facts alone. Each question ran four ways:
+
+- **E**: engmem.
+- **G+**: the same notes as a plain folder, searched with grep, plus engmem's reading advice.
+- **G**: the notes folder and grep, without the advice.
+- **N**: no history at all.
+
+The other 4 runs are one handoff task, where an earlier session leaves a decision for a later
+one. It sits outside the three families: E and the arm that wrote plain notes got it right, G and N
+did not.
+
+Correct answers:
+
+| question family | E | G+ | G | N |
+|---|---|---|---|---|
+| retrieval: find a past decision | 38/40 | 38/40 | 38/40 | 0/40 |
+| stale: notice a decision was replaced | 36/40 | 36/40 | 36/40 | 10/40 |
+| section: read the part that holds the answer | 16/20 | 17/20 | 15/20 | 0/20 |
+
+What this shows:
+
+- Past notes matter a lot. With no history the agent got 10 of 100 right.
+- engmem got about as many right as a notes folder searched with grep in this run; the rules could
+  not tell them apart. It did no better.
+- Cost is mixed. To answer, E spent less than G+ (E/G+ cost ratio 0.55, 0.53 and 0.58 across the
+  families). But E also saved each task with `/engmem.save.quick`, and over the 100 runs that save
+  cost more than the answers did: $20.43 against $12.56. All in, E cost $32.99, G+ $22.89, G
+  $18.52 and N $10.48. That total is not a fair comparison either: the grep arms got their notes
+  ready-made, and what it costs to write them was not measured.
+- The pre-registered rules call every family inconclusive. Their 95 % intervals still allow engmem
+  to be 10 points less accurate (25 in the section family), and the rules accept at most 5 before
+  a cost gain counts.
+
+41 answers that named both the current and the outdated value were judged by a separate model
+(`claude-sonnet-5-5`), which never saw which arm wrote them. The setup, the rules and the known
+limits are in [PR #91](https://github.com/AlejandroKolio/engmem/pull/91) and the
+[evaluation contract](https://github.com/AlejandroKolio/engmem/blob/main/docs/design/contracts/e2e.md).
+
 ## Supported agents
 
 | Agent | `--agent` | How it connects |
