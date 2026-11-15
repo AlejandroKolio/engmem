@@ -1183,3 +1183,88 @@ def test_only_an_active_document_counts(tmp_path, text, counted):
     (tmp_path / "sessions").mkdir()
     (tmp_path / "sessions" / "20261113-doc.md").write_text(text, encoding="utf-8")
     assert live._active_documents(tmp_path) == ({"20261113-doc"} if counted else set())
+
+
+def _call(total, *, cache_read=500_000, output=0, **extra):
+    """A call as Claude reports it: `total` is the session's running `total_cost_usd`."""
+    return {"returncode": 0, "usd": total,
+            "usage": {"cache_read_input_tokens": cache_read, "output_tokens": output, "total_cost_usd": total}} | extra
+
+
+def _resumed_run(**extra):
+    return {"task": "t", "arm": "E", "agent": "claude", "model": live.DEFAULT_MODEL, "scenario_class": 4,
+            "start": _call(0.10), "save": _call(0.20, new_docs=0, confirmations=[_call(0.30), _call(0.40)])} | extra
+
+
+def test_a_resumed_call_records_its_own_cost_and_keeps_the_running_total():
+    fixed = live.per_call_costs(_resumed_run())
+    assert fixed["costs"] == live.PER_CALL and fixed["start"]["usd"] == 0.10
+    assert [c["usd"] for c in (fixed["save"], *fixed["save"]["confirmations"])] == [0.1, 0.1, 0.1]
+    assert [c["usd_reported"] for c in (fixed["save"], *fixed["save"]["confirmations"])] == [0.2, 0.3, 0.4]
+    assert all(c["usd_priced"] == 0.1 and "usd_check" not in c for c in (fixed["save"], *fixed["save"]["confirmations"]))
+    assert live.per_call_costs(fixed) == fixed
+
+
+def test_an_earlier_sessions_save_is_its_own_cost_too():
+    run = _resumed_run(earlier={"start": _call(0.50), "save": _call(0.62, new_docs=1, confirmations=[_call(0.71)])})
+    fixed = live.per_call_costs(run)
+    assert [round(c["usd"], 6) for c in (fixed["earlier"]["save"], *fixed["earlier"]["save"]["confirmations"])] \
+        == [0.12, 0.09]
+    costs = live.save_costs([run])["E"]
+    assert round(costs["answer"], 6) == 0.6 and round(costs["save_none"], 6) == 0.3
+    assert round(costs["save_written"], 6) == 0.21 and round(costs["total"], 6) == 1.11
+
+
+@pytest.mark.parametrize(
+    ("save", "check"),
+    [
+        ({"returncode": 0, "usd": 0.04, "usage": {"cache_read_input_tokens": 200_000}}, None),
+        (_call(0.90), "own cost 0.8000 against 0.1000 priced"),
+        (_call(0.05), "no earlier running total"),
+    ],
+    ids=["no-running-total", "far-from-tokens", "total-went-down"],
+)
+def test_a_call_whose_own_cost_cannot_be_trusted_is_noted(save, check):
+    fixed = live.per_call_costs(_resumed_run(save=save | {"new_docs": 0}))
+    if check is None:
+        assert fixed["save"]["usd"] == 0.04 and "usd_check" not in fixed["save"]
+    else:
+        assert check in fixed["save"]["usd_check"]
+
+
+def test_the_cost_ratio_reads_the_answering_session_only():
+    rows, _ = live.analysis_records([_resumed_run(final_message=True, correct=True)])
+    assert rows[0]["usd"] == 0.10
+
+
+def test_execute_writes_per_call_costs(fake_runs, runs, tmp_path):
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(live, "_execute_one", lambda run, root, *rest: _resumed_run(task=run.task.id, arm=run.arm))
+        live.execute(runs[:1], tmp_path, confirmed=True, stage="pilot", pass_env=[])
+    record = json.loads((tmp_path / live.PILOT_FILE).read_text(encoding="utf-8"))[0]
+    assert record["costs"] == live.PER_CALL and record["save"]["usd"] == 0.1
+
+
+def test_recost_rewrites_old_results_into_a_new_file(tmp_path):
+    old = tmp_path / "live-results.json"
+    old.write_text(json.dumps([_resumed_run()]), encoding="utf-8")
+    out = tmp_path / "recosted.json"
+    command = [sys.executable, str(TOOL), "recost", "--results", str(old), "--out", str(out)]
+    done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0 and json.loads(out.read_text(encoding="utf-8"))[0]["save"]["usd"] == 0.1
+    again = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert again.returncode == 2 and "already exists" in again.stderr
+
+
+def test_analyse_prints_each_agents_own_costs(tmp_path):
+    claude = _resumed_run(run_id="mini-0000", final_message=True, correct=True)
+    codex = _resumed_run(run_id="mini-0001", agent="codex", final_message=True, correct=True,
+                         start=_call(0.70), save=_call(0.90, new_docs=0))
+    path = tmp_path / live.RESULTS_FILES["mini"]
+    path.write_text(json.dumps([claude, codex]), encoding="utf-8")
+    done = subprocess.run([sys.executable, str(TOOL), "analyse", "--results", str(path)],
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0
+    claude_part, codex_part = done.stdout.split("## codex")
+    assert "| E | 0.10 | 0.30 | 0.00 | 0.40 |" in claude_part
+    assert "| E | 0.70 | 0.20 | 0.00 | 0.90 |" in codex_part
