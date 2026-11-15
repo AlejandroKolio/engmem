@@ -168,7 +168,8 @@ def cmd_analyse(args: argparse.Namespace) -> int:
         problem = live.adjudication_problem(audit)
         if problem is not None:
             raise ValueError(problem)
-        results, pending = live.apply_verdicts(json.loads(path.read_text(encoding="utf-8")), live.human_verdicts(audit))
+        loaded = [live.per_call_costs(r) for r in json.loads(path.read_text(encoding="utf-8"))]
+        results, pending = live.apply_verdicts(loaded, live.human_verdicts(audit))
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -195,10 +196,31 @@ def cmd_analyse(args: argparse.Namespace) -> int:
             heading = f"PROVISIONAL: {len(pending)} run(s) in all await the adjudicator's verdict\n{heading}"
         print(f"{heading}\n")
         print(decision.render(e_vs_plus, plus_vs_g))
+        print(_cost_table([r for r in records if live.family_of(r["scenario_class"]) is not None]))
     claims = decision.general_claims(verdicts)
     print(("PROVISIONAL " if pending else "") + "General claims (same direction in every agent): "
           + (", ".join(f"{k}: {v}" for k, v in claims.items()) or "none"))
     return PENDING_EXIT if pending else 0
+
+
+def _cost_table(records: list[dict]) -> str:
+    """USD per arm over the analysed families, each resumed call at its own cost."""
+    lines = ["", "USD per arm, each call at its own cost (a resumed call's running total minus the one before):", "",
+             "| arm | answering | saves with nothing to save | saves that wrote a document | total |", "|---|---|---|---|---|"]
+    for arm, cost in sorted(live.save_costs(records).items()):
+        lines.append(f"| {arm} | {cost['answer']:.2f} | {cost['save_none']:.2f} | {cost['save_written']:.2f} | {cost['total']:.2f} |")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_recost(args: argparse.Namespace) -> int:
+    records = json.loads(Path(args.results).read_text(encoding="utf-8"))
+    out = Path(args.out)
+    if out.exists():
+        print(f"error: {out} already exists", file=sys.stderr)
+        return 2
+    out.write_text(json.dumps([live.per_call_costs(r) for r in records], indent=2) + "\n", encoding="utf-8")
+    print(f"{len(records)} run(s) written with per-call costs to {out}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -267,6 +289,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyse.add_argument("--audit", help="the audit sample with the adjudicator's verdicts in human_verdict (default: the stage's audit-sample.jsonl)")
     analyse.set_defaults(func=cmd_analyse)
+    recost = commands.add_parser(
+        name="recost", help="rewrite live results so each resumed call's usd is its own cost, not the session's running total",
+    )
+    recost.add_argument("--results", required=True)
+    recost.add_argument("--out", required=True, help="a new file; an existing one is refused")
+    recost.set_defaults(func=cmd_recost)
     return parser
 
 

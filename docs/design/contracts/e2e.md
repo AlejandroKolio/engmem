@@ -721,6 +721,27 @@ timeout that printed nothing, for one) leaves only the cost ratio, never the cor
 run that never started leaves the analysis. `analyse` prints, per arm, how many runs left the
 analysis and how many left only the cost ratio; no run ever counts at $0.
 
+**Per-call cost.** `claude -p … --resume <session>` reports `total_cost_usd` for the whole session
+so far, while its token usage is the call's own. So a resumed call (a save, each simulated
+confirmation, an earlier session's save) is recorded at its own cost: its running total minus the
+running total of the session's previous call (`live.per_call_costs`, applied to every result before
+it is written, marked `costs: per-call`). The running total stays as `usd_reported`, and
+`usd_priced` holds the call's tokens at the list price as a cross-check. `usd_check` notes a call
+whose own cost is outside 0.5 to 2 times `usd_priced`, and a call with no earlier running total to
+subtract (or a total that went down), whose `usd` is then `usd_priced`. A call that reports no
+running total (Codex) keeps the cost of its own usage. The answering session starts fresh, so the
+pre-registered USD-to-answer ratio, which reads only that session, is unchanged. `analyse` applies
+the same correction to older results and prints, per arm over the analysed families, the answering
+cost, the saves with nothing to save, the saves that wrote a document and the total;
+`tools/e2e.py recost --results … --out …` writes a corrected copy to a new file. Why: the
+confirmatory results recorded each E save at the answer's cost plus its own. Every save's recorded
+figure was its answer's plus 0.03 to 0.07 USD, the confirmations rose call by call, and the median save's
+tokens come to 0.03 USD at list price where 0.16 was recorded. Recorded, the 100 E saves cost
+$20.43; at their own cost they cost $4.86 ($2.96 for 84 lookups with nothing to save, $1.90 for the
+16 that wrote a document), and E all in $17.42 against $22.89 for G+. The reported cost runs about
+1.35 times the list-price figure for answering sessions and saves alike, so the cross-check
+bounds are wide.
+
 A live agent does not inherit the parent environment. Its sandbox starts from `PATH`, `PATHEXT`,
 `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `TEMP`, `TMP`, `TMPDIR`, `LANG`, `LANGUAGE`,
 `LC_ALL`, `LC_CTYPE`, `TERM`, `COLORTERM` and `TZ`, adds only the variables named with

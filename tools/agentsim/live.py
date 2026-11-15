@@ -630,8 +630,8 @@ def execute(
     generated = prepare_corpus(stage_dir(out, stage) / "corpus", doc_size)
     versions = {r.agent.name: _version(r.agent) for r in runs}
     results = [
-        {"run_id": f"{stage}-{index:0{SANDBOX_INDEX_WIDTH}d}"}
-        | _execute_one(run, root, generated, pass_env, versions[run.agent.name])
+        per_call_costs({"run_id": f"{stage}-{index:0{SANDBOX_INDEX_WIDTH}d}"}
+                       | _execute_one(run, root, generated, pass_env, versions[run.agent.name]))
         for index, (run, root) in enumerate(zip(runs, roots))
     ]
     (out / RESULTS_FILES[stage]).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
@@ -1008,6 +1008,8 @@ def apply_verdicts(results: list[dict], verdicts: dict[str, bool | None]) -> tup
 
 
 def _session_record(agent: LiveAgent, done, model: str) -> dict:
+    """One call as the agent reported it; a resumed call's `usd` is still the session's running total
+    here, and `per_call_costs` turns it into the call's own cost."""
     usage = agent.usage(done.stdout)
     prices = PRICES.get(model)
     reported = usage.get("total_cost_usd")
@@ -1018,6 +1020,63 @@ def _session_record(agent: LiveAgent, done, model: str) -> dict:
         "usage": usage,
         "usd": reported if isinstance(reported, (int, float)) else (usd(usage, prices) if prices else None),
     }
+
+
+PER_CALL = "per-call"
+COST_AGREEMENT = (0.5, 2.0)
+
+
+def _reported(call: dict) -> float | None:
+    value = (call.get("usage") or {}).get("total_cost_usd")
+    return value if isinstance(value, (int, float)) else None
+
+
+def per_call_costs(record: dict) -> dict:
+    """The run with each resumed call's `usd` as its own cost, the rise over the session's previous running
+    total (contracts/e2e.md, "Per-call cost"); the running total stays as `usd_reported`."""
+    record = json.loads(json.dumps(record))
+    prices = PRICES.get(record.get("model", ""))
+    earlier = record.get("earlier") if isinstance(record.get("earlier"), dict) else {}
+    for first, save in ((record.get("start"), record.get("save")), (earlier.get("start"), earlier.get("save"))):
+        if not isinstance(first, dict) or not isinstance(save, dict):
+            continue
+        previous = _reported(first)
+        for call in (save, *[c for c in save.get("confirmations") or [] if isinstance(c, dict)]):
+            reported = _reported(call)
+            priced = usd(call["usage"], prices) if prices and call.get("usage") else None
+            call["usd_priced"] = priced
+            if reported is None:
+                previous = None
+                continue
+            call["usd_reported"] = reported
+            if previous is None or reported < previous:
+                call["usd"] = priced
+                call["usd_check"] = "no earlier running total to subtract; priced from tokens"
+            else:
+                call["usd"] = round(reported - previous, 7)
+                low, high = COST_AGREEMENT
+                if priced and not low <= call["usd"] / priced <= high:
+                    call["usd_check"] = f"own cost {call['usd']:.4f} against {priced:.4f} priced from tokens"
+            previous = reported
+    record["costs"] = PER_CALL
+    return record
+
+
+def save_costs(results: list[dict]) -> dict[str, dict[str, float]]:
+    """Per arm, from per-call costs: the answering sessions (an earlier session's start included), the
+    saves with their confirmations split by whether a document was written, and the total."""
+    totals: dict[str, dict[str, float]] = {}
+    for record in map(per_call_costs, results):
+        arm = totals.setdefault(record["arm"], {"answer": 0.0, "save_written": 0.0, "save_none": 0.0})
+        for owner in (record, record.get("earlier") or {}):
+            arm["answer"] += (owner.get("start") or {}).get("usd") or 0.0
+            save = owner.get("save")
+            if isinstance(save, dict):
+                cost = sum(call.get("usd") or 0.0 for call in (save, *(save.get("confirmations") or [])))
+                arm["save_written" if save.get("new_docs") else "save_none"] += cost
+    for arm in totals.values():
+        arm["total"] = arm["answer"] + arm["save_written"] + arm["save_none"]
+    return totals
 
 
 def _prepare(run: LiveRun, sandbox: Sandbox, generated, checkout: Path) -> Path | None:
