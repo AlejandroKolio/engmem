@@ -176,7 +176,7 @@ What this shows:
   E cost $17.42, G+ $22.89, G $18.52 and N $10.48. The grep arms got their notes ready-made, and
   what it costs to write them was not measured, so the totals are not a fair comparison either.
 - An earlier version of this section put the saves at $20.43, because a resumed session reports
-  its cost as a running total and each save was counted with its answer's cost again (#PR).
+  its cost as a running total and each save was counted with its answer's cost again (#93).
 - The pre-registered rules call every family inconclusive. Their 95 % intervals still allow engmem
   to be 10 points less accurate (25 in the section family), and the rules accept at most 5 before
   a cost gain counts.
