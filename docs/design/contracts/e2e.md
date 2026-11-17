@@ -807,6 +807,156 @@ As implemented: the mirror is G+ − E ≥ +15 pts (Holm p < .05), or the upper 
 `inconclusive`. Stale/freshness is the stale family (classes 4, 10, 11 and 12); "E ≈ G+ > G" is a
 tie of E against G+ in a family where G+ is better than G by the same rules.
 
+### Pre-registered protocol: writing, engmem against a notes folder
+
+Written before any run of it and not changed after its pilot has started; a departure is added
+below with its date and the reason, and the text above stays as written. The first protocol's
+decided families measured reading: every arm with history read the same documents, written in
+engmem's format. This one measures the other half. The agents write the history themselves, and
+the question is whether engmem's start and save give a later session a more correct answer, or
+the same answer for less, than a `notes/` folder kept by a one-paragraph instruction, the "folder
+and one line in CLAUDE.md" that an engineer can set up without engmem.
+
+**Owner decisions, 2026-11-17.** The main reference is GN+ (below), with GN described only; the
+families are find and replace; every chain starts with an empty history; E saves with
+`/engmem.save.quick` as shipped; a chain's sessions run on one day, and what that does to replace
+is stated as a limit below.
+
+**Chains.** An instance is a chain of sessions in one sandbox, in the checkout class 8 runs in,
+one after another. Each instance has its own invented component and a decision made of three
+values in the shape of class 8's: a request header `X-<word>-<word>`, a window in minutes and a
+table `<word>_<word>_<word>`. Each instance's values come from the protocol seed and the
+instance's index. The word lists are large enough that no header and no table repeats across the
+80 instances. Windows follow the class 8 rules (17 to 99, never a multiple of five, never 24 or
+48) and may repeat across instances, since every chain runs in its own sandbox.
+
+- **find**: the writer session A gets a task that presents the decision with its three values as
+  made in this session and asks for it to be recorded, as class 8's saver task does. The finder
+  session C gets a later task on the same component that asks for the three values and names
+  none of them.
+- **replace**: A as in find. The changer session B gets a task that names the new window and the
+  reason for it; it names neither the old window, the header nor the table, so B finds them in
+  what A left. Within an instance the old and new windows differ by at least ten minutes. C asks
+  for the three values in effect now and does not say that one changed.
+
+No task asks for a code change. The component is named only in the tasks. C's task is the same
+text in every arm. The task templates, the generator and its seed are committed with the harness
+change that implements this protocol, before its pilot; that commit is their freeze point.
+
+**Arms.**
+
+- **E**: every session starts as `/engmem <task>` in daily mode and ends with `/engmem.save.quick`
+  resumed in the same session, as every E session does in Layer 2, answered by the simulated
+  user. The store starts empty. Sessions and saves get Layer 2's E tools (`engmem`, `git`, `date`
+  and the read tools). The reply is "Yes, save it as shown. No usefulness feedback.": the quick
+  save asks nothing about replacement, and Layer 2's reply, which says the work supersedes no
+  earlier decision, would tell B something false. It replaces `SIMULATED_USER_REPLY` for this
+  protocol only; `CONFIRM_TURNS` (3) and the stop rules of "The simulated user" apply unchanged.
+  C's save is counted; a lookup with no decision saves nothing, as the template says.
+- **GN+** (the reference): every session's prompt carries this paragraph, verbatim:
+  "Decision notes for this project are kept in ./notes, one Markdown file per decision. Before you
+  start, search ./notes for the task's key terms and read the relevant notes, newest first. Before
+  you finish, if you made or changed a decision, write it to a new file in ./notes named after
+  today's date and the topic: what you decided, what you rejected and why. If it replaces an
+  earlier note, add a first line to that earlier note: 'Replaced by <new file name>'." `./notes`
+  starts empty. A and B get the read tools, `rg`, `git`, `date`, and Write and Edit limited to
+  `./notes/**`; C gets the read tools, `rg` and `git`.
+- **GN** (described only): A and B get the task, `NOTES_HINT` and `NOTES_INSTRUCTION` ("Before you
+  finish, write what you decided and why, in a few lines of Markdown, to a new file in ./notes
+  named after today's date and the task."), with the read tools, `rg`, `git`, `date` and Write
+  limited to `./notes/**`; C gets the task, `NOTES_HINT` and the answer suffix. `./notes` starts
+  empty.
+- **N**: C alone, with no earlier session, to show the values cannot be guessed.
+
+C's prompt in every arm ends with the answer suffix of Layer 2. The harness logs any file a
+session created or changed in the checkout outside `notes/` and `.git/` as a violation; a chain
+with one counts as incorrect at C for its arm and is reported per arm. The agent-memory check
+of Layer 2 runs between every two sessions of a chain, and its read rules apply to every session
+after the first.
+
+Everything this section does not state is as in Layer 2: the pinned model (`claude-opus-5-5`),
+`--max-turns 25`, 900 s per session, the sandbox and its environment, normalisation and the caveat
+rule. There is no mini run.
+
+**Grading.** C's answer is correct when it names the three current values (the class 8 regexes,
+with Layer 2's normalisation) and, in replace, does not state the old window (`\b<old> minutes`)
+as current by Layer 2's caveat rule. Every answer the harness flags (`needs_human`: it names the
+old window and any required value, or the caveat rule changed its grade) is judged by the
+adjudicator of the first protocol (`claude-sonnet-5-5`, the committed
+`tools/agentsim/data/adjudicator.md`), blind to arm, before anyone sees a per-arm result. A seeded
+10 % of the other answers is audited the same way and reported without changing their grade. In
+the first protocol the model adjudicator, and its verdict as the grade of answers that name both
+values, were added after the mini run; here both are fixed before the pilot.
+
+A chain refused by the memory check counts as incorrect at C for its arm, is reported per arm and
+leaves the cost ratio. A chain in which any session after the first logged an agent-memory read
+counts as incorrect at C for its arm, is reported per arm and keeps its full cost.
+
+**Size.** 40 instances per family, each run once per arm. With two families the minimum detectable
+effect at 80 % power, Holm worst case two-sided α = .05 / 2, is 24 points at a per-instance SD of
+0.5 and 49 at 1.0. A smaller difference can still decide a family by the rules below; the run is
+not powered to find one. The estimate from the first protocol's per-call costs is about 120 USD
+for the confirmatory run; the pilot measures it, and a measured estimate above 200 USD goes back
+to the owner before the run.
+
+**Metrics, per family, E against GN+.**
+
+- Correct rate at C: the mean per-instance difference in percentage points, a 95 % interval from
+  2000 bootstrap resamples of instances, a paired sign-flip p-value Holm-adjusted across the two
+  families.
+- Cost: the USD of the whole chain, every session and every save with its replies, each call at
+  its own cost (a resumed call's running total minus the one before). The ratio E/GN+ with its
+  bootstrap interval. The decision rules read this total, since writing is what this protocol
+  measures. A chain with a call that reported no usage leaves the cost ratio only, as in Layer 2.
+- Described only: whether each writer left a record (E: a new active document; GN and GN+: a new
+  file under `notes/`); in replace, whether the earlier record was marked replaced (E:
+  `status: superseded` with `superseded_by`; GN+: the "Replaced by" line or any edit of the earlier
+  note that names the new one) and whether B's record says in its own text that the window
+  changed; how many records were current at the end (E: `status: active` documents; GN and GN+:
+  files under `notes/` with no "Replaced by" first line); GN's and N's correct rates.
+
+**Decision rules.** Checked in this order, with GN+ in G+'s place:
+
+1. **engmem better** if E − GN+ ≥ +15 pts (Holm p < .05), or the lower bound of E − GN+ is above
+   −5 pts and E/GN+ ≤ 0.80 with its upper bound below 0.95.
+2. **Notes folder better** if GN+ − E ≥ +15 pts (Holm p < .05), or the upper bound of E − GN+ is
+   below +5 pts and E/GN+ ≥ 1.25 with its lower bound above 1/0.95.
+3. **Tie** if the accuracy interval lies within ±10 pts and the cost interval within [0.8, 1.25].
+4. **Same accuracy, engmem cheaper** if the accuracy interval lies within ±10 pts and the upper
+   bound of E/GN+ is below 0.95; **same accuracy, notes folder cheaper** if it lies within ±10 pts
+   and the lower bound of E/GN+ is above 1/0.95. The first protocol had no verdict for this case.
+5. Anything else is `inconclusive`.
+
+Fixed readings, written now:
+
+- notes folder better, tie, or same accuracy and notes folder cheaper, in both families: "a notes
+  folder with a one-paragraph instruction does as well or better at this scale", and the README
+  says so on its first screen;
+- engmem better in replace, and in find neither engmem better nor same accuracy and engmem
+  cheaper: "engmem's value is keeping replaced decisions straight";
+- engmem better, or same accuracy and engmem cheaper, in both families: "engmem's writing is worth
+  its cost";
+- anything else: say what was found in the README and do not generalise.
+
+**Stages.** The pilot runs the first instance of each family once per arm. Its gate checks only
+that the harness worked: every call exited 0 with usage, the agent reported the pinned model, C
+gave a parsed `ANSWER:`, no violation was logged, E's C made at least one `engmem search` or
+`engmem read` call, every E save reached a final message, and no E save stopped its replies at
+the bound (`replies_stopped: bound`). Whether a writer left a record is recorded; the gate does
+not check it. The confirmatory run takes every instance once, in the seeded block order of
+Layer 2.
+
+**What it does not test.** A chain's sessions run on one day, so A's and B's records carry the
+same date: engmem's newest-first rules and a dated file name cannot order them, and only the order
+of writing, a "Replaced by" line or the text can. The quick save as shipped never marks A's
+document superseded, and the shell has no command that would, so E's "marked replaced" count is
+expected to be zero. The full `/engmem.save`, which asks about replacement, is untested. The
+history starts empty, so search does almost no work and a larger store may change the result. One
+model and one agent kind; the finder is never another agent. A folder shared across repositories
+by a path in `CLAUDE.md` is not tested, nor is engmem's cross-repository store. The GN+ paragraph
+is one wording and is given in every prompt; a real setup keeps it in `CLAUDE.md`, which an agent
+may follow less closely, and another wording may do better or worse.
+
 ## Known limits
 
 - Layer 1 measures the ritual and the retrieval, not the agent's judgement: the relevance rule
